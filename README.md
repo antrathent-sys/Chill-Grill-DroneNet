@@ -7,7 +7,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | File | Purpose |
 |---|---|
 | `fly.lua` | The controller. Four modes, see below. |
-| `kill.lua` | Panic stop: thruster power to 0, nozzle vector zeroed. |
+| `kill.lua` | Panic stop: thruster power to 0, nozzle vector zeroed, all redstone outputs off, any electric motor stopped. |
 | `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
 
@@ -22,13 +22,41 @@ All peripherals are found by type except the velocity sensors, which are address
 | `altitude_sensor` | 1 | `getHeight()` for the altitude loop. |
 | `navigation_table` | 1 | `getRelativeAngle()` bearing to its target. Measured in the pod's own tilted plane, so it is de-rotated by pitch/roll before use. Currently reads about 180 deg out and is only a fallback (`NAV_FALLBACK = false`). |
 | `modular_accumulator` | 1 (optional) | `getPercent()` energy, logged only. |
+| fuel source | 0..1 | The thruster itself by default, or any tank named in `FUEL_NAME`. Read once a second in its own coroutine, logged as `fuel` %. See Fuel monitoring. |
+| pump drive | 0..1 | Optional. A redstone side (`PUMP_SIDE`, e.g. a clutch on the pump shaft) and/or a CC&A electric motor (`PUMP_MOTOR`) that `fly` switches on before takeoff and off on exit. |
 | `velocity_sensor` | 3 | Body-frame velocity, one per axis. `velocity_sensor_0` forward, `velocity_sensor_1` lateral, `velocity_sensor_3` vertical. Identified in freefall: the vertical one read -24 b/s while the others read ~0. |
+
+The sensors (`gimbal_sensor`, `altitude_sensor`, `velocity_sensor`, `navigation_table`) come from **Create: Avionics**; the thruster comes from **Gadgets & Gizmos**, whose thrusters accept either FE or liquid fuel through a thruster gimbal or bearing. Method names used here were checked against the Avionics docs in September 2026 and are current.
 
 The velocity sensors tilt with the airframe. With the vertical axis measured, the body vector is rotated back to level, so "forward speed" stays horizontal-forward even at 70 deg of lean.
 
 ### GPS hosts
 
 `fly` needs a GPS fix for every mode except `find`. Four computers with ender modems running `gps host` are set up at the volcano and must stay **chunk-loaded**. If the fix is lost, the position loop rejects updates after 5 bad samples and position hold stops leaning until the fix returns. Position hold is also disabled above `SPEED_GUARD` ground speed so a stale fix cannot command a big lean.
+
+### Fuel monitoring
+
+`fly` probes the fuel source once at startup and prints which method it found:
+
+- `getFuelAmount` / `getFuelCapacity` if the peripheral has them.
+- Otherwise CC:Tweaked's generic `tanks()`, which reports amount only. Set `FUEL_CAP` in mB to get a percentage.
+- If neither exists it prints the peripheral's full method list so you can see what the current mod version exposes, and flies with fuel logged as -1. Gadgets & Gizmos ships its own peripheral docs in-game: run `/rom/thrusters/docs.lua` on any computer.
+
+Reads happen in a separate coroutine every `FUEL_POLL` seconds, so they add nothing to the control loop. Below `FUEL_WARN` % it prints `LOW FUEL` once and re-arms if the level recovers. It never changes the flight on its own.
+
+### Pump auto-start
+
+A Create mechanical pump only needs rotation, so "starting" it means gating the shaft. Two hooks, both optional and both released when `fly` exits or `kill` runs:
+
+- `PUMP_SIDE`: a redstone side the computer holds high, for a clutch or gearshift on the pump shaft.
+- `PUMP_MOTOR` + `PUMP_RPM`: a Create Crafts & Additions electric motor spun by name, fed from the onboard accumulator.
+- `PUMP_PRIME`: seconds to wait after the pump starts before the flight begins, if the thruster needs its tank filled first.
+
+If the thruster is fed through a Gadgets & Gizmos thruster gimbal or vector bearing, fuel is distributed for you and no pump may be needed at all.
+
+### Refuelling / recharging on a dock
+
+Aeronautics 1.3.0 (June 2026) added native FE transfer through Docking Connectors, so an FE-mode thruster can recharge from a dock without extra mods. For liquid fuel the Docking Connector moves fluids natively but only through Create pipes.
 
 ## Modes
 
@@ -76,6 +104,18 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `P_AXIS`, `P_SIGN`, `R_SIGN` | Which thruster axis is pitch, and the sign of each axis. Airframe wiring. |
 | `TILT_RATE` | Max deg/s the tilt *targets* may move, so phase changes ramp instead of step. |
 | `TUMBLE` | Abort and cut thrust if pitch or roll exceeds this many degrees. 0 disables. |
+
+**Fuel and pump**
+
+| Key | What it does |
+|---|---|
+| `FUEL_NAME` | Peripheral to read fuel from. `nil` reads the thruster itself. |
+| `FUEL_CAP` | Tank capacity in mB, needed only when the source reports amount but not capacity. |
+| `FUEL_POLL` | Seconds between fuel reads. Each read is one peripheral call. |
+| `FUEL_WARN` | Percent below which `LOW FUEL` is printed. |
+| `PUMP_SIDE` | Redstone side held high while flying. `nil` disables. |
+| `PUMP_MOTOR`, `PUMP_RPM` | CC&A electric motor name and speed for the pump. `nil` disables. |
+| `PUMP_PRIME` | Seconds to wait after the pump starts before flying. |
 
 **Position hold (outer loop)**
 

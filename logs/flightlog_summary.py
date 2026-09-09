@@ -18,10 +18,10 @@ import sys
 # Columns parsed as numbers. Everything else stays a string.
 NUM = ["t", "height", "err", "pwr", "gps", "x", "z", "ex", "ez", "vxw", "vzw",
        "hdg", "rawhdg", "mothdg", "tp", "tr", "p", "r", "vx", "vy", "sched",
-       "fwdRaw", "latRaw", "vrtRaw", "fwdH", "latH", "energy"]
+       "fwdRaw", "latRaw", "vrtRaw", "fwdH", "latH", "energy", "fuel"]
 
 SAMPLE_COLS = ["t", "phase", "height", "err", "pwr", "gps", "x", "z",
-               "hdg", "mothdg", "tp", "tr", "p", "r", "fwdH", "latH", "energy"]
+               "hdg", "mothdg", "tp", "tr", "p", "r", "fwdH", "latH", "energy", "fuel"]
 
 
 def load(path):
@@ -80,6 +80,10 @@ def summarise(name, seg):
     if e0 is not None and not math.isnan(e0) and e0 >= 0:
         print(f"   energy  {fmt(e0, '.0f')}% -> {fmt(e1, '.0f')}%  "
               f"({fmt(e1 - e0, '+.0f')}%)")
+    f0, f1 = seg[0].get("fuel"), seg[-1].get("fuel")
+    if f0 is not None and not math.isnan(f0) and f0 >= 0:
+        print(f"   fuel    {fmt(f0, '.0f')}% -> {fmt(f1, '.0f')}%  "
+              f"({fmt(f1 - f0, '+.0f')}%)")
     print()
 
 

@@ -56,6 +56,17 @@ local CFG = {
   CKV = 3,                            -- deg of lean per b/s of velocity error
   BRAKE_K = 1.0,                      -- brake distance = K * speed^2 / 10
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
+
+  -- fuel monitoring: polled in its own coroutine, never from the control loop
+  FUEL_NAME = nil,                    -- peripheral to read fuel from; nil = the thruster itself
+  FUEL_CAP = 0,                       -- mB; only needed when the source reports amount but not capacity
+  FUEL_POLL = 1.0,                    -- seconds between fuel reads (each read is one peripheral call)
+  FUEL_WARN = 25,                     -- %: print LOW FUEL when it drops below this
+  -- pump auto-start: switched on before takeoff, off when the program exits
+  PUMP_SIDE = nil,                    -- redstone side to hold high, e.g. "back" -> clutch on the pump shaft
+  PUMP_MOTOR = nil,                   -- CC&A electric motor peripheral name that spins the pump
+  PUMP_RPM = 32,
+  PUMP_PRIME = 0,                     -- seconds to wait after starting the pump before flying
 }
 
 local alt = peripheral.find("altitude_sensor")
@@ -73,6 +84,69 @@ local function drive(p, vx, vy)
   thr.setPowerNormalized(math.max(0, math.min(1, p)))
 end
 local function energy() return acc and acc.getPercent() or -1 end
+
+-- ---------- fuel ----------
+-- Which method reads fuel depends on the thruster/tank mod version, so probe
+-- once at startup and remember. Reads happen in fuelLoop, not the control loop.
+local fuel = { pct = -1, amt = -1, cap = -1, t = 0 }
+local fuelRead = nil
+do
+  local name = CFG.FUEL_NAME or peripheral.getName(thr)
+  local p = CFG.FUEL_NAME and peripheral.wrap(CFG.FUEL_NAME) or thr
+  local has = {}
+  if p then for _, m in ipairs(peripheral.getMethods(name) or {}) do has[m] = true end end
+  if not p then
+    print("WARNING: fuel source " .. tostring(name) .. " not found - fuel monitoring off")
+  elseif has.getFuelAmount and has.getFuelCapacity then
+    fuelRead = function() return p.getFuelAmount(), p.getFuelCapacity() end
+    print("fuel: " .. name .. " via getFuelAmount/getFuelCapacity")
+  elseif has.tanks then
+    -- CC:Tweaked generic fluid_storage: amounts only, capacity comes from CFG
+    fuelRead = function()
+      local sum = 0
+      for _, tk in pairs(p.tanks() or {}) do sum = sum + (tk.amount or 0) end
+      return sum, CFG.FUEL_CAP > 0 and CFG.FUEL_CAP or nil
+    end
+    print("fuel: " .. name .. " via tanks()" .. (CFG.FUEL_CAP > 0 and "" or " (set FUEL_CAP for %)"))
+  else
+    local list = {}
+    for m in pairs(has) do list[#list + 1] = m end
+    table.sort(list)
+    print("WARNING: no fuel method on " .. name .. " - fuel monitoring off")
+    print("  methods: " .. table.concat(list, " "))
+  end
+end
+
+local function fuelLoop()
+  local warned = false
+  while true do
+    if fuelRead then
+      local ok, amt, cap = pcall(fuelRead)
+      if ok and amt then
+        fuel.amt, fuel.cap, fuel.t = amt, cap or -1, os.clock()
+        fuel.pct = (cap and cap > 0) and (100 * amt / cap) or -1
+        if fuel.pct >= 0 then
+          if fuel.pct < CFG.FUEL_WARN and not warned then
+            warned = true print(string.format("LOW FUEL %.0f%%", fuel.pct))
+          elseif fuel.pct >= CFG.FUEL_WARN + 5 then
+            warned = false
+          end
+        end
+      end
+    end
+    sleep(CFG.FUEL_POLL)
+  end
+end
+
+-- pump: hold a redstone side and/or spin a CC&A electric motor for the flight
+local pumpMotor = CFG.PUMP_MOTOR and peripheral.wrap(CFG.PUMP_MOTOR) or nil
+if CFG.PUMP_MOTOR and not pumpMotor then print("WARNING: pump motor " .. CFG.PUMP_MOTOR .. " not found") end
+local function pump(on)
+  if CFG.PUMP_SIDE then redstone.setOutput(CFG.PUMP_SIDE, on) end
+  if pumpMotor then
+    if on then pumpMotor.setSpeed(CFG.PUMP_RPM) else pumpMotor.stop() end
+  end
+end
 -- forward (nose-axis) speed from the velocity sensor, positive = moving forward
 local pos = { x = 0, z = 0, vx = 0, vz = 0, t = 0, rej = 0 }
 
@@ -227,13 +301,15 @@ else
 end
 
 local log = fs.open("flightlog", "w")
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
    or mode == "go" and string.format("go: to %.0f,%.0f via Y %.0f", tgtX, tgtZ, goal)
    or string.format("fly: Y %.1f to %.1f,%.1f hdg %.0f", goal, goalX, goalZ, rawHeading()))
 print("Ctrl+T stops")
+pump(true)
+if CFG.PUMP_PRIME > 0 then print("priming pump") sleep(CFG.PUMP_PRIME) end
 
 local function controlLoop()
   local lastH, lastT, integ = alt.getHeight(), os.clock(), 0
@@ -360,14 +436,14 @@ local function controlLoop()
     drive(pwr, vx, vy)
 
     local s0, s1, s2 = rawFwd(), rawLat(), rawVrt()
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
-      motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), energy()))
+      motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), energy(), fuel.pct))
     sleep(0.05)
   end
 end
 
-local ok, err = pcall(parallel.waitForAny, controlLoop, gpsLoop)
-drive(0, 0, 0) log.close()
-print("thrusters off - flightlog saved")
+local ok, err = pcall(parallel.waitForAny, controlLoop, gpsLoop, fuelLoop)
+drive(0, 0, 0) pump(false) log.close()
+print("thrusters off, pump off - flightlog saved")
 if not ok and not tostring(err):find("Terminated") then print(err) end

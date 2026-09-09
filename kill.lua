@@ -4,4 +4,7 @@ local thr = peripheral.find("vector_thruster")
 if not thr then error("no vector_thruster found") end
 thr.setPowerNormalized(0)
 thr.setVector(0, 0)
-print("KILL: thruster power 0, vector zeroed")
+-- drop any pump/clutch the computer is holding on
+for _, side in ipairs(redstone.getSides()) do redstone.setOutput(side, false) end
+for _, m in ipairs({ peripheral.find("electric_motor") }) do m.stop() end
+print("KILL: thruster power 0, vector zeroed, redstone + motors off")
