@@ -57,11 +57,14 @@ local CFG = {
   BRAKE_K = 1.0,                      -- brake distance = K * speed^2 / 10
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
-  -- fuel monitoring: polled in its own coroutine, never from the control loop
-  FUEL_NAME = nil,                    -- peripheral to read fuel from; nil = the thruster itself
-  FUEL_CAP = 0,                       -- mB; only needed when the source reports amount but not capacity
-  FUEL_POLL = 1.0,                    -- seconds between fuel reads (each read is one peripheral call)
-  FUEL_WARN = 25,                     -- %: print LOW FUEL when it drops below this
+  -- monitoring: accumulator and thruster buffer are polled in their own
+  -- coroutine, never from the control loop
+  MON_POLL = 1.0,                     -- seconds between reads (one peripheral call per source)
+  ENERGY_WARN = 25,                   -- %: print LOW ENERGY (accumulator) when it drops below this
+  FUEL_MODE = "fe",                   -- "fe": thruster FE buffer first; "fluid": liquid tank first
+  FUEL_NAME = nil,                    -- thruster-side source; nil = the thruster itself
+  FUEL_CAP = 0,                       -- mB; only needed when a fluid source reports amount but not capacity
+  FUEL_WARN = 25,                     -- %: print LOW THRUSTER when the thruster buffer drops below this
   -- pump auto-start: switched on before takeoff, off when the program exits
   PUMP_SIDE = nil,                    -- redstone side to hold high, e.g. "back" -> clutch on the pump shaft
   PUMP_MOTOR = nil,                   -- CC&A electric motor peripheral name that spins the pump
@@ -83,58 +86,101 @@ local function drive(p, vx, vy)
   thr.setVector(vx, vy)
   thr.setPowerNormalized(math.max(0, math.min(1, p)))
 end
-local function energy() return acc and acc.getPercent() or -1 end
-
--- ---------- fuel ----------
--- Which method reads fuel depends on the thruster/tank mod version, so probe
--- once at startup and remember. Reads happen in fuelLoop, not the control loop.
+-- ---------- monitoring ----------
+-- Accumulator % and the thruster's own buffer are read in monLoop once per
+-- MON_POLL. The control loop never touches them, it only logs the latest.
+local mon  = { energy = -1, rate = 0, t = 0 }   -- rate: accumulator %/min, negative = draining
 local fuel = { pct = -1, amt = -1, cap = -1, t = 0 }
-local fuelRead = nil
+
+-- Which method reads the thruster side depends on mode and mod version, so
+-- probe once at startup and remember.
+local fuelRead, fuelLabel = nil, "FUEL"
 do
   local name = CFG.FUEL_NAME or peripheral.getName(thr)
   local p = CFG.FUEL_NAME and peripheral.wrap(CFG.FUEL_NAME) or thr
   local has = {}
   if p then for _, m in ipairs(peripheral.getMethods(name) or {}) do has[m] = true end end
-  if not p then
-    print("WARNING: fuel source " .. tostring(name) .. " not found - fuel monitoring off")
-  elseif has.getFuelAmount and has.getFuelCapacity then
-    fuelRead = function() return p.getFuelAmount(), p.getFuelCapacity() end
-    print("fuel: " .. name .. " via getFuelAmount/getFuelCapacity")
-  elseif has.tanks then
-    -- CC:Tweaked generic fluid_storage: amounts only, capacity comes from CFG
-    fuelRead = function()
-      local sum = 0
-      for _, tk in pairs(p.tanks() or {}) do sum = sum + (tk.amount or 0) end
-      return sum, CFG.FUEL_CAP > 0 and CFG.FUEL_CAP or nil
+  local function tryFE()
+    -- CC:Tweaked generic energy_storage: the block's own FE buffer
+    if has.getEnergy and has.getEnergyCapacity then
+      fuelRead = function() return p.getEnergy(), p.getEnergyCapacity() end
+      fuelLabel = "THRUSTER"
+      print("thruster: " .. name .. " FE via getEnergy/getEnergyCapacity")
+      return true
     end
-    print("fuel: " .. name .. " via tanks()" .. (CFG.FUEL_CAP > 0 and "" or " (set FUEL_CAP for %)"))
+    return false
+  end
+  local function tryFluid()
+    if has.getFuelAmount and has.getFuelCapacity then
+      fuelRead = function() return p.getFuelAmount(), p.getFuelCapacity() end
+      print("fuel: " .. name .. " via getFuelAmount/getFuelCapacity")
+      return true
+    elseif has.tanks then
+      -- CC:Tweaked generic fluid_storage: amounts only, capacity comes from CFG
+      fuelRead = function()
+        local sum = 0
+        for _, tk in pairs(p.tanks() or {}) do sum = sum + (tk.amount or 0) end
+        return sum, CFG.FUEL_CAP > 0 and CFG.FUEL_CAP or nil
+      end
+      print("fuel: " .. name .. " via tanks()" .. (CFG.FUEL_CAP > 0 and "" or " (set FUEL_CAP for %)"))
+      return true
+    end
+    return false
+  end
+  if not p then
+    print("WARNING: source " .. tostring(name) .. " not found - thruster monitoring off")
+  elseif CFG.FUEL_MODE == "fe" then
+    local _ = tryFE() or tryFluid()
   else
+    local _ = tryFluid() or tryFE()
+  end
+  if p and not fuelRead then
     local list = {}
     for m in pairs(has) do list[#list + 1] = m end
     table.sort(list)
-    print("WARNING: no fuel method on " .. name .. " - fuel monitoring off")
+    print("WARNING: no energy/fuel method on " .. name .. " - thruster monitoring off")
     print("  methods: " .. table.concat(list, " "))
   end
 end
 
-local function fuelLoop()
-  local warned = false
+local function monLoop()
+  local warnE, warnF = false, false
+  local lastE, lastT = nil, nil
   while true do
+    if acc then
+      local ok, pct = pcall(acc.getPercent)
+      if ok and pct then
+        local now = os.clock()
+        if lastE and now > lastT then
+          local r = (pct - lastE) / (now - lastT) * 60
+          mon.rate = mon.rate + 0.2 * (r - mon.rate)
+        end
+        lastE, lastT = pct, now
+        mon.energy, mon.t = pct, now
+        if pct < CFG.ENERGY_WARN and not warnE then
+          warnE = true
+          local eta = mon.rate < 0 and string.format(" (~%.1f min to empty)", -pct / mon.rate) or ""
+          print(string.format("LOW ENERGY %.0f%%%s", pct, eta))
+        elseif pct >= CFG.ENERGY_WARN + 5 then
+          warnE = false
+        end
+      end
+    end
     if fuelRead then
       local ok, amt, cap = pcall(fuelRead)
       if ok and amt then
         fuel.amt, fuel.cap, fuel.t = amt, cap or -1, os.clock()
         fuel.pct = (cap and cap > 0) and (100 * amt / cap) or -1
         if fuel.pct >= 0 then
-          if fuel.pct < CFG.FUEL_WARN and not warned then
-            warned = true print(string.format("LOW FUEL %.0f%%", fuel.pct))
+          if fuel.pct < CFG.FUEL_WARN and not warnF then
+            warnF = true print(string.format("LOW %s %.0f%%", fuelLabel, fuel.pct))
           elseif fuel.pct >= CFG.FUEL_WARN + 5 then
-            warned = false
+            warnF = false
           end
         end
       end
     end
-    sleep(CFG.FUEL_POLL)
+    sleep(CFG.MON_POLL)
   end
 end
 
@@ -438,12 +484,12 @@ local function controlLoop()
     local s0, s1, s2 = rawFwd(), rawLat(), rawVrt()
     log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
-      motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), energy(), fuel.pct))
+      motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct))
     sleep(0.05)
   end
 end
 
-local ok, err = pcall(parallel.waitForAny, controlLoop, gpsLoop, fuelLoop)
+local ok, err = pcall(parallel.waitForAny, controlLoop, gpsLoop, monLoop)
 drive(0, 0, 0) pump(false) log.close()
 print("thrusters off, pump off - flightlog saved")
 if not ok and not tostring(err):find("Terminated") then print(err) end

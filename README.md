@@ -21,8 +21,8 @@ All peripherals are found by type except the velocity sensors, which are address
 | `gimbal_sensor` | 1 | `getAngles()` gives **pitch and roll only**. No yaw, which is why heading is derived from motion. |
 | `altitude_sensor` | 1 | `getHeight()` for the altitude loop. |
 | `navigation_table` | 1 | `getRelativeAngle()` bearing to its target. Measured in the pod's own tilted plane, so it is de-rotated by pitch/roll before use. Currently reads about 180 deg out and is only a fallback (`NAV_FALLBACK = false`). |
-| `modular_accumulator` | 1 (optional) | `getPercent()` energy, logged only. |
-| fuel source | 0..1 | The thruster itself by default, or any tank named in `FUEL_NAME`. Read once a second in its own coroutine, logged as `fuel` %. See Fuel monitoring. |
+| `modular_accumulator` | 1 (optional) | Main battery. `getPercent()` polled once per `MON_POLL` in the monitoring coroutine, logged as `energy`. `LOW ENERGY` warning with a minutes-to-empty estimate below `ENERGY_WARN`. |
+| thruster buffer | 0..1 | The thruster's own FE buffer (or a liquid tank if `FUEL_MODE = "fluid"`), logged as `fuel` %. See Monitoring. |
 | pump drive | 0..1 | Optional. A redstone side (`PUMP_SIDE`, e.g. a clutch on the pump shaft) and/or a CC&A electric motor (`PUMP_MOTOR`) that `fly` switches on before takeoff and off on exit. |
 | `velocity_sensor` | 3 | Body-frame velocity, one per axis. `velocity_sensor_0` forward, `velocity_sensor_1` lateral, `velocity_sensor_3` vertical. Identified in freefall: the vertical one read -24 b/s while the others read ~0. |
 
@@ -34,15 +34,18 @@ The velocity sensors tilt with the airframe. With the vertical axis measured, th
 
 `fly` needs a GPS fix for every mode except `find`. Four computers with ender modems running `gps host` are set up at the volcano and must stay **chunk-loaded**. If the fix is lost, the position loop rejects updates after 5 bad samples and position hold stops leaning until the fix returns. Position hold is also disabled above `SPEED_GUARD` ground speed so a stale fix cannot command a big lean.
 
-### Fuel monitoring
+### Monitoring
 
-`fly` probes the fuel source once at startup and prints which method it found:
+All slow reads live in one coroutine that wakes every `MON_POLL` seconds, so the control loop itself makes no accumulator or fuel calls. Monitoring never changes the flight on its own; it prints and logs.
 
-- `getFuelAmount` / `getFuelCapacity` if the peripheral has them.
-- Otherwise CC:Tweaked's generic `tanks()`, which reports amount only. Set `FUEL_CAP` in mB to get a percentage.
-- If neither exists it prints the peripheral's full method list so you can see what the current mod version exposes, and flies with fuel logged as -1. Gadgets & Gizmos ships its own peripheral docs in-game: run `/rom/thrusters/docs.lua` on any computer.
+**Accumulator.** `getPercent()` once per poll, logged as `energy`. A filtered drain rate in %/min is kept between polls. Below `ENERGY_WARN` it prints `LOW ENERGY 24% (~3.1 min to empty)` once and re-arms if the level climbs back 5 points.
 
-Reads happen in a separate coroutine every `FUEL_POLL` seconds, so they add nothing to the control loop. Below `FUEL_WARN` % it prints `LOW FUEL` once and re-arms if the level recovers. It never changes the flight on its own.
+**Thruster side.** Probed once at startup, in the order set by `FUEL_MODE`:
+
+- `"fe"` (default, FE thrust): the thruster's own buffer via CC:Tweaked's generic `getEnergy` / `getEnergyCapacity`, then the fluid methods as a fallback.
+- `"fluid"`: `getFuelAmount` / `getFuelCapacity`, then generic `tanks()` with `FUEL_CAP` in mB for a percentage, then FE.
+
+Whatever it finds is logged as `fuel` % and warned as `LOW THRUSTER` or `LOW FUEL` below `FUEL_WARN`. If nothing matches it prints the peripheral's full method list so you can see what the current mod version exposes, and flies with `fuel` logged as -1. Gadgets & Gizmos ships its own peripheral docs in-game: run `/rom/thrusters/docs.lua` on any computer.
 
 ### Pump auto-start
 
@@ -105,14 +108,16 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `TILT_RATE` | Max deg/s the tilt *targets* may move, so phase changes ramp instead of step. |
 | `TUMBLE` | Abort and cut thrust if pitch or roll exceeds this many degrees. 0 disables. |
 
-**Fuel and pump**
+**Monitoring and pump**
 
 | Key | What it does |
 |---|---|
-| `FUEL_NAME` | Peripheral to read fuel from. `nil` reads the thruster itself. |
-| `FUEL_CAP` | Tank capacity in mB, needed only when the source reports amount but not capacity. |
-| `FUEL_POLL` | Seconds between fuel reads. Each read is one peripheral call. |
-| `FUEL_WARN` | Percent below which `LOW FUEL` is printed. |
+| `MON_POLL` | Seconds between monitoring reads. One peripheral call per source per poll. |
+| `ENERGY_WARN` | Accumulator percent below which `LOW ENERGY` is printed. |
+| `FUEL_MODE` | `"fe"` reads the thruster's FE buffer first, `"fluid"` reads a liquid tank first. |
+| `FUEL_NAME` | Thruster-side peripheral to read. `nil` reads the thruster itself. |
+| `FUEL_CAP` | Tank capacity in mB, needed only when a fluid source reports amount but not capacity. |
+| `FUEL_WARN` | Thruster-side percent below which `LOW THRUSTER` / `LOW FUEL` is printed. |
 | `PUMP_SIDE` | Redstone side held high while flying. `nil` disables. |
 | `PUMP_MOTOR`, `PUMP_RPM` | CC&A electric motor name and speed for the pump. `nil` disables. |
 | `PUMP_PRIME` | Seconds to wait after the pump starts before flying. |
