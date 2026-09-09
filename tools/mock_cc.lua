@@ -174,6 +174,28 @@ _G.parallel = {
   end,
 }
 
+-- CC: Sable sublevel API stub, so probe.lua can be exercised. Position is
+-- deliberately world-frame and continuous, which is the hypothesis probe.lua
+-- is written to test in game.
+_G.sublevel = {
+  isInPlotGrid = function() return true end,
+  getName = function() return "TestDrone" end,
+  getUniqueId = function() return "0000-test" end,
+  getLogicalPose = function()
+    return { position = { x = sim.x, y = sim.h, z = sim.z },
+             orientation = { x = 0, y = 0, z = 0, w = 1 },
+             scale = { x = 1, y = 1, z = 1 },
+             rotationPoint = { x = 0, y = 0, z = 0 } }
+  end,
+  getLastPose = function() return _G.sublevel.getLogicalPose() end,
+  getLinearVelocity = function() return { x = sim.speed, y = sim.vv, z = 0 } end,
+  getAngularVelocity = function() return { x = 0, y = 0, z = 0 } end,
+  getVelocity = function() return { x = sim.speed, y = sim.vv, z = 0 } end,
+  getCenterOfMass = function() return { x = 0, y = 0, z = 0 } end,
+  getMass = function() return 1234.5 end,
+}
+_G.term = { clear = function() end, setCursorPos = function() end }
+
 -- Lua 5.1 had math.atan2; this harness runs on a newer Lua where it is gone.
 math.atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 

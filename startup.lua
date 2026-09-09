@@ -3,7 +3,7 @@
 -- this computer, and prints what changed. Needs http enabled in the CC config.
 local REPO   = "antrathent-sys/Chill-Grill-DroneNet"
 local BRANCH = "main"
-local FILES  = { "fly.lua", "kill.lua", "startup.lua" }
+local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua" }
 
 -- Private repo? Put a GitHub token (fine-grained, read-only Contents scope on
 -- this repo only) in a file called .ghtoken on THIS computer. It is read here

@@ -9,6 +9,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `fly.lua` | The controller. Four modes, see below. |
 | `kill.lua` | Panic stop: thruster power to 0, nozzle vector zeroed, all redstone outputs off, any electric motor stopped. |
 | `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed. |
+| `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
 
 ## Hardware
@@ -238,6 +239,23 @@ python logs/flightlog_summary.py path/to/flightlog --rows 40 --phase brake
 ```
 
 Flight logs are gitignored, so you can keep them next to the script locally.
+
+## CC: Sable, and why GPS is the weak link
+
+Two facts, both read from source rather than docs.
+
+**CC:Tweaked GPS is quantised to whole blocks.** Wireless modems report their position as `Vec3.atLowerCornerOf(blockPos)`, and the distance trilateration consumes is computed between those integers, so a fix can only ever resolve which block a computer is in. The `round(0.01)` inside the GPS API is floating-point cleanup, not sub-block precision. Differencing that for velocity is worse than it sounds: measured in the mock harness with `GPS_QUANT=1 DRIFT=1`, a drone truly drifting 0.5 b/s showed GPS-derived speed peaking at 6.1 b/s and exceeding `SPEED_GUARD` on about 4% of station-keeping samples.
+
+**CC: Sable makes all of that unnecessary.** If the pack has it, the `sublevel` API gives the pod's own rigid body straight from the physics engine:
+
+| Call | Returns |
+|---|---|
+| `sublevel.getLogicalPose()` | `position` and `orientation` as double-precision `{x,y,z}` and `{x,y,z,w}` |
+| `sublevel.getLinearVelocity()` | true linear velocity, no differencing |
+| `sublevel.getAngularVelocity()` | true angular rates |
+| `sublevel.getMass()`, `getCenterOfMass()`, `getInertiaTensor()` | full rigid-body properties |
+
+That replaces GPS with exact position, and the orientation quaternion carries **yaw**, which the gimbal sensor cannot report and which the whole `HDG_*` motion-heading estimator exists to work around. Run `probe.lua` on the pod to confirm the pose is world-frame and to see how the quaternion's pitch and roll line up with the gimbal, before changing any flight code.
 
 ## Testing without the game
 
