@@ -129,12 +129,13 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 ## Deploying to the drone
 
 1. Enable `http` in the CC:Tweaked server config and make sure `raw.githubusercontent.com` is allowed.
-2. On the drone's computer, once:
+2. **If the repo is private**, `raw.githubusercontent.com` returns 404 without auth. Either make the repo public, or create a fine-grained personal access token with read-only *Contents* permission on this repo only and save it on the drone's computer as `.ghtoken` (just the token, nothing else). `startup.lua` sends it as an Authorization header. The token stays on the CC computer; never commit it.
+3. On the drone's computer, once (public repo shown; for a private one, paste `startup.lua` in with `edit startup.lua` the first time):
    ```
    wget https://raw.githubusercontent.com/antrathent-sys/Chill-Grill-DroneNet/main/startup.lua startup.lua
    reboot
    ```
-3. Every reboot after that pulls the current `fly.lua`, `kill.lua` and `startup.lua` and prints which ones changed. Run `startup` by hand to update without rebooting.
+4. Every reboot after that pulls the current `fly.lua`, `kill.lua` and `startup.lua` and prints which ones changed. Run `startup` by hand to update without rebooting.
 
 ## Analysing a flight
 

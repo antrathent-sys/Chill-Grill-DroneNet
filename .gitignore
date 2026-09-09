@@ -4,6 +4,9 @@ __pycache__/
 *.pyo
 .venv/
 
+# GitHub token for private-repo fetches lives only on the CC computer
+.ghtoken
+
 # Flight logs pulled off the CC computer (analyse locally, don't commit)
 flightlog
 flightlog.*

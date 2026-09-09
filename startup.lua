@@ -5,11 +5,23 @@ local REPO   = "antrathent-sys/Chill-Grill-DroneNet"
 local BRANCH = "main"
 local FILES  = { "fly.lua", "kill.lua", "startup.lua" }
 
+-- Private repo? Put a GitHub token (fine-grained, read-only Contents scope on
+-- this repo only) in a file called .ghtoken on THIS computer. It is read here
+-- and sent as an Authorization header; it never lives in the repo.
+local TOKEN_FILE = ".ghtoken"
+local HEADERS = nil
+if fs.exists(TOKEN_FILE) then
+  local f = fs.open(TOKEN_FILE, "r")
+  local tok = (f.readAll() or ""):gsub("%s+", "")
+  f.close()
+  if #tok > 0 then HEADERS = { Authorization = "token " .. tok } end
+end
+
 local function fetch(name)
   -- cache-buster so raw.githubusercontent.com doesn't hand back a stale copy
   local url = string.format("https://raw.githubusercontent.com/%s/%s/%s?t=%s",
     REPO, BRANCH, name, tostring(os.epoch("utc")))
-  local res, err = http.get(url)
+  local res, err = http.get(url, HEADERS)
   if not res then return nil, err end
   local body = res.readAll()
   res.close()
