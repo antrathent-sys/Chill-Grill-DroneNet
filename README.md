@@ -23,6 +23,7 @@ All peripherals are found by type except the velocity sensors, which are address
 | `navigation_table` | 1 | `getRelativeAngle()` bearing to its target. Measured in the pod's own tilted plane, so it is de-rotated by pitch/roll before use. Currently reads about 180 deg out and is only a fallback (`NAV_FALLBACK = false`). |
 | `modular_accumulator` | 1 (optional) | Main battery. `getPercent()` polled once per `MON_POLL` in the monitoring coroutine, logged as `energy`. `LOW ENERGY` warning with a minutes-to-empty estimate below `ENERGY_WARN`. |
 | thruster buffer | 0..1 | The thruster's own FE buffer (or a liquid tank if `FUEL_MODE = "fluid"`), logged as `fuel` %. See Monitoring. |
+| `docking_connector` | 0..1 | Optional. Extended by a redstone side (`DOCK_SIDE`), which is also what arms its magnet. `getConnectedName()` is the only dock-state signal and is polled in the monitoring coroutine. See Docking. |
 | pump drive | 0..1 | Optional. A redstone side (`PUMP_SIDE`, e.g. a clutch on the pump shaft) and/or a CC&A electric motor (`PUMP_MOTOR`) that `fly` switches on before takeoff and off on exit. |
 | `velocity_sensor` | 3 | Body-frame velocity, one per axis. `velocity_sensor_0` forward, `velocity_sensor_1` lateral, `velocity_sensor_3` vertical. Identified in freefall: the vertical one read -24 b/s while the others read ~0. |
 
@@ -68,6 +69,8 @@ fly find <power>            hold a fixed throttle to find the hover point
 fly <y> [x] [z]             hold altitude y; hold position, or fly to x z if given
 fly dash <y> <deg> <secs>   climb to y, pitch <deg> for <secs>, brake, then hold
 fly go <x> <z> [y]          climb to y (default +25), cruise to x z, brake, hold there
+fly dock <x> <z> <padY> [y]  cruise to the pad, settle over it, descend and dock
+fly undock [y]              release the connector once thrust is up, then hold y
 ```
 
 Ctrl+T stops the program. On any exit, including a tumble error, the thruster is cut and `flightlog` is closed.
@@ -79,6 +82,32 @@ Phases as they appear in the log:
 - **dash**: `dash` mode holds a fixed pitch. `go` mode steers toward the target with a velocity controller in the body frame, lean capped at `CRUISE_DEG`.
 - **brake**: pitches the other way against forward speed until it drops below `BRAKE_DONE` or `BRAKE_MAX_T` runs out.
 - **hold**: altitude plus position hold at the current spot (`dash`) or the target (`go`).
+- **align**: `dock` only. Position hold over the pad, waiting for the drone to be within `DOCK_ALIGN` blocks and under `DOCK_ALIGN_SPD` for `DOCK_SETTLE_T` seconds.
+- **descend**: `dock` only. Extends the connector, then walks the altitude goal down at `DOCK_RATE` until the park altitude is reached. Drifting more than `DOCK_ABORT_DIST` from the pad sends it back to align.
+- **capture**: `dock` only. Holds at the park altitude and waits for the magnet to pull the connectors together, up to `DOCK_CAPTURE_T` seconds.
+- **docked**: thrust to zero and the program exits, leaving `DOCK_SIDE` high.
+
+## Docking
+
+The Docking Connector is a magnet, and that changes what the flight controller has to do. Numbers below are read from the Aeronautics source, and the two tolerances are server config keys you can raise.
+
+| What | Default | Server config key | Range |
+|---|---|---|---|
+| Distance tolerance | 0.5 blocks | `docking_connector_distance` | 0 to 4 |
+| Angle tolerance | 20 degrees | `docking_connector_angle` | 0 to 365 |
+| Pull force | 1000 | `dockingConnectorStrength` | any |
+
+Both tolerances are compared as 3D vector magnitudes, so 0.5 blocks is total offset rather than per axis, and it is measured tip to tip between the extended connectors rather than block to block. The connectors only become magnetic once extended, and the search picks up a partner from roughly 16 to 32 blocks away, after which the magnet pulls and rotates the ship into alignment on its own. **`dock` mode therefore only has to park the drone inside magnetic reach.** It does not try to fly to the lock window.
+
+**Build.** Point the drone's connector down and the pad's connector up, and keep the pad's connector permanently powered. Two connectors facing each other meet at 3 blocks of block-to-block separation, which is where `DOCK_GAP` comes from. Because the altitude sensor is not the connector block, treat `DOCK_GAP` as the value that makes the drone park about 3 blocks above the pad and calibrate it on the first attempt.
+
+**Sequence.** `fly dock <x> <z> <padY>` cruises to the pad using the same climb, dash and brake phases as `go`, settles over it, extends the connector, walks the altitude down, then waits for the magnet. On success it prints the pad name, cuts thrust and exits with `DOCK_SIDE` still high. A capture that times out climbs back and retries up to `DOCK_TRIES` times, then retracts and holds.
+
+**Undocking is a redstone release.** Dropping `DOCK_SIDE` is what the mod treats as an undock command. `fly undock` waits `DOCK_RELEASE_T` seconds so thrust is already supporting the drone before the connector lets go, then holds altitude normally.
+
+**`kill.lua` has a `DOCK_SIDE` of its own.** A panic stop clears every redstone output, which would release the drone from the pad. Set `DOCK_SIDE` at the top of `kill.lua` to the same side as in `fly.lua` and that one side is left alone.
+
+Dock state is polled once per `MON_POLL`, so lowering it to 0.5 makes capture detection more responsive.
 
 ## CFG block
 
@@ -121,6 +150,23 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `PUMP_SIDE` | Redstone side held high while flying. `nil` disables. |
 | `PUMP_MOTOR`, `PUMP_RPM` | CC&A electric motor name and speed for the pump. `nil` disables. |
 | `PUMP_PRIME` | Seconds to wait after the pump starts before flying. |
+
+**Docking**
+
+| Key | What it does |
+|---|---|
+| `DOCK_SIDE` | Redstone side that extends the connector. `nil` disables docking entirely. |
+| `DOCK_NAME` | `docking_connector` peripheral name. `nil` uses `peripheral.find`. |
+| `DOCK_ALIGN`, `DOCK_ALIGN_SPD` | Horizontal error in blocks and ground speed in b/s to be inside before descending. |
+| `DOCK_SETTLE_T` | Seconds of holding both of those before the descent starts. |
+| `DOCK_GAP` | Blocks above `padY` to park at. 3 is the connectors' own spacing. |
+| `DOCK_BAND` | How close to the park altitude counts as arrived. |
+| `DOCK_RATE` | b/s that the altitude goal walks down during the descent. |
+| `DOCK_SINK` | Power bled off during capture so the magnet can pull down. 0 means pure altitude hold. |
+| `DOCK_CAPTURE_T` | Seconds to wait for the magnet before aborting an attempt. |
+| `DOCK_ABORT_DIST` | Blocks of drift that sends the descent back to align. |
+| `DOCK_TRIES` | Capture attempts before giving up and just holding. |
+| `DOCK_RELEASE_T` | Seconds of thrust before `undock` drops the connector. |
 
 **Position hold (outer loop)**
 
@@ -192,6 +238,10 @@ python logs/flightlog_summary.py path/to/flightlog --rows 40 --phase brake
 ```
 
 Flight logs are gitignored, so you can keep them next to the script locally.
+
+## Testing without the game
+
+`fly.lua` can be run against a mock CC:Tweaked API on a desktop, which exercises the phase machine end to end without Minecraft. It stubs the peripherals, a cooperative `parallel`/`sleep` scheduler and a crude kinematic drone, then writes a real `flightlog` the analyser can read. It verifies phase transitions and argument handling only. It says nothing about whether the tuning constants fly well, because the physics model is a stand-in rather than the mod's.
 
 ## Lua constraints
 

@@ -70,6 +70,24 @@ local CFG = {
   PUMP_MOTOR = nil,                   -- CC&A electric motor peripheral name that spins the pump
   PUMP_RPM = 32,
   PUMP_PRIME = 0,                     -- seconds to wait after starting the pump before flying
+
+  -- docking. The connector is a magnet: it locks once the tips are within
+  -- 0.5 blocks and 20 deg (server config docking_connector_distance/_angle)
+  -- and pulls itself the last of the way, so these numbers only have to park
+  -- the drone inside its reach, not hit the lock window by flying.
+  DOCK_SIDE = nil,                    -- redstone side that extends the connector; nil = docking off
+  DOCK_NAME = nil,                    -- docking_connector peripheral name; nil = peripheral.find
+  DOCK_ALIGN = 1.5,                   -- blocks: horizontal error to sit inside before descending
+  DOCK_ALIGN_SPD = 0.5,               -- b/s: ground speed to be under as well
+  DOCK_SETTLE_T = 2.0,                -- seconds of holding both of those before the descent starts
+  DOCK_GAP = 3,                       -- blocks above padY to park; 3 is the connectors' own spacing
+  DOCK_BAND = 0.5,                    -- blocks: how close to the park altitude counts as arrived
+  DOCK_RATE = 1.5,                    -- b/s: how fast the altitude goal walks down
+  DOCK_SINK = 0.0,                    -- power bled off in capture so the magnet can pull down
+  DOCK_CAPTURE_T = 25,                -- seconds to wait for the magnet before aborting
+  DOCK_ABORT_DIST = 4,                -- blocks of drift that sends the descent back to align
+  DOCK_TRIES = 3,                     -- capture attempts before giving up and just holding
+  DOCK_RELEASE_T = 1.5,               -- seconds of thrust before 'undock' drops the connector
 }
 
 local alt = peripheral.find("altitude_sensor")
@@ -91,6 +109,17 @@ end
 -- MON_POLL. The control loop never touches them, it only logs the latest.
 local mon  = { energy = -1, rate = 0, t = 0 }   -- rate: accumulator %/min, negative = draining
 local fuel = { pct = -1, amt = -1, cap = -1, t = 0 }
+
+-- Docking connector. Redstone extends it, and extending is also what arms its
+-- magnet, so nothing is attracted until DOCK_SIDE goes high. getConnectedName()
+-- is the only dock-state signal the mod exposes; it is polled in monLoop and
+-- only while a dock is actually armed.
+local dock = { armed = false, connected = false, name = "" }
+local dockP = CFG.DOCK_NAME and peripheral.wrap(CFG.DOCK_NAME) or peripheral.find("docking_connector")
+if CFG.DOCK_NAME and not dockP then print("WARNING: docking connector " .. CFG.DOCK_NAME .. " not found") end
+local function dockExtend(on)
+  if CFG.DOCK_SIDE then redstone.setOutput(CFG.DOCK_SIDE, on) end
+end
 
 -- Which method reads the thruster side depends on mode and mod version, so
 -- probe once at startup and remember.
@@ -178,6 +207,14 @@ local function monLoop()
             warnF = false
           end
         end
+      end
+    end
+    if dock.armed and dockP then
+      local ok, name = pcall(dockP.getConnectedName)
+      if ok and type(name) == "string" and name ~= "" then
+        dock.connected, dock.name = true, name
+      else
+        dock.connected = false
       end
     end
     sleep(CFG.MON_POLL)
@@ -320,6 +357,7 @@ end
 
 -- ---------- modes ----------
 local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ
+local padY, dockAlt, cruiseY, undockFirst
 if arg[1] == "find" then
   mode = "find" findP = tonumber(arg[2]) or CFG.HOVER
 else
@@ -337,13 +375,29 @@ else
     tgtZ = tonumber(arg[3]) or error("go needs x z")
     goal = tonumber(arg[4]) or (alt.getHeight() + 25)
     dashDeg = CFG.CRUISE_DEG
+  elseif arg[1] == "dock" then
+    mode = "dock"
+    if not CFG.DOCK_SIDE then error("dock needs CFG.DOCK_SIDE set") end
+    tgtX = tonumber(arg[2]) or error("dock needs x z padY")
+    tgtZ = tonumber(arg[3]) or error("dock needs x z padY")
+    padY = tonumber(arg[4]) or error("dock needs x z padY")
+    goal = tonumber(arg[5]) or (alt.getHeight() + 25)
+    dockAlt = padY + CFG.DOCK_GAP
+    dashDeg = CFG.CRUISE_DEG
+    dock.armed = true
+  elseif arg[1] == "undock" then
+    -- release, then hold like a normal flight. The connector is not dropped
+    -- until the control loop has had DOCK_RELEASE_T of thrust behind it.
+    mode = "fly" undockFirst = true
+    goal = tonumber(arg[2]) or (alt.getHeight() + 5)
   else
     mode = "fly"
     goal = tonumber(arg[1]) or alt.getHeight()
   end
   goalX, goalZ = px, pz
-  if mode == "fly" then goalX = tonumber(arg[2]) or px goalZ = tonumber(arg[3]) or pz end
-  if mode == "go" then goalX, goalZ = tgtX, tgtZ end
+  if mode == "fly" and not undockFirst then goalX = tonumber(arg[2]) or px goalZ = tonumber(arg[3]) or pz end
+  if mode == "go" or mode == "dock" then goalX, goalZ = tgtX, tgtZ end
+  cruiseY = goal
 end
 
 local log = fs.open("flightlog", "w")
@@ -352,6 +406,9 @@ local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
    or mode == "go" and string.format("go: to %.0f,%.0f via Y %.0f", tgtX, tgtZ, goal)
+   or mode == "dock" and string.format("dock: pad %.0f,%.0f Y %.0f, park at %.1f via Y %.0f",
+      tgtX, tgtZ, padY, dockAlt, goal)
+   or undockFirst and string.format("undock: release then hold Y %.1f", goal)
    or string.format("fly: Y %.1f to %.1f,%.1f hdg %.0f", goal, goalX, goalZ, rawHeading()))
 print("Ctrl+T stops")
 pump(true)
@@ -363,9 +420,11 @@ local function controlLoop()
   local lp, lr = a[1], a[2]
   local ip, ir = 0, 0
   local trimP, trimR = 0, 0
-  local phase = (mode == "dash" or mode == "go") and "climb" or mode
+  local phase = (mode == "dash" or mode == "go" or mode == "dock") and "climb" or mode
   local tpS, trS = 0, 0    -- rate-limited tilt targets
   local dashStart, brakeStart = nil, nil
+  local alignStart, captureStart, released = nil, nil, false
+  local dockTries = 0
   while true do
     local t = os.clock()
     local dt = math.max(t - lastT, 0.05)
@@ -376,6 +435,10 @@ local function controlLoop()
     do local ga = gim.getAngles() bodyF, bodyL = bodyVel(ga[1], ga[2]) end
     updateMotionHeading(t)
 
+    if undockFirst and not released and t - t0 > CFG.DOCK_RELEASE_T then
+      released = true dock.armed = false dockExtend(false) print("connector released")
+    end
+
     if phase == "climb" then
       -- transition the instant we reach cruise height, still climbing
       if h >= goal - CFG.DASH_SETTLE then
@@ -383,7 +446,7 @@ local function controlLoop()
       end
     elseif phase == "dash" and mode == "dash" and t - dashStart > dashSecs then
       phase = "brake" brakeStart = t print("brake")
-    elseif phase == "dash" and mode == "go" then
+    elseif phase == "dash" and (mode == "go" or mode == "dock") then
       local d = math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2)
       local f, l = fwdSpeed(), latSpeed()
       local fs = math.min(math.sqrt(f * f + l * l), 40)
@@ -392,9 +455,53 @@ local function controlLoop()
       end
     elseif phase == "brake" then
       if math.abs(fwdSpeed()) < CFG.BRAKE_DONE or t - brakeStart > CFG.BRAKE_MAX_T then
-        phase = "hold"
-        if mode ~= "go" then goalX, goalZ = pos.x, pos.z end
-        print("hold")
+        phase = (mode == "dock") and "align" or "hold"
+        if mode ~= "go" and mode ~= "dock" then goalX, goalZ = pos.x, pos.z end
+        print(phase)
+      end
+    elseif phase == "align" then
+      -- sit over the pad until position and speed are both settled. Plain
+      -- arithmetic on the shared pos table, no peripheral reads.
+      local dx, dz = tgtX - pos.x, tgtZ - pos.z
+      local d = math.sqrt(dx * dx + dz * dz)
+      local sp = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
+      if pos.t > 0 and (t - pos.t) < 1.5 and d < CFG.DOCK_ALIGN and sp < CFG.DOCK_ALIGN_SPD then
+        if not alignStart then alignStart = t end
+        if t - alignStart > CFG.DOCK_SETTLE_T then
+          phase = "descend" dockExtend(true)
+          print(string.format("descend to %.1f, connector extended", dockAlt))
+        end
+      else
+        alignStart = nil
+      end
+    elseif phase == "descend" then
+      local dx, dz = tgtX - pos.x, tgtZ - pos.z
+      local d = math.sqrt(dx * dx + dz * dz)
+      if d > CFG.DOCK_ABORT_DIST then
+        phase = "align" alignStart = nil goal = cruiseY
+        print(string.format("drifted %.1f blocks - back to align", d))
+      else
+        -- walk the altitude goal down; the existing altitude PID follows it
+        goal = math.max(dockAlt, goal - CFG.DOCK_RATE * dt)
+        if h <= dockAlt + CFG.DOCK_BAND then
+          phase = "capture" captureStart = t
+          print("capture - waiting for the magnet")
+        end
+      end
+    elseif phase == "capture" then
+      goal = dockAlt
+      if dock.connected then
+        phase = "docked" print("DOCKED to " .. dock.name)
+      elseif t - captureStart > CFG.DOCK_CAPTURE_T then
+        dockTries = dockTries + 1
+        goal = cruiseY
+        if dockTries >= CFG.DOCK_TRIES then
+          phase = "hold" dockExtend(false) dock.armed = false
+          print("capture failed " .. dockTries .. "x - holding, connector retracted")
+        else
+          phase = "align" alignStart = nil
+          print("capture timed out - climbing back for retry " .. (dockTries + 1))
+        end
       end
     end
 
@@ -408,6 +515,8 @@ local function controlLoop()
         pwr = CFG.CLIMB_POWER - CFG.AKD * (v - CFG.CLIMB_RATE)
       end
       if phase == "dash" or phase == "brake" then pwr = pwr + CFG.DASH_POWER end
+      if phase == "capture" then pwr = pwr - CFG.DOCK_SINK end
+      if phase == "docked" then pwr = 0 end
     end
 
     local hdg, raw = heading(), rawHeading()
@@ -485,6 +594,7 @@ local function controlLoop()
     log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct))
+    if phase == "docked" then return end
     sleep(0.05)
   end
 end
@@ -492,4 +602,8 @@ end
 local ok, err = pcall(parallel.waitForAny, controlLoop, gpsLoop, monLoop)
 drive(0, 0, 0) pump(false) log.close()
 print("thrusters off, pump off - flightlog saved")
+if dock.connected then
+  -- DOCK_SIDE is deliberately left high: dropping it is what undocks.
+  print("docked to " .. dock.name .. " - " .. tostring(CFG.DOCK_SIDE) .. " held, 'fly undock' releases")
+end
 if not ok and not tostring(err):find("Terminated") then print(err) end

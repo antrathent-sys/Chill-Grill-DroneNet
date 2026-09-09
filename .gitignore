@@ -15,3 +15,7 @@ logs/*.csv
 logs/*.txt
 logs/*.log
 !logs/*.py
+
+# mock harness artefacts
+tools/_fly_under_test.lua
+tools/mock_*
