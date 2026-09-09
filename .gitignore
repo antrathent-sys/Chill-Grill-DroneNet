@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Flight logs pulled off the CC computer (analyse locally, don't commit)
+flightlog
+flightlog.*
+flightlog-*
+logs/*.csv
+logs/*.txt
+logs/*.log
+!logs/*.py
