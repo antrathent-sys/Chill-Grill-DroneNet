@@ -5,6 +5,13 @@
     python tools/run_mock.py go 100 50
     python tools/run_mock.py --selftest
 
+Environment switches the harness honours:
+    GPS_QUANT=1    quantise gps.locate to whole blocks, as real CC does
+    DRIFT=1        make station keeping wander instead of parking exactly
+    NODOCK=1       never let the magnet catch, to exercise the abort path
+    START_DOCKED=1 begin the run already docked
+    TMAX=<secs>    simulated-time budget
+
 Needs a Lua runtime, via `pip install lupa`. This exercises the phase machine,
 argument handling and the monitoring coroutine, and writes a real flightlog to
 tools/mock_flightlog that logs/flightlog_summary.py can read.

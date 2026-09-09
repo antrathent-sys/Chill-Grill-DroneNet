@@ -40,6 +40,16 @@ local function step(to)
   end
   local mv = math.min(sim.speed * dt, d)
   if d > 1e-6 then sim.x = sim.x + dx / d * mv sim.z = sim.z + dz / d * mv end
+  -- DRIFT: real station keeping wanders around the target rather than parking
+  -- on it. Needed to make GPS_QUANT cross block boundaries the way it will
+  -- in game.
+  if os.getenv('DRIFT') then
+    sim.dp = (sim.dp or 0) + dt
+    sim.jx = 0.8 * math.sin(sim.dp * 0.7)
+    sim.jz = 0.8 * math.cos(sim.dp * 0.53)
+  else
+    sim.jx, sim.jz = 0, 0
+  end
   -- docking magnet: needs the connector extended and the drone parked close
   local extended = false
   for _, v in pairs(sim.rs) do if v then extended = true end end
@@ -65,7 +75,14 @@ _G.redstone = {
   getSides = function() return { "top", "bottom", "left", "right", "front", "back" } end,
 }
 
-_G.gps = { locate = function() return sim.x, sim.h, sim.z end }
+-- CC:Tweaked modems report position as Vec3.atLowerCornerOf(blockPos), so every
+-- GPS fix is quantised to whole blocks. GPS_QUANT models that.
+_G.gps = { locate = function()
+  if os.getenv('GPS_QUANT') then
+    return math.floor(sim.x + (sim.jx or 0)), math.floor(sim.h), math.floor(sim.z + (sim.jz or 0))
+  end
+  return sim.x + (sim.jx or 0), sim.h, sim.z + (sim.jz or 0)
+end }
 
 local logLines = {}
 _G.fs = {
