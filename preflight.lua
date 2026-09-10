@@ -51,8 +51,11 @@ end
 
 local alt = need("altitude_sensor")
 local gim = need("gimbal_sensor")
-local nav = need("navigation_table")
 local thr = need("vector_thruster")
+
+-- Not required any more: heading no longer comes from the nav table.
+local nav = peripheral.find("navigation_table")
+if nav then ok("navigation_table present") else wrn("no navigation_table - only needed for lodestone targeting") end
 
 local acc = peripheral.find("modular_accumulator")
 if acc then ok("modular_accumulator present") else wrn("no accumulator - energy will log as -1") end
@@ -62,20 +65,25 @@ if dockP then ok("docking_connector present") else wrn("no docking connector - d
 
 -- ---------- velocity sensors, the ones that bite ----------
 head("velocity sensors")
+-- Optional since the switch to CC:Sable: getLinearVelocity() gives world-frame
+-- velocity directly, and body-frame speed would need attitude to rotate into
+-- anyway. Only the legacy single-thruster path still wants these.
 local vs = { peripheral.find("velocity_sensor") }
 if #vs == 0 then
-  err("no velocity sensors - fly.lua will not start")
+  wrn("no velocity sensors - fine on the Sable path, required only by the legacy GPS path")
 elseif #vs < 3 then
-  wrn(#vs .. " velocity sensor(s), fly.lua expects 3")
+  wrn(#vs .. " velocity sensor(s); the legacy path expects 3")
 else
   ok(#vs .. " velocity sensors found")
 end
 
--- The names in CFG must actually exist, or the drone flies on the wrong axis.
+-- If they ARE fitted, the names in CFG must match or the drone flies the wrong axis.
 for label, name in pairs({ FWD = EXPECT.FWD_NAME, LAT = EXPECT.LAT_NAME, VRT = EXPECT.VRT_NAME }) do
   local p = peripheral.wrap(name)
   if not p then
-    err(label .. " sensor " .. name .. " NOT FOUND - check CFG names against the build")
+    if #vs > 0 then
+      err(label .. " sensor " .. name .. " NOT FOUND but other velocity sensors are - names disagree with the build")
+    end
   else
     local okA, axis = pcall(p.getAxis)
     local okV, vel = pcall(p.getVelocity)
@@ -131,6 +139,13 @@ if _G.sublevel then
     local okp, pose = pcall(sublevel.getLogicalPose)
     if okp and pose and pose.position then
       ok(string.format("CC:Sable pose %.2f %.2f %.2f", pose.position.x, pose.position.y, pose.position.z))
+      if alt then
+        local okh, h = pcall(alt.getHeight)
+        if okh then
+          ok(string.format("altitude sensor is %+.2f above pose.y - this offset is what DOCK_GAP absorbs",
+            h - pose.position.y))
+        end
+      end
     else
       wrn("sublevel present but getLogicalPose failed")
     end
@@ -267,7 +282,7 @@ if #allAcc > 1 then
 end
 want("altitude_sensor", alt ~= nil, "altitude hold and the dock gap", true)
 want("gimbal_sensor",  gim ~= nil, "attitude; still needed, the Sable quaternion reads null", true)
-want("velocity_sensor x3", #vs >= 3, "body-frame speed for brake and the dock align gate", true)
+want("velocity_sensor x3", #vs >= 3, "legacy path only; Sable covers world-frame speed", false)
 want("CC:Sable sublevel", haveSable, "position and velocity; 45x better than the GPS array here", true)
 want("modular_accumulator", acc ~= nil, "energy monitoring and range planning", false)
 want("docking_connector", dockP ~= nil, "docking, and payload release", false)
