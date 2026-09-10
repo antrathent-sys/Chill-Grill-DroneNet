@@ -133,6 +133,7 @@ Phases as they appear in the log:
 - **find / fly**: single phase, altitude PID plus position hold.
 - **climb**: fixed `CLIMB_POWER` eased by climb rate, no lean. Transitions `DASH_SETTLE` blocks below the goal while still climbing.
 - **dash**: `dash` mode holds a fixed pitch. `go` mode steers toward the target with a velocity controller in the world frame, lean capped at `CRUISE_DEG`.
+- **cruise rework (2026-09-10)**: `go`/`dock` start leaning at `DASH_ENTRY_FRAC` of the climb and let the altitude cascade finish underneath; the lean target slews at `CRUISE_TILT_RATE`; with `CRUISE_NO_BRAKE` the speed loop never leans against the travel direction (overspeed bleeds off by drag). Smooth and committed beats exact.
 - **brake**: leans against the world velocity vector on both axes (the craft cruises largely sideways, so a forward-only brake left the lateral speed alone) and finishes on total ground speed below `BRAKE_DONE`.
 - **brake**: pitches the other way against forward speed until it drops below `BRAKE_DONE` or `BRAKE_MAX_T` runs out.
 - **hold**: altitude plus position hold at the current spot (`dash`) or the target (`go`).

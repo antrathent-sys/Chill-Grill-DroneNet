@@ -113,8 +113,13 @@ local CFG = {
   -- heading only splits the final lean into pitch and roll. 1290-block flight
   -- 2026-09-10: CKV 3 turned every 5 b/s wobble into 15 deg of lean and the
   -- nav heading swung +-40 at 50 deg of tilt, scrambling body-frame integrators.
-  CKV = 1.5,                          -- deg of lean per b/s of velocity error
-  CKI = 0.5,                          -- deg/s of lean per b/s of velocity error (P alone left a drag offset)
+  CKV = 1.0,                          -- deg of lean per b/s of velocity error
+  CKI = 0.3,                          -- deg/s of lean per b/s of velocity error (P alone left a drag offset)
+  -- Smooth cruise (2026-09-10 rework): commit to a lean and hold it.
+  DASH_ENTRY_FRAC = 0.6,              -- go/dock: start the cruise lean once this fraction of the climb is done;
+                                      -- the altitude cascade finishes the climb underneath (feed-forward covers the lean)
+  CRUISE_TILT_RATE = 20,              -- deg/s: lean target slew in cruise (TILT_RATE elsewhere); no twitching
+  CRUISE_NO_BRAKE = true,             -- never lean against the direction of travel in cruise: coast, don't fight
   HDG_CRUISE_ALPHA = 0.01,            -- per-iteration blend of the cruise heading (tau ~10 s at 10 Hz):
                                       -- the flat table's reading wanders with tilt, the craft's yaw does not
 
@@ -684,6 +689,7 @@ if CFG.PUMP_PRIME > 0 then print("priming pump") sleep(CFG.PUMP_PRIME) end
 
 local function controlLoop()
   local lastH, lastT, integ = alt.getHeight(), os.clock(), 0
+  local h0 = lastH          -- start height, for the early dash entry
   local vWantS = 0          -- slew-limited vertical rate request
   local lastPwr = CFG.HOVER -- last commanded throttle, for integrator anti-windup
   local a = gim.getAngles()
@@ -748,7 +754,13 @@ local function controlLoop()
 
     if phase == "climb" then
       -- transition the instant we reach cruise height, still climbing
-      if h >= goal - CFG.DASH_SETTLE then
+      -- go/dock: lean in once most of the climb is done and let the altitude
+      -- loop finish it underneath; plain dash mode still waits for the top
+      local entryH = goal - CFG.DASH_SETTLE
+      if mode == "go" or mode == "dock" then
+        entryH = math.min(entryH, h0 + CFG.DASH_ENTRY_FRAC * (goal - h0))
+      end
+      if h >= entryH then
         phase = "dash" dashStart = t enter("dash")
       end
     elseif phase == "dash" and mode == "dash" and t - dashStart > dashSecs then
@@ -874,6 +886,14 @@ local function controlLoop()
       -- rotates the lean, it cannot unwind the integrator
       local eWx, eWz = CFG.CRUISE_SPEED * ux - pos.vx, CFG.CRUISE_SPEED * uz - pos.vz
       local cWx, cWz = CFG.CKV * eWx + cruiseIx, CFG.CKV * eWz + cruiseIz
+      if CFG.CRUISE_NO_BRAKE and speed > 1 then
+        -- drop any component of the lean that points against the travel
+        -- direction: overspeed is bled off by drag, not by leaning back
+        local along = (cWx * pos.vx + cWz * pos.vz) / speed
+        if along < 0 then
+          cWx, cWz = cWx - along * pos.vx / speed, cWz - along * pos.vz / speed
+        end
+      end
       local r = math.rad(cruiseHdg)
       local cF = cWx * math.sin(r) - cWz * math.cos(r)
       local cL = cWx * math.cos(r) + cWz * math.sin(r)
@@ -917,7 +937,7 @@ local function controlLoop()
     if phase ~= "dash" and phase ~= "brake" then tp, tr = tp + trimP, tr + trimR end
 
     -- rate-limit tilt targets so phase changes are smooth, not steps
-    local maxStep = CFG.TILT_RATE * dt
+    local maxStep = ((phase == "dash" and mode ~= "dash") and CFG.CRUISE_TILT_RATE or CFG.TILT_RATE) * dt
     tpS = tpS + clamp(tp - tpS, maxStep)
     trS = trS + clamp(tr - trS, maxStep)
     tp, tr = tpS, trS
