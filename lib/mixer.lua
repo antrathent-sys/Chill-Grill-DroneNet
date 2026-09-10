@@ -69,6 +69,11 @@ function mixer.count() return #wrapped end
 function mixer.allocate(d)
   local cfg = mixer.cfg
   local lift = d.lift or 0
+  -- tangential (yaw) deflection tips every nozzle off the thrust axis by
+  -- about yawRate * YAW_AUTH radians; scale lift up by 1/cos so the vertical
+  -- component is what was asked for
+  local ydef = math.abs(d.yawRate or 0) * cfg.YAW_AUTH
+  if ydef > 0 then lift = lift / math.max(0.5, math.cos(math.min(ydef, 1.2))) end
   local pitch = (d.pitch or 0) * cfg.PITCH_AUTH
   local roll  = (d.roll  or 0) * cfg.ROLL_AUTH
   local n = #mixer.cfg.thrusters
