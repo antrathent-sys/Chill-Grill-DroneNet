@@ -93,8 +93,14 @@ _G.fs = {
       close = function() end,
     }
   end,
-  exists = function() return false end,
+  exists = function(p)
+    -- UPLOAD_BOOM makes upload.lua present but explosive, to prove a failed
+    -- auto-upload cannot take the flight down with it.
+    if p == "upload.lua" then return os.getenv("UPLOAD_BOOM") ~= nil end
+    return false
+  end,
 }
+_G.shell = { run = function() error("simulated upload failure", 0) end }
 
 -- peripherals
 local periphs, names = {}, {}

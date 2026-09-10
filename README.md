@@ -264,6 +264,15 @@ That replaces GPS with exact position, and the orientation quaternion carries **
 
 ## Testing without the game
 
+Three suites, all runnable on a desktop with `pip install lupa`:
+
+```
+python tools/run_mock.py --selftest    all eight fly.lua modes, phase sequences
+python tools/run_db_test.py            lib/db.lua, 27 cases
+python tools/run_upload_test.py        upload.lua against a mocked GitHub API
+```
+
+
 `fly.lua` can be run against a mock CC:Tweaked API on a desktop, which exercises the phase machine end to end without Minecraft. It stubs the peripherals, a cooperative `parallel`/`sleep` scheduler and a crude kinematic drone, then writes a real `flightlog` the analyser can read. It verifies phase transitions and argument handling only. It says nothing about whether the tuning constants fly well, because the physics model is a stand-in rather than the mod's.
 
 ## Lua constraints
