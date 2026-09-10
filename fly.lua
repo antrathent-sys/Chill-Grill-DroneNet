@@ -1181,28 +1181,7 @@ local function controlLoop()
     if ATT then
       local gB = ATT.gravityFromGimbal(a[1], a[2])
       local gT = ATT.gravityFromGimbal(tp, tr)
-      local cx = gB.y * gT.z - gB.z * gT.y          -- rotation gB -> gT, about body x (pitch)
-      local cz = gB.x * gT.y - gB.y * gT.x          -- about body z (roll)
-      -- At high lean both down-vectors are nearly horizontal and the rotation
-      -- between them points along the THRUST axis: the cross product reports
-      -- the error as yaw and pitch/roll see almost nothing (roll ran 60 deg
-      -- off at 80 deg of lean with a 0.3 vector command, 2026-09-10). So the
-      -- lean MAGNITUDE error is taken exactly, along the body direction of
-      -- the lean, and only the direction part comes from the cross product.
-      local Lm = math.acos(math.max(-1, math.min(1, -gB.y)))
-      local Lt = math.acos(math.max(-1, math.min(1, -gT.y)))
-      local hx, hz = gB.x, gB.z
-      local hn = math.sqrt(hx * hx + hz * hz)
-      if hn > 1e-3 then
-        -- (pitch, roll) axis that changes lean magnitude. Signs from the
-        -- calibrated gimbal: nose-down is NEGATIVE pitch (g.z < 0), port is
-        -- positive roll (g.x < 0). A wrong pitch sign here drove the lean
-        -- magnitude the wrong way above ~45 deg (two flights, 2026-09-10).
-        local mx, mz = hz / hn, -hx / hn
-        local along = cx * mx + cz * mz
-        cx, cz = cx - along * mx + (Lm - Lt) * mx, cz - along * mz + (Lm - Lt) * mz
-      end
-      ep, er = math.deg(cx), math.deg(cz)
+      ep, er = ATT.leanError(gB, gT)   -- see lib/attitude.lua; sign-tested in tools/test_attitude.lua
       if gLast then
         local gx, gy, gz = (gB.x - gLast.x) / dt, (gB.y - gLast.y) / dt, (gB.z - gLast.z) / dt
         dp = math.deg(gy * gB.z - gz * gB.y)        -- (gdot x g).x
