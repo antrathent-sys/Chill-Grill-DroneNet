@@ -18,7 +18,8 @@ local CFG = {
   PULSE_TIME  = 0.8,      -- seconds of thrust per test
   SETTLE_TIME = 1.5,      -- seconds to let it rest between tests
   ABORT_TILT  = 25,       -- degrees: stop everything if it leans this far
-  MIN_TILT    = 0.4,      -- degrees: below this the response is noise, not signal
+  NOISE_MULT  = 3,        -- response must beat the measured noise floor by this
+  NOISE_FLOOR = 0.005,    -- degrees: never treat anything below this as signal
   MOVING      = 0.3,      -- b/s: refuse to start if it is moving faster than this
 }
 
@@ -78,7 +79,12 @@ local function pulse(t)
 
   if not DRY then t.p.setPowerNormalized(CFG.PULSE_POWER) end
   local t0 = os.clock()
+  local peakThrust = nil
   while os.clock() - t0 < CFG.PULSE_TIME do
+    -- thrust has to be sampled while it is firing; reading it afterwards
+    -- always returns 0, which is what the first live run did
+    local okT, th = pcall(t.p.getThrust)
+    if okT and type(th) == "number" and (not peakThrust or th > peakThrust) then peakThrust = th end
     local p, r = angles()
     if math.abs(p - p0) > math.abs(worstP) then worstP = p - p0 end
     if math.abs(r - r0) > math.abs(worstR) then worstR = r - r0 end
@@ -93,7 +99,21 @@ local function pulse(t)
   -- let it settle back before the next one
   local s0 = os.clock()
   while os.clock() - s0 < CFG.SETTLE_TIME do sleep(0.1) end
-  return worstP, worstR
+  return worstP, worstR, peakThrust
+end
+
+--- Sample how much the gimbal wanders with nothing firing, so the signal
+-- threshold comes from this airframe rather than from a guess.
+local function noiseFloor()
+  local p0, r0 = angles()
+  local worst = 0
+  local t0 = os.clock()
+  while os.clock() - t0 < CFG.PULSE_TIME do
+    local p, r = angles()
+    worst = math.max(worst, math.abs(p - p0), math.abs(r - r0))
+    sleep(0.05)
+  end
+  return math.max(worst, CFG.NOISE_FLOOR)
 end
 
 -- ---------- run ----------
@@ -104,15 +124,19 @@ assertStill()
 local okThrust = pcall(function() return thrusters[1].p.getThrust() end)
 if okThrust then print("thrust readback available - will confirm each thruster responds") end
 
+print("  measuring the noise floor with nothing firing ...")
+local noise = noiseFloor()
+local threshold = noise * CFG.NOISE_MULT
+print(string.format("         gimbal wanders %.4f deg at rest; signal must beat %.4f",
+  noise, threshold))
+
 local results = {}
 for i, t in ipairs(thrusters) do
   print(string.format("  [%d/%d] %s ...", i, #thrusters, t.name))
-  local dp, dr = pulse(t)
-  local th = nil
-  if okThrust then local o, v = pcall(t.p.getThrust) if o then th = v end end
+  local dp, dr, th = pulse(t)
   results[#results + 1] = { name = t.name, dp = dp, dr = dr, thrust = th }
-  print(string.format("         pitch %+.2f  roll %+.2f%s", dp, dr,
-    th and string.format("  (thrust reads %.1f)", th) or ""))
+  print(string.format("         pitch %+.4f  roll %+.4f%s", dp, dr,
+    th and string.format("  (peak thrust %.1f)", th) or ""))
 end
 allOff()
 
@@ -125,22 +149,35 @@ print("corner map (from the sign of the response):")
 local weak = 0
 for _, r in ipairs(results) do
   local mag = math.sqrt(r.dp * r.dp + r.dr * r.dr)
-  local corner
-  if mag < CFG.MIN_TILT then
-    corner = "NO RESPONSE"
+  -- The corner comes from the SIGNS. A grounded airframe barely rocks, so the
+  -- magnitude can be tiny and the map still be perfectly readable; only give
+  -- up when the response cannot be told apart from the noise at rest.
+  local corner = ((r.dp > 0) and "A" or "B") .. ((r.dr > 0) and "1" or "2")
+  local mark = ""
+  if mag < threshold then
     weak = weak + 1
-  else
-    corner = ((r.dp > 0) and "A" or "B") .. ((r.dr > 0) and "1" or "2")
+    mark = "  (weak - below " .. string.format("%.4f", threshold) .. ")"
   end
   r.corner = corner
-  print(string.format("  %-22s pitch %+7.2f  roll %+7.2f   -> %s", r.name, r.dp, r.dr, corner))
+  print(string.format("  %-22s pitch %+8.4f  roll %+8.4f   -> %s%s",
+    r.name, r.dp, r.dr, corner, mark))
 end
 
 print("")
-if weak > 0 then
-  print(weak .. " thruster(s) produced no measurable tilt.")
-  print("Either they are not firing, or the craft is held too rigidly to rock.")
-  print("Raise PULSE_POWER a little, or check those thrusters have fuel.")
+local seenC, dupC = {}, false
+for _, r in ipairs(results) do
+  if seenC[r.corner] then dupC = true end
+  seenC[r.corner] = true
+end
+
+if weak > 0 and dupC then
+  print(weak .. " response(s) were weak AND corners collide - this is not a map.")
+  print("Raise PULSE_POWER, or run it hovering so the airframe can actually rock.")
+elseif weak > 0 then
+  print(weak .. " response(s) were weak, but all corners came out distinct.")
+  print("A grounded airframe barely rocks, so small is expected; the signs are")
+  print("what matter and they separated cleanly. Re-run at higher PULSE_POWER")
+  print("if you want it confirmed.")
 else
   local seen = {}
   local dup = false

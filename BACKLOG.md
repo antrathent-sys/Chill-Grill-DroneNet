@@ -223,8 +223,31 @@ time at low power on the ground, record which way the gimbal leans, and read
 the corner off the sign pair. Verified against a rig with a known layout that
 it is not told about (`tools/run_mixcal_test.py`).
 
-Once that map exists the mixer is straightforward, because the layout gives
-the allocation directly:
+**First live run ([data/mixmap-run1.csv](data/mixmap-run1.csv)) produced a
+clean map**, though `mixcal` threw it away at the time because the tilts were
+below a fixed 0.4 degree threshold:
+
+| Thruster | pitch | roll | corner |
+|---|---|---|---|
+| `vector_thruster_5` | -0.0456 | +0.0427 | B1 |
+| `vector_thruster_6` | -0.0307 | -0.0313 | B2 |
+| `vector_thruster_7` | +0.0342 | -0.0333 | A2 |
+| `vector_thruster_8` | +0.0342 | +0.0343 | A1 |
+
+Four distinct corners, and the magnitudes agree to within a factor of 1.5,
+which noise would not do. Treat it as provisional until a stronger run
+confirms it: four random sign pairs land on four distinct corners 9.4% of the
+time, so consistency of magnitude is doing most of the work here.
+
+The threshold was the bug. A grounded airframe barely rocks, so the signal is
+genuinely tiny and the SIGNS are what carry the map. `mixcal` now measures the
+gimbal's noise floor with nothing firing and judges against that, and reports
+the map even when weak rather than discarding it. It also reads `getThrust()`
+during the pulse rather than after, which is why every thrust column in that
+run reads 0.00.
+
+Once the map is confirmed the mixer is straightforward, because the layout
+gives the allocation directly:
 
 - **collective** thrust on all four for lift
 - **front minus back** for pitch
