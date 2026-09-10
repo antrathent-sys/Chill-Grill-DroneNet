@@ -87,54 +87,84 @@ local function token()
   return t
 end
 
-local function put(path, content, message)
-  local url = "https://api.github.com/repos/" .. REPO .. "/contents/" .. path
-  local body = textutils.serializeJSON({
-    message = message,
-    content = b64(content),
-    branch  = BRANCH,
-  })
+-- One blocking request. Returns code, body.
+local function call(method, url, body)
   local ok, err = http.request({
-    url = url,
-    body = body,
-    method = "PUT",
+    url = url, body = body, method = method,
     headers = {
       Authorization = "token " .. token(),
       Accept = "application/vnd.github+json",
       ["Content-Type"] = "application/json",
     },
   })
-  if ok == false then error("http.request refused: " .. tostring(err)) end
-
+  if ok == false then error("http.request refused: " .. tostring(err), 0) end
   -- http_success is (url, handle); http_failure is (url, message, handle)
   while true do
     local ev, evUrl, a, b = os.pullEvent()
     if evUrl == url then
       if ev == "http_success" then
-        local code = a.getResponseCode()
-        local body = a.readAll()
+        local code, text = a.getResponseCode(), a.readAll()
         a.close()
-        return code, body
+        return code, text
       elseif ev == "http_failure" then
-        local code = b and b.getResponseCode() or "?"
-        local body = b and b.readAll() or ""
+        local code = b and b.getResponseCode() or nil
+        local text = b and b.readAll() or ""
         if b then b.close() end
-        error(string.format("upload failed (%s): %s %s",
-          tostring(code), tostring(a), tostring(body):sub(1, 200)), 0)
+        if code then return code, text end
+        error("http failed: " .. tostring(a), 0)
       end
     end
   end
 end
 
+-- GitHub needs the current blob sha to replace an existing file. Absent for a
+-- new path, which is why flight logs use unique names and never need this.
+local function shaOf(url)
+  local code, text = call("GET", url)
+  if code ~= 200 then return nil end
+  local t = textutils.unserializeJSON(text)
+  return t and t.sha
+end
+
+local function put(path, content, message)
+  local url = "https://api.github.com/repos/" .. REPO .. "/contents/" .. path
+  local payload = {
+    message = message,
+    content = b64(content),
+    branch  = BRANCH,
+  }
+  local sha = shaOf(url)          -- nil for a new file
+  if sha then payload.sha = sha end
+
+  local code, text = call("PUT", url, textutils.serializeJSON(payload))
+  if code ~= 200 and code ~= 201 then
+    error(string.format("upload failed (%s): %s", tostring(code), tostring(text):sub(1, 200)), 0)
+  end
+  return code
+end
+
 if not http then error("http API is disabled on this server") end
 
-local content, total, kept = readLog(src)
 local stamp = os.date("%Y-%m-%d_%H-%M-%S")
+
+-- `upload sync <file> <repo/path>` pushes any file to a fixed path, replacing
+-- whatever is there. This is how the depot mirrors its database into the repo.
+if args[1] == "sync" then
+  local from, to = args[2], args[3]
+  if not from or not to then error("usage: upload sync <file> <repo/path>", 0) end
+  if not fs.exists(from) then error("no " .. from, 0) end
+  local f = fs.open(from, "r")
+  local content = f.readAll()
+  f.close()
+  print(string.format("sync %s -> %s (%d bytes)", from, to, #content))
+  print("done, HTTP " .. tostring(put(to, content, "sync " .. to .. " " .. stamp)))
+  return
+end
+
+local content, total, kept = readLog(src)
 local name = string.format("%s/%s_%s.csv", DIR, stamp, full and "full" or "sampled")
 
 print(string.format("%s: %d rows -> %d kept, %d bytes", src, total, kept, #content))
 print("pushing " .. name)
-
-local code, _ = put(name, content,
-  string.format("flightlog %s (%d of %d rows)", stamp, kept, total))
-print("done, HTTP " .. tostring(code))
+print("done, HTTP " .. tostring(put(name, content,
+  string.format("flightlog %s (%d of %d rows)", stamp, kept, total))))

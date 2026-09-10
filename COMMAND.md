@@ -219,6 +219,29 @@ something outside the game. The http route is already proven here, since
 cheaper item. This is a real behaviour, not a trick: `MountMedia.COMPUTER` is
 backed by `computer_space_limit`.
 
+### Mirroring the database into this repo
+
+`upload sync <file> <repo/path>` pushes any file to a fixed path in the repo,
+fetching the current blob sha first so it replaces rather than conflicts. The
+depot uses it to mirror `orders.db` after a batch of changes:
+
+```lua
+shell.run("upload", "sync", "orders.db", "data/orders.db")
+```
+
+That makes the order book readable from outside the game, and it survives a
+world reset.
+
+**Keep the local store as the source of truth, and treat the repo as a mirror.**
+An http round trip is slow and can fail, and an order path that blocks on
+GitHub is an order path that breaks when the token expires or the link drops.
+Write locally, sync on a timer or after a batch. `lib/db.lua` is already
+crash-safe, so the local copy is the trustworthy one.
+
+Rate limits are not a concern at this scale: 5,000 authenticated requests an
+hour against a handful of orders. Write volume is, a little - every sync is a
+commit, so syncing per-order will produce a noisy history. Batch it.
+
 ### What everyone else does
 
 Worth knowing, since it sets expectations. There is no standard CC database

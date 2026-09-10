@@ -88,6 +88,8 @@ local CFG = {
   DOCK_ABORT_DIST = 4,                -- blocks of drift that sends the descent back to align
   DOCK_TRIES = 3,                     -- capture attempts before giving up and just holding
   DOCK_RELEASE_T = 1.5,               -- seconds of thrust before 'undock' drops the connector
+
+  AUTO_UPLOAD = true,                 -- push the flightlog to GitHub when the flight ends
 }
 
 local alt = peripheral.find("altitude_sensor")
@@ -605,5 +607,15 @@ print("thrusters off, pump off - flightlog saved")
 if dock.connected then
   -- DOCK_SIDE is deliberately left high: dropping it is what undocks.
   print("docked to " .. dock.name .. " - " .. tostring(CFG.DOCK_SIDE) .. " held, 'fly undock' releases")
+end
+
+-- Push the log last, once the thruster is already off. Wrapped so a bad token,
+-- a dead link or a disabled http API can never mask how the flight went.
+if CFG.AUTO_UPLOAD and http and fs.exists("upload.lua") then
+  local sent, why = pcall(function()
+    if shell then return shell.run("upload") end
+    return os.run({}, "upload.lua")
+  end)
+  if not sent then print("auto-upload failed: " .. tostring(why)) end
 end
 if not ok and not tostring(err):find("Terminated") then print(err) end
