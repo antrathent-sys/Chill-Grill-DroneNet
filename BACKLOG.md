@@ -361,7 +361,41 @@ immutable. Verified against the live API.
 
 ## Known issues
 
-**Table 5 is dead; table 4 is a compass to spawn**
+### Six nav tables, one tumble: the picture is now clear
+
+[data/probelog-run8-sixtables-tumble.csv](data/probelog-run8-sixtables-tumble.csv),
+43 samples through +/-90 degrees on both gimbal axes, then back to rest.
+
+| Table | At rest (level) | Under tilt | Role |
+|---|---|---|---|
+| `nav4` | continuous, tracks yaw | **singular near 90 deg**: spans 298 deg while barely yawing | **the FLAT table. Hover heading.** |
+| `nav5` | binary 0/180 | continuous | vertical |
+| `nav6` | binary 0/180 | continuous | **identical to nav5 in all 43 rows. Remove it.** |
+| `nav7` | binary 0/180 | continuous | vertical |
+| `nav8` | binary 0/180 | continuous | vertical |
+| `nav9` | binary 0/180 | continuous | vertical |
+
+Why a vertical table is binary when level: the north-magnet target is 10
+blocks north at the same height, so the target direction is exactly
+horizontal. A vertical table's plane holds up plus one horizontal axis, and a
+horizontal north projects onto that plane exactly along the horizontal axis,
+so the angle from a horizontal-mounted arrow is exactly 0 or 180 - which side
+of the plane north is on. That is why several of them FLIPPED 0<->180 between
+the two rest states as the yaw changed. They only carry continuous information
+once the craft tilts, which is precisely when the flat table goes singular.
+This is the TRIAD complement working as designed.
+
+**Corrections to earlier entries below.** Table 5 was never dead; it is a
+vertical table read while level. And the "parallax" inference about table 4
+rested on table 5 not moving during a translation, which a binary table would
+not do anyway - so whether table 4 points at north or at spawn is **undecided**
+and comes down to what item is in it.
+
+**Plan:** `nav4` for hover heading (`NAV_NAME = "navigation_table_4"`), one
+vertical table for TRIAD through the transition, remove `nav6`. `HDG_OFFSET`
+for nav4 still needs the item identified and one north-facing reading.
+
+**Table 5 is dead; table 4 is a compass to spawn** (superseded, see above)
 ([data/probe-run7-yawed.txt](data/probe-run7-yawed.txt)). A quarter-turn yaw
 moved table 4 by 98.8 degrees and table 5 by exactly zero, on top of table 5
 also ignoring a 38-block translation. A reading that responds to neither
