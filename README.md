@@ -56,6 +56,8 @@ With more than one `vector_thruster` fitted, `fly` loads `lib/mixer.lua` and ref
 
 Each thruster call is a main-thread task (one game tick); written one after another, four thrusters cost four ticks and the loop measured 0.25 s per iteration. The mixer therefore issues every write from its own coroutine under `parallel.waitForAll`, so CC runs them in the same tick, and skips writes whose value has not changed by more than 1e-3. `HDG_EVERY` thins the nav-table read to every Nth iteration for the same reason; `preflight` prints the measured cost of every call the loop makes.
 
+`fly go 100 100 100` flew 130 blocks, braked and held within 4 (2026-09-10) but cruised at only 3.6 b/s: the speed loop was P-only. It now has an integrator (`CKI`) and a 20 b/s target, and the hover feed-forward is scaled by 1/cos(tilt) in dash/brake so the altitude loop is not left to discover the extra thrust a lean needs. Lean is capped at `CRUISE_DEG = 72`: hover is 0.27 of full power, so 74° is where full throttle only just holds altitude.
+
 First quad flights (2026-09-10, all at 0.25 s/iteration): `diff` - signs and authority fine, pitch rang at a steady ±10° / 2.5 s, then at 1 Hz once KD went up. `vector` with the same gains - divergent at 2.5 s, saturated the nozzles and tumbled at 14 s: stronger torque, same delay. The delay was the thruster writes, hence the batching above. With batching the loop measured 0.100 s/iteration and the same gains held ±1.7° over a 24 s climb in `both` mode ([log](logs/flights/2026-09-10-quad-find03-both-batched.csv)). Measured call costs on airframe 1: Avionics sensors 0 ms, every thruster setter 50 ms, every Sable call 50 ms ([preflight](data/preflight-airframe1-callcosts.txt)).
 
 `MIX_GAIN` scales the PID output into differential demand (the mixer then caps it at `PITCH_AUTH`/`ROLL_AUTH` = 25 % of range), and `MIX_P_SIGN`/`MIX_R_SIGN` flip an axis if it diverges. The flightlog's `vx,vy` columns carry the differential pitch/roll demand in `diff` mode and the nozzle vector otherwise; `sat` is 1 when the mixer ran out of range and traded lift for attitude. The thruster FE buffer is summed across all four; `kill` stops all of them.
@@ -263,7 +265,7 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 |---|---|
 | `CRUISE_DEG` | Max lean during cruise. |
 | `CRUISE_SPEED` | Target closing speed in b/s. |
-| `CKV` | Degrees of lean per b/s of velocity error. |
+| `CKV`, `CKI` | Degrees of lean per b/s of velocity error, and deg/s per b/s for the integrator that removes the drag steady-state error. |
 | `BRAKE_K` | Brake distance = `BRAKE_K * speed^2 / 10`. |
 | `ARRIVE` | Blocks from target at which cruise hands over to brake regardless of speed. |
 

@@ -14,7 +14,7 @@ local CFG = {
   -- cannot outrun that. Loop trimmed to one gimbal read and a nav read every
   -- HDG_EVERY iterations; KD pulled back to the middle.
   KP_HOVER = 0.010, KI_HOVER = 0.001, KD_HOVER = 0.015,
-  KP_DASH  = 0.020, KI_DASH  = 0.003, KD_DASH  = 0.020,
+  KP_DASH  = 0.010, KI_DASH  = 0.001, KD_DASH  = 0.015,   -- = hover gains until the quad proves otherwise
   SCHED_LO = 10, SCHED_HI = 40,       -- deg: all-hover below LO, all-dash above HI
   IMAX = 0.4,
   VEC_MAX = 1.0,                      -- full nozzle authority
@@ -81,7 +81,7 @@ local CFG = {
   CLIMB_POWER = 0.9,                  -- throttle on the way up
   CLIMB_RATE = 10,                    -- b/s target climb rate
   DASH_DIR = -1,
-  DASH_POWER = 0.25,
+  DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
   TILT_RATE = 60,                     -- deg/s: how fast tilt targets may move
 
   -- brake: pitch the other way to kill forward speed
@@ -91,9 +91,14 @@ local CFG = {
   BRAKE_EASE = 4,                     -- b/s over which brake tilt ramps to full
 
   -- go mode
-  CRUISE_DEG = 70,                    -- max lean during cruise
-  CRUISE_SPEED = 8,                  -- b/s target closing speed
+  -- Lean is bounded by thrust: holding altitude at tilt T needs HOVER / cos T
+  -- of full power, and HOVER is 0.27, so 74 deg is the absolute ceiling and
+  -- 72 leaves a sliver for the altitude loop. 80 would sink.
+  CRUISE_DEG = 72,                    -- max lean during cruise
+  CRUISE_SPEED = 20,                  -- b/s target closing speed
   CKV = 3,                            -- deg of lean per b/s of velocity error
+  CKI = 1.5,                          -- deg/s of lean per b/s of velocity error: P alone settled at
+                                      -- 3.6 b/s for an 8 b/s target (2026-09-10); this closes the gap
   BRAKE_K = 1.0,                      -- brake distance = K * speed^2 / 10
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
@@ -632,6 +637,7 @@ local function controlLoop()
   local trimP, trimR = 0, 0
   local phase = (mode == "dash" or mode == "go" or mode == "dock") and "climb" or mode
   local tpS, trS = 0, 0    -- rate-limited tilt targets
+  local cruiseIF, cruiseIL = 0, 0   -- go-mode speed integrators (deg of lean)
   local dashStart, brakeStart = nil, nil
   local alignStart, captureStart, released = nil, nil, false
   local alignBad = 0
@@ -750,7 +756,12 @@ local function controlLoop()
         -- climb hard, but ease off as the climb rate reaches target
         pwr = CFG.CLIMB_POWER - CFG.AKD * (v - CFG.CLIMB_RATE)
       end
-      if phase == "dash" or phase == "brake" then pwr = pwr + CFG.DASH_POWER end
+      if phase == "dash" or phase == "brake" then
+        -- leaning tips the thrust over: scale the hover feed-forward by
+        -- 1 / cos(tilt) so the altitude loop is not left to find it
+        local ct = math.cos(math.rad(a[1])) * math.cos(math.rad(a[2]))
+        pwr = pwr + CFG.HOVER * (1 / math.max(ct, 0.25) - 1) + CFG.DASH_POWER
+      end
       if phase == "capture" then pwr = pwr - CFG.DOCK_SINK end
       if phase == "docked" then pwr = 0 end
     end
@@ -768,10 +779,17 @@ local function controlLoop()
       local r = math.rad(hdg)
       local wantF = CFG.CRUISE_SPEED * (ux * math.sin(r) - uz * math.cos(r))
       local wantL = CFG.CRUISE_SPEED * (ux * math.cos(r) + uz * math.sin(r))
-      tp = CFG.PITCH_DIR * CFG.CKV * (wantF - fwdSpeed())
-      tr = CFG.ROLL_DIR * CFG.CKV * (wantL - latSpeed())
+      local eF, eL = wantF - fwdSpeed(), wantL - latSpeed()
+      tp = CFG.PITCH_DIR * (CFG.CKV * eF + cruiseIF)
+      tr = CFG.ROLL_DIR * (CFG.CKV * eL + cruiseIL)
       local mag = math.sqrt(tp * tp + tr * tr)
-      if mag > dashDeg then tp, tr = tp * dashDeg / mag, tr * dashDeg / mag end
+      if mag > dashDeg then
+        tp, tr = tp * dashDeg / mag, tr * dashDeg / mag
+      else
+        -- integrate only while unsaturated (anti-windup)
+        cruiseIF = clamp(cruiseIF + CFG.CKI * eF * dt, dashDeg)
+        cruiseIL = clamp(cruiseIL + CFG.CKI * eL * dt, dashDeg)
+      end
     elseif phase == "dash" then
       tp = CFG.DASH_DIR * dashDeg
     elseif phase == "brake" then
