@@ -56,9 +56,12 @@ the standard rotate maths return its input unchanged, so the "body axes map
 cleanly onto world axes" reading in that run is an artifact and proves nothing.
 `probe.lua` now checks the norm and says so loudly.
 
-Next: read `getLastPose()` as well (probe now prints both), and read again
-while the contraption is actually **moving**, in case the pose is only
-populated once physics has run.
+Next: `probe log 30` while the craft is **moving**. It samples position,
+quaternion with its norm, GPS, both velocities and `getLastPose` twice a
+second into `probelog.csv` and pushes it. Motion is what answers both open
+questions: whether the quaternion populates once physics has run, and whether
+`pose.position` tracks GPS (world with an offset) or stays put (something
+else entirely).
 
 **Sub-levels live in Sable's plot grid, far from the world.** `rotationPoint`
 and `getCenterOfMass()` both returned about 20,481,033 / 127 / 20,489,224, so

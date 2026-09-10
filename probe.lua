@@ -7,9 +7,15 @@
 --   probe save       one snapshot, written to probe.txt and pushed to the repo
 --                    (terminals cannot be copied out of, so this is how the
 --                     output gets somewhere readable)
+--   probe log [secs] sample everything for N seconds (default 30) into
+--                    probelog.csv and push it. MOVE THE CRAFT during this:
+--                    a stationary sample cannot tell us what frame the pose is
+--                    in, nor whether the quaternion populates under motion.
 
 local WATCH = arg[1] == "watch"
 local SAVE  = arg[1] == "save"
+local LOG   = arg[1] == "log"
+local LOGSECS = tonumber(arg[2]) or 30
 
 -- Tee every print into a buffer when saving, so the file matches the screen.
 local buf = {}
@@ -228,7 +234,70 @@ local function snapshot()
   end
 end
 
-if WATCH then
+--- Sample the moving values into a CSV. One row per sample, so the frame
+-- question is answerable: if pose.position tracks gps as the craft moves, it
+-- is world with an offset; if it does not move at all, it is something else.
+local function logRun(secs)
+  local rows = {}
+  rows[1] = "t,px,py,pz,qx,qy,qz,qw,qnorm,gx,gy,gz,lvx,lvy,lvz,avx,avy,avz,lpx,lpy,lpz,lqw"
+  local t0 = os.clock()
+  local n = 0
+  print(string.format("logging for %ds - MOVE THE CRAFT NOW", secs))
+  while os.clock() - t0 < secs do
+    local t = os.clock() - t0
+    local okp, pose = pcall(sublevel.getLogicalPose)
+    local okl, last = pcall(sublevel.getLastPose)
+    local okv, lv = pcall(sublevel.getLinearVelocity)
+    local oka, av = pcall(sublevel.getAngularVelocity)
+    local gx, gy, gz = gps.locate(0.5)
+
+    local p = (okp and type(pose) == "table" and pose.position) or {}
+    local q = (okp and type(pose) == "table" and pose.orientation) or {}
+    local lp = (okl and type(last) == "table" and last.position) or {}
+    local lq = (okl and type(last) == "table" and last.orientation) or {}
+    lv = (okv and type(lv) == "table") and lv or {}
+    av = (oka and type(av) == "table") and av or {}
+    local qn = (q.x or 0)^2 + (q.y or 0)^2 + (q.z or 0)^2 + (q.w or 0)^2
+
+    n = n + 1
+    rows[n + 1] = string.format(
+      "%.2f,%.4f,%.4f,%.4f,%.5f,%.5f,%.5f,%.5f,%.5f,%s,%s,%s,%.4f,%.4f,%.4f,%.5f,%.5f,%.5f,%.4f,%.4f,%.4f,%.5f",
+      t, p.x or 0, p.y or 0, p.z or 0,
+      q.x or 0, q.y or 0, q.z or 0, q.w or 0, qn,
+      gx and string.format("%.4f", gx) or "", gy and string.format("%.4f", gy) or "",
+      gz and string.format("%.4f", gz) or "",
+      lv.x or 0, lv.y or 0, lv.z or 0, av.x or 0, av.y or 0, av.z or 0,
+      lp.x or 0, lp.y or 0, lp.z or 0, lq.w or 0)
+
+    if n % 10 == 0 then
+      print(string.format("  %4.1fs  pos %.1f %.1f %.1f  qnorm %.3f  n=%d",
+        t, p.x or 0, p.y or 0, p.z or 0, qn, n))
+    end
+    sleep(0.5)
+  end
+
+  local f = fs.open("probelog.csv", "w")
+  f.write(table.concat(rows, "\n") .. "\n")
+  f.close()
+  print(string.format("wrote probelog.csv, %d samples", n))
+  if fs.exists("upload.lua") and http then
+    print("pushing...")
+    local ok, err = pcall(function()
+      if shell then return shell.run("upload", "sync", "probelog.csv", "data/probelog.csv") end
+      return os.run({}, "upload.lua", "sync", "probelog.csv", "data/probelog.csv")
+    end)
+    if not ok then print("push failed: " .. tostring(err)) end
+  else
+    print("no upload.lua or no http - copy probelog.csv off manually")
+  end
+end
+
+if LOG then
+  if not has("sublevel") then error("sublevel API missing", 0) end
+  snapshot()
+  print("")
+  logRun(LOGSECS)
+elseif WATCH then
   while true do
     term.clear() term.setCursorPos(1, 1)
     snapshot()
