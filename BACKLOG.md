@@ -361,6 +361,16 @@ immutable. Verified against the live API.
 
 ## Known issues
 
+**The two nav tables track different things** ([data/probe-run6-translated.txt](data/probe-run6-translated.txt)).
+Translating the craft 38 blocks without rotating it moved table 4 by 2.25
+degrees and table 5 by exactly zero. A north reference is infinitely far and
+cannot show parallax, so table 5 behaves like north and table 4 does not: its
+shift implies a fixed target about 965 blocks away. A plain compass in a nav
+table points at WORLD SPAWN, not north. Table 4 is therefore not a heading
+reference and its printed offset is meaningless. Table 5 reads 180 with the
+arrow north, so its internal forward is south and HDG_OFFSET = 180 - IF the
+180.00 is real rather than degenerate, which a quarter-turn yaw test decides.
+
 **Heading was hardcoded to zero on the new airframe.** `fly.lua` errored
 without velocity sensors, and even with that bypassed `heading()` tried
 motion-heading first (which needs those sensors) and then returned 0 because
