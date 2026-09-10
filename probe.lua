@@ -7,6 +7,9 @@
 --   probe save       one snapshot, written to probe.txt and pushed to the repo
 --                    (terminals cannot be copied out of, so this is how the
 --                     output gets somewhere readable)
+--   probe here <x> <y> <z>
+--                    compare pose and gps against YOUR F3 position. Use this
+--                    rather than trusting either source against the other.
 --   probe log [secs] sample everything for N seconds (default 30) into
 --                    probelog.csv and push it. MOVE THE CRAFT during this:
 --                    a stationary sample cannot tell us what frame the pose is
@@ -16,6 +19,11 @@ local WATCH = arg[1] == "watch"
 local SAVE  = arg[1] == "save"
 local LOG   = arg[1] == "log"
 local LOGSECS = tonumber(arg[2]) or 30
+local HERE  = arg[1] == "here" and {
+  x = tonumber(arg[2]), y = tonumber(arg[3]), z = tonumber(arg[4]) } or nil
+if HERE and not (HERE.x and HERE.y and HERE.z) then
+  error("usage: probe here <x> <y> <z>   (your F3 position)", 0)
+end
 
 -- Tee every print into a buffer when saving, so the file matches the screen.
 local buf = {}
@@ -121,21 +129,30 @@ local function snapshot()
   if pose.rotationPoint then print("  rotPoint   : " .. v3(pose.rotationPoint)) end
   if pose.scale then print("  scale      : " .. v3(pose.scale)) end
 
-  -- THE key question: is pose.position in world coordinates?
+  -- Which source is telling the truth? Comparing them against EACH OTHER only
+  -- says they disagree. Ground truth from F3 says which one is wrong.
   local gx, gy, gz = gps.locate(1)
-  if gx and pose.position then
-    local p = pose.position
-    local dx, dy, dz = p.x - gx, p.y - gy, p.z - gz
+  if gx then
     print(string.format("gps.locate   : %10.4f %10.4f %10.4f", gx, gy, gz))
-    print(string.format("pose - gps   : %10.4f %10.4f %10.4f", dx, dy, dz))
-    local off = math.sqrt(dx * dx + dz * dz)
-    if off < 4 then
-      print("  -> WORLD FRAME. pose.position can replace gps entirely.")
-    else
-      print("  -> NOT world frame (or a big offset). Do not drop gps yet.")
-    end
   else
-    print("gps.locate   : no fix (expected if hosts are down)")
+    print("gps.locate   : no fix")
+  end
+  if HERE then
+    print(string.format("your F3      : %10.4f %10.4f %10.4f", HERE.x, HERE.y, HERE.z))
+    local function err(label, p)
+      if not p then return end
+      local dx, dy, dz = p.x - HERE.x, p.y - HERE.y, p.z - HERE.z
+      local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+      print(string.format("  %-12s off by %7.2f %7.2f %7.2f   (%.1f blocks)%s",
+        label, dx, dy, dz, d, d < 4 and "  <- matches reality" or ""))
+    end
+    err("pose", pose.position)
+    if gx then err("gps", { x = gx, y = gy, z = gz }) end
+  elseif gx and pose.position then
+    local p = pose.position
+    print(string.format("pose - gps   : %10.4f %10.4f %10.4f", p.x - gx, p.y - gy, p.z - gz))
+    print("  (they disagree - run `probe here <x> <y> <z>` with your F3 position")
+    print("   to find out which one is wrong)")
   end
 
   -- A rotation quaternion must have unit norm. A null one silently behaves
@@ -292,7 +309,9 @@ local function logRun(secs)
   end
 end
 
-if LOG then
+if HERE then
+  snapshot()
+elseif LOG then
   if not has("sublevel") then error("sublevel API missing", 0) end
   snapshot()
   print("")

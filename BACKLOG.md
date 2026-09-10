@@ -46,6 +46,36 @@ iteration to 5.
 
 ## Measured in game
 
+### Settled: pose.position IS world frame, and GPS is broken
+
+Checked against ground truth at last, standing at F3 68 / 68 / 142
+([data/probe-run3-groundtruth.txt](data/probe-run3-groundtruth.txt)):
+
+| Source | Reading | Error vs F3 |
+|---|---|---|
+| `getLogicalPose().position` | 68.33 / 65.33 / 142.39 | 0.33 / -2.67 / 0.39, **2.7 blocks** |
+| `gps.locate()` | 92.74 / 97.00 / 118.69 | +24.7 / +29.0 / -23.3, **44.7 blocks** |
+
+Pose matches reality in x and z to within half a block; the 2.7 in y is just
+the computer block sitting below where the player stands. **GPS is out by 45
+blocks** and is the source that has been lying all along.
+
+That inverts several earlier conclusions here, all of which compared the pose
+against GPS and blamed the pose. `probe.lua` made the same mistake, so it now
+takes ground truth: `probe here <x> <y> <z>`.
+
+**So the drone should drop GPS and fly on `pose.position`.** It is accurate,
+needs no host array, costs one main-thread call, and cannot be knocked out by
+a chunk unloading at the volcano.
+
+**The GPS host array still needs fixing regardless**, because customers on the
+ground have no other way to locate themselves. It was rearranged once already
+and is still 45 blocks out, so check each host's coordinates against F3 for
+that exact block, and check no three are collinear.
+
+**Still dead: the orientation quaternion.** Norm 0 in every sample of every
+run. Attitude keeps coming from the gimbal sensor.
+
 First real run is saved at [data/probe-run1.txt](data/probe-run1.txt), taken on
 a bare test rig with no sensors fitted, sitting still.
 
