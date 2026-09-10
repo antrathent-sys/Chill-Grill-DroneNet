@@ -133,6 +133,14 @@ local CFG = {
                                       -- the altitude cascade finishes the climb underneath (feed-forward covers the lean)
   CRUISE_TILT_RATE = 20,              -- deg/s: lean target slew in cruise (TILT_RATE elsewhere); no twitching
   CRUISE_NO_BRAKE = true,             -- never lean against the direction of travel in cruise: coast, don't fight
+  -- Coordinated cruise: the sails are symmetric about one body plane and
+  -- want a single angle of attack, not a compound one. With CRUISE_COORD the
+  -- lean is applied along CRUISE_LEAN_AXIS only, the yaw hold points the
+  -- craft at the TARGET (bearing + YAW_OFFSET) rather than the current
+  -- course, and steering comes from yaw - like an aircraft. Lean is scaled
+  -- by cos(yaw error) so it does not push off sideways while still turning.
+  CRUISE_COORD = false,               -- flip on once fly spin shows the yaw loop is quick and clean
+  CRUISE_LEAN_AXIS = "pitch",         -- "pitch": nose/tail leads; "roll": a side leads
   HDG_CRUISE_ALPHA = 0.01,            -- per-iteration blend of the cruise heading (tau ~10 s at 10 Hz):
                                       -- the flat table's reading wanders with tilt, the craft's yaw does not
 
@@ -926,6 +934,11 @@ local function controlLoop()
       local r = math.rad(cruiseHdg)
       local cF = cWx * math.sin(r) - cWz * math.cos(r)
       local cL = cWx * math.cos(r) + cWz * math.sin(r)
+      if CFG.CRUISE_COORD then
+        -- one axis only; fade the lean in as the yaw comes onto the target
+        local k = math.max(0, math.cos(math.rad(yawErr)))
+        if CFG.CRUISE_LEAN_AXIS == "roll" then cF = 0 cL = cL * k else cL = 0 cF = cF * k end
+      end
       tp = CFG.PITCH_DIR * cF
       tr = CFG.ROLL_DIR * cL
       -- lean cap: speed-scheduled, altitude-protected
@@ -996,7 +1009,10 @@ local function controlLoop()
     if yawOK then
       local hdgUsed = (phase == "dash" or phase == "brake") and cruiseHdg or hdgNow
       local src = "hold"
-      if (phase == "dash" or phase == "brake") and speed > CFG.YAW_MIN_SPEED then
+      if phase == "dash" and CFG.CRUISE_COORD and (mode == "go" or mode == "dock") then
+        src = "target"
+        yawTgt = (math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) + CFG.YAW_OFFSET) % 360
+      elseif (phase == "dash" or phase == "brake") and speed > CFG.YAW_MIN_SPEED then
         src = "course"
         yawTgt = (math.deg(math.atan2(pos.vx, -pos.vz)) + CFG.YAW_OFFSET) % 360
       elseif spinDeg then
