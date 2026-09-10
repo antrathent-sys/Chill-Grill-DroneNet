@@ -46,7 +46,12 @@ the hull, and mean exactly the same thing at every attitude.
 | `s` | **starboard.** Completes a right-handed set, `s = t x n`. |
 
 In hover `t` points along world `Y`. In forward flight it tilts. Nothing about
-the names changes. Note that `n` is arbitrary but must be *chosen and marked on
+the names changes.
+
+**Concrete axes in code** (`lib/attitude.lua`): body `x = s`, body `y = t`,
+body `z = -n`, i.e. the nose is `-z`. Chosen so that the body frame is
+Minecraft-native (y up) and the identity quaternion means *level with the nose
+north*. Any other choice forces a base rotation into every calculation. Note that `n` is arbitrary but must be *chosen and marked on
 the build*, because the mixer signs depend on it.
 
 ### What this frame buys you

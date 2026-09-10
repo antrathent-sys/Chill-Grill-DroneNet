@@ -391,9 +391,26 @@ rested on table 5 not moving during a translation, which a binary table would
 not do anyway - so whether table 4 points at north or at spawn is **undecided**
 and comes down to what item is in it.
 
-**Plan:** `nav4` for hover heading (`NAV_NAME = "navigation_table_4"`), one
-vertical table for TRIAD through the transition, remove `nav6`. `HDG_OFFSET`
-for nav4 still needs the item identified and one north-facing reading.
+**The item is the true-north magnet** (Alex confirmed), so the world reference
+is the constant (0,0,-1) and no coordinates are needed. That also retires the
+compass-to-spawn worry entirely.
+
+**The TRIAD solver is written: `lib/attitude.lua`, 18 tests.** Three
+orthogonal tables recover north's direction in the body frame with a residual
+for agreement; gravity from the gimbal is the second reference; TRIAD gives the
+quaternion in closed form. Verified: 200 random orientations to under 0.1
+degree; north placed exactly along one table's normal still solves; junk fed
+to that degenerate table does not move the answer (its constraint is
+automatically satisfied, so it drops out rather than corrupting); a bad reading
+on a valid table IS flagged. Body frame is Minecraft-native, y up, nose -z, so
+identity means level and nose north - see FRAMES.md.
+
+**Next: mounting calibration.** The solver needs each table's normal and
+forward in body frame. nav4 is flat; nav5/7/8/9 are vertical in unknown
+orientations with unknown forward sign. The tumble data plus the gimbal can
+pin these down, and the gimbal's own two sign bits with them. Then
+`NAV_NAME` becomes a list of three and heading hold through the transition is
+real.
 
 **Table 5 is dead; table 4 is a compass to spawn** (superseded, see above)
 ([data/probe-run7-yawed.txt](data/probe-run7-yawed.txt)). A quarter-turn yaw

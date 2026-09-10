@@ -6,7 +6,7 @@ local BRANCH = "main"
 local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua", "preflight.lua",
                  "mixcal.lua",
                  "lib/chime.lua", "lib/db.lua", "lib/mission.lua",
-                 "lib/mixer.lua" }
+                 "lib/mixer.lua", "lib/attitude.lua" }
 
 -- Private repo? Put a GitHub token (fine-grained, read-only Contents scope on
 -- this repo only) in a file called .ghtoken on THIS computer. It is read here
