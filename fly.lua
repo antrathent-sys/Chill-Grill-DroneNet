@@ -137,6 +137,12 @@ local CFG = {
   -- 0.3, and vectoring torque scales with thrust, so attitude authority was
   -- a third of what was available exactly where the aero moment peaks.
   CRUISE_MIN_POWER = 0.6,             -- throttle floor in cruise
+  -- Vectoring torque is thrust x deflection: at zero throttle the attitude
+  -- loop has NO authority. Every departure log has pwr 0.00 just before the
+  -- trouble (the altitude loop cutting power while leaning 60-70 deg). Keep
+  -- enough thrust to steer whenever leaning; altitude can give, control not.
+  ATT_MIN_POWER = 0.25,               -- throttle floor whenever lean exceeds ATT_MIN_TILT
+  ATT_MIN_TILT = 15,                  -- deg
   ALT_LEAN_GAIN = 1.0,                -- deg of lean cap per block above goal (high -> lean more -> less lift)
   -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
   -- heading only splits the final lean into pitch and roll. 1290-block flight
@@ -766,6 +772,7 @@ local function controlLoop()
   local vWantS = 0          -- slew-limited vertical rate request
   local leanAtCap = false   -- cruise lean pinned at CRUISE_DEG (releases the throttle floor)
   local floorOn = false     -- cruise throttle floor engaged (hysteresis)
+  local floorLvl = 0        -- ramped floor level actually applied
   local lastPwr = CFG.HOVER -- last commanded throttle, for integrator anti-windup
   local a = gim.getAngles()
   local lp, lr = a[1], a[2]
@@ -957,10 +964,18 @@ local function controlLoop()
         if phase == "dash" and mode ~= "dash" then
           if floorOn and (e < -5 or v > 10 or (leanAtCap and e < -2)) then floorOn = false
           elseif not floorOn and e > -2 and v < 5 then floorOn = true end
-          if floorOn then pwr = math.max(pwr, CFG.CRUISE_MIN_POWER) end
+          -- ramp the floor in and out (0.3/s) so engaging or releasing it
+          -- is not a step the attitude loop has to absorb
+          floorLvl = floorLvl + clamp((floorOn and CFG.CRUISE_MIN_POWER or 0) - floorLvl, 0.3 * dt)
+          pwr = math.max(pwr, floorLvl)
         end
       end
       if phase == "capture" then pwr = pwr - CFG.DOCK_SINK end
+      -- attitude authority floor: never coast at zero thrust while leaning
+      if phase ~= "capture" and phase ~= "docked" then
+        local tiltA = math.sqrt(a[1] * a[1] + a[2] * a[2])
+        if tiltA > CFG.ATT_MIN_TILT then pwr = math.max(pwr, CFG.ATT_MIN_POWER) end
+      end
       if phase == "docked" then pwr = 0 end
     end
 
