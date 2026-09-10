@@ -171,7 +171,11 @@ local CFG = {
   -- sails spun the craft up to 60 deg/s, the guard then disabled yaw for the
   -- flight and it corkscrewed for a minute. Yaw damping now runs at every
   -- lean (the gyro-integrated heading is safe there) and the guard only warns.
-  YAW_MAX = 0.9,                      -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
+  YAW_MAX = 0.9,                      -- demand clamp at hover (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
+  YAW_MAX_LEAN = 0.3,                 -- demand clamp above YAW_LEAN_HI of lean: the sweep flight thrashed
+                                      -- +-55 deg/s at 60-80 deg and tumbled; tangential deflection also
+                                      -- steals attitude authority exactly where it is scarcest
+  YAW_LEAN_LO = 20, YAW_LEAN_HI = 45, -- deg: clamp blends from YAW_MAX to YAW_MAX_LEAN across this band
   YAW_P_MAX = 0.8,                    -- cap on the heading term: equilibrium rate = (P_MAX - demand)/KD; 0.5 gave 15 deg/s
   YAW_SWEEP = 0,                      -- deg/s: rotate YAW_OFFSET continuously during cruise (drag-vs-yaw experiment,
                                       -- analyse with tools/yaw_sweep.py); 0 = off
@@ -681,7 +685,13 @@ else
     tgtZ = tonumber(arg[3]) or error("go needs x z")
     goal = tonumber(arg[4]) or (alt.getHeight() + 25)
     dashDeg = CFG.CRUISE_DEG
-    for i = 4, 5 do if arg[i] == "sweep" then CFG.YAW_SWEEP = 6 print("yaw sweep 6 deg/s during cruise") end end
+    for i = 4, 5 do
+      if arg[i] == "sweep" then
+        -- a calm measurement: moderate lean, slow rotation
+        CFG.YAW_SWEEP = 3 dashDeg = math.min(dashDeg, 45) CFG.LEAN_AT_0 = math.min(CFG.LEAN_AT_0, 45)
+        print("yaw sweep 3 deg/s during cruise, lean capped at 45")
+      end
+    end
   elseif arg[1] == "dock" then
     mode = "dock"
     if not CFG.DOCK_SIDE then error("dock needs CFG.DOCK_SIDE set") end
@@ -1060,7 +1070,11 @@ local function controlLoop()
       -- rate damping is the part we trust; the heading term is capped so a
       -- bad heading can never out-shout it
       local pTerm = clamp(CFG.YAW_KP * yawErr, CFG.YAW_P_MAX)
-      yawDem = clamp(CFG.YAW_SIGN * (pTerm - CFG.YAW_KD * pos.wy), CFG.YAW_MAX)
+      local tiltNow0 = math.sqrt(a[1] * a[1] + a[2] * a[2])
+      local sLean = clamp((tiltNow0 - CFG.YAW_LEAN_LO) / (CFG.YAW_LEAN_HI - CFG.YAW_LEAN_LO), 1)
+      sLean = math.max(0, sLean)
+      local yMax = CFG.YAW_MAX + sLean * (CFG.YAW_MAX_LEAN - CFG.YAW_MAX)
+      yawDem = clamp(CFG.YAW_SIGN * (pTerm - CFG.YAW_KD * pos.wy), yMax)
       local tiltNow = math.sqrt(a[1] * a[1] + a[2] * a[2])
       if tiltNow > CFG.YAW_TILT_MAX then yawDem = 0 end
       -- spin guard on the raw heading: more than YAW_ABORT_DEG in 2 s
