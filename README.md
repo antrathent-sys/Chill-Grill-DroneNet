@@ -265,7 +265,8 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 |---|---|
 | `CRUISE_DEG` | Max lean during cruise. |
 | `CRUISE_SPEED` | Target closing speed in b/s. |
-| `CKV`, `CKI` | Degrees of lean per b/s of velocity error, and deg/s per b/s for the integrator that removes the drag steady-state error. |
+| `CKV`, `CKI` | Degrees of lean per b/s of velocity error, and deg/s per b/s for the integrator that removes the drag steady-state error. Both act on the world-frame velocity error. |
+| `HDG_CRUISE_ALPHA` | Per-iteration blend of the heading used to split cruise lean into pitch/roll. The flat nav table's reading swings ±40° at 50° of tilt while the craft yaws a few degrees a minute, so cruise trusts a slow filter seeded when level. |
 | `BRAKE_K` | Brake distance = `BRAKE_K * speed^2 / 10`. |
 | `ARRIVE` | Blocks from target at which cruise hands over to brake regardless of speed. |
 

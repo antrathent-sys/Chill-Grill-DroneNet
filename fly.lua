@@ -96,9 +96,14 @@ local CFG = {
   -- 72 leaves a sliver for the altitude loop. 80 would sink.
   CRUISE_DEG = 72,                    -- max lean during cruise
   CRUISE_SPEED = 20,                  -- b/s target closing speed
-  CKV = 3,                            -- deg of lean per b/s of velocity error
-  CKI = 1.5,                          -- deg/s of lean per b/s of velocity error: P alone settled at
-                                      -- 3.6 b/s for an 8 b/s target (2026-09-10); this closes the gap
+  -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
+  -- heading only splits the final lean into pitch and roll. 1290-block flight
+  -- 2026-09-10: CKV 3 turned every 5 b/s wobble into 15 deg of lean and the
+  -- nav heading swung +-40 at 50 deg of tilt, scrambling body-frame integrators.
+  CKV = 1.5,                          -- deg of lean per b/s of velocity error
+  CKI = 0.5,                          -- deg/s of lean per b/s of velocity error (P alone left a drag offset)
+  HDG_CRUISE_ALPHA = 0.01,            -- per-iteration blend of the cruise heading (tau ~10 s at 10 Hz):
+                                      -- the flat table's reading wanders with tilt, the craft's yaw does not
   BRAKE_K = 1.0,                      -- brake distance = K * speed^2 / 10
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
@@ -637,7 +642,8 @@ local function controlLoop()
   local trimP, trimR = 0, 0
   local phase = (mode == "dash" or mode == "go" or mode == "dock") and "climb" or mode
   local tpS, trS = 0, 0    -- rate-limited tilt targets
-  local cruiseIF, cruiseIL = 0, 0   -- go-mode speed integrators (deg of lean)
+  local cruiseIx, cruiseIz = 0, 0   -- go-mode speed integrators, world frame (deg of lean)
+  local cruiseHdg = nil             -- slow-filtered heading used for the cruise split
   local dashStart, brakeStart = nil, nil
   local alignStart, captureStart, released = nil, nil, false
   local alignBad = 0
@@ -657,6 +663,14 @@ local function controlLoop()
     if iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1 then rawH = rawHeading() end
     a = gim.getAngles()
     local hdgNow = heading(a[1], a[2], rawH)
+    -- cruise heading: seeded level, then blended slowly (wrap-safe)
+    if phase == "dash" or phase == "brake" then
+      if not cruiseHdg then cruiseHdg = hdgNow end
+      local dh = ((hdgNow - cruiseHdg + 540) % 360) - 180
+      cruiseHdg = (cruiseHdg + CFG.HDG_CRUISE_ALPHA * dh) % 360
+    else
+      cruiseHdg = hdgNow
+    end
     if haveVelSensors then
       bodyF, bodyL = bodyVel(a[1], a[2])
     else
@@ -776,19 +790,23 @@ local function controlLoop()
       ex, ez = tgtX - pos.x, tgtZ - pos.z
       local d = math.max(math.sqrt(ex * ex + ez * ez), 0.001)
       local ux, uz = ex / d, ez / d
-      local r = math.rad(hdg)
-      local wantF = CFG.CRUISE_SPEED * (ux * math.sin(r) - uz * math.cos(r))
-      local wantL = CFG.CRUISE_SPEED * (ux * math.cos(r) + uz * math.sin(r))
-      local eF, eL = wantF - fwdSpeed(), wantL - latSpeed()
-      tp = CFG.PITCH_DIR * (CFG.CKV * eF + cruiseIF)
-      tr = CFG.ROLL_DIR * (CFG.CKV * eL + cruiseIL)
+      -- world-frame velocity error and integrator; heading enters only at
+      -- the split into pitch and roll, and a wrong heading there merely
+      -- rotates the lean, it cannot unwind the integrator
+      local eWx, eWz = CFG.CRUISE_SPEED * ux - pos.vx, CFG.CRUISE_SPEED * uz - pos.vz
+      local cWx, cWz = CFG.CKV * eWx + cruiseIx, CFG.CKV * eWz + cruiseIz
+      local r = math.rad(cruiseHdg)
+      local cF = cWx * math.sin(r) - cWz * math.cos(r)
+      local cL = cWx * math.cos(r) + cWz * math.sin(r)
+      tp = CFG.PITCH_DIR * cF
+      tr = CFG.ROLL_DIR * cL
       local mag = math.sqrt(tp * tp + tr * tr)
       if mag > dashDeg then
         tp, tr = tp * dashDeg / mag, tr * dashDeg / mag
       else
         -- integrate only while unsaturated (anti-windup)
-        cruiseIF = clamp(cruiseIF + CFG.CKI * eF * dt, dashDeg)
-        cruiseIL = clamp(cruiseIL + CFG.CKI * eL * dt, dashDeg)
+        cruiseIx = clamp(cruiseIx + CFG.CKI * eWx * dt, dashDeg)
+        cruiseIz = clamp(cruiseIz + CFG.CKI * eWz * dt, dashDeg)
       end
     elseif phase == "dash" then
       tp = CFG.DASH_DIR * dashDeg
