@@ -358,6 +358,10 @@ end
 local chime = { play = function() end, loop = function() while true do sleep(1) end end }
 if CFG.CHIME and fs.exists("lib/chime.lua") then
   local ok, lib = pcall(dofile, "lib/chime.lua")
+  -- attitude maths (gravity vector from the gimbal's projected angles)
+  local okA, libA = pcall(dofile, "lib/attitude.lua")
+  ATT = okA and type(libA) == "table" and libA or nil
+  if not ATT then print("WARNING: lib/attitude.lua missing - attitude errors fall back to raw gimbal angles") end
   if ok and lib then
     local spk = peripheral.find("speaker")
     if spk and lib.attach(spk) then chime = lib print("speaker: chimes on") end
@@ -776,6 +780,7 @@ local function controlLoop()
   local lastPwr = CFG.HOVER -- last commanded throttle, for integrator anti-windup
   local a = gim.getAngles()
   local lp, lr = a[1], a[2]
+  local gLast = nil         -- last body-frame down vector, for body rates
   local iter, rawH = 0, rawHeading()
   local ip, ir = 0, 0
   local trimP, trimR = 0, 0
@@ -1072,13 +1077,41 @@ local function controlLoop()
 
     -- gain schedule on total tilt
     local tilt = math.sqrt(a[1] * a[1] + a[2] * a[2])
+    if ATT then
+      local gB0 = ATT.gravityFromGimbal(a[1], a[2])
+      tilt = math.deg(math.acos(math.max(-1, math.min(1, -gB0.y))))   -- true lean
+    end
     local s = math.max(0, clamp((tilt - CFG.SCHED_LO) / (CFG.SCHED_HI - CFG.SCHED_LO), 1))
     local KP = CFG.KP_HOVER + s * (CFG.KP_DASH - CFG.KP_HOVER)
     local KI = CFG.KI_HOVER + s * (CFG.KI_DASH - CFG.KI_HOVER)
     local KD = CFG.KD_HOVER + s * (CFG.KD_DASH - CFG.KD_HOVER)
 
-    local ep, er = a[1] - tp, a[2] - tr
-    local dp, dr = (a[1] - lp) / dt, (a[2] - lr) / dt
+    -- Attitude error as the rotation between the measured and the target
+    -- down-vector in the body frame, and body rates from that vector's
+    -- motion. The gimbal's pitch/roll are PROJECTED angles: roll is
+    -- atan2(-gx, -gy), and at 65 deg of pitch gy is 0.42, so the same physical
+    -- roll reads 2.4x (3.9x at 75, 5.8x at 80). Using them raw multiplied the
+    -- second axis's loop gain with lean, which is why every departure began
+    -- as a roll runaway past ~65 deg (2026-09-10). Identical to a[1]-tp at
+    -- level; correct at any lean.
+    local ep, er, dp, dr
+    if ATT then
+      local gB = ATT.gravityFromGimbal(a[1], a[2])
+      local gT = ATT.gravityFromGimbal(tp, tr)
+      ep = math.deg(gB.y * gT.z - gB.z * gT.y)      -- about body x (pitch)
+      er = math.deg(gB.x * gT.y - gB.y * gT.x)      -- about body z (roll)
+      if gLast then
+        local gx, gy, gz = (gB.x - gLast.x) / dt, (gB.y - gLast.y) / dt, (gB.z - gLast.z) / dt
+        dp = math.deg(gy * gB.z - gz * gB.y)        -- (gdot x g).x
+        dr = math.deg(gx * gB.y - gy * gB.x)        -- (gdot x g).z
+      else
+        dp, dr = 0, 0
+      end
+      gLast = gB
+    else
+      ep, er = a[1] - tp, a[2] - tr
+      dp, dr = (a[1] - lp) / dt, (a[2] - lr) / dt
+    end
     lp, lr = a[1], a[2]
     ip = clamp(ip + KI * ep * dt, CFG.IMAX)
     ir = clamp(ir + KI * er * dt, CFG.IMAX)
