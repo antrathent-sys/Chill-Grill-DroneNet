@@ -1,0 +1,81 @@
+
+peripherals
+  ok   altitude_sensor present
+  ok   gimbal_sensor present
+  FAIL navigation_table MISSING - fly.lua will not start
+  ok   vector_thruster present
+  ok   modular_accumulator present
+  ok   docking_connector present
+
+velocity sensors
+  FAIL no velocity sensors - fly.lua will not start
+  FAIL FWD sensor velocity_sensor_0 NOT FOUND - check CFG names against the build
+  FAIL VRT sensor velocity_sensor_3 NOT FOUND - check CFG names against the build
+  FAIL LAT sensor velocity_sensor_1 NOT FOUND - check CFG names against the build
+
+sensor readings
+  ok   attitude 0.0 / -0.0 deg
+  ok   altitude 68.5
+
+position
+  ok   CC:Sable pose 68.33 65.31 142.39
+  WARN no GPS fix - fine for the drone, but customers cannot locate themselves
+
+energy
+  ok   accumulator at 100%
+  WARN thruster reports no FE buffer - check FUEL_MODE
+
+docking
+  WARN DOCK_SIDE not set in this script - dock/undock will refuse to run
+
+devices attached
+  bottom                   modem                    13 methods
+      callRemote close closeAll getMethodsRemote getNameLocal 
+      getNamesRemote getTypeRemote hasTypeRemote isOpen isPresentRemote 
+      isWireless open transmit 
+  modular_accumulator_7    modular_accumulator      7 methods
+      getCapacity getEnergy getHeight getMaxExtract getMaxInsert 
+      getPercent getWidth 
+  vector_thruster_8        vector_thruster          13 methods
+      getPower getTargetVectorX getTargetVectorY getThrust getVectorX 
+      getVectorY setPower setPowerNormalized setThrust setThrustNormalized 
+      setVector setVectorX setVectorY 
+  modular_accumulator_9    modular_accumulator      7 methods
+  vector_thruster_7        vector_thruster          13 methods
+  modular_accumulator_10   modular_accumulator      7 methods
+  modular_accumulator_8    modular_accumulator      7 methods
+  vector_thruster_6        vector_thruster          13 methods
+  vector_thruster_5        vector_thruster          13 methods
+  docking_connector_0      docking_connector        1 methods
+      getConnectedName 
+  createaddition:large_connector_1 createaddition:large_connector 2 methods
+      getEnergy getEnergyCapacity 
+  top                      modem                    13 methods
+  altitude_sensor_3        altitude_sensor          2 methods
+      getAirPressure getHeight 
+  gimbal_sensor_2          gimbal_sensor            2 methods
+      getAngles getAnglesRad 
+  -> 14 devices: altitude_sensor x1, createaddition:large_connector x1, docking_connector x1, gimbal_sensor x1, modem x2, modular_accumulator x4, vector_thruster x4
+
+capability check
+  ok   vector_thruster - 4 fitted
+  FAIL 4 thrusters fitted but fly.lua drives ONE - peripheral.find takes the first. Needs the mixer.
+  WARN 4 accumulators fitted but only the first is read - energy is understated
+  ok   altitude_sensor - altitude hold and the dock gap
+  ok   gimbal_sensor - attitude; still needed, the Sable quaternion reads null
+  FAIL velocity_sensor x3 MISSING - body-frame speed for brake and the dock align gate
+  ok   CC:Sable sublevel - position and velocity; 45x better than the GPS array here
+  ok   modular_accumulator - energy monitoring and range planning
+  ok   docking_connector - docking, and payload release
+  WARN speaker absent - flight chimes
+  ok   modem - telemetry and remote recall
+  WARN navigation_table absent - bearing to a lodestone target; heading no longer needs it
+
+files
+  ok   fly.lua present
+  ok   kill.lua present
+  ok   upload.lua present
+  WARN no .ghtoken - flight logs will not upload
+
+20 ok, 7 warnings, 7 failures
+DO NOT FLY until the failures are cleared.

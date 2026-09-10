@@ -177,10 +177,50 @@ Fitted: 4x `vector_thruster` (13 methods each), 4x `modular_accumulator`,
 2. **Four accumulators.** Only the first is read, so energy is understated to
    a quarter of the truth.
 
-Also worth noting the thrusters expose **13 methods**, well beyond the
-`setVector` / `setPowerNormalized` / `getEnergy` / `getEnergyCapacity` that the
-single-thruster code uses. `preflight` now prints method names per type, so the
-mixer can be written against what is actually there.
+### The thruster API, as measured
+
+Each `vector_thruster` exposes 13 methods
+([data/preflight-airframe2.txt](data/preflight-airframe2.txt)):
+
+```
+getPower  setPower  setPowerNormalized
+getThrust setThrust setThrustNormalized
+getVectorX getVectorY  getTargetVectorX getTargetVectorY
+setVector  setVectorX  setVectorY
+```
+
+Three things matter for the mixer, none of which the single-thruster code uses:
+
+- **`getThrust()` reads back real thrust.** So allocation can work in thrust
+  units rather than normalised power, and a thruster that is saturated, starved
+  or dead can be detected in flight rather than inferred from a crash.
+- **`getVectorX/Y` differs from `getTargetVectorX/Y`.** The nozzle slews toward
+  a commanded angle rather than snapping to it, so the actuator has lag. The
+  mixer can measure that lag instead of guessing, and the attitude loop should
+  be tuned against the actual vector, not the commanded one.
+- **`setVectorX` and `setVectorY` are separate**, so one axis can be commanded
+  without disturbing the other.
+
+Other APIs worth knowing: `modular_accumulator` has
+`getEnergy`/`getCapacity`/`getMaxExtract`/`getMaxInsert`, so the four can be
+summed for true pack energy instead of reading one percentage.
+`altitude_sensor` also has `getAirPressure`, which is the input to the
+thrust-versus-altitude question. `gimbal_sensor` has `getAnglesRad`, avoiding a
+conversion in the loop.
+
+**Both modems are wired** (`isWireless` false, 13 methods each). Wired rednet
+works across the dock but there is no air-to-ground link, so telemetry and
+remote recall need a wireless or ender modem fitted.
+
+### What the mixer still needs
+
+The airframe geometry: which of `vector_thruster_5/6/7/8` sits where relative
+to the centre of mass. Peripheral names carry no position, so this has to be
+measured. The honest way is a calibration routine that fires one thruster at a
+time at low power and records the angular response on the gimbal, deriving the
+mixing matrix from the airframe rather than from a diagram. That is how real
+multirotor firmware does motor mapping, and it removes any chance of a sign
+error. It does mean commanding thrusters, so it wants doing tethered or low.
 
 ## Known issues
 

@@ -287,7 +287,20 @@ want("CC:Sable sublevel", haveSable, "position and velocity; 45x better than the
 want("modular_accumulator", acc ~= nil, "energy monitoring and range planning", false)
 want("docking_connector", dockP ~= nil, "docking, and payload release", false)
 want("speaker", peripheral.find("speaker") ~= nil, "flight chimes", false)
-want("modem", peripheral.find("modem") ~= nil, "telemetry and remote recall", false)
+do
+  local wireless, wired = 0, 0
+  for _, m in ipairs({ peripheral.find("modem") }) do
+    local okw, w = pcall(m.isWireless)
+    if okw and w then wireless = wireless + 1 else wired = wired + 1 end
+  end
+  if wireless > 0 then
+    ok(string.format("wireless modem (%d wireless, %d wired) - telemetry and remote recall", wireless, wired))
+  elseif wired > 0 then
+    wrn(string.format("%d modem(s), all WIRED - no air-to-ground telemetry. Fit a wireless or ender modem.", wired))
+  else
+    wrn("no modem - no telemetry or remote recall")
+  end
+end
 want("navigation_table", nav ~= nil, "bearing to a lodestone target; heading no longer needs it", false)
 
 -- ---------- files ----------
