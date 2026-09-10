@@ -81,7 +81,7 @@ local CFG = {
                                       -- the craft yaws slowly, so heading tolerates being ~0.5 s stale)
   TUMBLE = 85,
   DASH_SETTLE = 3.0,                  -- transition this many blocks below goal
-  CLIMB_POWER = 0.9,                  -- throttle on the way up
+  CLIMB_POWER = 0.9,                  -- (legacy, unused: the climb phase runs the altitude cascade)
   -- Vertical rate request: as fast as the remaining distance can stop.
   -- 50 b/s reached in 5 s on 0.55 power (2026-09-10) but overshot 35 blocks:
   -- gravity here is ~10 b/s^2 (measured on the coast-down), so 50 b/s needs
@@ -136,6 +136,7 @@ local CFG = {
   YAW_KP = 0.005,                     -- yaw demand per deg of heading error
   YAW_KD = 0.03,                      -- yaw demand per deg/s of heading rate (Sable gives rad/s; converted)
   YAW_MAX = 0.12,                     -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
+  YAW_P_MAX = 0.05,                   -- cap on the heading term alone: the loop is a rate damper first
   YAW_SLEW = 10,                      -- deg/s: the held target walks toward the wanted heading, never jumps
   YAW_TILT_MAX = 55,                  -- deg: no yaw demand above this lean - the nav heading is junk there
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
@@ -721,9 +722,14 @@ local function controlLoop()
     if iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1 then rawH = rawHeading() end
     a = gim.getAngles()
     local hdgNow = heading(a[1], a[2], rawH)
-    -- cruise heading: seeded level, then blended slowly (wrap-safe)
+    -- cruise heading: complementary filter. Sable's yaw rate is integrated
+    -- every iteration (no lag when the craft really yaws), and the result is
+    -- pulled slowly toward the nav heading (no drift). A plain slow filter
+    -- lagged 120 deg behind a 12 deg/s yaw and the yaw hold chased it round
+    -- in circles (fly go 0 0 500, 2026-09-10).
     if phase == "dash" or phase == "brake" then
       if not cruiseHdg then cruiseHdg = hdgNow end
+      cruiseHdg = cruiseHdg + pos.wy * dt
       local dh = ((hdgNow - cruiseHdg + 540) % 360) - 180
       cruiseHdg = (cruiseHdg + CFG.HDG_CRUISE_ALPHA * dh) % 360
     else
@@ -833,10 +839,9 @@ local function controlLoop()
       vWantS = vWantS + clamp(vWant - vWantS, CFG.VRATE_SLEW * dt)      -- ramp, never step
       if math.abs(vWant) < CFG.INTEG_BAND then integ = clamp(integ + CFG.AKI * e * dt, 0.3) end
       pwr = CFG.HOVER + integ + CFG.AKD * (vWantS - v)
-      if phase == "climb" then
-        -- climb hard, but ease off as the climb rate reaches target
-        pwr = CFG.CLIMB_POWER - CFG.AKD * (v - CFG.CLIMB_RATE)
-      end
+      -- (the climb phase used to have its own full-throttle law here; with
+      -- CLIMB_RATE 100 it handed over to dash at 197 m still doing 60 b/s and
+      -- coasted to 348. The distance-aware cascade above covers it.)
       if phase == "dash" or phase == "brake" then
         -- leaning tips the thrust over: scale the hover feed-forward by
         -- 1 / cos(tilt) so the altitude loop is not left to find it
@@ -939,7 +944,10 @@ local function controlLoop()
       local want = ((yawTgt - yawTgtS + 540) % 360) - 180
       yawTgtS = (yawTgtS + clamp(want, CFG.YAW_SLEW * dt)) % 360
       yawErr = ((yawTgtS - hdgUsed + 540) % 360) - 180
-      yawDem = clamp(CFG.YAW_SIGN * (CFG.YAW_KP * yawErr - CFG.YAW_KD * pos.wy), CFG.YAW_MAX)
+      -- rate damping is the part we trust; the heading term is capped so a
+      -- bad heading can never out-shout it
+      local pTerm = clamp(CFG.YAW_KP * yawErr, CFG.YAW_P_MAX)
+      yawDem = clamp(CFG.YAW_SIGN * (pTerm - CFG.YAW_KD * pos.wy), CFG.YAW_MAX)
       local tiltNow = math.sqrt(a[1] * a[1] + a[2] * a[2])
       if tiltNow > CFG.YAW_TILT_MAX then yawDem = 0 end
       -- spin guard on the raw heading: more than YAW_ABORT_DEG in 2 s

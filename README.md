@@ -271,7 +271,7 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `CRUISE_SPEED` | Target closing speed in b/s. |
 | `CKV`, `CKI` | Degrees of lean per b/s of velocity error, and deg/s per b/s for the integrator that removes the drag steady-state error. Both act on the world-frame velocity error. |
 | `YAW_HOLD`, `YAW_SIGN`, `YAW_OFFSET`, `YAW_KP`, `YAW_KD`, `YAW_MAX`, `YAW_SLEW`, `YAW_TILT_MAX`, `YAW_MIN_SPEED`, `YAW_ABORT_DEG` | Yaw hold via tangential nozzle vectoring (four thrusters only). Cruise target = course + `YAW_OFFSET`; otherwise the heading at phase entry. The held target slews at `YAW_SLEW` deg/s toward the wanted one and no yaw is demanded above `YAW_TILT_MAX` of lean. Yaw rate from Sable's angular velocity, read in `posLoop`. A spin guard switches yaw hold off for the flight if the heading turns more than `YAW_ABORT_DEG` in 2 s. Logged as `yerr,yrate,ydem`. |
-| `HDG_CRUISE_ALPHA` | Per-iteration blend of the heading used to split cruise lean into pitch/roll. The flat nav table's reading swings ±40° at 50° of tilt while the craft yaws a few degrees a minute, so cruise trusts a slow filter seeded when level. |
+| `HDG_CRUISE_ALPHA` | Complementary filter for the cruise heading: Sable's yaw rate is integrated every iteration and the result is blended toward the nav heading at this rate per iteration. The flat nav table's reading swings ±40° at 50° of tilt, so cruise trusts the gyro short-term and the compass long-term. |
 | `BRAKE_K` | Brake distance = `BRAKE_K * speed^2 / 10`. |
 | `ARRIVE` | Blocks from target at which cruise hands over to brake regardless of speed. |
 
