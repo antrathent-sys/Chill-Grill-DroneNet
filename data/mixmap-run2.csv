@@ -1,0 +1,5 @@
+thruster,dpitch,droll,corner,thrust
+vector_thruster_5,-0.0354,0.0348,NO RESPONSE,0.00
+vector_thruster_6,-0.0345,-0.0351,NO RESPONSE,0.00
+vector_thruster_7,0.0403,-0.0389,NO RESPONSE,0.00
+vector_thruster_8,0.0331,0.0327,NO RESPONSE,0.00

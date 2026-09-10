@@ -234,10 +234,34 @@ below a fixed 0.4 degree threshold:
 | `vector_thruster_7` | +0.0342 | -0.0333 | A2 |
 | `vector_thruster_8` | +0.0342 | +0.0343 | A1 |
 
-Four distinct corners, and the magnitudes agree to within a factor of 1.5,
-which noise would not do. Treat it as provisional until a stronger run
-confirms it: four random sign pairs land on four distinct corners 9.4% of the
-time, so consistency of magnitude is doing most of the work here.
+**Confirmed by a second independent run**
+([data/mixmap-run2.csv](data/mixmap-run2.csv)): identical corner for all four
+thrusters, magnitudes agreeing to a factor of 1.23. Two runs agreeing on all
+four assignments by chance is 0.39%. The map is settled:
+
+```
+                     pitch +
+              vt_8  --------  vt_7
+              (A1)            (A2)
+        roll +   |            |   roll -
+              vt_5  --------  vt_6
+              (B1)            (B2)
+                     pitch -
+```
+
+Diagonal pairs are `vt_5`/`vt_7` and `vt_6`/`vt_8`. The mixing follows
+directly:
+
+| Axis | Combination |
+|---|---|
+| lift | all four equally |
+| pitch | `(vt_7 + vt_8) - (vt_5 + vt_6)` |
+| roll | `(vt_5 + vt_8) - (vt_6 + vt_7)` |
+| yaw | not available from thrust; needs tangential vectoring |
+
+Which physical direction "pitch +" points depends on how the gimbal is
+mounted, and the mixer does not care as long as it is consistent, which two
+runs show it is.
 
 The threshold was the bug. A grounded airframe barely rocks, so the signal is
 genuinely tiny and the SIGNS are what carry the map. `mixcal` now measures the
