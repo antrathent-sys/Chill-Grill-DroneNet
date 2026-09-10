@@ -3,11 +3,15 @@ brake, hold 0.7 blocks off at 200
 ([log](logs/flights/2026-09-11-quad-go-reverted-build.csv)). Two terminal
 actions share one descent primitive:
 
-- **`fly land [x z]`** - the primitive. Descend under the existing altitude
-  cascade (the rate law is already symmetric, `sqrt(2 * DECEL * e)` tapers
-  it), hold position with the normal hold loop the whole way down, touch
-  down when Sable vertical speed is ~0 while altitude has stopped falling
-  for ~0.5 s, then thrust to zero and stop the loop. Ground, no pad needed.
+- **`fly land [x z]`** - the primitive, and a mission ending in its own
+  right. Descend under the existing altitude cascade (the rate law is
+  already symmetric, `sqrt(2 * DECEL * e)` tapers it), hold position with
+  the normal hold loop the whole way down, touch down when Sable vertical
+  speed is ~0 while altitude has stopped falling for ~0.5 s, then thrust to
+  zero and stop the loop. No pad needed, so no magnet and **no recharge**:
+  it must shut the pump off and idle dead rather than hold thrust, print
+  the accumulator level, and warn if it is below what the trip home costs.
+  A landing site is a park or an abort, not a base.
 - **`fly drop <x> <z>`** - never lands. Arrive over the target, hold
   `DROP_ALT` above it until position and speed settle (reuse the dock
   align gate), drop redstone on `PAYLOAD_SIDE` so the barrel - its own
@@ -16,8 +20,10 @@ actions share one descent primitive:
   holds the barrel; a panic stop must not clear either.
 - **`fly dock`** - unchanged, used at the target pad or the home pad.
 
-Mission grammar once those work: `fly deliver <x> <z>` = go -> drop -> home
--> dock, and `fly home` = go to HOME -> dock. New CFG: `HOME_X`, `HOME_Z`,
+Three terminal states then: **drop** (never lands), **land** (ground,
+anywhere, no recharge), **dock** (pad, magnet, recharge). Mission grammar
+once those work: `fly deliver <x> <z>` = go -> drop -> home -> dock,
+`fly home` = go to HOME -> dock, and `fly land` ends wherever it is. New CFG: `HOME_X`, `HOME_Z`,
 `HOME_PAD_Y`, `DROP_ALT`, `PAYLOAD_SIDE`.
 
 Order of work, one flight each (see the revert note below): `land` on its
