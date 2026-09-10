@@ -107,8 +107,17 @@ local CFG = {
   -- 2026-09-10: 72 / 35 b/s ran lean to the cap, attitude overshot to 92,
   -- power saturated (no differential headroom left for attitude), altitude
   -- went and it tumbled. 60 deg needs 0.54 of full power to hold height.
-  CRUISE_DEG = 60,                    -- max lean during cruise
-  CRUISE_SPEED = 45,                  -- b/s target closing speed; the lean cap is the real limit
+  -- Lean is scheduled by speed: the sails carry the craft once it is moving
+  -- (45 b/s took 0.28 power, barely above hover), so the ballistic limit of
+  -- ~74 deg only applies at standstill. Allowed lean = LEAN_AT_0 at rest,
+  -- rising linearly to CRUISE_DEG at LEAN_FULL_SPD; pulled back by
+  -- ALT_PROTECT_GAIN deg per block once more than ALT_PROTECT below goal.
+  CRUISE_DEG = 75,                    -- max lean during cruise, at speed
+  LEAN_AT_0 = 50,                     -- deg allowed from standstill
+  LEAN_FULL_SPD = 60,                 -- b/s at which CRUISE_DEG is allowed
+  ALT_PROTECT = 15,                   -- blocks below goal before the lean cap is reduced
+  ALT_PROTECT_GAIN = 2,               -- deg of cap per block beyond ALT_PROTECT (floor 30)
+  CRUISE_SPEED = 500,                 -- b/s: not a limit, the lean cap is; the loop just leans to the cap
   -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
   -- heading only splits the final lean into pitch and roll. 1290-block flight
   -- 2026-09-10: CKV 3 turned every 5 b/s wobble into 15 deg of lean and the
@@ -136,10 +145,12 @@ local CFG = {
   -- initial error slewed at 20-45 deg/s mid-transition and tripped the guard.
   YAW_SIGN = 1,
   YAW_OFFSET = 0,                     -- deg between held heading and course in cruise
-  YAW_KP = 0.005,                     -- yaw demand per deg of heading error
-  YAW_KD = 0.03,                      -- yaw demand per deg/s of heading rate (Sable gives rad/s; converted)
-  YAW_MAX = 0.12,                     -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
-  YAW_P_MAX = 0.05,                   -- cap on the heading term alone: the loop is a rate damper first
+  -- 2026-09-10: with P capped at 0.05 the yaw sat 100 deg off the course all
+  -- cruise (lean was all roll, sails sideways). P/KD now settle at ~10 deg/s.
+  YAW_KP = 0.01,                      -- yaw demand per deg of heading error
+  YAW_KD = 0.02,                      -- yaw demand per deg/s of heading rate (Sable gives rad/s; converted)
+  YAW_MAX = 0.2,                      -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
+  YAW_P_MAX = 0.2,                    -- cap on the heading term alone
   YAW_SLEW = 10,                      -- deg/s: the held target walks toward the wanted heading, never jumps
   YAW_TILT_MAX = 55,                  -- deg: no yaw demand above this lean - the nav heading is junk there
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
@@ -899,13 +910,16 @@ local function controlLoop()
       local cL = cWx * math.cos(r) + cWz * math.sin(r)
       tp = CFG.PITCH_DIR * cF
       tr = CFG.ROLL_DIR * cL
+      -- lean cap: speed-scheduled, altitude-protected
+      local cap = math.min(dashDeg, CFG.LEAN_AT_0 + (dashDeg - CFG.LEAN_AT_0) * math.min(1, speed / CFG.LEAN_FULL_SPD))
+      if e > CFG.ALT_PROTECT then cap = math.max(30, cap - CFG.ALT_PROTECT_GAIN * (e - CFG.ALT_PROTECT)) end
       local mag = math.sqrt(tp * tp + tr * tr)
-      if mag > dashDeg then
-        tp, tr = tp * dashDeg / mag, tr * dashDeg / mag
+      if mag > cap then
+        tp, tr = tp * cap / mag, tr * cap / mag
       else
         -- integrate only while unsaturated (anti-windup)
-        cruiseIx = clamp(cruiseIx + CFG.CKI * eWx * dt, dashDeg)
-        cruiseIz = clamp(cruiseIz + CFG.CKI * eWz * dt, dashDeg)
+        cruiseIx = clamp(cruiseIx + CFG.CKI * eWx * dt, cap)
+        cruiseIz = clamp(cruiseIz + CFG.CKI * eWz * dt, cap)
       end
     elseif phase == "dash" then
       tp = CFG.DASH_DIR * dashDeg
