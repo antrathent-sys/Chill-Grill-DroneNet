@@ -50,13 +50,13 @@ With more than one `vector_thruster` fitted, `fly` loads `lib/mixer.lua` and ref
 
 | Mode | Attitude from | Nozzles | Calls/iter |
 |---|---|---|---|
-| `vector` (default) | all four nozzles vectored together, exactly like the single thruster | move every iteration | 4 (+4 when lift changes) |
-| `diff` | differential thrust across the corners | straight, set once | 4 |
-| `both` | differential and vectored, same signs | move every iteration | 8 |
+| `diff` | differential thrust across the corners | straight, set once | 1 tick |
+| `vector` | all four nozzles vectored together, exactly like the single thruster | move every iteration | 1 tick |
+| `both` (default) | differential and vectored, same signs | move every iteration | 1 tick |
 
-The mixer only writes a thruster's power or vector when it changed by more than 1e-3, so a mode that holds one of them still pays nothing for it. `HDG_EVERY` thins the nav-table read to every Nth iteration for the same reason; `preflight` prints the measured cost of every call the loop makes.
+Each thruster call is a main-thread task (one game tick); written one after another, four thrusters cost four ticks and the loop measured 0.25 s per iteration. The mixer therefore issues every write from its own coroutine under `parallel.waitForAll`, so CC runs them in the same tick, and skips writes whose value has not changed by more than 1e-3. `HDG_EVERY` thins the nav-table read to every Nth iteration for the same reason; `preflight` prints the measured cost of every call the loop makes.
 
-First quad flights (2026-09-10, `diff`): signs and authority fine, but pitch rang - steady ±10° at 2.5 s, then 1 Hz once KD went up - because the loop ran at 0.25 s/iteration. Vector mode is the A/B for the next flight: the gains were tuned for it on the single thruster, and the torque arm is longer.
+First quad flights (2026-09-10, all at 0.25 s/iteration): `diff` - signs and authority fine, pitch rang at a steady ±10° / 2.5 s, then at 1 Hz once KD went up. `vector` with the same gains - divergent at 2.5 s, saturated the nozzles and tumbled at 14 s: stronger torque, same delay. The delay was the thruster writes, hence the batching above.
 
 `MIX_GAIN` scales the PID output into differential demand (the mixer then caps it at `PITCH_AUTH`/`ROLL_AUTH` = 25 % of range), and `MIX_P_SIGN`/`MIX_R_SIGN` flip an axis if it diverges. The flightlog's `vx,vy` columns carry the differential pitch/roll demand in `diff` mode and the nozzle vector otherwise; `sat` is 1 when the mixer ran out of range and traded lift for attitude. The thruster FE buffer is summed across all four; `kill` stops all of them.
 

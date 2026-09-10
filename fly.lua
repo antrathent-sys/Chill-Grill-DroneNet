@@ -27,8 +27,9 @@ local CFG = {
   --            (4 peripheral calls per iteration, the vectors are cached)
   --   "vector" legacy: every nozzle vectored together like the one thruster
   --   "both"   differential AND vectored, same signs as above
-  MIX_MODE = "vector",                -- vector: the gains were tuned for it, and the nozzle-to-CoM
-                                      -- arm on a tail-sitter beats the corner offset. diff rang at 1 Hz.
+  MIX_MODE = "both",                  -- 2026-09-10 A/B at 0.25 s/iter: diff = steady +-10 deg wobble,
+                                      -- vector = divergent, tumbled at 14 s (stronger torque, same delay).
+                                      -- Thruster writes are now batched into one tick; flying "both".
   MIX_GAIN = 1.0,                     -- PID output (nozzle units) -> differential demand, before PITCH_AUTH.
                                       -- 1.0: steady +-10 deg / 2.5 s pitch wobble; 0.5: growing +-22 deg / 6 s.
                                       -- Lower stiffness made it WORSE, so the fix is in KI/KD, not here.

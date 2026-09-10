@@ -236,8 +236,7 @@ _G.peripheral = {
 }
 
 -- cooperative scheduler
-_G.parallel = {
-  waitForAny = function(...)
+local function scheduler(untilAll, ...)
     local fns = { ... }
     local cos, wake = {}, {}
     for i, f in ipairs(fns) do cos[i] = coroutine.create(f) wake[i] = T end
@@ -254,10 +253,13 @@ _G.parallel = {
       step(T)
       local ok, a = coroutine.resume(cos[best])
       if not ok then error(a, 0) end
-      if coroutine.status(cos[best]) == "dead" then return end
+      if coroutine.status(cos[best]) == "dead" and not untilAll then return end
       wake[best] = T + (tonumber(a) or 0)
     end
-  end,
+end
+_G.parallel = {
+  waitForAny = function(...) return scheduler(false, ...) end,
+  waitForAll = function(...) return scheduler(true, ...) end,
 }
 
 -- CC: Sable sublevel API stub, so probe.lua can be exercised. Position is

@@ -139,24 +139,40 @@ function mixer.vectors(d)
   return out
 end
 
---- Allocate and push to the hardware. One power call per thruster plus a
--- vector call whenever that thruster's vector changes.
+--- Allocate and push to the hardware.
+--
+-- Every thruster call is a main-thread task, i.e. one game tick, and four
+-- thrusters written one after another cost four ticks - the control loop
+-- measured 0.25 s per iteration that way, which is what made the attitude
+-- loop ring. Tasks queued from DIFFERENT coroutines run in the same tick, so
+-- each write is issued from its own coroutine under parallel.waitForAll and
+-- the whole set costs one tick. Writes whose value has not changed are
+-- skipped altogether.
 -- Returns thrusts, vectors, saturated.
+local unpack_ = unpack or table.unpack
 function mixer.write(d)
   local thrusts, sat = mixer.allocate(d)
   local vecs = mixer.vectors(d)
+  local jobs = {}
   for i, w in ipairs(wrapped) do
-    -- every call is a game tick, so write only what changed: power holds
-    -- still in vector mode at fixed lift, vectors hold still in diff mode
     local pw = thrusts[i] or 0
     if not w.lp or math.abs(w.lp - pw) > 1e-3 then
-      if pcall(w.p.setPowerNormalized, pw) then w.lp = pw end
+      jobs[#jobs + 1] = function()
+        if pcall(w.p.setPowerNormalized, pw) then w.lp = pw end
+      end
     end
     local x = vecs[i] and vecs[i].x or 0
     local y = vecs[i] and vecs[i].y or 0
     if not w.lv or math.abs(w.lv.x - x) > 1e-6 or math.abs(w.lv.y - y) > 1e-6 then
-      if pcall(w.p.setVector, x, y) then w.lv = { x = x, y = y } end
+      jobs[#jobs + 1] = function()
+        if pcall(w.p.setVector, x, y) then w.lv = { x = x, y = y } end
+      end
     end
+  end
+  if #jobs > 1 and parallel and parallel.waitForAll then
+    parallel.waitForAll(unpack_(jobs))
+  else
+    for _, j in ipairs(jobs) do j() end
   end
   return thrusts, vecs, sat
 end
