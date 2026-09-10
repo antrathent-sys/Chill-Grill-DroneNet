@@ -5,7 +5,7 @@
 local CFG = {
   HOVER = 0.27,                       -- quad: 0.3 still climbs ~7 b/s, 0.5 was the single thruster
   AKP = 0.03, AKI = 0.01, AKD = 0.1,
-  PMAX = 0.35,                        -- altitude P clamp
+  PMAX = 0.35,                        -- altitude P clamp near the goal (legacy; the rate cap below governs climbs)
 
   -- attitude gains, scheduled by tilt magnitude
   -- quad, 2026-09-10: KI 0.005 made the loop unstable at low stiffness (the
@@ -79,7 +79,8 @@ local CFG = {
   TUMBLE = 85,
   DASH_SETTLE = 3.0,                  -- transition this many blocks below goal
   CLIMB_POWER = 0.9,                  -- throttle on the way up
-  CLIMB_RATE = 10,                    -- b/s target climb rate
+  CLIMB_RATE = 10,                    -- b/s: climb-phase target, and the rate cap of the altitude hold
+                                      -- (fly 500 on 2026-09-10 crawled at 7 b/s because PMAX/AKD capped it at 3.5)
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
   TILT_RATE = 60,                     -- deg/s: how fast tilt targets may move
@@ -413,7 +414,7 @@ local function pump(on)
   end
 end
 -- forward (nose-axis) speed from the velocity sensor, positive = moving forward
-local pos = { x = 0, z = 0, vx = 0, vz = 0, t = 0, rej = 0, wy = 0 }   -- wy: world yaw rate, deg/s
+local pos = { x = 0, z = 0, vx = 0, vz = 0, vy = nil, t = 0, rej = 0, wy = 0 }   -- vy: Sable vertical speed; wy: world yaw rate, deg/s
 
 -- raw sensor reads, in the AIRFRAME's own (tilted) frame
 local sFwd = peripheral.wrap(CFG.FWD_NAME)
@@ -556,23 +557,23 @@ local function readPos()
     if not okp or type(pose) ~= "table" or not pose.position then return nil end
     -- Velocity comes straight from the physics engine rather than being
     -- differenced, so it carries none of the noise the GPS path had.
-    local vx, vz = 0, 0
+    local vx, vy, vz = 0, 0, 0
     local okv, lv = pcall(sublevel.getLinearVelocity)
-    if okv and type(lv) == "table" then vx, vz = lv.x or 0, lv.z or 0 end
-    return pose.position.x, pose.position.z, vx, vz
+    if okv and type(lv) == "table" then vx, vy, vz = lv.x or 0, lv.y or 0, lv.z or 0 end
+    return pose.position.x, pose.position.z, vx, vz, vy
   end
   local x, _, z = gps.locate(0.3)
-  return x, z, nil, nil
+  return x, z, nil, nil, nil
 end
 
 local function posLoop()
   while true do
-    local x, z, vx, vz = readPos()
+    local x, z, vx, vz, vy = readPos()
     local now = os.clock()
     if x then
       if vx then
         -- trusted velocity: take it, no outlier gate needed
-        pos.vx, pos.vz = vx, vz
+        pos.vx, pos.vz, pos.vy = vx, vz, vy or 0
         pos.x, pos.z, pos.t, pos.rej = x, z, now, 0
         -- yaw rate for the yaw hold: one more Sable call, in this coroutine
         -- so the control loop pays nothing. Treated as rad/s (unverified -
@@ -687,7 +688,10 @@ local function controlLoop()
     local t = os.clock()
     local dt = math.max(t - lastT, 0.05)
     local h = alt.getHeight()
-    local v = (h - lastH) / dt
+    -- Vertical speed from Sable when we have it: differenced altitude at
+    -- 10 Hz jumped between 0 and double whenever the sensor skipped a tick,
+    -- which slammed the throttle on and off (fly 500, 2026-09-10).
+    local v = (usingSable and pos.vy and pos.t > 0 and (t - pos.t) < 1.5) and pos.vy or (h - lastH) / dt
     lastH, lastT = h, t
 
     -- ONE gimbal read per iteration serves heading, body speed and the
@@ -799,8 +803,14 @@ local function controlLoop()
     local pwr, e = findP, 0
     if mode ~= "find" then
       e = goal - h
-      integ = clamp(integ + CFG.AKI * e * dt, 0.3)
-      pwr = CFG.HOVER + clamp(CFG.AKP * e, CFG.PMAX) + integ - CFG.AKD * v
+      -- The law HOVER + AKP*e + integ - AKD*v is a rate cascade: it asks for
+      -- a climb rate of (AKP/AKD)*e and damps toward it with AKD. Cap that
+      -- rate at CLIMB_RATE (not PMAX, which capped it at 3.5 b/s), and only
+      -- integrate when the rate request is not saturated, so a long climb
+      -- does not wind the integrator up and overshoot the top.
+      local vWant = clamp(CFG.AKP / CFG.AKD * e, CFG.CLIMB_RATE)
+      if math.abs(vWant) < CFG.CLIMB_RATE then integ = clamp(integ + CFG.AKI * e * dt, 0.3) end
+      pwr = CFG.HOVER + integ + CFG.AKD * (vWant - v)
       if phase == "climb" then
         -- climb hard, but ease off as the climb rate reaches target
         pwr = CFG.CLIMB_POWER - CFG.AKD * (v - CFG.CLIMB_RATE)
