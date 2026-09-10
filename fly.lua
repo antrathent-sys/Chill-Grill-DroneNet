@@ -211,10 +211,18 @@ local CFG = {
   YAW_TILT_MAX = 180,                 -- deg: lean above which yaw is not commanded (off)
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
   YAW_ABORT_DEG = 90,                 -- heading change in 2 s that counts as a spin
-  BRAKE_K = 0.3,                      -- brake distance = K * speed^2 / 10 (132 b/s stopped in ~575 blocks: ~15 b/s^2)
-  CRUISE_DECEL = 8,                   -- b/s^2 the cruise speed target plans for: v = min(CRUISE_SPEED, sqrt(2*DECEL*d)),
-                                      -- so a short leg never leans to the cap (a 125-block re-cruise did, and
-                                      -- ping-ponged dash/brake four times, 2026-09-10)
+  BRAKE_K = 0.12,                     -- backstop only: brake distance = K * speed^2 / 10
+  -- Continuous approach (2026-09-10): one controller from cruise to the
+  -- hold. Allowed speed at distance d is sqrt(2 * CRUISE_DECEL * d); the
+  -- along-track lean is CKV * (allowed - actual), positive to accelerate and
+  -- NEGATIVE up to BRAKE_DEG to decelerate, so lean tapers with distance by
+  -- construction and there is no brake phase to overshoot. The hold takes
+  -- over inside APPROACH_HOLD_DIST below APPROACH_HOLD_SPD. The old brake
+  -- phase remains only as a backstop (BRAKE_K small).
+  CRUISE_DECEL = 10,                  -- b/s^2 (132 b/s stopped in ~575 blocks: ~15 available)
+  APPROACH_HOLD_DIST = 30,            -- blocks
+  APPROACH_HOLD_SPD = 10,             -- b/s
+  ALT_LEAN_MAX = 10,                  -- deg: bound on the altitude-by-lean cap adjustment
   RECRUISE_DIST = 60,                 -- blocks: a brake that ends further out than this goes back to dash
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
@@ -861,6 +869,11 @@ local function controlLoop()
       phase = "brake" brakeStart = t enter("brake")
     elseif phase == "dash" and (mode == "go" or mode == "dock") then
       local d = math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2)
+      local gsNow = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
+      if d < CFG.APPROACH_HOLD_DIST and gsNow < CFG.APPROACH_HOLD_SPD then
+        phase = (mode == "dock") and "align" or "hold"
+        enter(phase)
+      end
       local f, l = fwdSpeed(), latSpeed()
       -- ground speed from Sable (the body-frame sensors are legacy); the old
       -- 40 b/s cap limited the brake point to 160 blocks and an 82 b/s
@@ -973,7 +986,10 @@ local function controlLoop()
         -- not all the attitude authority (full power leaves the mixer no
         -- differential headroom, which is how the 100 b/s departure went)
         local ct = math.cos(math.rad(a[1])) * math.cos(math.rad(a[2]))
-        pwr = pwr + CFG.HOVER * (1 / math.max(ct, 0.42) - 1) + CFG.DASH_POWER
+        -- in brake the sails already carry the craft: cap the feed-forward at
+        -- 1/cos 45 or it climbs 25 blocks while stopping
+        local ctFloor = (phase == "brake") and 0.71 or 0.42
+        pwr = pwr + CFG.HOVER * (1 / math.max(ct, ctFloor) - 1) + CFG.DASH_POWER
         -- throttle floor in cruise: altitude is trimmed by the lean cap
         -- instead. The floor yields whenever we are above the goal or still
         -- climbing hard (it once held 0.6 through the goal at 50 b/s and
@@ -1013,12 +1029,16 @@ local function controlLoop()
       local vCruise = math.min(CFG.CRUISE_SPEED, math.sqrt(2 * CFG.CRUISE_DECEL * d))
       local eWx, eWz = vCruise * ux - pos.vx, vCruise * uz - pos.vz
       local cWx, cWz = CFG.CKV * eWx + cruiseIx, CFG.CKV * eWz + cruiseIz
-      if CFG.CRUISE_NO_BRAKE and speed > 1 then
-        -- drop any component of the lean that points against the travel
-        -- direction: overspeed is bled off by drag, not by leaning back
+      if speed > 1 then
+        -- along-track component: braking lean is allowed (bounded by
+        -- BRAKE_DEG) so the approach decelerates continuously; the old
+        -- CRUISE_NO_BRAKE behaviour is kept for when we are UNDER the
+        -- allowed speed (never fight drag for a few b/s of overspeed)
         local along = (cWx * pos.vx + cWz * pos.vz) / speed
-        if along < 0 then
-          cWx, cWz = cWx - along * pos.vx / speed, cWz - along * pos.vz / speed
+        local limit = (speed > vCruise * 1.1) and -CFG.BRAKE_DEG or 0
+        if along < limit then
+          local fix = along - limit
+          cWx, cWz = cWx - fix * pos.vx / speed, cWz - fix * pos.vz / speed
         end
       end
       local r = math.rad(cruiseHdg)
@@ -1037,8 +1057,10 @@ local function controlLoop()
       -- lean cap: speed-scheduled, altitude-protected
       local cap = math.min(dashDeg, CFG.LEAN_AT_0 + (dashDeg - CFG.LEAN_AT_0) * math.min(1, speed / CFG.LEAN_FULL_SPD))
       if e > CFG.ALT_PROTECT then cap = math.max(30, cap - CFG.ALT_PROTECT_GAIN * (e - CFG.ALT_PROTECT)) end
-      -- altitude by lean: above the goal (e < 0) lean more, below it lean less
-      cap = clamp(cap - CFG.ALT_LEAN_GAIN * e, dashDeg)
+      -- altitude by lean: above the goal (e < 0) lean more, below it lean
+      -- less - bounded, it once added 25 deg to a low-speed leg and put the
+      -- craft past horizontal
+      cap = clamp(cap - clamp(CFG.ALT_LEAN_GAIN * e, CFG.ALT_LEAN_MAX), dashDeg)
       cap = math.max(30, cap)
       local mag = math.sqrt(tp * tp + tr * tr)
       leanAtCap = cap >= dashDeg - 0.5 and mag > cap
