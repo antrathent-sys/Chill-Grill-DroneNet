@@ -2,7 +2,8 @@
 -- fly <y> [x] [z]             -> hold Y, hold position or fly to x z
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
--- fly go <x> <z> [y] sweep    -> as go, but rotate the yaw offset 6 deg/s during cruise (drag-vs-yaw experiment)
+-- fly go <x> <z> y sweep [from] -> as go, but rotate the yaw offset 3 deg/s during cruise from <from> deg
+--                                (drag-vs-yaw experiment, lean capped at 45; analyse with tools/yaw_sweep.py)
 -- writes flightlog on the computer every run
 local CFG = {
   HOVER = 0.27,                       -- quad: 0.3 still climbs ~7 b/s, 0.5 was the single thruster
@@ -687,9 +688,10 @@ else
     dashDeg = CFG.CRUISE_DEG
     for i = 4, 5 do
       if arg[i] == "sweep" then
-        -- a calm measurement: moderate lean, slow rotation
+        -- a calm measurement: moderate lean, slow rotation, optional start offset
         CFG.YAW_SWEEP = 3 dashDeg = math.min(dashDeg, 45) CFG.LEAN_AT_0 = math.min(CFG.LEAN_AT_0, 45)
-        print("yaw sweep 3 deg/s during cruise, lean capped at 45")
+        CFG.YAW_OFFSET = (CFG.YAW_OFFSET + (tonumber(arg[i + 1]) or 0)) % 360
+        print(string.format("yaw sweep 3 deg/s during cruise from offset %.0f, lean capped at 45", CFG.YAW_OFFSET))
       end
     end
   elseif arg[1] == "dock" then

@@ -15,6 +15,10 @@ from collections import defaultdict
 
 def main(path, binDeg=15):
     rows = [r for r in csv.DictReader(open(path, encoding="utf-8")) if r["phase"] == "dash"]
+    # skip the acceleration after dash entry: those samples are slow at full
+    # lean and would make whatever bin they land in look draggy
+    t0 = float(rows[0]["t"]) if rows else 0
+    rows = [r for r in rows if float(r["t"]) - t0 >= 15]
     bins = defaultdict(list)
     for r in rows:
         vx, vz = float(r["vxw"]), float(r["vzw"])
