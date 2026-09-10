@@ -1194,7 +1194,11 @@ local function controlLoop()
       local hx, hz = gB.x, gB.z
       local hn = math.sqrt(hx * hx + hz * hz)
       if hn > 1e-3 then
-        local mx, mz = -hz / hn, -hx / hn            -- (pitch, roll) axis that changes lean magnitude
+        -- (pitch, roll) axis that changes lean magnitude. Signs from the
+        -- calibrated gimbal: nose-down is NEGATIVE pitch (g.z < 0), port is
+        -- positive roll (g.x < 0). A wrong pitch sign here drove the lean
+        -- magnitude the wrong way above ~45 deg (two flights, 2026-09-10).
+        local mx, mz = hz / hn, -hx / hn
         local along = cx * mx + cz * mz
         cx, cz = cx - along * mx + (Lm - Lt) * mx, cz - along * mz + (Lm - Lt) * mz
       end
