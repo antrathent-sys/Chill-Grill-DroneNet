@@ -93,6 +93,32 @@ calculation, and it is well behaved at every attitude including inverted.
 Attitude error for the inner loop is the error quaternion, whose vector part is
 the rotation error and feeds the controller directly. No angles anywhere.
 
+## Attitude without a working quaternion: two nav tables and the gimbal
+
+Neither Sable's `getLogicalPose().orientation` nor this build's nav table
+gives a quaternion. It can be built onboard instead.
+
+A navigation table targeting the north magnet reports the angle of world north
+projected into the table's own plane. One flat-mounted table plus the gimbal
+(gravity's direction in body frame) is two reference vectors, which is enough
+for full attitude, **except** when north lies along the table's normal: the
+projection collapses and the angle is undefined. For a flat table that is 90
+degrees of tilt, which is exactly the VTOL transition.
+
+**Two tables in orthogonal planes remove the singularity**, since both cannot
+be degenerate at once, and between them give the full north vector in body
+frame. With gravity from the gimbal that is two vectors known in both frames:
+the TRIAD problem, whose closed-form answer is a rotation matrix and hence a
+quaternion, valid at every attitude.
+
+| Airframe | Fit |
+|---|---|
+| hovering quad | one table, flat |
+| transitioning VTOL | two tables, one flat and one vertical, orthogonal |
+
+A third table adds nothing: north alone can never give rotation *about* north.
+Gravity supplies that axis, so the gimbal stays regardless.
+
 ## Which frame does each source report in?
 
 | Source | Frame | Notes |

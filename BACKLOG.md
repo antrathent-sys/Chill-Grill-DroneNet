@@ -302,6 +302,14 @@ target set in the table, and a lodestone is the way to set one.
 Otherwise the mixer's honest limit stands: **yaw rate damping yes, heading hold
 no.**
 
+**The way out is two nav tables in orthogonal planes plus the gimbal**, solved
+as TRIAD. That produces a real quaternion onboard from hardware already in the
+pack, and would restore heading hold, retire the `HDG_*` estimator, and make
+the quaternion-only attitude loop in FRAMES.md buildable without waiting on
+either mod. One flat table is enough for the hovering quad; the second,
+vertical one is what keeps it non-singular through a VTOL transition. Details
+in [FRAMES.md](FRAMES.md).
+
 `probe` now lists a peripheral's real method names before calling any of them,
 so a docs-versus-build mismatch shows up as a line of output rather than an
 error. Superseded reasoning follows.
