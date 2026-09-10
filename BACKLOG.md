@@ -1,10 +1,27 @@
-**Next: landing (2026-09-11).** Reverted build flies: 97 b/s, brake, hold
-0.7 blocks off at 200 ([log](logs/flights/2026-09-11-quad-go-reverted-build.csv)).
-Landing = descend from the hold to the ground under the altitude cascade
-(`CLIMB_RATE` symmetric, taper by `DECEL`), touchdown detect (Sable vertical
-speed ~0 with altitude not falling, or the dock connector), then thrust to
-zero. Reuse the dock mode's descend/capture states where they fit; a plain
-`fly land [x z]` first, pad docking after.
+**Next: landing and delivery (2026-09-11).** The reverted build flies: 97 b/s,
+brake, hold 0.7 blocks off at 200
+([log](logs/flights/2026-09-11-quad-go-reverted-build.csv)). Two terminal
+actions share one descent primitive:
+
+- **`fly land [x z]`** - the primitive. Descend under the existing altitude
+  cascade (the rate law is already symmetric, `sqrt(2 * DECEL * e)` tapers
+  it), hold position with the normal hold loop the whole way down, touch
+  down when Sable vertical speed is ~0 while altitude has stopped falling
+  for ~0.5 s, then thrust to zero and stop the loop. Ground, no pad needed.
+- **`fly drop <x> <z>`** - never lands. Arrive over the target, hold
+  `DROP_ALT` above it until position and speed settle (reuse the dock
+  align gate), drop redstone on `PAYLOAD_SIDE` so the barrel - its own
+  physics sub-level - falls free, confirm with a `getMass` step down, then
+  fly home. Two connectors: `DOCK_SIDE` holds the pad, `PAYLOAD_SIDE`
+  holds the barrel; a panic stop must not clear either.
+- **`fly dock`** - unchanged, used at the target pad or the home pad.
+
+Mission grammar once those work: `fly deliver <x> <z>` = go -> drop -> home
+-> dock, and `fly home` = go to HOME -> dock. New CFG: `HOME_X`, `HOME_Z`,
+`HOME_PAD_Y`, `DROP_ALT`, `PAYLOAD_SIDE`.
+
+Order of work, one flight each (see the revert note below): `land` on its
+own, then `drop` on its own, then chain them.
 
 **Reverted to the 6dfe25a flight code (end of 2026-09-10).** Everything after
 the 136 b/s flight - continuous/kinematic approach, thrust-axis heading rate,
