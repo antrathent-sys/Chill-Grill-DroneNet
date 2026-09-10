@@ -220,6 +220,8 @@ local CFG = {
   -- over inside APPROACH_HOLD_DIST below APPROACH_HOLD_SPD. The old brake
   -- phase remains only as a backstop (BRAKE_K small).
   CRUISE_DECEL = 10,                  -- b/s^2 (132 b/s stopped in ~575 blocks: ~15 available)
+  GRAV = 10,                          -- b/s^2, measured on a zero-throttle coast: braking lean = atan(decel / GRAV)
+  BRAKE_BACKSTOP_SPD = 15,            -- b/s: the old brake phase fires only if still faster than this inside 20 blocks
   APPROACH_HOLD_DIST = 30,            -- blocks
   APPROACH_HOLD_SPD = 10,             -- b/s
   ALT_LEAN_MAX = 10,                  -- deg: bound on the altitude-by-lean cap adjustment
@@ -879,9 +881,10 @@ local function controlLoop()
       -- 40 b/s cap limited the brake point to 160 blocks and an 82 b/s
       -- cruise ran straight through the target (2026-09-10)
       local fs = math.min(math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz), 150)
-      if d < math.max(CFG.ARRIVE, CFG.BRAKE_K * fs * fs / 10) then
+      if d < 20 and fs > CFG.BRAKE_BACKSTOP_SPD then
+        -- backstop only: the approach should have done this
         phase = "brake" brakeStart = t chime.play("brake")
-        print(string.format("brake at %.0f blocks, %.1f b/s", d, fs))
+        print(string.format("BACKSTOP brake at %.0f blocks, %.1f b/s", d, fs))
       end
     elseif phase == "brake" then
       -- done on TOTAL ground speed: this craft cruises largely sideways, and
@@ -1030,15 +1033,25 @@ local function controlLoop()
       local eWx, eWz = vCruise * ux - pos.vx, vCruise * uz - pos.vz
       local cWx, cWz = CFG.CKV * eWx + cruiseIx, CFG.CKV * eWz + cruiseIz
       if speed > 1 then
-        -- along-track component: braking lean is allowed (bounded by
-        -- BRAKE_DEG) so the approach decelerates continuously; the old
-        -- CRUISE_NO_BRAKE behaviour is kept for when we are UNDER the
-        -- allowed speed (never fight drag for a few b/s of overspeed)
+        -- Along-track: kinematics decide. The deceleration that stops us at
+        -- the hold radius is v^2 / 2d; the lean that produces it is
+        -- atan(decel / GRAV). When that exceeds what the cruise loop is
+        -- asking for, command it directly against the velocity (bounded by
+        -- BRAKE_DEG); otherwise keep the CRUISE_NO_BRAKE behaviour (never
+        -- fight drag for a few b/s of overspeed).
         local along = (cWx * pos.vx + cWz * pos.vz) / speed
-        local limit = (speed > vCruise * 1.1) and -CFG.BRAKE_DEG or 0
-        if along < limit then
-          local fix = along - limit
-          cWx, cWz = cWx - fix * pos.vx / speed, cWz - fix * pos.vz / speed
+        local dStop = math.max(d - CFG.APPROACH_HOLD_DIST, 1)
+        local aReq = speed * speed / (2 * dStop)
+        local brakeLean = 0
+        if aReq > CFG.CRUISE_DECEL * 0.5 then
+          brakeLean = math.min(CFG.BRAKE_DEG, math.deg(math.atan(aReq / CFG.GRAV)))
+        end
+        local want = -brakeLean
+        if along > want or (brakeLean == 0 and along < 0) then
+          local fix = along - (brakeLean > 0 and want or 0)
+          if brakeLean > 0 or along < 0 then
+            cWx, cWz = cWx - fix * pos.vx / speed, cWz - fix * pos.vz / speed
+          end
         end
       end
       local r = math.rad(cruiseHdg)
