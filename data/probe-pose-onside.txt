@@ -1,0 +1,42 @@
+================ CC: Sable probe ================
+isInPlotGrid : true   (0.050s)
+name / uuid  : - / 40747cf9-0151-48a7-8a08-09adc8d08dda
+getLastPose  : pos    66.1362    65.5927   104.8775
+               ori     0.0000     0.0000     0.0000 w=  0.0000  norm 0.0000 <<< NOT A ROTATION
+getLogicalPose call cost: 0.050s
+  position   :    66.1362    65.5927   104.8775
+  orientation:     0.0000     0.0000     0.0000 w=    0.0000
+  rotPoint   : 20481033.5014   127.8963 20489224.4995
+  scale      :     1.0000     1.0000     1.0000
+gps.locate   : no fix
+quat norm    : 0.0000 <<< NOT A ROTATION
+  orientation is degenerate - every axis reading below is meaningless.
+  try getLastPose(), and try again while the contraption is MOVING.
+quat yaw     :    0.00 deg   <- this is the yaw the gimbal cannot give
+quat p / r   :    0.00 /    0.00 deg
+gimbal p / r :  -89.52 /   89.96 deg
+  (if quat p/r and gimbal p/r disagree, the quaternion axis order differs
+   from what this script assumes - note the numbers and we can fix the mapping)
+navigation_table x3:
+  methods: getRelativeAngle getRelativeAngleRad
+  navigation_table_4     relAngle    85.47 deg
+                           if nose is north now: HDG_OFFSET = 274.5
+  navigation_table_5     relAngle     1.22 deg
+                           if nose is north now: HDG_OFFSET = 358.8
+  navigation_table_7     relAngle   164.97 deg
+                           if nose is north now: HDG_OFFSET = 195.0
+  two tables: tilt the craft and re-run to see which plane each is in
+attitude (TRIAD, 3 tables + gimbal):
+  heading    1.6 deg   tables agree to 0.00 deg   north.gravity 0.918 (gimbal model off here)
+  thrust axis in world: -1.00 +0.00 -0.03   quat -0.280 0.261 0.649 0.657
+  NOTE: gimbal beyond 45 deg - attitude here is UNVERIFIED (see BACKLOG)
+linear vel   :     0.0000     0.0000     0.0000   (0.050s)
+angular vel  :     0.0000     0.0000     0.0000
+global vel   :    -0.0000    -0.0002    -0.0000
+body axes in world coords (hover: the thrust axis should read ~0,1,0):
+  body +x ->     1.0000     0.0000     0.0000
+  body +y ->     0.0000     1.0000     0.0000
+  body +z ->     0.0000     0.0000     1.0000
+mass         : 66.00
+centre of mass: 20481033.5014   127.8963 20489224.4995
+alt sensor   : 65.6748   (pose.y - alt = -0.0821)
