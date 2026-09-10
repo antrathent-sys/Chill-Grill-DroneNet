@@ -81,12 +81,28 @@ base. All of them are queue edits.
 
 ## L1: mass feedforward
 
-Hover throttle must be computed from `sublevel.getMass()`, not held as a
-constant. A delivery drone changes mass in flight, and the moment the payload
-releases it will climb hard if the throttle is still trimmed for the loaded
-weight. Feedforward from measured mass makes the release a non-event, and the
-altitude integrator should be rescaled by the mass ratio at the same instant to
-kill the remaining transient.
+Hover throttle must be a feedforward from mass, not a constant. The drone
+climbs hard at release otherwise, because the throttle is still trimmed for the
+loaded weight.
+
+The catch is that the drone **cannot measure the loaded weight**. Docking adds a
+fixed constraint between two sub-levels rather than merging them, so
+`sublevel.getMass()` returns the drone alone even with a package attached. The
+total is therefore:
+
+```
+effective mass = sublevel.getMass() + (package mass, if attached)
+```
+
+The package mass comes from the depot in the mission assignment, and the
+attached flag comes from `getConnectedName()`. At release the package term
+drops out on its own, and the altitude integrator should be rescaled by the mass
+ratio at the same instant to kill the transient.
+
+The same applies to handling: a carried package shifts the combined centre of
+mass toward the connector and raises the inertia, so the attitude loop wants
+gain scheduling on the loaded state. The constraint is rigid, so at least the
+package cannot swing.
 
 This is the one place a higher-layer concern legitimately reaches into L1, and
 it is worth the exception.
@@ -106,10 +122,13 @@ Telemetry is advisory. The drone completes its mission with the radio dead.
 
 ## Payload
 
-A shulker box or a barrel, released by redstone. Loose items scatter on impact
-and despawn in five minutes; a container survives the fall and stays where it
-lands. Release is an `action` leg so that the mission layer can confirm it
-happened, by mass change, before flying home.
+The package is its own physics sub-level, carried on a docking connector.
+Release is an undock: drop the redstone, the fixed constraint is removed, and
+the package falls as an independent rigid body. Nothing despawns and nothing
+scatters.
+
+Release is an `action` leg, and it is confirmed by `getConnectedName()` going
+empty, never by having dropped the redstone. See [COMMAND.md](COMMAND.md).
 
 ## What not to do
 

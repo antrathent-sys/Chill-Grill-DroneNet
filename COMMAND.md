@@ -20,24 +20,41 @@ dimension. It is what makes "deliver to where I am standing" work. Leave it up.
 
 The drone should stop depending on it. The customers still do.
 
-## Packages: use shulker boxes, not barrels
+## Packages are physics sub-levels
 
-A shulker box keeps its inventory inside the item when broken. **A barrel does
-not** - break one and the contents drop on the depot floor, so an airdropped
-barrel arrives empty. Shulker boxes are the only sensible airdrop container.
+The package is **its own Sable sub-level**, a physics barrel carried on a
+docking connector, not an item in a bay. Release is an undock: the drone drops
+the redstone on its connector, the constraint is removed, and the package falls
+under physics as an independent rigid body.
 
-Assembly is a Create loop the depot drives:
+This is better than dropping an item in every way that matters. Nothing
+despawns, nothing scatters, the contents are real blocks in real inventories,
+and the "package" can be any contraption you like rather than one container.
 
-1. A deployer places an empty shulker box on the fill pad.
-2. The depot pushes the ordered items into it with the inventory peripheral.
-   Only a *placed* shulker exposes an inventory; the item form is opaque to CC.
-3. An anvil or a rename step stamps the order id onto the box.
-4. A deployer breaks it. Contents and name ride along in the item.
-5. The named shulker goes to the drone's payload bay.
+Consequences that shape the rest of this document:
 
-Step 3 is what makes package tracking real: the depot can call
-`getItemDetail()` on the drone's bay and confirm the right package is aboard
-before it launches.
+- **The two bodies stay separate.** Docking adds a *fixed constraint* between
+  two sub-levels, it does not merge them. So `sublevel.getMass()` on the drone
+  reports the **drone alone**, never the drone plus package.
+- **Rigid, not slung.** The constraint is fixed, so the package cannot swing.
+  The combined system is one rigid body for handling purposes, with a larger
+  inertia and a centre of mass shifted toward the connector.
+- **Delivery is confirmed by the connector, not by mass.** After release
+  `getConnectedName()` returns `""`. That is the delivery signal.
+
+Assembly is therefore a Physics Assembler loop, not an item-packing loop: build
+or stage the barrel contraption, fill its inventories, assemble it into a
+sub-level, and name it with the order id so `getName()` identifies it. The drone
+verifies the right package by reading `getConnectedName()` after capture and
+comparing it against the order.
+
+### Open questions for the first trials
+
+- Does a landed package sub-level survive chunk unload while it waits to be
+  collected? Test before promising deliveries to remote sites.
+- How much drop height does the barrel tolerate before it tips or takes damage?
+  That sets `dropAlt`, and it may argue for a low hover and a gentle release
+  rather than a true airdrop.
 
 ## Entities
 
@@ -47,18 +64,18 @@ before it launches.
 |---|---|---|
 | `placed` | received, not yet checked | `accepted`, `rejected` |
 | `accepted` | in range, in stock, drone available | `picking` |
-| `picking` | shulker being assembled | `ready`, `failed` |
+| `picking` | package contraption being built and assembled | `ready`, `failed` |
 | `ready` | package built, waiting for a drone | `loaded` |
-| `loaded` | aboard, id verified | `enroute` |
+| `loaded` | captured on the connector, name verified against the order | `enroute` |
 | `enroute` | mission dispatched | `delivered`, `returning` |
-| `delivered` | released at destination, confirmed by mass drop | `closed` |
+| `delivered` | released at destination, connector reports disconnected | `closed` |
 | `returning` | aborted in flight, package still aboard | `ready`, `failed` |
 | `rejected` | refused at intake, with a reason | terminal |
 | `failed` | needs a human | terminal |
 
-`delivered` is confirmed by the drone's mass dropping at the release point, not
-by having sent the redstone pulse. A pulse that fired into a jammed deployer is
-not a delivery.
+`delivered` is confirmed by `getConnectedName()` going empty at the release
+point, not by having dropped the redstone. A signal that failed to release a
+stuck connector is not a delivery.
 
 ### Drone
 
@@ -89,7 +106,7 @@ Every message is a table with a version and a type:
 | `order.status` | depot to client | `orderId`, `state`, `eta` |
 | `order.cancel` | client to depot | `orderId` |
 | `drone.telemetry` | drone to depot | position, leg, energy, mass, dock state |
-| `drone.assign` | depot to drone | `orderId`, the mission leg queue |
+| `drone.assign` | depot to drone | `orderId`, the mission leg queue, and the package `name` plus **`mass`**, since the drone cannot measure a docked package |
 | `drone.command` | depot to drone | `recall`, `abort`, `hold`, `resume` |
 | `drone.report` | drone to depot | `orderId`, `event`, detail |
 
@@ -146,14 +163,16 @@ needs a machine.
 | Customer out of range | reject at intake with the distance |
 | Drone loses link mid-flight | it flies the mission anyway, telemetry is advisory |
 | Capture fails on return | retry, then hold, then a human alert |
-| Release fires but mass does not drop | do not mark delivered, return with the package |
+| Release fires but the connector stays linked | do not mark delivered, retry, then return with the package |
 | Depot reboots mid-flight | rebuild from `orders.db`, re-adopt drones by telemetry |
 | Two depots answer a lookup | host one name; a second host is a config error, log it loudly |
 
 ## What not to do
 
 - Do not let a client message reach a drone without passing depot validation.
-- Do not mark an order delivered on a redstone pulse. Confirm by mass.
+- Do not mark an order delivered on a redstone pulse. Confirm with
+  `getConnectedName()`.
+- Do not assume `sublevel.getMass()` includes the package. It does not.
 - Do not put order state on the drone. The drone carries a mission; the depot
   owns the order.
 - Do not tear down the GPS array. The customers still need it.
