@@ -9,6 +9,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `fly.lua` | The controller. Four modes, see below. |
 | `kill.lua` | Panic stop: thruster power to 0, nozzle vector zeroed, all redstone outputs off, any electric motor stopped. |
 | `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed. |
+| `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
 | `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
 
@@ -255,7 +256,7 @@ Two facts, both read from source rather than docs.
 | `sublevel.getAngularVelocity()` | true angular rates |
 | `sublevel.getMass()`, `getCenterOfMass()`, `getInertiaTensor()` | full rigid-body properties |
 
-That replaces GPS with exact position, and the orientation quaternion carries **yaw**, which the gimbal sensor cannot report and which the whole `HDG_*` motion-heading estimator exists to work around. Run `probe.lua` on the pod to confirm the pose is world-frame and to see how the quaternion's pitch and roll line up with the gimbal, before changing any flight code.
+That replaces GPS with exact position, and the orientation quaternion carries **yaw**, which the gimbal sensor cannot report and which the whole `HDG_*` motion-heading estimator exists to work around. Run `probe.lua` on the pod to confirm the pose is world-frame and to pin down the quaternion direction and body-axis mapping, before changing any flight code. Run it once stationary and once at speed: the axis-mapping test needs real motion to resolve. The conventions it is checking against, and the open questions it answers, are in [FRAMES.md](FRAMES.md).
 
 ## Testing without the game
 

@@ -41,6 +41,20 @@ local function timed(f, ...)
   return os.clock() - t0, ok, a, b
 end
 
+-- rotate a body-frame vector into world by quaternion q (see FRAMES.md)
+local function toWorld(q, v)
+  local qx, qy, qz, qw = q.x or 0, q.y or 0, q.z or 0, q.w or 1
+  local tx = 2 * (qy * v.z - qz * v.y)
+  local ty = 2 * (qz * v.x - qx * v.z)
+  local tz = 2 * (qx * v.y - qy * v.x)
+  return { x = v.x + qw * tx + (qy * tz - qz * ty),
+           y = v.y + qw * ty + (qz * tx - qx * tz),
+           z = v.z + qw * tz + (qx * ty - qy * tx) }
+end
+local function conj(q) return { x = -(q.x or 0), y = -(q.y or 0), z = -(q.z or 0), w = q.w or 1 } end
+local function sub(a, b) return { x = a.x - b.x, y = a.y - b.y, z = a.z - b.z } end
+local function len(v) return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) end
+
 local gim = peripheral.find("gimbal_sensor")
 local alt = peripheral.find("altitude_sensor")
 local nav = peripheral.find("navigation_table")
@@ -114,6 +128,53 @@ local function snapshot()
   if okav then print("angular vel  : " .. v3(av)) end
   local okgv, gv = pcall(sublevel.getVelocity)
   if okgv then print("global vel   : " .. v3(gv)) end
+
+  -- ---- body axis mapping and quaternion direction ----
+  -- Assemble body velocity from the three sensors using their own getAxis()
+  -- labels, rotate it both ways, and see which matches the physics engine's
+  -- world velocity. That pins down the quaternion direction AND the axis map.
+  local vs = { peripheral.find("velocity_sensor") }
+  if #vs > 0 then
+    print("velocity sensors (Aeronautics body-axis labels):")
+    local body = { x = 0, y = 0, z = 0 }
+    for _, s in ipairs(vs) do
+      local nm = peripheral.getName(s)
+      local oka, ax = pcall(s.getAxis)
+      local okv2, vel = pcall(s.getVelocity)
+      ax = oka and ax or "?"
+      vel = okv2 and vel or 0
+      print(string.format("  %-20s axis=%s  vel=%8.3f", nm, tostring(ax), vel))
+      if ax == "x" or ax == "y" or ax == "z" then body[ax] = vel end
+    end
+    print("  assembled body velocity: " .. v3(body))
+    if okv and type(lv) == "table" and q then
+      local asWorld = toWorld(q, body)
+      local asBody  = toWorld(conj(q), body)
+      local eW, eB = len(sub(asWorld, lv)), len(sub(asBody, lv))
+      print("  body->world via q     : " .. v3(asWorld) .. string.format("  err %.3f", eW))
+      print("  body->world via q*    : " .. v3(asBody) .. string.format("  err %.3f", eB))
+      print("  sublevel linear vel   : " .. v3(lv))
+      if len(lv) < 0.3 then
+        print("  -> too slow to tell. Re-run this while MOVING at speed.")
+      elseif eW < eB * 0.5 then
+        print("  -> q rotates BODY -> WORLD, and the axis labels line up. Use toWorld(q,v).")
+      elseif eB < eW * 0.5 then
+        print("  -> q rotates WORLD -> BODY. Use the conjugate. Note this in FRAMES.md.")
+      else
+        print("  -> inconclusive: neither matches. Axis labels probably do not map")
+        print("     straight onto the pose frame. Record both vectors and we will")
+        print("     work out the permutation.")
+      end
+    end
+  end
+
+  -- where does each body axis point in the world right now?
+  if q then
+    print("body axes in world coords (hover: the thrust axis should read ~0,1,0):")
+    print("  body +x -> " .. v3(toWorld(q, { x = 1, y = 0, z = 0 })))
+    print("  body +y -> " .. v3(toWorld(q, { x = 0, y = 1, z = 0 })))
+    print("  body +z -> " .. v3(toWorld(q, { x = 0, y = 0, z = 1 })))
+  end
 
   local okm, mass = pcall(sublevel.getMass)
   local okc, com = pcall(sublevel.getCenterOfMass)
