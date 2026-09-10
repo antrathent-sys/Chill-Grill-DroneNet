@@ -209,10 +209,32 @@ pulled off when a flight is interesting. The depot stores a mission *summary*,
 not the trace.
 
 When the order book does grow too large, in rough order of effort: compact,
-then archive closed orders older than a season to a floppy in a disk drive
-(each adds 125 KB and mounts as `/disk`, `/disk1`, ...), then offload over
-`http` to something outside the game. The http route is already proven here,
-since `startup.lua` uses it.
+then archive closed orders to a disk drive, then offload over `http` to
+something outside the game. The http route is already proven here, since
+`startup.lua` uses it.
+
+**Put a computer in the disk drive, not a floppy.** A floppy mounts with the
+125,000 byte limit, but a computer or pocket computer item mounts with the
+*computer* limit of 1,000,000 - eight times the storage per drive, for a
+cheaper item. This is a real behaviour, not a trick: `MountMedia.COMPUTER` is
+backed by `computer_space_limit`.
+
+### What everyone else does
+
+Worth knowing, since it sets expectations. There is no standard CC database
+library; searching turns up only near-zero-star one-offs. Almost every CC
+program serializes one whole table to one file and rewrites it on every change.
+That is genuinely fine at small scale and you should not feel clever for
+avoiding it.
+
+It stops being fine here for two reasons: an order book grows without bound, so
+the rewrite cost grows with it, and a whole-table load has to fit in memory as
+well as on disk. The crossover is somewhere in the low hundreds of records. The
+built-in `settings` API is not an alternative - it is for configuration, keeps
+everything in memory, and only persists when you call `save()`.
+
+If the pack happens to include a database peripheral mod such as `cc-dbp-lite`,
+that gives real SQL and is worth using instead. Check before building more here.
 
 ## Dispatch policy
 
