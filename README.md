@@ -10,6 +10,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `kill.lua` | Panic stop: thruster power to 0, nozzle vector zeroed, all redstone outputs off, any electric motor stopped. |
 | `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed. |
 | `ARCHITECTURE.md` | The layer stack for the autonomous controller: control, leg, mission, link. Decided before the code. |
+| `COMMAND.md` | The ground side: order intake, package assembly, fleet dispatch, and the rednet protocol between depot and drone. |
 | `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
 | `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
@@ -36,7 +37,7 @@ The velocity sensors tilt with the airframe. With the vertical axis measured, th
 
 ### GPS hosts
 
-`fly` needs a GPS fix for every mode except `find`. Four computers with ender modems running `gps host` are set up at the volcano and must stay **chunk-loaded**. If the fix is lost, the position loop rejects updates after 5 bad samples and position hold stops leaning until the fix returns. Position hold is also disabled above `SPEED_GUARD` ground speed so a stale fix cannot command a big lean.
+`fly` needs a GPS fix for every mode except `find`. Four computers with ender modems running `gps host` are set up at the volcano and must stay **chunk-loaded**. CC: Sable can replace GPS *for the drone*, but not for customers: the `sublevel` API only answers on a sub-level, so a pocket computer on the ground still needs GPS to locate itself. Keep the array up. See [COMMAND.md](COMMAND.md). If the fix is lost, the position loop rejects updates after 5 bad samples and position hold stops leaning until the fix returns. Position hold is also disabled above `SPEED_GUARD` ground speed so a stale fix cannot command a big lean.
 
 ### Monitoring
 
