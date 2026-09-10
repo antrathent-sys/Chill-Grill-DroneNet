@@ -4,8 +4,24 @@
 --
 --   probe            one snapshot
 --   probe watch      refresh once a second until Ctrl+T
+--   probe save       one snapshot, written to probe.txt and pushed to the repo
+--                    (terminals cannot be copied out of, so this is how the
+--                     output gets somewhere readable)
 
 local WATCH = arg[1] == "watch"
+local SAVE  = arg[1] == "save"
+
+-- Tee every print into a buffer when saving, so the file matches the screen.
+local buf = {}
+local realPrint = print
+if SAVE then
+  print = function(...)
+    local parts = {}
+    for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+    buf[#buf + 1] = table.concat(parts, " ")
+    realPrint(...)
+  end
+end
 
 local function has(api) return _G[api] ~= nil end
 
@@ -195,6 +211,24 @@ if WATCH then
     snapshot()
     print("Ctrl+T stops")
     sleep(1)
+  end
+elseif SAVE then
+  snapshot()
+  print = realPrint
+  local f = fs.open("probe.txt", "w")
+  f.write(table.concat(buf, "\n") .. "\n")
+  f.close()
+  print("")
+  print("written to probe.txt (" .. #buf .. " lines)")
+  if fs.exists("upload.lua") and http then
+    print("pushing to the repo...")
+    local ok, err = pcall(function()
+      if shell then return shell.run("upload", "sync", "probe.txt", "data/probe.txt") end
+      return os.run({}, "upload.lua", "sync", "probe.txt", "data/probe.txt")
+    end)
+    if not ok then print("push failed: " .. tostring(err)) end
+  else
+    print("no upload.lua or no http - copy probe.txt off manually")
   end
 else
   snapshot()

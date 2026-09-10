@@ -44,6 +44,19 @@ whole `HDG_*` motion-heading estimator, the gimbal sensor and the three
 velocity sensors, and cuts the control loop from about 15 main-thread calls per
 iteration to 5.
 
+## Measured in game
+
+**Sub-levels live in Sable's plot grid, far from the world.** A first probe run
+on a real contraption returned a centre of mass of about 20,481,033 / 127 /
+20,489,224. So `getCenterOfMass()` is in plot-grid coordinates, neither world
+nor body-relative, and the same is likely true of `getLogicalPose().position`.
+Confirm against `gps.locate` before letting the pose replace GPS, and update
+[FRAMES.md](FRAMES.md) with the answer.
+
+Also seen on that run: mass 51, an identity orientation quaternion while level
+with body +x/+y/+z mapping cleanly onto world X/Y/Z, and a getLogicalPose call
+costing 0.05s, which is the one tick expected of a main-thread call.
+
 ## Known issues
 
 **Heading oscillates.** Diagnosed: heading comes from GPS displacement, GPS is
