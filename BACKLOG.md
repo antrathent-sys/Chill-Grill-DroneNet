@@ -423,7 +423,14 @@ samples, and the fitted heading swung 78.9 degrees between the two rest states
 against nav4's own 79.0. `probe` now computes and prints the live quaternion,
 heading, agreement residual and the north.gravity check on the pod.
 
-**Quad status, end of 2026-09-10.** Flies: 3200-block `go` in 143 s at 45°
+**Quad status, later on 2026-09-10: 119 b/s.** The lean "cliff" was the
+gimbal's projected roll angle amplifying the second axis's loop gain with
+lean; attitude error is now the rotation between body-frame gravity vectors.
+Cap 70 (true lean 74-79 under aero bias), proven dash gains, thrust never at
+zero while leaning. Next: cap 75, throttle floor 0.7, and the brake/re-cruise
+tuning at 100+ b/s.
+
+**Quad status, earlier on 2026-09-10.** Flies: 3200-block `go` in 143 s at 45°
 / 35 b/s, altitude ±0.3, brake and hold arrive within ~11 blocks; 103 b/s
 reached at 65°+ lean before the attitude loop lost it. Yaw sweeps show drag
 is flat with orientation at 45°, so `CRUISE_COORD` stays off. **Next:** push

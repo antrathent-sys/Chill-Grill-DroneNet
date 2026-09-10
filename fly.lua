@@ -211,7 +211,8 @@ local CFG = {
   YAW_TILT_MAX = 180,                 -- deg: lean above which yaw is not commanded (off)
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
   YAW_ABORT_DEG = 90,                 -- heading change in 2 s that counts as a spin
-  BRAKE_K = 0.7,                      -- brake distance = K * speed^2 / 10 (45 deg + drag stops 82 b/s in ~300)
+  BRAKE_K = 0.35,                     -- brake distance = K * speed^2 / 10 (117 b/s stopped in ~500 blocks, 2026-09-10)
+  RECRUISE_DIST = 60,                 -- blocks: a brake that ends further out than this goes back to dash
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
   -- monitoring: accumulator and thruster buffer are polled in their own
@@ -871,9 +872,17 @@ local function controlLoop()
       -- judging by forward speed alone ended a brake at 12 b/s (2026-09-10)
       local gs = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
       if gs < CFG.BRAKE_DONE or t - brakeStart > CFG.BRAKE_MAX_T then
-        phase = (mode == "dock") and "align" or "hold"
-        if mode ~= "go" and mode ~= "dock" then goalX, goalZ = pos.x, pos.z end
-        enter(phase)
+        local dLeft = (mode == "go" or mode == "dock") and math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2) or 0
+        if dLeft > CFG.RECRUISE_DIST then
+          -- stopped short: cruise again rather than crawl in on the hold
+          phase = "dash" dashStart = t cruiseIx, cruiseIz = 0, 0
+          print(string.format("stopped %.0f blocks short - cruising again", dLeft))
+          chime.play("dash")
+        else
+          phase = (mode == "dock") and "align" or "hold"
+          if mode ~= "go" and mode ~= "dock" then goalX, goalZ = pos.x, pos.z end
+          enter(phase)
+        end
       end
     elseif phase == "align" then
       -- sit over the pad until position and speed are both settled. Plain
