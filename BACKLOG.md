@@ -361,6 +361,16 @@ immutable. Verified against the live API.
 
 ## Known issues
 
+**Table 5 is dead; table 4 is a compass to spawn**
+([data/probe-run7-yawed.txt](data/probe-run7-yawed.txt)). A quarter-turn yaw
+moved table 4 by 98.8 degrees and table 5 by exactly zero, on top of table 5
+also ignoring a 38-block translation. A reading that responds to neither
+rotation nor translation is not a reading: table 5 is empty, degenerately
+mounted, or broken. Table 4 responds to both, so it is a working bearing
+sensor to a fixed point ~965 blocks away, which is what a plain compass does
+(world spawn). Heading from it needs either that point's coordinates, or the
+compass swapped for a true north reference.
+
 **The two nav tables track different things** ([data/probe-run6-translated.txt](data/probe-run6-translated.txt)).
 Translating the craft 38 blocks without rotating it moved table 4 by 2.25
 degrees and table 5 by exactly zero. A north reference is infinitely far and
