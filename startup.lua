@@ -20,10 +20,34 @@ if fs.exists(TOKEN_FILE) then
   if #tok > 0 then HEADERS = { Authorization = "token " .. tok } end
 end
 
+-- raw.githubusercontent.com caches a branch path for 5 minutes and ignores
+-- query strings, so a fetch by branch name within 5 minutes of a push returns
+-- the PREVIOUS version. That bit this project repeatedly. A fetch by commit
+-- SHA is immutable, so it is always correct however it is cached. One API
+-- call finds the SHA; if that fails we fall back to the branch and say so.
+local function latestSha()
+  local url = string.format("https://api.github.com/repos/%s/commits/%s", REPO, BRANCH)
+  local res = http.get(url, HEADERS)
+  if not res then return nil end
+  local body = res.readAll()
+  res.close()
+  local ok, t = pcall(textutils.unserializeJSON, body)
+  if ok and type(t) == "table" and type(t.sha) == "string" and #t.sha == 40 then
+    return t.sha
+  end
+  return nil
+end
+
+local REF = latestSha()
+if REF then
+  print("pulling commit " .. REF:sub(1, 7))
+else
+  REF = BRANCH
+  print("WARNING: could not resolve latest commit, pulling '" .. BRANCH .. "' (may be up to 5 min stale)")
+end
+
 local function fetch(name)
-  -- cache-buster so raw.githubusercontent.com doesn't hand back a stale copy
-  local url = string.format("https://raw.githubusercontent.com/%s/%s/%s?t=%s",
-    REPO, BRANCH, name, tostring(os.epoch("utc")))
+  local url = string.format("https://raw.githubusercontent.com/%s/%s/%s", REPO, REF, name)
   local res, err = http.get(url, HEADERS)
   if not res then return nil, err end
   local body = res.readAll()
