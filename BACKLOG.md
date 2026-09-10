@@ -270,8 +270,28 @@ the map even when weak rather than discarding it. It also reads `getThrust()`
 during the pulse rather than after, which is why every thrust column in that
 run reads 0.00.
 
-Once the map is confirmed the mixer is straightforward, because the layout
-gives the allocation directly:
+**The mixer is written**: `lib/mixer.lua`, 24 tests. It takes the measured
+corner signs rather than any assumed geometry, so a sign error is not possible
+without mixcal having lied twice.
+
+What it does and does not give, on this airframe as fitted:
+
+| Axis | Source | Closed loop? |
+|---|---|---|
+| lift, pitch, roll | differential thrust | yes, from the gimbal |
+| horizontal force | all four nozzles vectored together, **without tilting** | yes, from `getLinearVelocity` |
+| yaw **rate** | nozzles vectored tangentially | yes, from `getAngularVelocity` |
+| yaw **heading** | - | **no. There is no absolute yaw sensor.** |
+
+The gimbal reads pitch and roll only, Sable's quaternion is null and the nav
+table is not fitted, so a heading cannot be held - only a spin arrested. Fitting
+the nav table back, or the quaternion being fixed upstream, would restore it.
+
+On saturation the mixer sacrifices lift before attitude, since attitude is what
+keeps the craft the right way up. Verified: a pitch differential commanded at
+0.98 lift survives intact while the whole set shifts down to fit.
+
+The allocation, for reference:
 
 - **collective** thrust on all four for lift
 - **front minus back** for pitch

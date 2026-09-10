@@ -13,6 +13,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `ARCHITECTURE.md` | The layer stack for the autonomous controller: control, leg, mission, link. Decided before the code. |
 | `COMMAND.md` | The ground side: order intake, package assembly, fleet dispatch, and the rednet protocol between depot and drone. |
 | `lib/db.lua` | Log-structured key/value store for the depot, built for CC's 1 MB disk. Tested by `tools/run_db_test.py`. |
+| `lib/mixer.lua` | Four-thruster allocation: lift, pitch, roll from differential thrust; horizontal force and yaw rate from nozzle vectoring. |
 | `lib/chime.lua` | Speaker tones on flight events. Silent without a speaker, and queued so it can never stall the control loop. |
 | `lib/mission.lua` | Mission planning: places, leg queues, energy budgets, point of no return, and calibration from a flightlog. |
 | `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
@@ -296,6 +297,7 @@ python tools/run_upload_test.py        upload.lua against a mocked GitHub API
 python tools/run_mission_test.py       lib/mission.lua, 24 cases
 python tools/run_chime_test.py         lib/chime.lua, 13 cases
 python tools/run_mixcal_test.py        mixcal.lua against a known corner rig
+python tools/run_mixer_test.py         lib/mixer.lua, 24 cases
 ```
 
 Set `SPEAKER=1` on the mock harness to attach a speaker and see which notes a
