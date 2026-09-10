@@ -8,7 +8,9 @@ local CFG = {
   PMAX = 0.35,                        -- altitude P clamp
 
   -- attitude gains, scheduled by tilt magnitude
-  KP_HOVER = 0.010, KI_HOVER = 0.005, KD_HOVER = 0.012,
+  -- quad, 2026-09-10: KI 0.005 made the loop unstable at low stiffness (the
+  -- I-term matched P with 45 deg of lag at 1 rad/s); KD raised for damping
+  KP_HOVER = 0.010, KI_HOVER = 0.001, KD_HOVER = 0.020,
   KP_DASH  = 0.020, KI_DASH  = 0.003, KD_DASH  = 0.020,
   SCHED_LO = 10, SCHED_HI = 40,       -- deg: all-hover below LO, all-dash above HI
   IMAX = 0.4,
@@ -23,8 +25,9 @@ local CFG = {
   --   "vector" legacy: every nozzle vectored together like the one thruster
   --   "both"   differential AND vectored, same signs as above
   MIX_MODE = "diff",
-  MIX_GAIN = 0.5,                     -- PID output (nozzle units) -> differential demand, before PITCH_AUTH.
-                                      -- 1.0 gave an undamped 2.5 s pitch oscillation at 0.25 s/iteration (flight 2026-09-10)
+  MIX_GAIN = 1.0,                     -- PID output (nozzle units) -> differential demand, before PITCH_AUTH.
+                                      -- 1.0: steady +-10 deg / 2.5 s pitch wobble; 0.5: growing +-22 deg / 6 s.
+                                      -- Lower stiffness made it WORSE, so the fix is in KI/KD, not here.
   MIX_P_SIGN = 1, MIX_R_SIGN = 1,     -- flip one if the craft diverges on that axis in diff mode
   -- Which thruster sits in which corner, as the SIGN of the gimbal response
   -- when it fires alone (mixcal run1 + run2 agreed). mixmap.csv on the
