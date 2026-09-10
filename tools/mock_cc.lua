@@ -241,10 +241,19 @@ local ok, err = true, nil
 do
   local co = coroutine.create(f)
   local guard = 0
+  local first = true
   while coroutine.status(co) ~= "dead" do
     guard = guard + 1
     if guard > 500000 then ok, err = false, "harness: top-level step limit" break end
-    local res, a = coroutine.resume(co)
+    -- CraftOS passes a program's arguments as varargs as well as setting the
+    -- global `arg`. Programs use either, so the harness must do both.
+    local res, a
+    if first then
+      first = false
+      res, a = coroutine.resume(co, table.unpack(ARGS or {}))
+    else
+      res, a = coroutine.resume(co)
+    end
     if not res then ok, err = false, a break end
     if type(a) == "number" then T = T + a step(T) end
   end

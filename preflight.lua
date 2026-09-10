@@ -3,11 +3,26 @@
 --
 --   preflight            checks for a local flight
 --   preflight <x> <z>    also checks range and energy for a round trip there
+--   preflight save       run the checks, write preflight.txt and push it to
+--                        the repo (terminals cannot be copied out of)
 --
 -- Exit is advisory: read the FAILs, ignore nothing, WARNs are judgement calls.
 
 local args = { ... }
+local SAVE = args[1] == "save"
 local tgtX, tgtZ = tonumber(args[1]), tonumber(args[2])
+
+-- Tee every line into a buffer when saving, so the file matches the screen.
+local buf = {}
+local realPrint = print
+if SAVE then
+  print = function(...)
+    local parts = {}
+    for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+    buf[#buf + 1] = table.concat(parts, " ")
+    realPrint(...)
+  end
+end
 
 -- Pulled from fly.lua's CFG. Keep in step if you retune.
 local EXPECT = {
@@ -258,4 +273,23 @@ if bad > 0 then
   print("DO NOT FLY until the failures are cleared.")
 else
   print("clear to fly" .. (warn > 0 and " - read the warnings first" or ""))
+end
+
+if SAVE then
+  print = realPrint
+  local f = fs.open("preflight.txt", "w")
+  f.write(table.concat(buf, "\n") .. "\n")
+  f.close()
+  print("")
+  print("written to preflight.txt (" .. #buf .. " lines)")
+  if fs.exists("upload.lua") and http then
+    print("pushing to the repo...")
+    local okp, errp = pcall(function()
+      if shell then return shell.run("upload", "sync", "preflight.txt", "data/preflight.txt") end
+      return os.run({}, "upload.lua", "sync", "preflight.txt", "data/preflight.txt")
+    end)
+    if not okp then print("push failed: " .. tostring(errp)) end
+  else
+    print("no upload.lua or no http - copy preflight.txt off manually")
+  end
 end

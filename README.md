@@ -16,7 +16,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `lib/chime.lua` | Speaker tones on flight events. Silent without a speaker, and queued so it can never stall the control loop. |
 | `lib/mission.lua` | Mission planning: places, leg queues, energy budgets, point of no return, and calibration from a flightlog. |
 | `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
-| `preflight.lua` | Read-only ground check: peripherals, sensor names and axes, position, energy, docking wiring, files. Run it before flying. |
+| `preflight.lua` | Read-only ground check: full device inventory, sensor names and axes, position, energy, docking wiring, files. `preflight save` writes and pushes the result. Run it before flying. |
 | `upload.lua` | Pushes the last `flightlog` straight to this repo over the GitHub API, so logs can be read without touching the save. |
 | `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
