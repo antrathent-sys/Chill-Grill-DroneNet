@@ -3,7 +3,7 @@
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- writes flightlog on the computer every run
 local CFG = {
-  HOVER = 0.5,
+  HOVER = 0.27,                       -- quad: 0.3 still climbs ~7 b/s, 0.5 was the single thruster
   AKP = 0.03, AKI = 0.01, AKD = 0.1,
   PMAX = 0.35,                        -- altitude P clamp
 

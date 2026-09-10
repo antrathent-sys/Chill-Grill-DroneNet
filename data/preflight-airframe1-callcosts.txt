@@ -1,0 +1,94 @@
+
+peripherals
+  ok   altitude_sensor present
+  ok   gimbal_sensor present
+  ok   vector_thruster present
+  ok   navigation_table present
+  ok   modular_accumulator present
+  ok   docking_connector present
+
+velocity sensors
+  WARN no velocity sensors - fine on the Sable path, required only by the legacy GPS path
+
+sensor readings
+  ok   attitude 0.0 / 0.0 deg
+  ok   altitude 68.5
+
+position
+  ok   CC:Sable pose -68.07 65.72 76.93
+  ok   altitude sensor is +2.78 above pose.y - this offset is what DOCK_GAP absorbs
+  WARN no GPS fix - fine for the drone, but customers cannot locate themselves
+
+energy
+  ok   accumulator at 98%
+  WARN thruster reports no FE buffer - check FUEL_MODE
+
+docking
+  WARN DOCK_SIDE not set in this script - dock/undock will refuse to run
+
+devices attached
+  bottom                   modem                    13 methods
+      callRemote close closeAll getMethodsRemote getNameLocal 
+      getNamesRemote getTypeRemote hasTypeRemote isOpen isPresentRemote 
+      isWireless open transmit 
+  modular_accumulator_7    modular_accumulator      7 methods
+      getCapacity getEnergy getHeight getMaxExtract getMaxInsert 
+      getPercent getWidth 
+  vector_thruster_8        vector_thruster          13 methods
+      getPower getTargetVectorX getTargetVectorY getThrust getVectorX 
+      getVectorY setPower setPowerNormalized setThrust setThrustNormalized 
+      setVector setVectorX setVectorY 
+  modular_accumulator_9    modular_accumulator      7 methods
+  modular_accumulator_10   modular_accumulator      7 methods
+  vector_thruster_7        vector_thruster          13 methods
+  modular_accumulator_8    modular_accumulator      7 methods
+  vector_thruster_6        vector_thruster          13 methods
+  vector_thruster_5        vector_thruster          13 methods
+  docking_connector_1      docking_connector        1 methods
+      getConnectedName 
+  top                      modem                    13 methods
+  speaker_0                speaker                  4 methods
+      playAudio playNote playSound stop 
+  altitude_sensor_3        altitude_sensor          2 methods
+      getAirPressure getHeight 
+  gimbal_sensor_2          gimbal_sensor            2 methods
+      getAngles getAnglesRad 
+  navigation_table_4       navigation_table         2 methods
+      getRelativeAngle getRelativeAngleRad 
+  navigation_table_5       navigation_table         2 methods
+  modem_1                  modem                    6 methods
+  navigation_table_7       navigation_table         2 methods
+  -> 18 devices: altitude_sensor x1, docking_connector x1, gimbal_sensor x1, modem x3, modular_accumulator x4, navigation_table x3, speaker x1, vector_thruster x4
+
+capability check
+  ok   vector_thruster - 4 fitted
+  ok   4 thrusters, mixer with the corner map from mixmap.csv
+  ok   4 accumulators, averaged
+  ok   altitude_sensor - altitude hold and the dock gap
+  ok   gimbal_sensor - attitude; still needed, the Sable quaternion reads null
+  WARN velocity_sensor x3 absent - legacy path only; Sable covers world-frame speed
+  ok   CC:Sable sublevel - position and velocity; 45x better than the GPS array here
+  ok   modular_accumulator - energy monitoring and range planning
+  ok   docking_connector - docking, and payload release
+  ok   speaker - flight chimes
+  ok   wireless modem (1 wireless, 2 wired) - telemetry and remote recall
+  ok   navigation_table - bearing to a lodestone target; heading no longer needs it
+
+call costs (ms per call, 5 calls each)
+  gimbal getAngles                     0 ms  (free)
+  altitude getHeight                   0 ms  (free)
+  nav getRelativeAngle                 0 ms  (free)
+  thruster setPowerNormalized(0)      49 ms  (a tick)
+  thruster setVector(0,0)             50 ms  (a tick)
+  sublevel getLogicalPose             50 ms  (a tick)
+  sublevel getLinearVelocity          50 ms  (a tick)
+  control loop estimate: ~195 ms per iteration (+50 ms sleep, + nav every HDG_EVERY)
+
+files
+  ok   fly.lua present
+  ok   kill.lua present
+  ok   upload.lua present
+  WARN no .ghtoken - flight logs will not upload
+
+26 ok, 6 warnings, 0 failures
+clear to fly - read the warnings first
