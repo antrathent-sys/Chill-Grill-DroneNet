@@ -283,9 +283,27 @@ What it does and does not give, on this airframe as fitted:
 | yaw **rate** | nozzles vectored tangentially | yes, from `getAngularVelocity` |
 | yaw **heading** | - | **no. There is no absolute yaw sensor.** |
 
-The gimbal reads pitch and roll only, Sable's quaternion is null and the nav
-table is not fitted, so a heading cannot be held - only a spin arrested. Fitting
-the nav table back, or the quaternion being fixed upstream, would restore it.
+The gimbal reads pitch and roll only and Sable's quaternion is null, so as
+fitted the craft can arrest a spin but not hold a heading.
+
+**Refitting the navigation table probably fixes this outright.** `fly.lua` only
+ever used `getRelativeAngle`, which is the one method measured in the block's
+own tilted plane and needs de-rotating. The Avionics docs describe two others
+that are already world frame:
+
+| Method | Documented as |
+|---|---|
+| `getHeading()` | world-frame yaw, already corrected for the contraption's rotation. Ship's +Z rotated into world, `atan2(x, z)`, 0 = Minecraft south, player-yaw convention |
+| `getOrientation()` | quaternion `{x,y,z,w}` of the host sub-level's orientation |
+
+If `getOrientation` is populated where Sable's is not, it is a drop-in
+replacement for the attitude source this project has been missing, and would
+retire the gimbal sensor and the whole `HDG_*` estimator at once. `probe` now
+reads both and checks the quaternion norm.
+
+**Unverified**, and worth checking before relying on it: whether either method
+needs a target set in the table, and whether `getOrientation` is actually
+populated rather than null like Sable's.
 
 On saturation the mixer sacrifices lift before attitude, since attitude is what
 keeps the craft the right way up. Verified: a pitch differential commanded at

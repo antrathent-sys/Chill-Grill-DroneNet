@@ -106,7 +106,10 @@ the rotation error and feeds the controller directly. No angles anywhere.
 | `altitude_sensor.getHeight()` | world | `Y` of that sensor block, not of the pose origin |
 | `velocity_sensor.getVelocity()` | body | signed, along the axis `getAxis()` names |
 | `velocity_sensor.getAxis()` | body | returns `"x"`, `"y"` or `"z"`, Aeronautics' own body-axis label, fixed at placement |
-| `gimbal_sensor.getAngles()` | body vs level | two Euler angles, no third axis. Legacy, superseded by the quaternion |
+| `gimbal_sensor.getAngles()` | body vs level | two Euler angles, no third axis |
+| `navigation_table.getHeading()` | world | **world-frame yaw, already corrected.** 0 = Minecraft south |
+| `navigation_table.getOrientation()` | body to world | quaternion. Possibly the working attitude source, unlike Sable's |
+| `navigation_table.getBearing()` | block frame | 0 = target ahead of the block's arrow |
 | `navigation_table.getRelativeAngle()` | table's own tilted plane | needs de-rotating before use |
 
 The `velocity_sensor.getAxis()` labels are Aeronautics' body frame, which is not

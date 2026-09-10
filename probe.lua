@@ -180,8 +180,29 @@ local function snapshot()
     print("   from what this script assumes - note the numbers and we can fix the mapping)")
   end
   if nav then
+    print("navigation_table:")
     local okr, ra = pcall(nav.getRelativeAngle)
-    if okr then print(string.format("nav rel angle: %7.2f deg", ra)) end
+    if okr then print(string.format("  getRelativeAngle %8.2f deg  (the TILTED plane one)", ra)) end
+    local okb, br = pcall(nav.getBearing)
+    if okb then print(string.format("  getBearing       %8.2f deg  (block frame, needs a target)", br)) end
+    -- These two are documented as WORLD frame already. getOrientation in
+    -- particular may be the attitude Sable's getLogicalPose fails to give.
+    local okh, hd = pcall(nav.getHeading)
+    if okh and type(hd) == "number" then
+      print(string.format("  getHeading       %8.2f deg  <- WORLD yaw, no correction needed", hd))
+    else
+      print("  getHeading       FAILED: " .. tostring(hd))
+    end
+    local oko, q = pcall(nav.getOrientation)
+    if oko and type(q) == "table" then
+      local qn = (q.x or 0)^2 + (q.y or 0)^2 + (q.z or 0)^2 + (q.w or 0)^2
+      print(string.format("  getOrientation   %.4f %.4f %.4f w=%.4f  norm %.4f %s",
+        q.x or 0, q.y or 0, q.z or 0, q.w or 0, qn,
+        (math.abs(qn - 1) < 0.01) and "<- VALID, this replaces the dead Sable one"
+                                   or "<< also degenerate"))
+    else
+      print("  getOrientation   FAILED: " .. tostring(q))
+    end
   end
 
   local dv, okv, lv = timed(sublevel.getLinearVelocity)
