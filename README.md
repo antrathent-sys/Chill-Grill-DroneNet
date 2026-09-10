@@ -256,7 +256,9 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
    wget https://raw.githubusercontent.com/antrathent-sys/Chill-Grill-DroneNet/main/startup.lua startup.lua
    reboot
    ```
-4. Every reboot after that pulls the current `fly.lua`, `kill.lua` and `startup.lua` and prints which ones changed. Run `startup` by hand to update without rebooting.
+4. Every reboot after that pulls the current files and prints which ones changed. Run `startup` by hand to update without rebooting. It prints the commit it pulled, e.g. `pulling commit 68087ff`, so you can see it is current.
+
+**Why it pins to a commit.** `raw.githubusercontent.com` caches a branch path for 5 minutes and ignores query strings, so fetching `main` within 5 minutes of a push returns the *previous* version. `startup` makes one API call for the latest commit SHA and fetches every file by that SHA, which is immutable and therefore always correct. If the API call fails it falls back to the branch and warns.
 
 ## Analysing a flight
 

@@ -349,6 +349,16 @@ The allocation, for reference:
 - **common vectoring** for horizontal force without tilting, which is the part
   that makes docking easy
 
+## Fixed
+
+**`startup` was pulling stale files.** `raw.githubusercontent.com` caches a
+branch path for 5 minutes (`Cache-Control: max-age=300`, `X-Cache: HIT`) and
+ignores the query-string cache-buster, so every `startup` run within five
+minutes of a push fetched the version *before* it. This is why "you're running
+the old probe" happened four times in one evening. Fixed by resolving the
+latest commit SHA with one API call and fetching every file by SHA, which is
+immutable. Verified against the live API.
+
 ## Known issues
 
 **Heading oscillates.** Diagnosed: heading comes from GPS displacement, GPS is
