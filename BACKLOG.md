@@ -49,6 +49,25 @@ iteration to 5.
 First real run is saved at [data/probe-run1.txt](data/probe-run1.txt), taken on
 a bare test rig with no sensors fitted, sitting still.
 
+**CONFIRMED over 44 moving samples ([data/probelog-run2.csv](data/probelog-run2.csv)):
+the orientation quaternion is never populated.** Norm is 0.00000 in every
+sample, including the 13 samples with real angular velocity where the craft was
+demonstrably rotating. `getLastPose()` is identical to `getLogicalPose()` in
+every row, so there is no alternative source. **CC:Sable gives no attitude in
+this version.** The gimbal sensor stays; the plan to retire it and take yaw
+from the quaternion is dead until this is fixed upstream. Worth raising with
+TechTastic1.
+
+**`pose.position` is not self-consistent either.** Its frame-to-frame movement
+disagrees with `getLinearVelocity()` integrated over the same interval by about
+87 percent, and that comparison involves GPS not at all. Between the two
+stationary stretches, pose says the craft rose 7.6 blocks while GPS says it
+fell 5.5. Both cannot be right, and until one is checked against F3 neither can
+be trusted. Note one confound in the measurement: `gps.locate(0.5)` blocks, so
+pose and GPS are not sampled at the same instant during motion.
+
+Earlier finding, now superseded by the above:
+
 **The orientation quaternion came back as (0, 0, 0, w=0).** That is not a
 rotation: a unit quaternion must have norm 1 and this has norm 0. So there is
 no usable attitude from `getLogicalPose()` yet. Worse, a null quaternion makes
