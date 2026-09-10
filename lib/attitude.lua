@@ -180,11 +180,12 @@ end
 -- are kept here commented out in case they come back.
 A.presets = {
   airframe1 = {
-    gimbalSigns = { pitch = 1, roll = 1 },
+    -- Yaw of the body frame fixed by flight 2026-09-10: position hold
+    -- showed the nose points ~north on the pad, where this preset had said
+    -- ~south, so every mount is turned 180 about y (x, z negated) - and the
+    -- gimbal's pitch/roll, which are defined on body x/z, flip sign with it.
+    gimbalSigns = { pitch = -1, roll = -1 },
     tables = {
-      -- Yaw of the body frame fixed by flight 2026-09-10: position hold
-      -- showed the nose points ~north on the pad, where this preset had
-      -- said ~south, so every mount is turned 180 about y (x, z negated).
       { name = "navigation_table_4", normal = "-y", forward = "-x" },
       { name = "navigation_table_5", normal = "+x", forward = "+z" },
       { name = "navigation_table_7", normal = "-z", forward = "+x" },
