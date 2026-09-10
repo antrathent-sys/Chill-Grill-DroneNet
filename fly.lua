@@ -2,6 +2,7 @@
 -- fly <y> [x] [z]             -> hold Y, hold position or fly to x z
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
+-- fly go <x> <z> [y] sweep    -> as go, but rotate the yaw offset 6 deg/s during cruise (drag-vs-yaw experiment)
 -- writes flightlog on the computer every run
 local CFG = {
   HOVER = 0.27,                       -- quad: 0.3 still climbs ~7 b/s, 0.5 was the single thruster
@@ -139,8 +140,10 @@ local CFG = {
   -- craft at the TARGET (bearing + YAW_OFFSET) rather than the current
   -- course, and steering comes from yaw - like an aircraft. Lean is scaled
   -- by cos(yaw error) so it does not push off sideways while still turning.
-  CRUISE_COORD = false,               -- flip on once fly spin shows the yaw loop is quick and clean
-  CRUISE_LEAN_AXIS = "pitch",         -- "pitch": nose/tail leads; "roll": a side leads
+  CRUISE_COORD = false,               -- flip on once the sweep has fixed the axis
+  CRUISE_LEAN_AXIS = 45,              -- deg clockwise from the nose along which the lean is applied:
+                                      -- 0 = pitch (nose leads), 90 = roll (starboard leads), 45 = diagonal
+                                      -- (fins on the corners: tools/yaw_sweep.py on the 83 b/s log says ~+45)
   HDG_CRUISE_ALPHA = 0.01,            -- per-iteration blend of the cruise heading (tau ~10 s at 10 Hz):
                                       -- the flat table's reading wanders with tilt, the craft's yaw does not
 
@@ -678,6 +681,7 @@ else
     tgtZ = tonumber(arg[3]) or error("go needs x z")
     goal = tonumber(arg[4]) or (alt.getHeight() + 25)
     dashDeg = CFG.CRUISE_DEG
+    for i = 4, 5 do if arg[i] == "sweep" then CFG.YAW_SWEEP = 6 print("yaw sweep 6 deg/s during cruise") end end
   elseif arg[1] == "dock" then
     mode = "dock"
     if not CFG.DOCK_SIDE then error("dock needs CFG.DOCK_SIDE set") end
@@ -937,9 +941,12 @@ local function controlLoop()
       local cF = cWx * math.sin(r) - cWz * math.cos(r)
       local cL = cWx * math.cos(r) + cWz * math.sin(r)
       if CFG.CRUISE_COORD then
-        -- one axis only; fade the lean in as the yaw comes onto the target
-        local k = math.max(0, math.cos(math.rad(yawErr)))
-        if CFG.CRUISE_LEAN_AXIS == "roll" then cF = 0 cL = cL * k else cL = 0 cF = cF * k end
+        -- project the world command onto the one body direction the fins
+        -- allow (bearing cruiseHdg + axis), fade it in as the yaw comes round
+        local A = math.rad(CFG.CRUISE_LEAN_AXIS)
+        local ra = r + A
+        local L = (cWx * math.sin(ra) - cWz * math.cos(ra)) * math.max(0, math.cos(math.rad(yawErr)))
+        cF, cL = L * math.cos(A), L * math.sin(A)
       end
       tp = CFG.PITCH_DIR * cF
       tr = CFG.ROLL_DIR * cL
@@ -1014,8 +1021,9 @@ local function controlLoop()
       local yawOff = CFG.YAW_OFFSET
       if CFG.YAW_SWEEP ~= 0 and dashStart then yawOff = (yawOff + CFG.YAW_SWEEP * (t - dashStart)) % 360 end
       if phase == "dash" and CFG.CRUISE_COORD and (mode == "go" or mode == "dock") then
+        -- point the lean axis (CRUISE_LEAN_AXIS clockwise from the nose) at the target
         src = "target"
-        yawTgt = (math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) + yawOff) % 360
+        yawTgt = (math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) - CFG.CRUISE_LEAN_AXIS + yawOff) % 360
       elseif (phase == "dash" or phase == "brake") and speed > CFG.YAW_MIN_SPEED then
         src = "course"
         yawTgt = (math.deg(math.atan2(pos.vx, -pos.vz)) + yawOff) % 360
