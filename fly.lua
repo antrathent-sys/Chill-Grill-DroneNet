@@ -82,8 +82,9 @@ local CFG = {
   TUMBLE = 85,
   DASH_SETTLE = 3.0,                  -- transition this many blocks below goal
   CLIMB_POWER = 0.9,                  -- throttle on the way up
-  CLIMB_RATE = 20,                    -- b/s: climb-phase target, and the rate cap of the altitude hold
-                                      -- (10 b/s cost 0.26-0.32 power on 2026-09-10, barely above hover)
+  CLIMB_RATE = 50,                    -- b/s: climb-phase target, and the rate cap of the altitude hold
+                                      -- (20 b/s flew clean on ~0.3 power, 2026-09-10; descents use the same cap,
+                                      -- AKP/AKD = 0.5 starts the taper 100 blocks out)
   VRATE_SLEW = 10,                    -- b/s^2: the rate request ramps, a step to full rate rang 13->8->11 b/s
   INTEG_BAND = 2,                     -- b/s: integrate altitude only when the rate request is below this
                                       -- (it wound to its clamp during the last 30 blocks and overshot +5)
