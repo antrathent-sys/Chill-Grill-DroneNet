@@ -90,6 +90,19 @@ local function snapshot()
   local oku, uuid = pcall(sublevel.getUniqueId)
   print("name / uuid  : " .. tostring(okn and name or "-") .. " / " .. tostring(oku and uuid or "-"))
 
+  -- logicalPose and lastPose can differ; print both while we work out which
+  -- one Sable actually keeps up to date.
+  local okl, last = pcall(sublevel.getLastPose)
+  if okl and type(last) == "table" and last.position then
+    print("getLastPose  : pos " .. v3(last.position))
+    if last.orientation then
+      local l = last.orientation
+      local ln = (l.x or 0)^2 + (l.y or 0)^2 + (l.z or 0)^2 + (l.w or 0)^2
+      print("               ori " .. v3(l) .. string.format(" w=%8.4f  norm %.4f%s",
+        l.w or 0, ln, (math.abs(ln - 1) < 0.01) and " (valid)" or " <<< NOT A ROTATION"))
+    end
+  end
+
   local dtp, okp, pose = timed(sublevel.getLogicalPose)
   if not okp or type(pose) ~= "table" then
     print("getLogicalPose FAILED: " .. tostring(pose))
@@ -119,8 +132,18 @@ local function snapshot()
     print("gps.locate   : no fix (expected if hosts are down)")
   end
 
-  -- orientation cross-check against the gimbal sensor
+  -- A rotation quaternion must have unit norm. A null one silently behaves
+  -- like identity in the rotate maths, so check before believing any of it.
   local q = pose.orientation
+  if type(q) == "table" then
+    local qn = (q.x or 0)^2 + (q.y or 0)^2 + (q.z or 0)^2 + (q.w or 0)^2
+    print(string.format("quat norm    : %.4f %s", qn,
+      (math.abs(qn - 1) < 0.01) and "(valid)" or "<<< NOT A ROTATION"))
+    if math.abs(qn - 1) > 0.01 then
+      print("  orientation is degenerate - every axis reading below is meaningless.")
+      print("  try getLastPose(), and try again while the contraption is MOVING.")
+    end
+  end
   local yaw = yawOf(q)
   local qp, qr = pitchRollOf(q)
   if yaw then

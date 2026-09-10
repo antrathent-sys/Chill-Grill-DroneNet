@@ -46,16 +46,38 @@ iteration to 5.
 
 ## Measured in game
 
-**Sub-levels live in Sable's plot grid, far from the world.** A first probe run
-on a real contraption returned a centre of mass of about 20,481,033 / 127 /
-20,489,224. So `getCenterOfMass()` is in plot-grid coordinates, neither world
-nor body-relative, and the same is likely true of `getLogicalPose().position`.
-Confirm against `gps.locate` before letting the pose replace GPS, and update
-[FRAMES.md](FRAMES.md) with the answer.
+First real run is saved at [data/probe-run1.txt](data/probe-run1.txt), taken on
+a bare test rig with no sensors fitted, sitting still.
 
-Also seen on that run: mass 51, an identity orientation quaternion while level
-with body +x/+y/+z mapping cleanly onto world X/Y/Z, and a getLogicalPose call
-costing 0.05s, which is the one tick expected of a main-thread call.
+**The orientation quaternion came back as (0, 0, 0, w=0).** That is not a
+rotation: a unit quaternion must have norm 1 and this has norm 0. So there is
+no usable attitude from `getLogicalPose()` yet. Worse, a null quaternion makes
+the standard rotate maths return its input unchanged, so the "body axes map
+cleanly onto world axes" reading in that run is an artifact and proves nothing.
+`probe.lua` now checks the norm and says so loudly.
+
+Next: read `getLastPose()` as well (probe now prints both), and read again
+while the contraption is actually **moving**, in case the pose is only
+populated once physics has run.
+
+**Sub-levels live in Sable's plot grid, far from the world.** `rotationPoint`
+and `getCenterOfMass()` both returned about 20,481,033 / 127 / 20,489,224, so
+both are plot-grid coordinates rather than world or body-relative.
+
+**`pose.position` is not world either.** It read 371.79 / 65.55 / 421.90 while
+`gps.locate` said 847.71 / -48.56 / 650.94. Those disagree by hundreds of
+blocks, so the pose cannot replace GPS until we know what frame it is in.
+
+**GPS on a sub-level returns FRACTIONAL coordinates**, correcting the earlier
+finding here. Block quantisation applies to a static computer, whose modem sits
+at an integer block position; on a sub-level the modem is at a real position so
+trilateration solves to fractions. The heading-error table below is therefore
+pessimistic for the drone, though the closed-loop oscillation it describes was
+still observed.
+
+**That GPS fix looks wrong, though.** A y of -48.56 is suspicious. Check
+`gps.locate` against the actual F3 position: if it disagrees, the volcano host
+array is giving bad fixes and that alone could explain the flight problems.
 
 ## Known issues
 

@@ -1,0 +1,22 @@
+================ CC: Sable probe ================
+isInPlotGrid : true   (0.050s)
+name / uuid  : - / 40747cf9-0151-48a7-8a08-09adc8d08dda
+getLogicalPose call cost: 0.050s
+  position   :   371.7949    65.5478   421.9008
+  orientation:     0.0000     0.0000     0.0000 w=    0.0000
+  rotPoint   : 20481033.5000   127.5478 20489224.5000
+  scale      :     1.0000     1.0000     1.0000
+gps.locate   :   847.7100   -48.5600   650.9400
+pose - gps   :  -475.9151   114.1078  -229.0392
+  -> NOT world frame (or a big offset). Do not drop gps yet.
+quat yaw     :    0.00 deg   <- this is the yaw the gimbal cannot give
+quat p / r   :    0.00 /    0.00 deg
+linear vel   :     0.0000     0.0000     0.0000   (0.050s)
+angular vel  :    -0.0000    -0.0000    -0.0000
+global vel   :     0.0000    -0.0000    -0.0000
+body axes in world coords (hover: the thrust axis should read ~0,1,0):
+  body +x ->     1.0000     0.0000     0.0000
+  body +y ->     0.0000     1.0000     0.0000
+  body +z ->     0.0000     0.0000     1.0000
+mass         : 51.00
+centre of mass: 20481033.5000   127.5478 20489224.5000
