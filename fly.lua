@@ -15,6 +15,25 @@ local CFG = {
   VEC_MAX = 1.0,                      -- full nozzle authority
   P_AXIS = "y", P_SIGN = 1,
   R_SIGN = 1,
+  -- Four-thruster mixer (lib/mixer.lua), engaged automatically when more than
+  -- one vector_thruster is fitted. The attitude PID above is unchanged; only
+  -- where its output goes differs:
+  --   "diff"   differential thrust holds attitude, nozzles stay straight
+  --            (4 peripheral calls per iteration, the vectors are cached)
+  --   "vector" legacy: every nozzle vectored together like the one thruster
+  --   "both"   differential AND vectored, same signs as above
+  MIX_MODE = "diff",
+  MIX_GAIN = 1.0,                     -- PID output (nozzle units) -> differential demand, before PITCH_AUTH
+  MIX_P_SIGN = 1, MIX_R_SIGN = 1,     -- flip one if the craft diverges on that axis in diff mode
+  -- Which thruster sits in which corner, as the SIGN of the gimbal response
+  -- when it fires alone (mixcal run1 + run2 agreed). mixmap.csv on the
+  -- computer, written by mixcal, overrides this.
+  MIX_MAP = {
+    { name = "vector_thruster_5", pitch = -1, roll =  1 },
+    { name = "vector_thruster_6", pitch = -1, roll = -1 },
+    { name = "vector_thruster_7", pitch =  1, roll = -1 },
+    { name = "vector_thruster_8", pitch =  1, roll =  1 },
+  },
 
   PKP = 0.2, VMAX = 3, PKV = 1.0,
   PKI = 0.05, TRIM_MAX = 3,
@@ -110,16 +129,81 @@ local CFG = {
 local alt = peripheral.find("altitude_sensor")
 local gim = peripheral.find("gimbal_sensor")
 local nav = CFG.NAV_NAME and peripheral.wrap(CFG.NAV_NAME) or peripheral.find("navigation_table")
-local thr = peripheral.find("vector_thruster")
-local acc = peripheral.find("modular_accumulator")
+local thrs = { peripheral.find("vector_thruster") }
+local thr = thrs[1]
+local accs = { peripheral.find("modular_accumulator") }
+local acc = accs[1]
 local vels = { peripheral.find("velocity_sensor") }
 for k, v in pairs({ alt = alt, gim = gim, nav = nav, thr = thr }) do if not v then error("missing " .. k) end end
 
 local function clamp(v, l) return math.max(-l, math.min(l, v)) end
 local function rawHeading() return (CFG.HDG_SIGN * nav.getRelativeAngle() + CFG.HDG_OFFSET) % 360 end
-local function drive(p, vx, vy)
-  thr.setVector(vx, vy)
-  thr.setPowerNormalized(math.max(0, math.min(1, p)))
+
+-- ---------- thrusters ----------
+-- One thruster: drive it directly, as before. More than one: lib/mixer.lua,
+-- with a corner map that must name every fitted thruster or a corner would
+-- sit idle and the craft would flip on lift-off.
+local mixer = nil
+if #thrs > 1 then
+  local okM, lib = pcall(dofile, "lib/mixer.lua")
+  if not okM or type(lib) ~= "table" then error(#thrs .. " thrusters but no lib/mixer.lua: " .. tostring(lib)) end
+  mixer = lib
+  local map = CFG.MIX_MAP
+  if fs.exists("mixmap.csv") then
+    local parsed = {}
+    local f = fs.open("mixmap.csv", "r")
+    f.readLine()                                   -- header
+    for line in function() return f.readLine() end do
+      local name, dp, dr = line:match("^([^,]+),([^,]+),([^,]+)")
+      dp, dr = tonumber(dp), tonumber(dr)
+      if name and dp and dr then
+        parsed[#parsed + 1] = { name = name, pitch = dp >= 0 and 1 or -1, roll = dr >= 0 and 1 or -1 }
+      end
+    end
+    f.close()
+    if #parsed >= 2 then map = parsed print("mixer: corner map from mixmap.csv") end
+  end
+  local byName = {}
+  for _, m in ipairs(map) do byName[m.name] = m end
+  for _, t in ipairs(thrs) do
+    local n = peripheral.getName(t)
+    if not byName[n] then error("thruster " .. n .. " is not in the mixer map - run mixcal") end
+  end
+  local n, missing = mixer.configure({ thrusters = map, VEC_MAX = CFG.VEC_MAX })
+  if #missing > 0 then error("mixer map names thrusters that are not fitted: " .. table.concat(missing, " ")) end
+  print(string.format("mixer: %d thrusters, mode %s", n, CFG.MIX_MODE))
+end
+if #accs > 1 then print("accumulators: " .. #accs .. " (averaged)") end
+
+-- Push one lift power and the attitude PID's raw pitch/roll outputs (before
+-- P_SIGN/R_SIGN) to the hardware. Returns the two numbers that went out, for
+-- the log: nozzle vector on the single thruster, differential demand in diff
+-- mode.
+local mixSat = false
+local function drive(p, up, ur)
+  local cp, cr = CFG.P_SIGN * up, CFG.R_SIGN * ur
+  local vx = clamp(CFG.P_AXIS == "x" and cp or cr, CFG.VEC_MAX)
+  local vy = clamp(CFG.P_AXIS == "x" and cr or cp, CFG.VEC_MAX)
+  if not mixer then
+    thr.setVector(vx, vy)
+    thr.setPowerNormalized(math.max(0, math.min(1, p)))
+    return vx, vy
+  end
+  local d = { lift = math.max(0, math.min(1, p)) }
+  if CFG.MIX_MODE ~= "vector" then
+    -- mixer pitch +1 raises gimbal pitch (that is how mixcal defines the
+    -- signs), so a positive pitch error wants a negative demand
+    d.pitch = clamp(-CFG.MIX_P_SIGN * CFG.MIX_GAIN * up, 1)
+    d.roll  = clamp(-CFG.MIX_R_SIGN * CFG.MIX_GAIN * ur, 1)
+  end
+  if CFG.MIX_MODE ~= "diff" then d.lat, d.fwd = vx, vy end   -- VEC_X_IS lat, VEC_Y_IS fwd
+  local _, _, sat = mixer.write(d)
+  mixSat = sat
+  if CFG.MIX_MODE == "diff" then return d.pitch, d.roll end
+  return vx, vy
+end
+local function allStop()
+  if mixer then mixer.stop() else drive(0, 0, 0) end
 end
 -- ---------- monitoring ----------
 -- Accumulator % and the thruster's own buffer are read in monLoop once per
@@ -166,9 +250,18 @@ do
   local function tryFE()
     -- CC:Tweaked generic energy_storage: the block's own FE buffer
     if has.getEnergy and has.getEnergyCapacity then
-      fuelRead = function() return p.getEnergy(), p.getEnergyCapacity() end
       fuelLabel = "THRUSTER"
-      print("thruster: " .. name .. " FE via getEnergy/getEnergyCapacity")
+      if mixer and not CFG.FUEL_NAME then
+        fuelRead = function()
+          local e, c = 0, 0
+          for _, t in ipairs(thrs) do e, c = e + t.getEnergy(), c + t.getEnergyCapacity() end
+          return e, c
+        end
+        print("thrusters: FE summed over " .. #thrs .. " via getEnergy/getEnergyCapacity")
+      else
+        fuelRead = function() return p.getEnergy(), p.getEnergyCapacity() end
+        print("thruster: " .. name .. " FE via getEnergy/getEnergyCapacity")
+      end
       return true
     end
     return false
@@ -211,8 +304,13 @@ local function monLoop()
   local lastE, lastT = nil, nil
   while true do
     if acc then
-      local ok, pct = pcall(acc.getPercent)
-      if ok and pct then
+      local sum, n = 0, 0
+      for _, a in ipairs(accs) do
+        local ok, pct = pcall(a.getPercent)
+        if ok and pct then sum, n = sum + pct, n + 1 end
+      end
+      if n > 0 then
+        local pct = sum / n
         local now = os.clock()
         if lastE and now > lastT then
           local r = (pct - lastE) / (now - lastT) * 60
@@ -495,7 +593,7 @@ else
 end
 
 local log = fs.open("flightlog", "w")
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -710,24 +808,20 @@ local function controlLoop()
     lp, lr = a[1], a[2]
     ip = clamp(ip + KI * ep * dt, CFG.IMAX)
     ir = clamp(ir + KI * er * dt, CFG.IMAX)
-    local cp = CFG.P_SIGN * (KP * ep + ip + KD * dp)
-    local cr = CFG.R_SIGN * (KP * er + ir + KD * dr)
-    local vx = clamp(CFG.P_AXIS == "x" and cp or cr, CFG.VEC_MAX)
-    local vy = clamp(CFG.P_AXIS == "x" and cr or cp, CFG.VEC_MAX)
-    drive(pwr, vx, vy)
+    local vx, vy = drive(pwr, KP * ep + ip + KD * dp, KP * er + ir + KD * dr)
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
-      motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct))
+      motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0))
     if phase == "docked" then return end
     sleep(0.05)
   end
 end
 
 local ok, err = pcall(parallel.waitForAny, controlLoop, posLoop, monLoop, chime.loop)
-drive(0, 0, 0) pump(false) log.close()
+allStop() pump(false) log.close()
 print("thrusters off, pump off - flightlog saved")
 -- Sounded here, not in the loop: the control loop returns the instant it docks,
 -- so a queued chime would be cut off before it played.

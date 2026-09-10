@@ -275,11 +275,15 @@ local allThr = { peripheral.find("vector_thruster") }
 local allAcc = { peripheral.find("modular_accumulator") }
 want("vector_thruster", thr ~= nil, #allThr .. " fitted", true)
 if #allThr > 1 then
-  err(#allThr .. " thrusters fitted but fly.lua drives ONE - peripheral.find takes the first. Needs the mixer.")
+  if not fs.exists("lib/mixer.lua") then
+    err(#allThr .. " thrusters but lib/mixer.lua is missing - fly will refuse to start")
+  elseif fs.exists("mixmap.csv") then
+    ok(#allThr .. " thrusters, mixer with the corner map from mixmap.csv")
+  else
+    wrn(#allThr .. " thrusters, mixer with the built-in corner map (CFG.MIX_MAP) - run mixcal if the frame changed")
+  end
 end
-if #allAcc > 1 then
-  wrn(#allAcc .. " accumulators fitted but only the first is read - energy is understated")
-end
+if #allAcc > 1 then ok(#allAcc .. " accumulators, averaged") end
 want("altitude_sensor", alt ~= nil, "altitude hold and the dock gap", true)
 want("gimbal_sensor",  gim ~= nil, "attitude; still needed, the Sable quaternion reads null", true)
 want("velocity_sensor x3", #vs >= 3, "legacy path only; Sable covers world-frame speed", false)

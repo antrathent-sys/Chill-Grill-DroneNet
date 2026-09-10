@@ -33,6 +33,12 @@ local function step(to)
   local dx, dz = sim.padX - sim.x, sim.padZ - sim.z
   local d = math.sqrt(dx * dx + dz * dz)
   local lean = math.sqrt(sim.vx * sim.vx + sim.vy * sim.vy)
+  -- a quad in diff mode tilts by differential thrust, not by the nozzles;
+  -- the legacy gimbal read vy*40, so a lean of 0.25 is 10 degrees
+  if sim.quad then
+    local qp, qr = sim.quadTilt()
+    lean = math.sqrt(qp * qp + qr * qr) / 40
+  end
   if lean > 0.25 and d > 0.4 then
     sim.speed = math.min(sim.speed + 6 * dt, 9)
   else
@@ -148,10 +154,18 @@ if os.getenv("QUAD") then
     vector_thruster_8 = { -1, -1 },
   }
   sim.quad = {}
+  -- the single thruster goes: a quad is four thrusters, not five
+  periphs["vector_thruster_0"] = nil
   for nm, c in pairs(corners) do
     sim.quad[nm] = { n = c[1], s = c[2], pwr = 0 }
     add(nm, "vector_thruster", {
-      setPowerNormalized = function(p) sim.quad[nm].pwr = p end,
+      setPowerNormalized = function(p)
+        sim.quad[nm].pwr = p
+        -- lift is the mean of the four
+        local sum = 0
+        for _, q in pairs(sim.quad) do sum = sum + q.pwr end
+        sim.pwr = sum / 4
+      end,
       setVector = function() end,
       getThrust = function() return sim.quad[nm].pwr * 100 end,
       getEnergy = function() return 40000 end,
@@ -159,12 +173,16 @@ if os.getenv("QUAD") then
     })
   end
   -- the gimbal now reports the tilt those corner thrusters would produce
-  periphs["gimbal_sensor_0"].getAngles = function()
+  sim.quadTilt = function()
     local p, r = 0, 0
     for _, q in pairs(sim.quad) do
       p = p - q.n * q.pwr * 12      -- lifting a +n corner pitches nose down
       r = r + q.s * q.pwr * 12
     end
+    return p, r
+  end
+  periphs["gimbal_sensor_0"].getAngles = function()
+    local p, r = sim.quadTilt()
     return { p, r }
   end
 end

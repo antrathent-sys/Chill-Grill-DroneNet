@@ -139,15 +139,21 @@ function mixer.vectors(d)
   return out
 end
 
---- Allocate and push to the hardware. Two peripheral calls per thruster, which
--- is the unavoidable cost of independent thrusters.
+--- Allocate and push to the hardware. One power call per thruster plus a
+-- vector call whenever that thruster's vector changes.
 -- Returns thrusts, vectors, saturated.
 function mixer.write(d)
   local thrusts, sat = mixer.allocate(d)
   local vecs = mixer.vectors(d)
   for i, w in ipairs(wrapped) do
     pcall(w.p.setPowerNormalized, thrusts[i] or 0)
-    pcall(w.p.setVector, vecs[i] and vecs[i].x or 0, vecs[i] and vecs[i].y or 0)
+    -- setVector only when it changes: in diff mode the nozzles never move,
+    -- which halves the per-iteration cost
+    local x = vecs[i] and vecs[i].x or 0
+    local y = vecs[i] and vecs[i].y or 0
+    if not w.lv or math.abs(w.lv.x - x) > 1e-6 or math.abs(w.lv.y - y) > 1e-6 then
+      if pcall(w.p.setVector, x, y) then w.lv = { x = x, y = y } end
+    end
   end
   return thrusts, vecs, sat
 end
@@ -157,6 +163,7 @@ function mixer.stop()
   for _, w in ipairs(wrapped) do
     pcall(w.p.setPowerNormalized, 0)
     pcall(w.p.setVector, 0, 0)
+    w.lv = nil
   end
 end
 

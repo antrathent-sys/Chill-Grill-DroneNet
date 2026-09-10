@@ -30,11 +30,11 @@ All peripherals are found by type except the velocity sensors, which are address
 
 | Peripheral | Count | Used for |
 |---|---|---|
-| `vector_thruster` | 1 | The only actuator. `setVector(vx, vy)` tilts the nozzle, `setPowerNormalized(p)` sets thrust 0..1. |
+| `vector_thruster` | 1 or 4 | The only actuator. `setVector(vx, vy)` tilts the nozzle, `setPowerNormalized(p)` sets thrust 0..1. One thruster is driven directly; more than one engages `lib/mixer.lua` (see Four thrusters). |
 | `gimbal_sensor` | 1 | `getAngles()` gives **pitch and roll only**. No yaw, which is why heading is derived from motion. |
 | `altitude_sensor` | 1 | `getHeight()` for the altitude loop. |
 | `navigation_table` | 1 | `getRelativeAngle()` bearing to its target. Measured in the pod's own tilted plane, so it is de-rotated by pitch/roll before use. Currently reads about 180 deg out and is only a fallback (`NAV_FALLBACK = false`). |
-| `modular_accumulator` | 1 (optional) | Main battery. `getPercent()` polled once per `MON_POLL` in the monitoring coroutine, logged as `energy`. `LOW ENERGY` warning with a minutes-to-empty estimate below `ENERGY_WARN`. |
+| `modular_accumulator` | 0..4 | Main battery. `getPercent()` of every accumulator, averaged, polled once per `MON_POLL` in the monitoring coroutine, logged as `energy`. `LOW ENERGY` warning with a minutes-to-empty estimate below `ENERGY_WARN`. |
 | thruster buffer | 0..1 | The thruster's own FE buffer (or a liquid tank if `FUEL_MODE = "fluid"`), logged as `fuel` %. See Monitoring. |
 | `docking_connector` | 0..1 | Optional. Extended by a redstone side (`DOCK_SIDE`), which is also what arms its magnet. `getConnectedName()` is the only dock-state signal and is polled in the monitoring coroutine. See Docking. |
 | pump drive | 0..1 | Optional. A redstone side (`PUMP_SIDE`, e.g. a clutch on the pump shaft) and/or a CC&A electric motor (`PUMP_MOTOR`) that `fly` switches on before takeoff and off on exit. |
@@ -43,6 +43,20 @@ All peripherals are found by type except the velocity sensors, which are address
 The sensors (`gimbal_sensor`, `altitude_sensor`, `velocity_sensor`, `navigation_table`) come from **Create: Avionics**; the thruster comes from **Gadgets & Gizmos**, whose thrusters accept either FE or liquid fuel through a thruster gimbal or bearing. Method names used here were checked against the Avionics docs in September 2026 and are current.
 
 The velocity sensors tilt with the airframe. With the vertical axis measured, the body vector is rotated back to level, so "forward speed" stays horizontal-forward even at 70 deg of lean.
+
+### Four thrusters
+
+With more than one `vector_thruster` fitted, `fly` loads `lib/mixer.lua` and refuses to start unless every fitted thruster is in the corner map. The map comes from `mixmap.csv` on the computer (written by `mixcal`) or, failing that, `CFG.MIX_MAP`, which holds the map both mixcal runs agreed on. The attitude PID is untouched; `MIX_MODE` decides where its output goes:
+
+| Mode | Attitude from | Nozzles | Calls/iter |
+|---|---|---|---|
+| `diff` (default) | differential thrust across the corners | straight, set once | 4 |
+| `vector` | all four nozzles vectored together, exactly like the single thruster | move every iteration | 8 |
+| `both` | differential and vectored, same signs | move every iteration | 8 |
+
+`MIX_GAIN` scales the PID output into differential demand (the mixer then caps it at `PITCH_AUTH`/`ROLL_AUTH` = 25 % of range), and `MIX_P_SIGN`/`MIX_R_SIGN` flip an axis if it diverges. The flightlog's `vx,vy` columns carry the differential pitch/roll demand in `diff` mode and the nozzle vector otherwise; `sat` is 1 when the mixer ran out of range and traded lift for attitude. The thruster FE buffer is summed across all four; `kill` stops all of them.
+
+**First flight in diff mode:** `fly find 0.5` on the pad with `TUMBLE` low. If it rolls or pitches away instead of levelling, flip the matching `MIX_*_SIGN`. If it holds level but wallows, raise `MIX_GAIN`; if it twitches, lower it. Nothing about the tuning constants has been changed, so the hover gains are the single-thruster ones and will need a pass.
 
 ### Position
 
@@ -163,6 +177,7 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `IMAX` | Attitude integrator clamp. |
 | `VEC_MAX` | Nozzle vector clamp. 1.0 is full authority. |
 | `P_AXIS`, `P_SIGN`, `R_SIGN` | Which thruster axis is pitch, and the sign of each axis. Airframe wiring. |
+| `MIX_MODE`, `MIX_GAIN`, `MIX_P_SIGN`, `MIX_R_SIGN`, `MIX_MAP` | Four-thruster mixer: diff / vector / both, PID-to-differential gain, per-axis sign, built-in corner map. See Four thrusters. |
 | `TILT_RATE` | Max deg/s the tilt *targets* may move, so phase changes ramp instead of step. |
 | `TUMBLE` | Abort and cut thrust if pitch or roll exceeds this many degrees. 0 disables. |
 
