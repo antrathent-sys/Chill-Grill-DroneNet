@@ -200,7 +200,7 @@ local CFG = {
   -- flight and it corkscrewed for a minute. Yaw damping now runs at every
   -- lean (the gyro-integrated heading is safe there) and the guard only warns.
   YAW_MAX = 0.9,                      -- demand clamp at hover (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
-  YAW_MAX_LEAN = 0.5,                 -- demand clamp above YAW_LEAN_HI of lean: the sweep flight thrashed
+  YAW_MAX_LEAN = 0.3,                 -- demand clamp above YAW_LEAN_HI of lean: the sweep flight thrashed
                                       -- +-55 deg/s at 60-80 deg and tumbled; tangential deflection also
                                       -- steals attitude authority exactly where it is scarcest
   YAW_LEAN_LO = 20, YAW_LEAN_HI = 45, -- deg: clamp blends from YAW_MAX to YAW_MAX_LEAN across this band
@@ -848,25 +848,14 @@ local function controlLoop()
     leanTrue = math.sqrt(a[1] * a[1] + a[2] * a[2])   -- true lean this iteration (deg); refined below
     if ATT then
       local gB0 = ATT.gravityFromGimbal(a[1], a[2])
-      local L = math.acos(math.max(-1, math.min(1, -gB0.y)))                 -- lean
-      leanTrue = math.deg(L)
-      local bL = math.rad((cruiseHdg or hdgNow) + math.deg(math.atan2(gB0.x, -gB0.z)))  -- world bearing of the lean
-      -- Two candidate projections (lean bearing, and +180: the sign of the
-      -- horizontal part depends on conventions that have bitten before, and
-      -- a wrong sign turns the yaw damper into a spin motor above ~50 deg of
-      -- lean - 2026-09-10). The one whose integral tracks the nav heading's
-      -- actual change wins; at level they are identical.
-      local sL, cL = math.sin(L), math.cos(L)
-      local wA = -math.deg(pos.wvx * sL * math.sin(bL) + pos.wvy * cL - pos.wvz * sL * math.cos(bL))
-      local wB = -math.deg(-pos.wvx * sL * math.sin(bL) + pos.wvy * cL + pos.wvz * sL * math.cos(bL))
-      if lastHdgNow then
-        local dNav = ((hdgNow - lastHdgNow + 540) % 360) - 180
-        projErrA = 0.9 * projErrA + math.abs(wA * dt - dNav)
-        projErrB = 0.9 * projErrB + math.abs(wB * dt - dNav)
-      end
-      lastHdgNow = hdgNow
-      pos.wy = (projErrB < projErrA) and wB or wA
+      leanTrue = math.deg(math.acos(math.max(-1, math.min(1, -gB0.y))))
     end
+    -- Heading rate: plain world-vertical angular rate, as flown at 119 and
+    -- 136 b/s. A thrust-axis projection was tried (2026-09-10); its
+    -- horizontal-part sign could not be pinned down and an online sign
+    -- selector flipped mid-spin, so the yaw damper alternately fought and
+    -- drove the spin. Contaminated by roll at high lean, but sign-consistent.
+    pos.wy = -math.deg(pos.wvy)
     -- cruise heading: complementary filter. Sable's yaw rate is integrated
     -- every iteration (no lag when the craft really yaws), and the result is
     -- pulled slowly toward the nav heading (no drift). A plain slow filter
