@@ -1,0 +1,34 @@
+================ CC: Sable probe ================
+isInPlotGrid : true   (0.050s)
+name / uuid  : - / 40747cf9-0151-48a7-8a08-09adc8d08dda
+getLastPose  : pos    45.3130    65.5030    71.2492
+               ori     0.0000     0.0000     0.0000 w=  0.0000  norm 0.0000 <<< NOT A ROTATION
+getLogicalPose call cost: 0.050s
+  position   :    45.3130    65.5030    71.2492
+  orientation:     0.0000     0.0000     0.0000 w=    0.0000
+  rotPoint   : 20481033.5018   127.5030 20489224.4976
+  scale      :     1.0000     1.0000     1.0000
+gps.locate   : no fix
+quat norm    : 0.0000 <<< NOT A ROTATION
+  orientation is degenerate - every axis reading below is meaningless.
+  try getLastPose(), and try again while the contraption is MOVING.
+quat yaw     :    0.00 deg   <- this is the yaw the gimbal cannot give
+quat p / r   :    0.00 /    0.00 deg
+gimbal p / r :    0.00 /   -0.00 deg
+  (if quat p/r and gimbal p/r disagree, the quaternion axis order differs
+   from what this script assumes - note the numbers and we can fix the mapping)
+navigation_table x2:
+  methods: getRelativeAngle getRelativeAngleRad
+  navigation_table_4     relAngle   253.21 deg
+  navigation_table_5     relAngle   180.00 deg
+  two tables: tilt the craft and re-run to see which plane each is in
+linear vel   :    -0.0001     0.0000     0.0000   (0.050s)
+angular vel  :     0.0000     0.0000     0.0000
+global vel   :     0.0003    -0.0000     0.0001
+body axes in world coords (hover: the thrust axis should read ~0,1,0):
+  body +x ->     1.0000     0.0000     0.0000
+  body +y ->     0.0000     1.0000     0.0000
+  body +z ->     0.0000     0.0000     1.0000
+mass         : 52.00
+centre of mass: 20481033.5018   127.5030 20489224.4976
+alt sensor   : 68.5000   (pose.y - alt = -2.9970)
