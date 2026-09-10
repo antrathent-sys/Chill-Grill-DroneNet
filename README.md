@@ -132,7 +132,8 @@ Phases as they appear in the log:
 
 - **find / fly**: single phase, altitude PID plus position hold.
 - **climb**: fixed `CLIMB_POWER` eased by climb rate, no lean. Transitions `DASH_SETTLE` blocks below the goal while still climbing.
-- **dash**: `dash` mode holds a fixed pitch. `go` mode steers toward the target with a velocity controller in the body frame, lean capped at `CRUISE_DEG`.
+- **dash**: `dash` mode holds a fixed pitch. `go` mode steers toward the target with a velocity controller in the world frame, lean capped at `CRUISE_DEG`.
+- **brake**: leans against the world velocity vector on both axes (the craft cruises largely sideways, so a forward-only brake left the lateral speed alone) and finishes on total ground speed below `BRAKE_DONE`.
 - **brake**: pitches the other way against forward speed until it drops below `BRAKE_DONE` or `BRAKE_MAX_T` runs out.
 - **hold**: altitude plus position hold at the current spot (`dash`) or the target (`go`).
 - **align**: `dock` only. Position hold over the pad, waiting for the drone to be within `DOCK_ALIGN` blocks and under `DOCK_ALIGN_SPD` for `DOCK_SETTLE_T` seconds. Speed comes from the velocity sensors rather than differenced GPS, and up to `DOCK_ALIGN_GRACE` bad samples are tolerated before the timer resets. **If a dock hangs in align, this gate is why**: raise `DOCK_ALIGN_SPD` first, then `DOCK_ALIGN_GRACE`.

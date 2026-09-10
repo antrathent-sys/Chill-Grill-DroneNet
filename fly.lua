@@ -50,7 +50,7 @@ local CFG = {
   PKP = 0.2, VMAX = 3, PKV = 1.0,
   PKI = 0.05, TRIM_MAX = 3,
   TILT_MAX = 6,                       -- quad: 3 let the hold drift 45 blocks after a brake (2026-09-10)
-  SPEED_GUARD = 4,
+  SPEED_GUARD = 6,                    -- b/s: position hold engages below this (4 let a 12 b/s residual coast 148 blocks)
   PITCH_DIR = -1, ROLL_DIR = 1,
   -- Quad frame, fitted from two position-hold flights on 2026-09-10 (world
   -- velocity response to pitch and roll, tools/fit_heading.py): the flat nav
@@ -762,7 +762,10 @@ local function controlLoop()
         print(string.format("brake at %.0f blocks, %.1f b/s", d, fs))
       end
     elseif phase == "brake" then
-      if math.abs(fwdSpeed()) < CFG.BRAKE_DONE or t - brakeStart > CFG.BRAKE_MAX_T then
+      -- done on TOTAL ground speed: this craft cruises largely sideways, and
+      -- judging by forward speed alone ended a brake at 12 b/s (2026-09-10)
+      local gs = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
+      if gs < CFG.BRAKE_DONE or t - brakeStart > CFG.BRAKE_MAX_T then
         phase = (mode == "dock") and "align" or "hold"
         if mode ~= "go" and mode ~= "dock" then goalX, goalZ = pos.x, pos.z end
         enter(phase)
@@ -887,10 +890,15 @@ local function controlLoop()
     elseif phase == "dash" then
       tp = CFG.DASH_DIR * dashDeg
     elseif phase == "brake" then
-      -- lean against the direction of travel to kill speed
-      local fs = fwdSpeed()
-      local k = math.min(1, math.abs(fs) / CFG.BRAKE_EASE)
-      tp = -CFG.DASH_DIR * CFG.BRAKE_DEG * k * (fs >= 0 and 1 or -1)
+      -- lean against the WORLD velocity vector, both axes, split into body
+      -- exactly as cruise does; ramps in over BRAKE_EASE so it is not a step
+      local k = math.min(1, speed / CFG.BRAKE_EASE)
+      if speed > 0.1 then
+        local bx, bz = -pos.vx / speed * CFG.BRAKE_DEG * k, -pos.vz / speed * CFG.BRAKE_DEG * k
+        local r = math.rad(cruiseHdg)
+        tp = CFG.PITCH_DIR * (bx * math.sin(r) - bz * math.cos(r))
+        tr = CFG.ROLL_DIR  * (bx * math.cos(r) + bz * math.sin(r))
+      end
     elseif phase ~= "climb" and fresh and speed < CFG.SPEED_GUARD then
       ex, ez = goalX - pos.x, goalZ - pos.z
       local vdx = clamp(CFG.PKP * ex, CFG.VMAX)
