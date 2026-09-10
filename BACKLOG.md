@@ -144,6 +144,44 @@ which moved it, which produced another bad heading. The oscillation being
 chased in tuning may simply have been this. Measure again before changing
 anything.
 
+## The four-thruster airframe, as built
+
+First inventory: [data/preflight-airframe1.txt](data/preflight-airframe1.txt).
+
+Fitted: 4x `vector_thruster` (13 methods each), 4x `modular_accumulator`,
+1x `docking_connector`, 1x `createaddition:large_connector`, and two modems
+(`bottom` with 13 methods, so wired; `top` with 6, so wireless).
+
+**Blocking, must be fitted before it can fly:**
+
+- **`gimbal_sensor`.** There is no attitude source without it. Sable's
+  quaternion reads null, so this is the only one. Hard blocker.
+
+**Should be fitted:**
+
+- **`altitude_sensor`.** `pose.position.y` could substitute, but the altitude
+  sensor reads a specific block and is what `DOCK_GAP` is calibrated against.
+
+**No longer needed:**
+
+- **Velocity sensors.** `getLinearVelocity()` gives world-frame velocity
+  directly. Body-frame speed would need attitude to rotate into anyway, and
+  position hold and braking can both be done in world frame.
+- **`navigation_table`.** Only useful now for lodestone targeting.
+
+**Two code changes the build forces:**
+
+1. **Four thrusters, four separate peripherals.** They are not on a shared
+   bearing, so `peripheral.find("vector_thruster")` takes one and ignores
+   three. `fly.lua` cannot fly this airframe until the mixer exists.
+2. **Four accumulators.** Only the first is read, so energy is understated to
+   a quarter of the truth.
+
+Also worth noting the thrusters expose **13 methods**, well beyond the
+`setVector` / `setPowerNormalized` / `getEnergy` / `getEnergyCapacity` that the
+single-thruster code uses. `preflight` now prints method names per type, so the
+mixer can be written against what is actually there.
+
 ## Known issues
 
 **Heading oscillates.** Diagnosed: heading comes from GPS displacement, GPS is

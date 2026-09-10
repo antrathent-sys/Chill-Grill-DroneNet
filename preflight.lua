@@ -221,12 +221,25 @@ local names = peripheral.getNames and peripheral.getNames() or {}
 if #names == 0 then
   err("no peripherals found at all - is anything actually attached?")
 else
-  local byType = {}
+  local byType, seenType = {}, {}
   for _, nm in ipairs(names) do
     local ty = peripheral.getType(nm) or "?"
     byType[ty] = (byType[ty] or 0) + 1
     local ms = peripheral.getMethods(nm) or {}
     print(string.format("  %-24s %-24s %d methods", nm, ty, #ms))
+    -- Dump the method names once per type. The mixer for a multi-thruster
+    -- airframe has to be written against whatever the thruster actually
+    -- exposes, and guessing is how you get a drone that will not fly.
+    if not seenType[ty] then
+      seenType[ty] = true
+      table.sort(ms)
+      local line = "      "
+      for _, m in ipairs(ms) do
+        if #line + #m > 74 then print(line) line = "      " end
+        line = line .. m .. " "
+      end
+      if #line > 6 then print(line) end
+    end
   end
   pass = pass + 1
   local kinds = {}
@@ -243,7 +256,15 @@ local function want(label, present, why, fatal)
   else wrn(label .. " absent - " .. why) end
 end
 
-want("vector_thruster", thr ~= nil, "the only actuator", true)
+local allThr = { peripheral.find("vector_thruster") }
+local allAcc = { peripheral.find("modular_accumulator") }
+want("vector_thruster", thr ~= nil, #allThr .. " fitted", true)
+if #allThr > 1 then
+  err(#allThr .. " thrusters fitted but fly.lua drives ONE - peripheral.find takes the first. Needs the mixer.")
+end
+if #allAcc > 1 then
+  wrn(#allAcc .. " accumulators fitted but only the first is read - energy is understated")
+end
 want("altitude_sensor", alt ~= nil, "altitude hold and the dock gap", true)
 want("gimbal_sensor",  gim ~= nil, "attitude; still needed, the Sable quaternion reads null", true)
 want("velocity_sensor x3", #vs >= 3, "body-frame speed for brake and the dock align gate", true)
