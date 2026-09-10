@@ -514,7 +514,8 @@ local function pump(on)
   end
 end
 -- forward (nose-axis) speed from the velocity sensor, positive = moving forward
-local pos = { x = 0, z = 0, vx = 0, vz = 0, vy = nil, t = 0, rej = 0, wy = 0 }   -- vy: Sable vertical speed; wy: world yaw rate, deg/s
+local pos = { x = 0, z = 0, vx = 0, vz = 0, vy = nil, t = 0, rej = 0, wy = 0,   -- vy: Sable vertical speed; wy: heading rate deg/s
+              wvx = 0, wvy = 0, wvz = 0 }                                        -- raw world angular velocity, rad/s
 
 -- raw sensor reads, in the AIRFRAME's own (tilted) frame
 local sFwd = peripheral.wrap(CFG.FWD_NAME)
@@ -673,7 +674,10 @@ local function readPos()
     -- differenced, so it carries none of the noise the GPS path had.
     local vx, vy, vz = 0, 0, 0
     if type(lv) == "table" then vx, vy, vz = lv.x or 0, lv.y or 0, lv.z or 0 end
-    if type(av) == "table" and av.y then pos.wy = -math.deg(av.y) end   -- +y spin turns heading DOWN
+    if type(av) == "table" and av.y then
+      pos.wvx, pos.wvy, pos.wvz = av.x or 0, av.y or 0, av.z or 0   -- world frame, rad/s
+      if not ATT then pos.wy = -math.deg(av.y) end                -- level-only fallback
+    end
     return pose.position.x, pose.position.z, vx, vz, vy
   end
   local x, _, z = gps.locate(0.3)
@@ -831,6 +835,19 @@ local function controlLoop()
     if iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1 then rawH = rawHeading() end
     a = gim.getAngles()
     local hdgNow = heading(a[1], a[2], rawH)
+    -- Heading rate = angular velocity about the THRUST axis, not about world
+    -- vertical. At 70 deg of lean world-vertical is 0.94 roll / 0.34 yaw, so
+    -- attitude motion was being integrated into the heading, the estimate
+    -- swung +-25 deg, the lean split rotated with it and the attitude loop
+    -- chased its own tail at 117 b/s (2026-09-10). Thrust axis in world from
+    -- the gimbal's gravity vector and the current heading estimate.
+    if ATT then
+      local gB0 = ATT.gravityFromGimbal(a[1], a[2])
+      local L = math.acos(math.max(-1, math.min(1, -gB0.y)))                 -- lean
+      local bL = math.rad((cruiseHdg or hdgNow) + math.deg(math.atan2(gB0.x, -gB0.z)))  -- world bearing of the lean
+      local tx, ty, tz = math.sin(L) * math.sin(bL), math.cos(L), -math.sin(L) * math.cos(bL)
+      pos.wy = -math.deg(pos.wvx * tx + pos.wvy * ty + pos.wvz * tz)
+    end
     -- cruise heading: complementary filter. Sable's yaw rate is integrated
     -- every iteration (no lag when the craft really yaws), and the result is
     -- pulled slowly toward the nav heading (no drift). A plain slow filter
