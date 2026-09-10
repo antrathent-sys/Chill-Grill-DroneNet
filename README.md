@@ -11,6 +11,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed. |
 | `ARCHITECTURE.md` | The layer stack for the autonomous controller: control, leg, mission, link. Decided before the code. |
 | `COMMAND.md` | The ground side: order intake, package assembly, fleet dispatch, and the rednet protocol between depot and drone. |
+| `lib/db.lua` | Log-structured key/value store for the depot, built for CC's 1 MB disk. Tested by `tools/run_db_test.py`. |
 | `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
 | `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |

@@ -160,18 +160,59 @@ Run in this order, cheapest first, and always return a reason:
 Rejections are cheap and honest. An order accepted that cannot be flown is
 worse than one refused at intake.
 
-## Persistence
+## Persistence: `lib/db.lua`
 
-The depot must survive a reboot mid-order. Two files:
+The depot must survive a reboot mid-order, and it has to do it inside a
+**1,000,000 byte disk** (`computer_space_limit`; a floppy is 125,000). That
+number is the whole reason for the design.
 
-- `orders.db` - the current state, rewritten on change.
-- `orders.log` - append-only events, never rewritten. The audit trail, and what
-  you read when something goes wrong.
+`lib/db.lua` is a log-structured key/value store built for exactly this:
 
-Rewriting the state file is the risky part, since a crash mid-write leaves a
-truncated table that will not deserialize. Write to `orders.db.new`, delete the
-old, then `fs.move` into place, and on boot prefer `orders.db` but fall back to
-`.new` if the main file fails to parse.
+- **Writes append one line.** O(1), no matter how large the store gets.
+  Rewriting a whole serialized table on every change is O(n) on a slow machine
+  and loses everything if the game stops mid-write.
+- **An in-memory index maps key to byte offset**, so `get` seeks straight to
+  the record instead of scanning.
+- **Scans stream line by line.** The file is never loaded into memory, which
+  matters as much as disk space on a CC computer.
+- **Compaction** rewrites without the dead records, building alongside and
+  swapping in only once complete.
+- **A torn final line is dropped on the next open**, costing at most the last
+  write. That is what a crash actually looks like on an appending log.
+
+```lua
+local db  = dofile("lib/db.lua")
+local ord = db.open("orders.db")
+ord:put("o-1042", { customer = "alex", state = "placed", cost = 120 })
+local rec = ord:get("o-1042")
+local open_orders = ord:find(function(_, v) return v.state == "placed" end)
+if ord:stats().shouldCompact then ord:compact() end
+```
+
+Records are JSON, one per line. That is deliberate: on Lua 5.1
+`textutils.serialize` escapes a newline inside a string as a backslash followed
+by a **real newline**, which would split one record across two lines and
+silently corrupt the log. JSON cannot emit a raw newline. The cost is that
+values must be JSON-representable, which is no restriction for order records.
+
+Run `python tools/run_db_test.py` to exercise it outside the game.
+
+### Sizing, and what not to store
+
+A compact order record is roughly 200-300 bytes, so a 1 MB disk holds a few
+thousand orders. That is plenty for the order book.
+
+**Flight telemetry is not.** A 30 second flight log is already over 600 rows,
+around 130 KB, so eight flights would fill the disk on their own. Keep raw
+flight logs where they are: written on the drone, overwritten each flight,
+pulled off when a flight is interesting. The depot stores a mission *summary*,
+not the trace.
+
+When the order book does grow too large, in rough order of effort: compact,
+then archive closed orders older than a season to a floppy in a disk drive
+(each adds 125 KB and mounts as `/disk`, `/disk1`, ...), then offload over
+`http` to something outside the game. The http route is already proven here,
+since `startup.lua` uses it.
 
 ## Dispatch policy
 
