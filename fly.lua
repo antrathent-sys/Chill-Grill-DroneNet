@@ -168,8 +168,10 @@ local CFG = {
   -- sails spun the craft up to 60 deg/s, the guard then disabled yaw for the
   -- flight and it corkscrewed for a minute. Yaw damping now runs at every
   -- lean (the gyro-integrated heading is safe there) and the guard only warns.
-  YAW_MAX = 0.6,                      -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
-  YAW_P_MAX = 0.5,                    -- cap on the heading term alone; the rest of the range is rate damping
+  YAW_MAX = 0.9,                      -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
+  YAW_P_MAX = 0.8,                    -- cap on the heading term: equilibrium rate = (P_MAX - demand)/KD; 0.5 gave 15 deg/s
+  YAW_SWEEP = 0,                      -- deg/s: rotate YAW_OFFSET continuously during cruise (drag-vs-yaw experiment,
+                                      -- analyse with tools/yaw_sweep.py); 0 = off
   YAW_SLEW = 30,                      -- deg/s: the held target walks toward the wanted heading, never jumps
   YAW_TILT_MAX = 180,                 -- deg: lean above which yaw is not commanded (off)
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
@@ -1009,12 +1011,14 @@ local function controlLoop()
     if yawOK then
       local hdgUsed = (phase == "dash" or phase == "brake") and cruiseHdg or hdgNow
       local src = "hold"
+      local yawOff = CFG.YAW_OFFSET
+      if CFG.YAW_SWEEP ~= 0 and dashStart then yawOff = (yawOff + CFG.YAW_SWEEP * (t - dashStart)) % 360 end
       if phase == "dash" and CFG.CRUISE_COORD and (mode == "go" or mode == "dock") then
         src = "target"
-        yawTgt = (math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) + CFG.YAW_OFFSET) % 360
+        yawTgt = (math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) + yawOff) % 360
       elseif (phase == "dash" or phase == "brake") and speed > CFG.YAW_MIN_SPEED then
         src = "course"
-        yawTgt = (math.deg(math.atan2(pos.vx, -pos.vz)) + CFG.YAW_OFFSET) % 360
+        yawTgt = (math.deg(math.atan2(pos.vx, -pos.vz)) + yawOff) % 360
       elseif spinDeg then
         -- spin exercise: settle at altitude, yaw +spinDeg (clockwise = heading
         -- up), hold, yaw back, hold. Progress printed with the live error.
