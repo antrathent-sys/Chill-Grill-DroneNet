@@ -123,7 +123,11 @@ local CFG = {
   LEAN_FULL_SPD = 60,                 -- b/s at which CRUISE_DEG is allowed
   ALT_PROTECT = 15,                   -- blocks below goal before the lean cap is reduced
   ALT_PROTECT_GAIN = 2,               -- deg of cap per block beyond ALT_PROTECT (floor 30)
-  CRUISE_SPEED = 500,                 -- b/s: not a limit, the lean cap is; the loop just leans to the cap
+  -- The airspeed cliff (2026-09-10): the sails' pitching moment grows with
+  -- v^2 and above ~85 b/s it out-muscles the vectoring - 65 deg tracked
+  -- within 2 deg at 81 b/s, 70 deg ran 10 deg past command at 100 b/s and
+  -- departed. Until attitude authority at speed improves, speed is the limit.
+  CRUISE_SPEED = 75,                  -- b/s: the loop eases lean off as it approaches this
   -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
   -- heading only splits the final lean into pitch and roll. 1290-block flight
   -- 2026-09-10: CKV 3 turned every 5 b/s wobble into 15 deg of lean and the
@@ -928,8 +932,11 @@ local function controlLoop()
       if phase == "dash" or phase == "brake" then
         -- leaning tips the thrust over: scale the hover feed-forward by
         -- 1 / cos(tilt) so the altitude loop is not left to find it
+        -- floored at 1/cos 65: past that an overshoot costs a little altitude,
+        -- not all the attitude authority (full power leaves the mixer no
+        -- differential headroom, which is how the 100 b/s departure went)
         local ct = math.cos(math.rad(a[1])) * math.cos(math.rad(a[2]))
-        pwr = pwr + CFG.HOVER * (1 / math.max(ct, 0.25) - 1) + CFG.DASH_POWER
+        pwr = pwr + CFG.HOVER * (1 / math.max(ct, 0.42) - 1) + CFG.DASH_POWER
       end
       if phase == "capture" then pwr = pwr - CFG.DOCK_SINK end
       if phase == "docked" then pwr = 0 end
