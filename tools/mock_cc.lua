@@ -107,6 +107,7 @@ _G.fs = {
     -- UPLOAD_BOOM makes upload.lua present but explosive, to prove a failed
     -- auto-upload cannot take the flight down with it.
     if p == "upload.lua" then return os.getenv("UPLOAD_BOOM") ~= nil end
+    if p == "lib/chime.lua" then return os.getenv("SPEAKER") ~= nil end
     return false
   end,
 }
@@ -137,6 +138,13 @@ add("vector_thruster_0", "vector_thruster", {
 add("modular_accumulator_0", "modular_accumulator", {
   getPercent = function() return math.max(0, 90 - T * 0.4) end,
 })
+-- SPEAKER=1 attaches a speaker so the chime path is exercised
+if os.getenv("SPEAKER") then
+  _G.notesPlayed = {}
+  add("speaker_0", "speaker", {
+    playNote = function(i, v, p) notesPlayed[#notesPlayed+1] = i .. ":" .. tostring(p) return true end,
+  })
+end
 add("docking_connector_0", "docking_connector", {
   getConnectedName = function()
     if os.getenv("START_DOCKED") and sim.rs["bottom"] then return "TestPad" end
@@ -217,8 +225,21 @@ math.atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 
 _G.arg = ARGS
 
+-- CraftOS runs every program inside a coroutine, so `sleep` works at the top
+-- level of a script. Run it the same way or the harness lies about that.
 local f = assert(loadfile(SCRIPT))
-local ok, err = pcall(f)
+local ok, err = true, nil
+do
+  local co = coroutine.create(f)
+  local guard = 0
+  while coroutine.status(co) ~= "dead" do
+    guard = guard + 1
+    if guard > 500000 then ok, err = false, "harness: top-level step limit" break end
+    local res, a = coroutine.resume(co)
+    if not res then ok, err = false, a break end
+    if type(a) == "number" then T = T + a step(T) end
+  end
+end
 print("---- harness result ----")
 print("ok:", ok, "err:", err)
 print(string.format("final: h=%.2f x=%.1f z=%.1f docked=%s rs=%s",
@@ -237,3 +258,4 @@ for i = 2, #logLines do
   if ph and ph ~= seen.last then order[#order + 1] = ph seen.last = ph end
 end
 print("phases: " .. table.concat(order, " -> "))
+if _G.notesPlayed then print("notes played: " .. #notesPlayed .. "  " .. table.concat(notesPlayed, " ")) end

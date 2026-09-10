@@ -12,6 +12,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `ARCHITECTURE.md` | The layer stack for the autonomous controller: control, leg, mission, link. Decided before the code. |
 | `COMMAND.md` | The ground side: order intake, package assembly, fleet dispatch, and the rednet protocol between depot and drone. |
 | `lib/db.lua` | Log-structured key/value store for the depot, built for CC's 1 MB disk. Tested by `tools/run_db_test.py`. |
+| `lib/chime.lua` | Speaker tones on flight events. Silent without a speaker, and queued so it can never stall the control loop. |
 | `lib/mission.lua` | Mission planning: places, leg queues, energy budgets, point of no return, and calibration from a flightlog. |
 | `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
 | `preflight.lua` | Read-only ground check: peripherals, sensor names and axes, position, energy, docking wiring, files. Run it before flying. |
@@ -176,6 +177,7 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `DOCK_ABORT_DIST` | Blocks of drift that sends the descent back to align. |
 | `DOCK_TRIES` | Capture attempts before giving up and just holding. |
 | `DOCK_RELEASE_T` | Seconds of thrust before `undock` drops the connector. |
+| `CHIME` | Speaker tones on phase changes. Silent if no speaker is attached. |
 
 **Position hold (outer loop)**
 
@@ -274,7 +276,11 @@ python tools/run_mock.py --selftest    all eight fly.lua modes, phase sequences
 python tools/run_db_test.py            lib/db.lua, 27 cases
 python tools/run_upload_test.py        upload.lua against a mocked GitHub API
 python tools/run_mission_test.py       lib/mission.lua, 24 cases
+python tools/run_chime_test.py         lib/chime.lua, 13 cases
 ```
+
+Set `SPEAKER=1` on the mock harness to attach a speaker and see which notes a
+flight actually plays.
 
 ### What a successful flight needs
 

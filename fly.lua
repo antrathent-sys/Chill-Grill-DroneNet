@@ -91,6 +91,7 @@ local CFG = {
   DOCK_RELEASE_T = 1.5,               -- seconds of thrust before 'undock' drops the connector
 
   AUTO_UPLOAD = true,                 -- push the flightlog to GitHub when the flight ends
+  CHIME = true,                       -- speaker tones on phase changes, if a speaker is attached
 }
 
 local alt = peripheral.find("altitude_sensor")
@@ -122,6 +123,23 @@ local dockP = CFG.DOCK_NAME and peripheral.wrap(CFG.DOCK_NAME) or peripheral.fin
 if CFG.DOCK_NAME and not dockP then print("WARNING: docking connector " .. CFG.DOCK_NAME .. " not found") end
 local function dockExtend(on)
   if CFG.DOCK_SIDE then redstone.setOutput(CFG.DOCK_SIDE, on) end
+end
+
+-- Chimes. Optional, silent without a speaker, and every call returns instantly
+-- so nothing here can stall the control loop.
+local chime = { play = function() end, loop = function() while true do sleep(1) end end }
+if CFG.CHIME and fs.exists("lib/chime.lua") then
+  local ok, lib = pcall(dofile, "lib/chime.lua")
+  if ok and lib then
+    local spk = peripheral.find("speaker")
+    if spk and lib.attach(spk) then chime = lib print("speaker: chimes on") end
+  end
+end
+
+-- Announce a phase change once, in one place.
+local function enter(newPhase)
+  chime.play(newPhase)
+  print(newPhase)
 end
 
 -- Which method reads the thruster side depends on mode and mod version, so
@@ -191,6 +209,7 @@ local function monLoop()
         mon.energy, mon.t = pct, now
         if pct < CFG.ENERGY_WARN and not warnE then
           warnE = true
+          chime.play("warn")
           local eta = mon.rate < 0 and string.format(" (~%.1f min to empty)", -pct / mon.rate) or ""
           print(string.format("LOW ENERGY %.0f%%%s", pct, eta))
         elseif pct >= CFG.ENERGY_WARN + 5 then
@@ -440,28 +459,30 @@ local function controlLoop()
     updateMotionHeading(t)
 
     if undockFirst and not released and t - t0 > CFG.DOCK_RELEASE_T then
-      released = true dock.armed = false dockExtend(false) print("connector released")
+      released = true dock.armed = false dockExtend(false)
+      chime.play("undocked") print("connector released")
     end
 
     if phase == "climb" then
       -- transition the instant we reach cruise height, still climbing
       if h >= goal - CFG.DASH_SETTLE then
-        phase = "dash" dashStart = t print("dash")
+        phase = "dash" dashStart = t enter("dash")
       end
     elseif phase == "dash" and mode == "dash" and t - dashStart > dashSecs then
-      phase = "brake" brakeStart = t print("brake")
+      phase = "brake" brakeStart = t enter("brake")
     elseif phase == "dash" and (mode == "go" or mode == "dock") then
       local d = math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2)
       local f, l = fwdSpeed(), latSpeed()
       local fs = math.min(math.sqrt(f * f + l * l), 40)
       if d < math.max(CFG.ARRIVE, CFG.BRAKE_K * fs * fs / 10) then
-        phase = "brake" brakeStart = t print(string.format("brake at %.0f blocks, %.1f b/s", d, fs))
+        phase = "brake" brakeStart = t chime.play("brake")
+        print(string.format("brake at %.0f blocks, %.1f b/s", d, fs))
       end
     elseif phase == "brake" then
       if math.abs(fwdSpeed()) < CFG.BRAKE_DONE or t - brakeStart > CFG.BRAKE_MAX_T then
         phase = (mode == "dock") and "align" or "hold"
         if mode ~= "go" and mode ~= "dock" then goalX, goalZ = pos.x, pos.z end
-        print(phase)
+        enter(phase)
       end
     elseif phase == "align" then
       -- sit over the pad until position and speed are both settled. Plain
@@ -478,7 +499,7 @@ local function controlLoop()
         if not alignStart then alignStart = t end
         alignBad = 0
         if t - alignStart > CFG.DOCK_SETTLE_T then
-          phase = "descend" dockExtend(true)
+          phase = "descend" dockExtend(true) chime.play("descend")
           print(string.format("descend to %.1f, connector extended", dockAlt))
         end
       else
@@ -499,7 +520,7 @@ local function controlLoop()
         -- walk the altitude goal down; the existing altitude PID follows it
         goal = math.max(dockAlt, goal - CFG.DOCK_RATE * dt)
         if h <= dockAlt + CFG.DOCK_BAND then
-          phase = "capture" captureStart = t
+          phase = "capture" captureStart = t chime.play("capture")
           print("capture - waiting for the magnet")
         end
       end
@@ -584,6 +605,7 @@ local function controlLoop()
     a = gim.getAngles()
     bodyF, bodyL = bodyVel(a[1], a[2])
     if CFG.TUMBLE > 0 and (math.abs(a[1]) > CFG.TUMBLE or math.abs(a[2]) > CFG.TUMBLE) then
+        chime.play("alarm")
       error(string.format("tumbled (%.0f, %.0f) - thrust cut", a[1], a[2]))
     end
 
@@ -614,9 +636,17 @@ local function controlLoop()
   end
 end
 
-local ok, err = pcall(parallel.waitForAny, controlLoop, gpsLoop, monLoop)
+local ok, err = pcall(parallel.waitForAny, controlLoop, gpsLoop, monLoop, chime.loop)
 drive(0, 0, 0) pump(false) log.close()
 print("thrusters off, pump off - flightlog saved")
+-- Sounded here, not in the loop: the control loop returns the instant it docks,
+-- so a queued chime would be cut off before it played.
+if chime.playNow then
+  pcall(function()
+    if dock.connected then chime.playNow("docked")
+    elseif not ok then chime.playNow("alarm") end
+  end)
+end
 if dock.connected then
   -- DOCK_SIDE is deliberately left high: dropping it is what undocks.
   print("docked to " .. dock.name .. " - " .. tostring(CFG.DOCK_SIDE) .. " held, 'fly undock' releases")

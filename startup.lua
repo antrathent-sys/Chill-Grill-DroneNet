@@ -3,7 +3,8 @@
 -- this computer, and prints what changed. Needs http enabled in the CC config.
 local REPO   = "antrathent-sys/Chill-Grill-DroneNet"
 local BRANCH = "main"
-local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua", "preflight.lua" }
+local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua", "preflight.lua",
+                 "lib/chime.lua", "lib/db.lua", "lib/mission.lua" }
 
 -- Private repo? Put a GitHub token (fine-grained, read-only Contents scope on
 -- this repo only) in a file called .ghtoken on THIS computer. It is read here
@@ -49,6 +50,9 @@ for _, name in ipairs(FILES) do
   elseif body == readLocal(name) then
     unchanged[#unchanged + 1] = name
   else
+    -- files under lib/ need their directory to exist first
+    local dir = name:match("^(.*)/[^/]+$")
+    if dir and not fs.exists(dir) then fs.makeDir(dir) end
     local f = fs.open(name, "w")
     f.write(body)
     f.close()
