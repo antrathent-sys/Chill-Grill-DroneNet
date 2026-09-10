@@ -214,13 +214,25 @@ remote recall need a wireless or ender modem fitted.
 
 ### What the mixer still needs
 
-The airframe geometry: which of `vector_thruster_5/6/7/8` sits where relative
-to the centre of mass. Peripheral names carry no position, so this has to be
-measured. The honest way is a calibration routine that fires one thruster at a
-time at low power and records the angular response on the gimbal, deriving the
-mixing matrix from the airframe rather than from a diagram. That is how real
-multirotor firmware does motor mapping, and it removes any chance of a sign
-error. It does mean commanding thrusters, so it wants doing tethered or low.
+Geometry is known: **four thrusters at the corners of a 3x3**, so a moment arm
+of one block in each axis. A standard quad X layout.
+
+What is still unknown is which peripheral name sits in which corner, since
+names carry no position. `mixcal.lua` measures it: pulse one thruster at a
+time at low power on the ground, record which way the gimbal leans, and read
+the corner off the sign pair. Verified against a rig with a known layout that
+it is not told about (`tools/run_mixcal_test.py`).
+
+Once that map exists the mixer is straightforward, because the layout gives
+the allocation directly:
+
+- **collective** thrust on all four for lift
+- **front minus back** for pitch
+- **left minus right** for roll
+- **tangential vectoring** for yaw, which differential thrust cannot produce
+  at all
+- **common vectoring** for horizontal force without tilting, which is the part
+  that makes docking easy
 
 ## Known issues
 

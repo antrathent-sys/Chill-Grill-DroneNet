@@ -16,6 +16,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `lib/chime.lua` | Speaker tones on flight events. Silent without a speaker, and queued so it can never stall the control loop. |
 | `lib/mission.lua` | Mission planning: places, leg queues, energy budgets, point of no return, and calibration from a flightlog. |
 | `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
+| `mixcal.lua` | Works out which thruster sits in which corner by pulsing each one and watching the airframe lean. **Fires thrusters** - ground only. `mixcal dry` rehearses it safely. |
 | `preflight.lua` | Read-only ground check: full device inventory, sensor names and axes, position, energy, docking wiring, files. `preflight save` writes and pushes the result. Run it before flying. |
 | `upload.lua` | Pushes the last `flightlog` straight to this repo over the GitHub API, so logs can be read without touching the save. |
 | `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
@@ -294,6 +295,7 @@ python tools/run_db_test.py            lib/db.lua, 27 cases
 python tools/run_upload_test.py        upload.lua against a mocked GitHub API
 python tools/run_mission_test.py       lib/mission.lua, 24 cases
 python tools/run_chime_test.py         lib/chime.lua, 13 cases
+python tools/run_mixcal_test.py        mixcal.lua against a known corner rig
 ```
 
 Set `SPEAKER=1` on the mock harness to attach a speaker and see which notes a

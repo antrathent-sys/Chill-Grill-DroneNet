@@ -137,6 +137,37 @@ add("vector_thruster_0", "vector_thruster", {
   getEnergy = function() return 40000 end,
   getEnergyCapacity = function() return 50000 end,
 })
+
+-- QUAD=1 fits four thrusters at the corners of a 3x3, each with a known
+-- offset, so mixcal can be tested against a ground truth it does not know.
+if os.getenv("QUAD") then
+  local corners = {
+    vector_thruster_5 = {  1,  1 },
+    vector_thruster_6 = {  1, -1 },
+    vector_thruster_7 = { -1,  1 },
+    vector_thruster_8 = { -1, -1 },
+  }
+  sim.quad = {}
+  for nm, c in pairs(corners) do
+    sim.quad[nm] = { n = c[1], s = c[2], pwr = 0 }
+    add(nm, "vector_thruster", {
+      setPowerNormalized = function(p) sim.quad[nm].pwr = p end,
+      setVector = function() end,
+      getThrust = function() return sim.quad[nm].pwr * 100 end,
+      getEnergy = function() return 40000 end,
+      getEnergyCapacity = function() return 50000 end,
+    })
+  end
+  -- the gimbal now reports the tilt those corner thrusters would produce
+  periphs["gimbal_sensor_0"].getAngles = function()
+    local p, r = 0, 0
+    for _, q in pairs(sim.quad) do
+      p = p - q.n * q.pwr * 12      -- lifting a +n corner pitches nose down
+      r = r + q.s * q.pwr * 12
+    end
+    return { p, r }
+  end
+end
 add("modular_accumulator_0", "modular_accumulator", {
   getPercent = function() return math.max(0, 90 - T * 0.4) end,
 })
