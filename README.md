@@ -12,6 +12,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `ARCHITECTURE.md` | The layer stack for the autonomous controller: control, leg, mission, link. Decided before the code. |
 | `COMMAND.md` | The ground side: order intake, package assembly, fleet dispatch, and the rednet protocol between depot and drone. |
 | `lib/db.lua` | Log-structured key/value store for the depot, built for CC's 1 MB disk. Tested by `tools/run_db_test.py`. |
+| `lib/mission.lua` | Mission planning: places, leg queues, energy budgets, point of no return, and calibration from a flightlog. |
 | `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
 | `preflight.lua` | Read-only ground check: peripherals, sensor names and axes, position, energy, docking wiring, files. Run it before flying. |
 | `upload.lua` | Pushes the last `flightlog` straight to this repo over the GitHub API, so logs can be read without touching the save. |
@@ -272,7 +273,28 @@ Three suites, all runnable on a desktop with `pip install lupa`:
 python tools/run_mock.py --selftest    all eight fly.lua modes, phase sequences
 python tools/run_db_test.py            lib/db.lua, 27 cases
 python tools/run_upload_test.py        upload.lua against a mocked GitHub API
+python tools/run_mission_test.py       lib/mission.lua, 24 cases
 ```
+
+### What a successful flight needs
+
+`lib/mission.lua` exists because a flight fails for boring reasons, not exotic
+ones. In order of how often they bite:
+
+1. **A surveyed destination.** A place needs a ground height before a drop
+   altitude can be computed. `plan()` silently omits the hover and release legs
+   for an unsurveyed place, and `validate()` refuses it.
+2. **Round-trip energy with a reserve held back.** Every estimate is multiplied
+   by `MARGIN` because estimates are optimistic, and `RESERVE_PCT` is never
+   spendable.
+3. **Cruise altitude above the terrain.** Taken from the highest known ground
+   height at either end plus `MIN_CLEARANCE`. There is no forward-looking
+   sensor on this airframe, so this is only as good as the survey.
+4. **A point of no return.** `checkReturn()` answers go / turn back / land now
+   from where the drone is, what it has left, and how far home is.
+5. **Measured performance.** Everything above is arithmetic on `mission.perf`.
+   Until `calibrateFromLog()` has read a real flightlog, `perf.calibrated` is
+   false and `validate()` says so instead of pretending the defaults are real.
 
 
 `fly.lua` can be run against a mock CC:Tweaked API on a desktop, which exercises the phase machine end to end without Minecraft. It stubs the peripherals, a cooperative `parallel`/`sleep` scheduler and a crude kinematic drone, then writes a real `flightlog` the analyser can read. It verifies phase transitions and argument handling only. It says nothing about whether the tuning constants fly well, because the physics model is a stand-in rather than the mod's.
