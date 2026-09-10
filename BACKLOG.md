@@ -405,12 +405,40 @@ automatically satisfied, so it drops out rather than corrupting); a bad reading
 on a valid table IS flagged. Body frame is Minecraft-native, y up, nose -z, so
 identity means level and nose north - see FRAMES.md.
 
-**Next: mounting calibration.** The solver needs each table's normal and
-forward in body frame. nav4 is flat; nav5/7/8/9 are vertical in unknown
-orientations with unknown forward sign. The tumble data plus the gimbal can
-pin these down, and the gimbal's own two sign bits with them. Then
-`NAV_NAME` becomes a list of three and heading hold through the transition is
-real.
+**Mounting: fitted from the tumble, done.** `tools/fit_mounts.py` searched
+every table's normal and forward and the gimbal's sign bits against one
+physical fact - north is horizontal, so the recovered north vector must be
+perpendicular to gravity. Result, baked in as `attitude.presets.airframe1`:
+
+| Table | normal | forward |
+|---|---|---|
+| nav4 | -y | +x |
+| nav5 | -x | -z |
+| nav7 | +z | -x |
+| nav8 | +x | +z |
+| nav9 | -z | +x |
+
+All five tables agree to **0.00 degrees** under this mounting across all 43
+samples, and the fitted heading swung 78.9 degrees between the two rest states
+against nav4's own 79.0. `probe` now computes and prints the live quaternion,
+heading, agreement residual and the north.gravity check on the pod.
+
+**Still open: the gimbal's convention at large tilt.** Every standard Euler
+ordering (all 48 axis/order/sign variants) and two non-Euler models were tried.
+The best, independent axis elevations, is near-perfect below ~30 degrees
+(north.gravity 0.000 to 0.008) but stuck at ~0.11 beyond 45, and that is not
+read lag: two stationary samples at (-89, -88) are still 6 degrees off. The
+log also contains readings such as (131.8, -127.1) whose sines square-sum to
+1.19, which no pair of orthogonal axis elevations can produce. So the real
+gimbal reports something none of the candidates match once tilt is large.
+
+**Consequence:** attitude is trusted within ~45 degrees of tilt, which covers
+hover, docking and moderate manoeuvres. The VTOL transition through 90 degrees
+is not covered until the gimbal is understood. **The clean way to understand
+it is stationary readings at KNOWN attitudes**, free of tumble artefacts: rest
+the craft on its side (exactly 90 about one axis, 0 about the other), nose
+down (the other axis), and propped at 45, and run `probe save` at each. Three
+or four known attitudes pin the convention outright.
 
 **Table 5 is dead; table 4 is a compass to spawn** (superseded, see above)
 ([data/probe-run7-yawed.txt](data/probe-run7-yawed.txt)). A quarter-turn yaw

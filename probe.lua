@@ -209,6 +209,47 @@ local function snapshot()
     if #navs >= 2 then
       print("  two tables: tilt the craft and re-run to see which plane each is in")
     end
+
+    -- Live attitude from the tables + gimbal, using the fitted preset. This is
+    -- the thing the whole exercise was for: a real quaternion, on the pod.
+    if fs.exists("lib/attitude.lua") and gim then
+      local okA, ATT = pcall(dofile, "lib/attitude.lua")
+      if okA and ATT and ATT.presets then
+        local pre = ATT.presets.airframe1
+        local byName = {}
+        for _, t in ipairs(navList) do byName[t.name] = t.p end
+        local tables = {}
+        for _, e in ipairs(pre.tables) do
+          local p = byName[e.name]
+          if p then
+            local okr, ang = pcall(p.getRelativeAngle)
+            if okr then tables[#tables + 1] = { mount = ATT.mountFrom(e), angle = ang } end
+          end
+        end
+        local ga = gim.getAngles()
+        if #tables >= 2 then
+          local q, diag = ATT.estimate(tables, { pitch = ga[1], roll = ga[2], signs = pre.gimbalSigns },
+            ATT.vec.new(0, 0, -1))
+          print("attitude (TRIAD, " .. #tables .. " tables + gimbal):")
+          if q then
+            local g = ATT.gravityFromGimbal(ga[1], ga[2], pre.gimbalSigns)
+            local nb = diag.targetBody
+            local perp = math.abs(nb.x * g.x + nb.y * g.y + nb.z * g.z)
+            local tw = ATT.thrustWorld(q)
+            print(string.format("  heading %6.1f deg   tables agree to %.2f deg   north.gravity %.3f %s",
+              ATT.heading(q), diag.residual or 0, perp,
+              perp < 0.05 and "(good)" or "(gimbal model off here)"))
+            print(string.format("  thrust axis in world: %+.2f %+.2f %+.2f   quat %.3f %.3f %.3f %.3f",
+              tw.x, tw.y, tw.z, q.x, q.y, q.z, q.w))
+            if not ATT.gimbalTrusted(ga[1], ga[2]) then
+              print("  NOTE: gimbal beyond 45 deg - attitude here is UNVERIFIED (see BACKLOG)")
+            end
+          else
+            print("  no solution: " .. tostring(diag.reason))
+          end
+        end
+      end
+    end
   end
 
   local dv, okv, lv = timed(sublevel.getLinearVelocity)

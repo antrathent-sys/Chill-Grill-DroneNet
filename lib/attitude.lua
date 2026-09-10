@@ -129,15 +129,58 @@ end
 
 -- ---------- step 2: gravity in body frame from the gimbal ----------
 --- Gimbal pitch and roll (degrees) to the unit "down" vector in the body
--- frame: pitch about the starboard axis (x), then roll about the nose axis
--- (z). `signs` flips either angle, a two-bit mounting fact for the real
--- gimbal that field calibration sets.
+-- frame, treating pitch as the elevation of the nose axis and roll as the
+-- elevation of the starboard axis, each independently.
+--
+-- VALIDITY. Fitted against a 43-sample tumble log on 2026-09-10, this was the
+-- best of every standard Euler ordering and two non-Euler models, and it is
+-- near-perfect below about 30 degrees of tilt (north.gravity within 0.005 to
+-- 0.02 of zero). Beyond roughly 45 degrees it is NOT trustworthy: the log
+-- contains readings such as (131.8, -127.1) whose sines square-sum above 1,
+-- which no pair of orthogonal axis elevations can produce, so the real gimbal
+-- uses a convention none of the candidates match at large angles. Hover,
+-- docking and moderate manoeuvres are fine. A VTOL transition through 90
+-- degrees is not, until the gimbal is calibrated at known stationary
+-- attitudes. See BACKLOG.md.
 function A.gravityFromGimbal(pitchDeg, rollDeg, signs)
   signs = signs or {}
   local p = math.rad(pitchDeg * (signs.pitch or 1))
   local r = math.rad(rollDeg * (signs.roll or 1))
-  -- body = Rz(-r) Rx(-p) world, applied to world down (0,-1,0)
-  return v(-math.cos(p) * math.sin(r), -math.cos(p) * math.cos(r), math.sin(p))
+  local sx, sz = -math.sin(r), math.sin(p)
+  local y2 = math.max(0, 1 - sx * sx - sz * sz)
+  -- past 90 on either axis means over the top: the vertical sense flips
+  local sgn = (math.cos(p) >= 0 and math.cos(r) >= 0) and -1 or 1
+  return v(sx, sgn * math.sqrt(y2), sz)
+end
+
+--- Whether a gimbal reading is inside the range this model is trusted for.
+function A.gimbalTrusted(pitchDeg, rollDeg, limitDeg)
+  local lim = limitDeg or 45
+  return math.abs(pitchDeg) <= lim and math.abs(rollDeg) <= lim
+end
+
+-- ---------- presets ----------
+-- The mounting fitted from data/probelog-run8-sixtables-tumble.csv by
+-- tools/fit_mounts.py: all five tables agree to 0.00 degrees under it, and the
+-- fitted heading swung 78.9 degrees between the two rest states against
+-- nav4's own 79.0. Axis strings are the body frame above.
+A.presets = {
+  airframe1 = {
+    gimbalSigns = { pitch = 1, roll = 1 },
+    tables = {
+      { name = "navigation_table_4", normal = "-y", forward = "+x" },
+      { name = "navigation_table_5", normal = "-x", forward = "-z" },
+      { name = "navigation_table_7", normal = "+z", forward = "-x" },
+      { name = "navigation_table_8", normal = "+x", forward = "+z" },
+      { name = "navigation_table_9", normal = "-z", forward = "+x" },
+    },
+  },
+}
+local AXIS = { ["+x"] = v(1,0,0), ["-x"] = v(-1,0,0), ["+y"] = v(0,1,0),
+               ["-y"] = v(0,-1,0), ["+z"] = v(0,0,1), ["-z"] = v(0,0,-1) }
+--- Turn a preset entry into a mount table.
+function A.mountFrom(entry)
+  return { normal = AXIS[entry.normal], forward = AXIS[entry.forward] }
 end
 
 -- ---------- step 3: TRIAD ----------
