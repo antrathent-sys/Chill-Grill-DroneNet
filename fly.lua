@@ -94,8 +94,11 @@ local CFG = {
   -- Lean is bounded by thrust: holding altitude at tilt T needs HOVER / cos T
   -- of full power, and HOVER is 0.27, so 74 deg is the absolute ceiling and
   -- 72 leaves a sliver for the altitude loop. 80 would sink.
-  CRUISE_DEG = 72,                    -- max lean during cruise
-  CRUISE_SPEED = 35,                  -- b/s target closing speed (20 b/s took 45 deg of lean)
+  -- 2026-09-10: 72 / 35 b/s ran lean to the cap, attitude overshot to 92,
+  -- power saturated (no differential headroom left for attitude), altitude
+  -- went and it tumbled. 60 deg needs 0.54 of full power to hold height.
+  CRUISE_DEG = 60,                    -- max lean during cruise
+  CRUISE_SPEED = 28,                  -- b/s target closing speed (20 b/s took 45 deg of lean)
   -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
   -- heading only splits the final lean into pitch and roll. 1290-block flight
   -- 2026-09-10: CKV 3 turned every 5 b/s wobble into 15 deg of lean and the
@@ -113,11 +116,16 @@ local CFG = {
   -- until flown: a spin guard drops yaw hold for the rest of the flight if
   -- the heading turns more than YAW_ABORT_DEG in 2 s.
   YAW_HOLD = true,
-  YAW_SIGN = 1,                       -- flip if the first flight spins instead of settling
+  -- First yaw flight 2026-09-10: sign confirmed (heading moved toward the
+  -- target both times) but KP 0.01 / MAX 0.25 was bang-bang: a 157 deg
+  -- initial error slewed at 20-45 deg/s mid-transition and tripped the guard.
+  YAW_SIGN = 1,
   YAW_OFFSET = 0,                     -- deg between held heading and course in cruise
-  YAW_KP = 0.01,                      -- yaw demand per deg of heading error
-  YAW_KD = 0.02,                      -- yaw demand per deg/s of heading rate (Sable angular velocity)
-  YAW_MAX = 0.25,                     -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
+  YAW_KP = 0.005,                     -- yaw demand per deg of heading error
+  YAW_KD = 0.03,                      -- yaw demand per deg/s of heading rate (Sable gives rad/s; converted)
+  YAW_MAX = 0.12,                     -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
+  YAW_SLEW = 10,                      -- deg/s: the held target walks toward the wanted heading, never jumps
+  YAW_TILT_MAX = 55,                  -- deg: no yaw demand above this lean - the nav heading is junk there
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
   YAW_ABORT_DEG = 90,                 -- heading change in 2 s that counts as a spin
   BRAKE_K = 1.0,                      -- brake distance = K * speed^2 / 10
@@ -669,6 +677,7 @@ local function controlLoop()
   local cruiseHdg = nil             -- slow-filtered heading used for the cruise split
   local yawOK = CFG.YAW_HOLD and mixer ~= nil
   local yawTgt, yawSrc, yawErr, yawDem = nil, nil, 0, 0
+  local yawTgtS = nil               -- slew-limited target actually held
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
   local alignStart, captureStart, released = nil, nil, false
@@ -893,8 +902,14 @@ local function controlLoop()
         yawTgt = hdgNow                       -- re-seed at the heading we have now
       end
       yawSrc = src
-      yawErr = ((yawTgt - hdgUsed + 540) % 360) - 180
+      -- walk the held target toward the wanted one at YAW_SLEW deg/s
+      if not yawTgtS then yawTgtS = hdgUsed end
+      local want = ((yawTgt - yawTgtS + 540) % 360) - 180
+      yawTgtS = (yawTgtS + clamp(want, CFG.YAW_SLEW * dt)) % 360
+      yawErr = ((yawTgtS - hdgUsed + 540) % 360) - 180
       yawDem = clamp(CFG.YAW_SIGN * (CFG.YAW_KP * yawErr - CFG.YAW_KD * pos.wy), CFG.YAW_MAX)
+      local tiltNow = math.sqrt(a[1] * a[1] + a[2] * a[2])
+      if tiltNow > CFG.YAW_TILT_MAX then yawDem = 0 end
       -- spin guard on the raw heading: more than YAW_ABORT_DEG in 2 s
       local slot = iter % 20
       local old = hdgHist[slot]
