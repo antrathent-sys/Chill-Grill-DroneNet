@@ -242,6 +242,12 @@ _G.peripheral = {
     return table.unpack(out)
   end,
   wrap = function(name) return periphs[name] end,
+  isPresent = function(name)
+    -- LOSE_THRUSTER=<name> makes that peripheral vanish after 10 s, to
+    -- exercise the monitoring path
+    if os.getenv('LOSE_THRUSTER') == name and T > 10 then return false end
+    return periphs[name] ~= nil
+  end,
   getName = function(p) return names[p] end,
   getNames = function()
     local out = {}

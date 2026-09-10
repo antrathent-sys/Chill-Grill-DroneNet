@@ -280,6 +280,7 @@ local function rawHeading() return (CFG.HDG_SIGN * nav.getRelativeAngle() + CFG.
 -- with a corner map that must name every fitted thruster or a corner would
 -- sit idle and the craft would flip on lift-off.
 local mixer = nil
+local mixNames = {}
 if #thrs > 1 then
   local okM, lib = pcall(dofile, "lib/mixer.lua")
   if not okM or type(lib) ~= "table" then error(#thrs .. " thrusters but no lib/mixer.lua: " .. tostring(lib)) end
@@ -305,6 +306,7 @@ if #thrs > 1 then
     local n = peripheral.getName(t)
     if not byName[n] then error("thruster " .. n .. " is not in the mixer map - run mixcal") end
   end
+  for _, m in ipairs(map) do mixNames[#mixNames + 1] = m.name end
   local n, missing = mixer.configure({ thrusters = map, VEC_MAX = CFG.VEC_MAX })
   if #missing > 0 then error("mixer map names thrusters that are not fitted: " .. table.concat(missing, " ")) end
   print(string.format("mixer: %d thrusters, mode %s", n, CFG.MIX_MODE))
@@ -440,9 +442,32 @@ do
 end
 
 local function monLoop()
-  local warnE, warnF = false, false
+  local warnE, warnF, warnT = false, false, false
   local lastE, lastT = nil, nil
   while true do
+    -- Thrusters still on the network? Losing one corner flips a quad, and
+    -- every mixer write is pcall'd, so the failure is silent. Checked here
+    -- once per MON_POLL, never in the control loop.
+    if mixer then
+      local lost = {}
+      for _, nm in ipairs(mixNames) do
+        local okp, present = pcall(peripheral.isPresent, nm)
+        if okp and not present then lost[#lost + 1] = nm end
+      end
+      if #lost == 0 then
+        for _, nm in ipairs(mixer.faults(3)) do lost[#lost + 1] = nm .. " (not responding)" end
+      end
+      if #lost > 0 then
+        if not warnT then
+          warnT = true
+          chime.play("alarm")
+          print("THRUSTER LOST: " .. table.concat(lost, ", "))
+          print("  attitude authority is gone on that corner - land now")
+        end
+      else
+        warnT = false
+      end
+    end
     if acc then
       local sum, n = 0, 0
       for _, a in ipairs(accs) do

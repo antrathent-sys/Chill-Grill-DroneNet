@@ -163,14 +163,16 @@ function mixer.write(d)
     local pw = thrusts[i] or 0
     if not w.lp or math.abs(w.lp - pw) > 1e-3 then
       jobs[#jobs + 1] = function()
-        if pcall(w.p.setPowerNormalized, pw) then w.lp = pw end
+        if pcall(w.p.setPowerNormalized, pw) then w.lp = pw w.fail = 0
+        else w.fail = (w.fail or 0) + 1 end
       end
     end
     local x = vecs[i] and vecs[i].x or 0
     local y = vecs[i] and vecs[i].y or 0
     if not w.lv or math.abs(w.lv.x - x) > 1e-6 or math.abs(w.lv.y - y) > 1e-6 then
       jobs[#jobs + 1] = function()
-        if pcall(w.p.setVector, x, y) then w.lv = { x = x, y = y } end
+        if pcall(w.p.setVector, x, y) then w.lv = { x = x, y = y } w.fail = 0
+        else w.fail = (w.fail or 0) + 1 end
       end
     end
   end
@@ -180,6 +182,19 @@ function mixer.write(d)
     for _, j in ipairs(jobs) do j() end
   end
   return thrusts, vecs, sat
+end
+
+--- Thrusters whose last `n` writes all failed. Free: the counter is kept by
+-- write() itself, no extra peripheral calls. A thruster that has dropped off
+-- the wired network fails silently otherwise, because every write is pcall'd.
+-- Blind spot: a thruster whose command has not changed is not written at all,
+-- so pair this with a presence check in the slow loop.
+function mixer.faults(n)
+  local out = {}
+  for _, w in ipairs(wrapped) do
+    if (w.fail or 0) >= (n or 3) then out[#out + 1] = w.name end
+  end
+  return out
 end
 
 --- Cut everything. Used by the exit path and by kill.

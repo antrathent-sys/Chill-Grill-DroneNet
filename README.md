@@ -72,6 +72,8 @@ First quad flights (2026-09-10, all at 0.25 s/iteration): `diff` - signs and aut
 
 `MIX_GAIN` scales the PID output into differential demand (the mixer then caps it at `PITCH_AUTH`/`ROLL_AUTH` = 25 % of range), and `MIX_P_SIGN`/`MIX_R_SIGN` flip an axis if it diverges. The flightlog's `vx,vy` columns carry the differential pitch/roll demand in `diff` mode and the nozzle vector otherwise; `sat` is 1 when the mixer ran out of range and traded lift for attitude. The thruster FE buffer is summed across all four; `kill` stops all of them.
 
+**Losing a thruster.** Every mixer write is `pcall`ed, so a thruster that drops off the wired network fails silently and a quad flips on the remaining three. `monLoop` checks `peripheral.isPresent` for each mapped thruster once per `MON_POLL` and, as a free backstop, `mixer.faults()` reports any thruster whose last three writes failed. Either one sounds the alarm chime and prints `THRUSTER LOST`. Worth knowing before you re-route network cable on the airframe.
+
 **First flight in diff mode:** `fly find 0.5` on the pad with `TUMBLE` low. If it rolls or pitches away instead of levelling, flip the matching `MIX_*_SIGN`. If it holds level but wallows, raise `MIX_GAIN`; if it twitches, lower it. Nothing about the tuning constants has been changed, so the hover gains are the single-thruster ones and will need a pass.
 
 ### Position
