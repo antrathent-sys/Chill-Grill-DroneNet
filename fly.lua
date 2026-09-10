@@ -7,7 +7,7 @@ local CFG = {
   -- quad 2026-09-10: AKD 0.1 (about 12 b/s^2 per b/s of rate error) rang
   -- against a 0.2 s vertical-speed sample; halved, with AKP/AKD raised to 0.5
   -- so the final approach tapers in 5 s instead of 10
-  AKP = 0.025, AKI = 0.01, AKD = 0.05,
+  AKP = 0.025, AKI = 0.02, AKD = 0.05,   -- AKI acts on the RATE error (power per b/s per s), tau = AKD/AKI = 2.5 s
   PMAX = 0.35,                        -- altitude P clamp near the goal (legacy; the rate cap below governs climbs)
 
   -- attitude gains, scheduled by tilt magnitude
@@ -90,8 +90,6 @@ local CFG = {
   CLIMB_RATE = 100,                   -- b/s: hard cap; distance governs long before this
   DECEL = 8,                          -- b/s^2 the taper plans for (coasting climb ~10, descents have thrust to spare)
   VRATE_SLEW = 50,                    -- b/s^2: full throttle within a fraction of a second of takeoff
-  INTEG_BAND = 2,                     -- b/s: integrate altitude only when the rate request is below this
-                                      -- (it wound to its clamp during the last 30 blocks and overshot +5)
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
   TILT_RATE = 60,                     -- deg/s: how fast tilt targets may move
@@ -687,6 +685,7 @@ if CFG.PUMP_PRIME > 0 then print("priming pump") sleep(CFG.PUMP_PRIME) end
 local function controlLoop()
   local lastH, lastT, integ = alt.getHeight(), os.clock(), 0
   local vWantS = 0          -- slew-limited vertical rate request
+  local lastPwr = CFG.HOVER -- last commanded throttle, for integrator anti-windup
   local a = gim.getAngles()
   local lp, lr = a[1], a[2]
   local iter, rawH = 0, rawHeading()
@@ -837,8 +836,13 @@ local function controlLoop()
       local vMag = math.min(CFG.AKP / CFG.AKD * ae, math.sqrt(2 * CFG.DECEL * ae), CFG.CLIMB_RATE)
       local vWant = (e >= 0) and vMag or -vMag
       vWantS = vWantS + clamp(vWant - vWantS, CFG.VRATE_SLEW * dt)      -- ramp, never step
-      if math.abs(vWant) < CFG.INTEG_BAND then integ = clamp(integ + CFG.AKI * e * dt, 0.3) end
-      pwr = CFG.HOVER + integ + CFG.AKD * (vWantS - v)
+      -- PI on the rate error. The integrator trims a wrong HOVER (payload,
+      -- fuel) at any point of the flight, and is frozen while the throttle is
+      -- pinned at either end so a full-throttle climb cannot wind it up.
+      local rateErr = vWantS - v
+      if lastPwr > 0.01 and lastPwr < 0.99 then integ = clamp(integ + CFG.AKI * rateErr * dt, 0.4) end
+      pwr = CFG.HOVER + integ + CFG.AKD * rateErr
+      lastPwr = math.max(0, math.min(1, pwr))
       -- (the climb phase used to have its own full-throttle law here; with
       -- CLIMB_RATE 100 it handed over to dash at 197 m still doing 60 b/s and
       -- coasted to 348. The distance-aware cascade above covers it.)
