@@ -88,7 +88,7 @@ Phases as they appear in the log:
 - **dash**: `dash` mode holds a fixed pitch. `go` mode steers toward the target with a velocity controller in the body frame, lean capped at `CRUISE_DEG`.
 - **brake**: pitches the other way against forward speed until it drops below `BRAKE_DONE` or `BRAKE_MAX_T` runs out.
 - **hold**: altitude plus position hold at the current spot (`dash`) or the target (`go`).
-- **align**: `dock` only. Position hold over the pad, waiting for the drone to be within `DOCK_ALIGN` blocks and under `DOCK_ALIGN_SPD` for `DOCK_SETTLE_T` seconds.
+- **align**: `dock` only. Position hold over the pad, waiting for the drone to be within `DOCK_ALIGN` blocks and under `DOCK_ALIGN_SPD` for `DOCK_SETTLE_T` seconds. Speed comes from the velocity sensors rather than differenced GPS, and up to `DOCK_ALIGN_GRACE` bad samples are tolerated before the timer resets. **If a dock hangs in align, this gate is why**: raise `DOCK_ALIGN_SPD` first, then `DOCK_ALIGN_GRACE`.
 - **descend**: `dock` only. Extends the connector, then walks the altitude goal down at `DOCK_RATE` until the park altitude is reached. Drifting more than `DOCK_ABORT_DIST` from the pad sends it back to align.
 - **capture**: `dock` only. Holds at the park altitude and waits for the magnet to pull the connectors together, up to `DOCK_CAPTURE_T` seconds.
 - **docked**: thrust to zero and the program exits, leaving `DOCK_SIDE` high.
@@ -165,6 +165,7 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `DOCK_NAME` | `docking_connector` peripheral name. `nil` uses `peripheral.find`. |
 | `DOCK_ALIGN`, `DOCK_ALIGN_SPD` | Horizontal error in blocks and ground speed in b/s to be inside before descending. |
 | `DOCK_SETTLE_T` | Seconds of holding both of those before the descent starts. |
+| `DOCK_ALIGN_GRACE` | Failing samples tolerated before the settle timer resets. Raise if align hangs. |
 | `DOCK_GAP` | Blocks above `padY` to park at. 3 is the connectors' own spacing. |
 | `DOCK_BAND` | How close to the park altitude counts as arrived. |
 | `DOCK_RATE` | b/s that the altitude goal walks down during the descent. |

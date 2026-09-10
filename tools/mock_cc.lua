@@ -43,12 +43,22 @@ local function step(to)
   -- DRIFT: real station keeping wanders around the target rather than parking
   -- on it. Needed to make GPS_QUANT cross block boundaries the way it will
   -- in game.
+  -- DRIFT is REAL motion: the drone actually wanders, so the velocity sensors
+  -- see it too. Only GPS additionally quantises. Perturbing just the GPS
+  -- reading would have made the sensors unrealistically clean and rigged any
+  -- comparison between the two signals.
   if os.getenv('DRIFT') then
+    local prevx, prevz = sim.jx or 0, sim.jz or 0
     sim.dp = (sim.dp or 0) + dt
-    sim.jx = 0.8 * math.sin(sim.dp * 0.7)
-    sim.jz = 0.8 * math.cos(sim.dp * 0.53)
+    -- amplitude and rate chosen so peak drift speed is ~0.5 b/s: a drone
+    -- holding station imperfectly, not one being blown around.
+    sim.jx = 0.30 * math.sin(sim.dp * 0.9) + 0.12 * math.sin(sim.dp * 2.6)
+    sim.jz = 0.30 * math.cos(sim.dp * 0.7) + 0.12 * math.cos(sim.dp * 2.2)
+    if dt > 0 then
+      sim.driftSpeed = math.sqrt(((sim.jx - prevx) / dt) ^ 2 + ((sim.jz - prevz) / dt) ^ 2)
+    end
   else
-    sim.jx, sim.jz = 0, 0
+    sim.jx, sim.jz, sim.driftSpeed = 0, 0, 0
   end
   -- docking magnet: needs the connector extended and the drone parked close
   local extended = false
@@ -133,7 +143,7 @@ add("docking_connector_0", "docking_connector", {
     return sim.docked and "TestPad" or "" end,
 })
 -- three velocity sensors; 0 forward, 1 lateral, 3 vertical, signs per CFG
-add("velocity_sensor_0", "velocity_sensor", { getVelocity = function() return -sim.speed end, getAxis = function() return "x" end })
+add("velocity_sensor_0", "velocity_sensor", { getVelocity = function() return -(sim.speed + (sim.driftSpeed or 0)) end, getAxis = function() return "x" end })
 add("velocity_sensor_1", "velocity_sensor", { getVelocity = function() return 0 end, getAxis = function() return "z" end })
 add("velocity_sensor_3", "velocity_sensor", { getVelocity = function() return -sim.vv end, getAxis = function() return "y" end })
 

@@ -80,6 +80,7 @@ local CFG = {
   DOCK_ALIGN = 1.5,                   -- blocks: horizontal error to sit inside before descending
   DOCK_ALIGN_SPD = 0.5,               -- b/s: ground speed to be under as well
   DOCK_SETTLE_T = 2.0,                -- seconds of holding both of those before the descent starts
+  DOCK_ALIGN_GRACE = 6,               -- failing samples tolerated before the settle timer resets
   DOCK_GAP = 3,                       -- blocks above padY to park; 3 is the connectors' own spacing
   DOCK_BAND = 0.5,                    -- blocks: how close to the park altitude counts as arrived
   DOCK_RATE = 1.5,                    -- b/s: how fast the altitude goal walks down
@@ -426,6 +427,7 @@ local function controlLoop()
   local tpS, trS = 0, 0    -- rate-limited tilt targets
   local dashStart, brakeStart = nil, nil
   local alignStart, captureStart, released = nil, nil, false
+  local alignBad = 0
   local dockTries = 0
   while true do
     local t = os.clock()
@@ -466,15 +468,26 @@ local function controlLoop()
       -- arithmetic on the shared pos table, no peripheral reads.
       local dx, dz = tgtX - pos.x, tgtZ - pos.z
       local d = math.sqrt(dx * dx + dz * dz)
-      local sp = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
+      -- Speed comes from the velocity SENSORS, not from differenced GPS.
+      -- gps.locate is quantised to whole blocks, so a drone drifting 0.5 b/s
+      -- reads as spikes of several b/s every time it crosses a boundary,
+      -- which would reset the settle timer forever. bodyF/bodyL are already
+      -- cached this iteration, so this costs no extra peripheral call.
+      local sp = math.sqrt(bodyF * bodyF + bodyL * bodyL)
       if pos.t > 0 and (t - pos.t) < 1.5 and d < CFG.DOCK_ALIGN and sp < CFG.DOCK_ALIGN_SPD then
         if not alignStart then alignStart = t end
+        alignBad = 0
         if t - alignStart > CFG.DOCK_SETTLE_T then
           phase = "descend" dockExtend(true)
           print(string.format("descend to %.1f, connector extended", dockAlt))
         end
       else
-        alignStart = nil
+        -- Tolerate a few bad samples before giving up on the settle. Both
+        -- available speed signals are noisy in their own way, so a gate that
+        -- resets on any single sample can hang forever waiting for a run of
+        -- perfectly clean ones. Sustained motion still resets it.
+        alignBad = alignBad + 1
+        if alignBad > CFG.DOCK_ALIGN_GRACE then alignStart = nil alignBad = 0 end
       end
     elseif phase == "descend" then
       local dx, dz = tgtX - pos.x, tgtZ - pos.z
