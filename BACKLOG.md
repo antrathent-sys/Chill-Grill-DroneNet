@@ -361,6 +361,17 @@ immutable. Verified against the live API.
 
 ## Known issues
 
+**Heading was hardcoded to zero on the new airframe.** `fly.lua` errored
+without velocity sensors, and even with that bypassed `heading()` tried
+motion-heading first (which needs those sensors) and then returned 0 because
+`NAV_FALLBACK` was off. Fixed: velocity sensors are optional, the nav table is
+the primary heading source (`NAV_PRIMARY`), body-frame speed comes from Sable
+world velocity rotated by that heading when sensors are absent, and
+`navHeading` takes the gimbal angles the loop already read rather than
+re-reading them. **Control loop is now 6 peripheral calls per iteration on the
+Sable path**, down from 15. Still to do: calibrate `HDG_OFFSET` - `probe` now
+prints the value that would make the current reading north.
+
 **Heading oscillates.** Diagnosed: heading comes from GPS displacement, GPS is
 block-quantised, and at `HDG_MIN_MOVE = 2` the estimate carries 9.7 degrees of
 mean error and 22.9 at the 95th percentile. Bad heading leans the drone wrong,

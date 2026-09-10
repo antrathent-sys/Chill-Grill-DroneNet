@@ -184,9 +184,11 @@ add("docking_connector_0", "docking_connector", {
     return sim.docked and "TestPad" or "" end,
 })
 -- three velocity sensors; 0 forward, 1 lateral, 3 vertical, signs per CFG
+if not os.getenv("NOVEL") then
 add("velocity_sensor_0", "velocity_sensor", { getVelocity = function() return -(sim.speed + (sim.driftSpeed or 0)) end, getAxis = function() return "x" end })
 add("velocity_sensor_1", "velocity_sensor", { getVelocity = function() return 0 end, getAxis = function() return "z" end })
 add("velocity_sensor_3", "velocity_sensor", { getVelocity = function() return -sim.vv end, getAxis = function() return "y" end })
+end
 
 _G.peripheral = {
   find = function(ptype)

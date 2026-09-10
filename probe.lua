@@ -199,6 +199,12 @@ local function snapshot()
       end
       local okr, ra = pcall(t.p.getRelativeAngle)
       print(string.format("  %-22s relAngle %8.2f deg", t.name, okr and ra or -1))
+      if okr then
+        -- fly.lua computes heading = (HDG_SIGN * relAngle + HDG_OFFSET) % 360.
+        -- If the nose is pointing NORTH right now, this is the HDG_OFFSET that
+        -- makes that read 0. Point north (F3 shows facing), run probe, copy it.
+        print(string.format("  %-22s   if nose is north now: HDG_OFFSET = %.1f", "", (-ra) % 360))
+      end
     end
     if #navs >= 2 then
       print("  two tables: tilt the craft and re-run to see which plane each is in")

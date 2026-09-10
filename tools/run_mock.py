@@ -7,6 +7,7 @@
 
 Environment switches the harness honours:
     GPS_QUANT=1    quantise gps.locate to whole blocks, as real CC does
+    NOVEL=1        fit no velocity sensors, as the four-thruster airframe has
     DRIFT=1        make station keeping wander instead of parking exactly
     NODOCK=1       never let the magnet catch, to exercise the abort path
     START_DOCKED=1 begin the run already docked
@@ -44,6 +45,10 @@ SELFTEST = [
     ("dock abort", ["dock", "100", "50", "70", "90"], {"TMAX": "300", "NODOCK": "1"},
      ["climb", "dash", "brake"] + ["align", "descend", "capture"] * 3 + ["hold"]),
     ("undock", ["undock", "80"], {"TMAX": "40", "START_DOCKED": "1"}, ["fly"]),
+    # the four-thruster airframe carries no velocity sensors: body speed comes
+    # from Sable world velocity rotated by the nav-table heading instead
+    ("dock, no vel sensors", ["dock", "100", "50", "70", "90"], {"TMAX": "120", "NOVEL": "1"},
+     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
 ]
 
 
@@ -56,7 +61,7 @@ def make_test_copy():
 
 def run(args, env, logpath):
     from lupa import LuaRuntime
-    for k in ("NODOCK", "START_DOCKED", "TMAX"):
+    for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT", "UPLOAD_BOOM"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

@@ -35,7 +35,13 @@ local CFG = {
   HDG_WIN = 1.0,                      -- seconds of displacement per estimate
   HDG_MIN_MOVE = 2,                   -- blocks moved in the window to trust it
   HDG_RATE = 0.02,                    -- slow: the pod barely yaws, so latch hard
-  NAV_FALLBACK = false,               -- nav table reads ~180 deg out: don't lean until motion locks
+  -- Heading source. The nav table (targeting the north magnet) plus the gimbal
+  -- gives an absolute heading at any attitude short of the tilt singularity.
+  -- Motion heading needed the velocity sensors, which the four-thruster
+  -- airframe does not carry, so the nav table is primary now.
+  NAV_PRIMARY = true,                 -- nav table is THE heading; motion heading is legacy fallback
+  NAV_NAME = nil,                     -- which navigation_table (the FLAT one); nil = first found
+  NAV_FALLBACK = true,                -- legacy: use nav table when motion heading has no lock
   TUMBLE = 85,
   DASH_SETTLE = 3.0,                  -- transition this many blocks below goal
   CLIMB_POWER = 0.9,                  -- throttle on the way up
@@ -103,7 +109,7 @@ local CFG = {
 
 local alt = peripheral.find("altitude_sensor")
 local gim = peripheral.find("gimbal_sensor")
-local nav = peripheral.find("navigation_table")
+local nav = CFG.NAV_NAME and peripheral.wrap(CFG.NAV_NAME) or peripheral.find("navigation_table")
 local thr = peripheral.find("vector_thruster")
 local acc = peripheral.find("modular_accumulator")
 local vels = { peripheral.find("velocity_sensor") }
@@ -266,11 +272,18 @@ local pos = { x = 0, z = 0, vx = 0, vz = 0, t = 0, rej = 0 }
 local sFwd = peripheral.wrap(CFG.FWD_NAME)
 local sLat = CFG.LAT_NAME and peripheral.wrap(CFG.LAT_NAME) or nil
 local sVrt = CFG.VRT_NAME and peripheral.wrap(CFG.VRT_NAME) or nil
-if not sFwd then error("forward velocity sensor " .. tostring(CFG.FWD_NAME) .. " not found") end
-if not sLat then print("WARNING: no lateral velocity sensor") end
-if not sVrt then print("WARNING: no vertical sensor - tilt correction off") end
+-- Velocity sensors are optional since the move to CC:Sable. Without them,
+-- body-frame speed is world velocity from the pose loop rotated by heading,
+-- which costs no peripheral calls at all.
+local haveVelSensors = sFwd ~= nil
+if not haveVelSensors then
+  print("no velocity sensors - body speed derived from Sable velocity + heading")
+else
+  if not sLat then print("WARNING: no lateral velocity sensor") end
+  if not sVrt then print("WARNING: no vertical sensor - tilt correction off") end
+end
 
-local function rawFwd() return CFG.FWD_SIGN2 * sFwd.getVelocity() end
+local function rawFwd() return sFwd and CFG.FWD_SIGN2 * sFwd.getVelocity() or 0 end
 local function rawLat() return sLat and CFG.LAT_SIGN * sLat.getVelocity() or 0 end
 local function rawVrt() return sVrt and CFG.VRT_SIGN * sVrt.getVelocity() or 0 end
 
@@ -296,8 +309,8 @@ local function latSpeed() return bodyL end
 -- the target direction projected onto a tipped plane -- not the true bearing.
 -- Undo it: build the unit vector the table implies, rotate it back out of the
 -- pod's pitch/roll, then read the horizontal bearing off the result.
-local function correctedHeading(p, r)
-  local ang = math.rad(rawHeading())
+local function correctedHeading(p, r, rawH)
+  local ang = math.rad(rawH or rawHeading())
   -- direction in the pod's own plane (x right, y forward, z up-out-of-plane)
   local vx, vy, vz = math.sin(ang), math.cos(ang), 0
   local cp, sp = math.cos(math.rad(p)), math.sin(math.rad(p))
@@ -311,9 +324,10 @@ end
 local hs, hc = 0, 1
 do local a0 = gim.getAngles() local r0 = math.rad(correctedHeading(a0[1], a0[2]))
    hs, hc = math.sin(r0), math.cos(r0) end
-local function navHeading()
-  local a0 = gim.getAngles()
-  local r = math.rad(correctedHeading(a0[1], a0[2]))
+-- Takes the gimbal angles and raw nav angle the caller already has, so this
+-- adds NO peripheral calls to the loop.
+local function navHeading(p, r0deg, rawH)
+  local r = math.rad(correctedHeading(p, r0deg, rawH))
   hs = hs + CFG.HDG_ALPHA * (math.sin(r) - hs)
   hc = hc + CFG.HDG_ALPHA * (math.cos(r) - hc)
   return math.deg(math.atan2(hs, hc)) % 360
@@ -355,10 +369,20 @@ local function updateMotionHeading(now)
   win.t, win.x, win.z, win.sf, win.sl, win.n = now, pos.x, pos.z, 0, 0, 0
 end
 
-local function heading()
+local function heading(p, r, rawH)
+  if CFG.NAV_PRIMARY then return navHeading(p, r, rawH) end
   if motHdg then return motHdg end
-  if CFG.NAV_FALLBACK then return navHeading() end
+  if CFG.NAV_FALLBACK then return navHeading(p, r, rawH) end
   return 0
+end
+
+-- World velocity into the body frame, using the same rotation position hold
+-- uses. This is what replaces the velocity sensors when they are not fitted.
+local function bodyFromWorld(hdg, vx, vz)
+  local r = math.rad(hdg)
+  local fwd   = vx * math.sin(r) - vz * math.cos(r)
+  local right = vx * math.cos(r) + vz * math.sin(r)
+  return fwd, right
 end
 
 -- ---------- position ----------
@@ -505,8 +529,19 @@ local function controlLoop()
     local v = (h - lastH) / dt
     lastH, lastT = h, t
 
-    do local ga = gim.getAngles() bodyF, bodyL = bodyVel(ga[1], ga[2]) end
-    updateMotionHeading(t)
+    -- One gimbal read and one nav read here serve heading AND body speed.
+    local rawH = rawHeading()
+    local hdgNow
+    do
+      local ga = gim.getAngles()
+      hdgNow = heading(ga[1], ga[2], rawH)
+      if haveVelSensors then
+        bodyF, bodyL = bodyVel(ga[1], ga[2])
+      else
+        bodyF, bodyL = bodyFromWorld(hdgNow, pos.vx, pos.vz)
+      end
+    end
+    if haveVelSensors then updateMotionHeading(t) end
 
     if undockFirst and not released and t - t0 > CFG.DOCK_RELEASE_T then
       released = true dock.armed = false dockExtend(false)
@@ -605,7 +640,7 @@ local function controlLoop()
       if phase == "docked" then pwr = 0 end
     end
 
-    local hdg, raw = heading(), rawHeading()
+    local hdg, raw = hdgNow, rawH
     local tp, tr, ex, ez = 0, 0, 0, 0
     local fresh = mode ~= "find" and pos.t > 0 and (t - pos.t) < 1.5
     local speed = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
@@ -653,7 +688,11 @@ local function controlLoop()
     tp, tr = tpS, trS
 
     a = gim.getAngles()
-    bodyF, bodyL = bodyVel(a[1], a[2])
+    if haveVelSensors then
+      bodyF, bodyL = bodyVel(a[1], a[2])
+    else
+      bodyF, bodyL = bodyFromWorld(hdgNow, pos.vx, pos.vz)
+    end
     if CFG.TUMBLE > 0 and (math.abs(a[1]) > CFG.TUMBLE or math.abs(a[2]) > CFG.TUMBLE) then
         chime.play("alarm")
       error(string.format("tumbled (%.0f, %.0f) - thrust cut", a[1], a[2]))
@@ -677,7 +716,8 @@ local function controlLoop()
     local vy = clamp(CFG.P_AXIS == "x" and cr or cp, CFG.VEC_MAX)
     drive(pwr, vx, vy)
 
-    local s0, s1, s2 = rawFwd(), rawLat(), rawVrt()
+    local s0, s1, s2 = 0, 0, 0
+    if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
     log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct))
