@@ -49,9 +49,12 @@ local CFG = {
   TILT_MAX = 3,
   SPEED_GUARD = 4,
   PITCH_DIR = -1, ROLL_DIR = 1,
-  HDG_SIGN = 1,
-  HDG_OFFSET = 90,                    -- quad frame, 2026-09-10: with 270 position hold pushed AWAY on both
-                                      -- axes (17 blocks in 40 s), i.e. heading was 180 off. Pad heading ~11.
+  -- Quad frame, fitted from two position-hold flights on 2026-09-10 (world
+  -- velocity response to pitch and roll, tools/fit_heading.py): the flat nav
+  -- table faces DOWN, so it reads mirrored (HDG_SIGN -1). Both flights give
+  -- the same offset, 269, and PITCH_DIR/ROLL_DIR stay as on the old frame.
+  HDG_SIGN = -1,
+  HDG_OFFSET = 269,
   HDG_ALPHA = 0.15,
   -- Velocity sensors, addressed BY NAME so peripheral.find ordering can't
   -- shuffle them. Identified in freefall: velocity_sensor_3 read -24 b/s while

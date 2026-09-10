@@ -423,6 +423,16 @@ samples, and the fitted heading swung 78.9 degrees between the two rest states
 against nav4's own 79.0. `probe` now computes and prints the live quaternion,
 heading, agreement residual and the north.gravity check on the pod.
 
+**TRIAD heading is mirrored (open, low priority).** Two position-hold
+flights fitted with `tools/fit_heading.py` fix the controller's heading at
+`HDG_SIGN = -1, HDG_OFFSET = 269` (the flat table faces down and reads
+mirrored). The TRIAD estimate in `lib/attitude.lua` gives 10.9 on the tail
+pose where the flight-derived value is 349 = -10.9: same mirror. Negating the
+table angle in `expectedAngle` does not re-fit cleanly because the mounts in
+`presets.airframe1` were fitted under the other sign; `tools/fit_mounts.py`
+needs re-running with the angle negated. `fly.lua` does not use the TRIAD
+heading, so this only affects `probe` output.
+
 **Gimbal convention at large tilt: SOLVED (2026-09-10).** Four stationary
 poses at known attitudes settled it
 ([data/probe-pose-tail.txt](data/probe-pose-tail.txt) upright,
