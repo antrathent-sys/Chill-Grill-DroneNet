@@ -53,7 +53,7 @@ local CFG = {
     { name = "vector_thruster_8", pitch =  1, roll =  1 },
   },
 
-  PKP = 0.2, VMAX = 8, PKV = 1.0,     -- VMAX 3 crawled the last 100 blocks after a brake (2026-09-10)
+  PKP = 0.2, VMAX = 8, PKV = 3.0,     -- PKV 1 settled at 5.5 b/s on 8 deg; 3 leans harder toward VMAX
   PKI = 0.05, TRIM_MAX = 3,
   TILT_MAX = 20,                      -- quad: 8 deg of lean only bought 2.5 b/s; 20 lets the hold reach VMAX
   SPEED_GUARD = 6,                    -- b/s: position hold engages below this (4 let a 12 b/s residual coast 148 blocks)
@@ -118,7 +118,7 @@ local CFG = {
   -- ~74 deg only applies at standstill. Allowed lean = LEAN_AT_0 at rest,
   -- rising linearly to CRUISE_DEG at LEAN_FULL_SPD; pulled back by
   -- ALT_PROTECT_GAIN deg per block once more than ALT_PROTECT below goal.
-  CRUISE_DEG = 65,                    -- max lean during cruise, at speed (75 + 25 of tracking error = past horizontal)
+  CRUISE_DEG = 70,                    -- max lean during cruise, at speed (65 tracked within 2 deg at 81 b/s)
   LEAN_AT_0 = 50,                     -- deg allowed from standstill
   LEAN_FULL_SPD = 60,                 -- b/s at which CRUISE_DEG is allowed
   ALT_PROTECT = 15,                   -- blocks below goal before the lean cap is reduced
@@ -190,7 +190,7 @@ local CFG = {
   YAW_TILT_MAX = 180,                 -- deg: lean above which yaw is not commanded (off)
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
   YAW_ABORT_DEG = 90,                 -- heading change in 2 s that counts as a spin
-  BRAKE_K = 1.0,                      -- brake distance = K * speed^2 / 10
+  BRAKE_K = 0.7,                      -- brake distance = K * speed^2 / 10 (45 deg + drag stops 82 b/s in ~300)
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
   -- monitoring: accumulator and thruster buffer are polled in their own
@@ -829,7 +829,10 @@ local function controlLoop()
     elseif phase == "dash" and (mode == "go" or mode == "dock") then
       local d = math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2)
       local f, l = fwdSpeed(), latSpeed()
-      local fs = math.min(math.sqrt(f * f + l * l), 40)
+      -- ground speed from Sable (the body-frame sensors are legacy); the old
+      -- 40 b/s cap limited the brake point to 160 blocks and an 82 b/s
+      -- cruise ran straight through the target (2026-09-10)
+      local fs = math.min(math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz), 150)
       if d < math.max(CFG.ARRIVE, CFG.BRAKE_K * fs * fs / 10) then
         phase = "brake" brakeStart = t chime.play("brake")
         print(string.format("brake at %.0f blocks, %.1f b/s", d, fs))
