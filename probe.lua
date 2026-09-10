@@ -181,28 +181,44 @@ local function snapshot()
   end
   if nav then
     print("navigation_table:")
+    -- List what this build actually has. The Avionics docs describe methods
+    -- that older versions do not ship, and calling a nil one just errors.
+    local nm = peripheral.getName and peripheral.getName(nav) or nil
+    local have = {}
+    if nm then
+      for _, m in ipairs(peripheral.getMethods(nm) or {}) do have[m] = true end
+      local list = {}
+      for m in pairs(have) do list[#list + 1] = m end
+      table.sort(list)
+      print("  methods: " .. table.concat(list, " "))
+    end
+    local function tryNav(name, fmt)
+      if nm and not have[name] then
+        print(string.format("  %-16s not in this build", name))
+        return
+      end
+      local o, v = pcall(nav[name])
+      if not o then print(string.format("  %-16s FAILED: %s", name, tostring(v))) return end
+      print(string.format("  %-16s " .. fmt, name, v))
+      return v
+    end
     local okr, ra = pcall(nav.getRelativeAngle)
     if okr then print(string.format("  getRelativeAngle %8.2f deg  (the TILTED plane one)", ra)) end
-    local okb, br = pcall(nav.getBearing)
-    if okb then print(string.format("  getBearing       %8.2f deg  (block frame, needs a target)", br)) end
-    -- These two are documented as WORLD frame already. getOrientation in
-    -- particular may be the attitude Sable's getLogicalPose fails to give.
-    local okh, hd = pcall(nav.getHeading)
-    if okh and type(hd) == "number" then
-      print(string.format("  getHeading       %8.2f deg  <- WORLD yaw, no correction needed", hd))
-    else
-      print("  getHeading       FAILED: " .. tostring(hd))
+    tryNav("getBearing", "%8.2f deg  (block frame)")
+    tryNav("getHeading", "%8.2f deg  <- WORLD yaw if present")
+    if nm and have.getOrientation then
+      local oko, q = pcall(nav.getOrientation)
+      if oko and type(q) == "table" then
+        local qn = (q.x or 0)^2 + (q.y or 0)^2 + (q.z or 0)^2 + (q.w or 0)^2
+        print(string.format("  getOrientation   %.4f %.4f %.4f w=%.4f  norm %.4f %s",
+          q.x or 0, q.y or 0, q.z or 0, q.w or 0, qn,
+          (math.abs(qn - 1) < 0.01) and "<- VALID" or "<< degenerate"))
+      end
+    elseif nm then
+      print("  getOrientation   not in this build")
     end
-    local oko, q = pcall(nav.getOrientation)
-    if oko and type(q) == "table" then
-      local qn = (q.x or 0)^2 + (q.y or 0)^2 + (q.z or 0)^2 + (q.w or 0)^2
-      print(string.format("  getOrientation   %.4f %.4f %.4f w=%.4f  norm %.4f %s",
-        q.x or 0, q.y or 0, q.z or 0, q.w or 0, qn,
-        (math.abs(qn - 1) < 0.01) and "<- VALID, this replaces the dead Sable one"
-                                   or "<< also degenerate"))
-    else
-      print("  getOrientation   FAILED: " .. tostring(q))
-    end
+    local okt, ht = pcall(nav.hasTarget)
+    if okt then print("  hasTarget        " .. tostring(ht)) end
   end
 
   local dv, okv, lv = timed(sublevel.getLinearVelocity)

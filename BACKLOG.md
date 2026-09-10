@@ -286,6 +286,26 @@ What it does and does not give, on this airframe as fitted:
 The gimbal reads pitch and roll only and Sable's quaternion is null, so as
 fitted the craft can arrest a spin but not hold a heading.
 
+**Tested, and it does not.** `getHeading` and `getOrientation` are **nil in
+this pack's Avionics build** ([data/probe-run4-navtable.txt](data/probe-run4-navtable.txt)):
+the fitted nav table exposes only `getRelativeAngle`. Those methods exist in the
+current Avionics documentation but not in the version installed, and the mod
+list is not ours to change.
+
+So yaw is back to the one hard route: `getRelativeAngle` is measured in the
+block's own tilted plane, and de-rotating it by the gimbal's pitch and roll
+gives a bearing to whatever the table is targeting. `fly.lua` already
+implements exactly that as `correctedHeading()`, and its CFG notes the reading
+came out about 180 degrees out, which was never resolved. It also needs a
+target set in the table, and a lodestone is the way to set one.
+
+Otherwise the mixer's honest limit stands: **yaw rate damping yes, heading hold
+no.**
+
+`probe` now lists a peripheral's real method names before calling any of them,
+so a docs-versus-build mismatch shows up as a line of output rather than an
+error. Superseded reasoning follows.
+
 **Refitting the navigation table probably fixes this outright.** `fly.lua` only
 ever used `getRelativeAngle`, which is the one method measured in the block's
 own tilted plane and needs de-rotating. The Avionics docs describe two others
@@ -301,9 +321,11 @@ replacement for the attitude source this project has been missing, and would
 retire the gimbal sensor and the whole `HDG_*` estimator at once. `probe` now
 reads both and checks the quaternion norm.
 
-**Unverified**, and worth checking before relying on it: whether either method
-needs a target set in the table, and whether `getOrientation` is actually
-populated rather than null like Sable's.
+**Answered: neither method exists in the installed build.** See above.
+
+Also measured on that run: the altitude sensor sits a steady **3.06 blocks
+above `pose.position.y`** (68.50 against 65.44), matching the 3.19 seen
+earlier. That offset is stable and is what `DOCK_GAP` has to absorb.
 
 On saturation the mixer sacrifices lift before attitude, since attitude is what
 keeps the craft the right way up. Verified: a pitch differential commanded at
