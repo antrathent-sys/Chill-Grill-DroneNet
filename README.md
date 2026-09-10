@@ -9,6 +9,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `fly.lua` | The controller. Four modes, see below. |
 | `kill.lua` | Panic stop: thruster power to 0, nozzle vector zeroed, all redstone outputs off, any electric motor stopped. |
 | `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed. |
+| `ARCHITECTURE.md` | The layer stack for the autonomous controller: control, leg, mission, link. Decided before the code. |
 | `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
 | `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
