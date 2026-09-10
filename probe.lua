@@ -179,46 +179,30 @@ local function snapshot()
     print("  (if quat p/r and gimbal p/r disagree, the quaternion axis order differs")
     print("   from what this script assumes - note the numbers and we can fix the mapping)")
   end
-  if nav then
-    print("navigation_table:")
-    -- List what this build actually has. The Avionics docs describe methods
-    -- that older versions do not ship, and calling a nil one just errors.
-    local nm = peripheral.getName and peripheral.getName(nav) or nil
-    local have = {}
-    if nm then
-      for _, m in ipairs(peripheral.getMethods(nm) or {}) do have[m] = true end
-      local list = {}
-      for m in pairs(have) do list[#list + 1] = m end
-      table.sort(list)
-      print("  methods: " .. table.concat(list, " "))
+  -- Every nav table, by name. Two in orthogonal planes are what the TRIAD
+  -- attitude solution needs, so each reading has to be attributable.
+  local navs = { peripheral.find("navigation_table") }
+  if #navs > 0 then
+    print("navigation_table x" .. #navs .. ":")
+    local navList = {}
+    for _, p in ipairs(navs) do
+      navList[#navList + 1] = { p = p, name = peripheral.getName and peripheral.getName(p) or "?" }
     end
-    local function tryNav(name, fmt)
-      if nm and not have[name] then
-        print(string.format("  %-16s not in this build", name))
-        return
+    table.sort(navList, function(a, b) return a.name < b.name end)
+    local shownMethods = false
+    for _, t in ipairs(navList) do
+      if not shownMethods then
+        local ms = peripheral.getMethods(t.name) or {}
+        table.sort(ms)
+        print("  methods: " .. table.concat(ms, " "))
+        shownMethods = true
       end
-      local o, v = pcall(nav[name])
-      if not o then print(string.format("  %-16s FAILED: %s", name, tostring(v))) return end
-      print(string.format("  %-16s " .. fmt, name, v))
-      return v
+      local okr, ra = pcall(t.p.getRelativeAngle)
+      print(string.format("  %-22s relAngle %8.2f deg", t.name, okr and ra or -1))
     end
-    local okr, ra = pcall(nav.getRelativeAngle)
-    if okr then print(string.format("  getRelativeAngle %8.2f deg  (the TILTED plane one)", ra)) end
-    tryNav("getBearing", "%8.2f deg  (block frame)")
-    tryNav("getHeading", "%8.2f deg  <- WORLD yaw if present")
-    if nm and have.getOrientation then
-      local oko, q = pcall(nav.getOrientation)
-      if oko and type(q) == "table" then
-        local qn = (q.x or 0)^2 + (q.y or 0)^2 + (q.z or 0)^2 + (q.w or 0)^2
-        print(string.format("  getOrientation   %.4f %.4f %.4f w=%.4f  norm %.4f %s",
-          q.x or 0, q.y or 0, q.z or 0, q.w or 0, qn,
-          (math.abs(qn - 1) < 0.01) and "<- VALID" or "<< degenerate"))
-      end
-    elseif nm then
-      print("  getOrientation   not in this build")
+    if #navs >= 2 then
+      print("  two tables: tilt the craft and re-run to see which plane each is in")
     end
-    local okt, ht = pcall(nav.hasTarget)
-    if okt then print("  hasTarget        " .. tostring(ht)) end
   end
 
   local dv, okv, lv = timed(sublevel.getLinearVelocity)
