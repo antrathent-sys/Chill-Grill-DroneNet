@@ -24,9 +24,10 @@ local CFG = {
   -- the lean ran 25 deg past command and tumbled (2026-09-10). More P and a
   -- real integrator so a steady aero moment is trimmed out, not tolerated.
   -- 2026-09-10, 100 b/s departure: while the lean error grew 3 -> 17 deg the
-  -- vector command sat at 0.04-0.15 - the loop was too soft to use the
-  -- authority it had. Sized so 10 deg of error asks for half the vector.
-  KP_DASH  = 0.05, KI_DASH  = 0.01, KD_DASH  = 0.04,
+  -- vector command sat at 0.04-0.15 - too soft to use the authority it had.
+  -- x3 (0.05 / 0.04) then rang bang-bang at +-1: the craft rolls at
+  -- 50-100 deg/s and KD 0.04 saturates on that. x2 is the size.
+  KP_DASH  = 0.03, KI_DASH  = 0.008, KD_DASH  = 0.02,
   SCHED_LO = 10, SCHED_HI = 40,       -- deg: all-hover below LO, all-dash above HI
   IMAX = 0.6,
   VEC_MAX = 1.0,                      -- full nozzle authority
@@ -764,6 +765,7 @@ local function controlLoop()
   local h0 = lastH          -- start height, for the early dash entry
   local vWantS = 0          -- slew-limited vertical rate request
   local leanAtCap = false   -- cruise lean pinned at CRUISE_DEG (releases the throttle floor)
+  local floorOn = false     -- cruise throttle floor engaged (hysteresis)
   local lastPwr = CFG.HOVER -- last commanded throttle, for integrator anti-windup
   local a = gim.getAngles()
   local lp, lr = a[1], a[2]
@@ -948,10 +950,14 @@ local function controlLoop()
         local ct = math.cos(math.rad(a[1])) * math.cos(math.rad(a[2]))
         pwr = pwr + CFG.HOVER * (1 / math.max(ct, 0.42) - 1) + CFG.DASH_POWER
         -- throttle floor in cruise: altitude is trimmed by the lean cap
-        -- instead; only when the lean is already at its cap and we are still
-        -- climbing does the floor give way
-        if phase == "dash" and mode ~= "dash" and not (leanAtCap and e < -5) then
-          pwr = math.max(pwr, CFG.CRUISE_MIN_POWER)
+        -- instead. The floor yields whenever we are above the goal or still
+        -- climbing hard (it once held 0.6 through the goal at 50 b/s and
+        -- put the craft 100 blocks high), with hysteresis so it does not
+        -- chatter around the goal.
+        if phase == "dash" and mode ~= "dash" then
+          if floorOn and (e < -5 or v > 10 or (leanAtCap and e < -2)) then floorOn = false
+          elseif not floorOn and e > -2 and v < 5 then floorOn = true end
+          if floorOn then pwr = math.max(pwr, CFG.CRUISE_MIN_POWER) end
         end
       end
       if phase == "capture" then pwr = pwr - CFG.DOCK_SINK end
