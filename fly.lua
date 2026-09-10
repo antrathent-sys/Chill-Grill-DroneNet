@@ -50,9 +50,9 @@ local CFG = {
     { name = "vector_thruster_8", pitch =  1, roll =  1 },
   },
 
-  PKP = 0.2, VMAX = 3, PKV = 1.0,
+  PKP = 0.2, VMAX = 8, PKV = 1.0,     -- VMAX 3 crawled the last 100 blocks after a brake (2026-09-10)
   PKI = 0.05, TRIM_MAX = 3,
-  TILT_MAX = 6,                       -- quad: 3 let the hold drift 45 blocks after a brake (2026-09-10)
+  TILT_MAX = 10,                      -- quad: 3 let the hold drift 45 blocks after a brake (2026-09-10)
   SPEED_GUARD = 6,                    -- b/s: position hold engages below this (4 let a 12 b/s residual coast 148 blocks)
   PITCH_DIR = -1, ROLL_DIR = 1,
   -- Quad frame, fitted from two position-hold flights on 2026-09-10 (world
@@ -152,10 +152,14 @@ local CFG = {
   -- cruise (lean was all roll, sails sideways). P/KD now settle at ~10 deg/s.
   YAW_KP = 0.006,                     -- yaw demand per deg of heading error (0.01 wandered +-40 slowly)
   YAW_KD = 0.02,                      -- yaw demand per deg/s of heading rate (Sable gives rad/s; converted)
-  YAW_MAX = 0.2,                      -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
-  YAW_P_MAX = 0.2,                    -- cap on the heading term alone
+  -- 2026-09-10, 83 b/s at 68 deg: yaw was gated off above 55 deg of lean, the
+  -- sails spun the craft up to 60 deg/s, the guard then disabled yaw for the
+  -- flight and it corkscrewed for a minute. Yaw damping now runs at every
+  -- lean (the gyro-integrated heading is safe there) and the guard only warns.
+  YAW_MAX = 0.5,                      -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
+  YAW_P_MAX = 0.2,                    -- cap on the heading term alone; the rest of the range is rate damping
   YAW_SLEW = 10,                      -- deg/s: the held target walks toward the wanted heading, never jumps
-  YAW_TILT_MAX = 55,                  -- deg: no yaw demand above this lean - the nav heading is junk there
+  YAW_TILT_MAX = 180,                 -- deg: lean above which yaw is not commanded (off)
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
   YAW_ABORT_DEG = 90,                 -- heading change in 2 s that counts as a spin
   BRAKE_K = 1.0,                      -- brake distance = K * speed^2 / 10
@@ -718,6 +722,7 @@ local function controlLoop()
   local yawOK = CFG.YAW_HOLD and mixer ~= nil
   local yawTgt, yawSrc, yawErr, yawDem = nil, nil, 0, 0
   local yawTgtS = nil               -- slew-limited target actually held
+  local yawWarned = false
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
   local alignStart, captureStart, released = nil, nil, false
@@ -1005,10 +1010,12 @@ local function controlLoop()
       hdgHist[slot] = hdgNow
       if old then
         local turned = math.abs(((hdgNow - old + 540) % 360) - 180)
-        if turned > CFG.YAW_ABORT_DEG then
-          yawOK, yawDem = false, 0
+        if turned > CFG.YAW_ABORT_DEG and not yawWarned then
+          -- sign is confirmed in flight; a fast turn now is aero, and the
+          -- damping is the only thing fighting it, so warn but keep going
+          yawWarned = true
           chime.play("warn")
-          print(string.format("yaw hold OFF: turned %.0f deg in 2 s - YAW_SIGN wrong?", turned))
+          print(string.format("yaw: turned %.0f deg in 2 s - damping hard", turned))
         end
       end
     end
