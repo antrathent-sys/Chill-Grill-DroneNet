@@ -12,6 +12,7 @@ flightlog
 flightlog.*
 flightlog-*
 logs/*.csv
+!logs/flights/*.csv
 logs/*.txt
 logs/*.log
 !logs/*.py
