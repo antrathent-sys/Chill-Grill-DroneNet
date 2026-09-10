@@ -54,6 +54,8 @@ SELFTEST = [
     ("quad dock", ["dock", "100", "50", "70", "90"], {"TMAX": "120", "NOVEL": "1", "QUAD": "1"},
      ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
+    # the mock never yaws, so this only checks the spin schedule runs
+    ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
 ]
 
 

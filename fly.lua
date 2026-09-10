@@ -1,6 +1,7 @@
 -- fly find <power>            -> hold fixed power, find hover point
 -- fly <y> [x] [z]             -> hold Y, hold position or fly to x z
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
+-- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
 -- writes flightlog on the computer every run
 local CFG = {
   HOVER = 0.27,                       -- quad: 0.3 still climbs ~7 b/s, 0.5 was the single thruster
@@ -644,7 +645,7 @@ end
 
 -- ---------- modes ----------
 local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ
-local padY, dockAlt, cruiseY, undockFirst
+local padY, dockAlt, cruiseY, undockFirst, spinDeg
 if arg[1] == "find" then
   mode = "find" findP = tonumber(arg[2]) or CFG.HOVER
 else
@@ -679,6 +680,10 @@ else
     -- until the control loop has had DOCK_RELEASE_T of thrust behind it.
     mode = "fly" undockFirst = true
     goal = tonumber(arg[2]) or (alt.getHeight() + 5)
+  elseif arg[1] == "spin" then
+    -- pure yaw practice: hover at Y, then rotate about the thrust axis
+    mode = "fly" spinDeg = tonumber(arg[3]) or 90
+    goal = tonumber(arg[2]) or (alt.getHeight() + 10)
   else
     mode = "fly"
     goal = tonumber(arg[1]) or alt.getHeight()
@@ -698,6 +703,7 @@ print(mode == "find" and ("find: holding " .. findP)
    or mode == "dock" and string.format("dock: pad %.0f,%.0f Y %.0f, park at %.1f via Y %.0f",
       tgtX, tgtZ, padY, dockAlt, goal)
    or undockFirst and string.format("undock: release then hold Y %.1f", goal)
+   or spinDeg and string.format("spin: hold Y %.0f, yaw +%d then back", goal, spinDeg)
    or string.format("fly: Y %.1f to %.1f,%.1f hdg %.0f", goal, goalX, goalZ, rawHeading()))
 print("position: " .. (usingSable and "CC:Sable pose" or "gps") ..
       (usingSable and "" or "  (WARNING: the host array was 45 blocks out when last measured)"))
@@ -723,6 +729,7 @@ local function controlLoop()
   local yawTgt, yawSrc, yawErr, yawDem = nil, nil, 0, 0
   local yawTgtS = nil               -- slew-limited target actually held
   local yawWarned = false
+  local spinBase, spinStep, spinT, spinHeld, spinSettle = nil, 0, 0, nil, 0
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
   local alignStart, captureStart, released = nil, nil, false
@@ -989,6 +996,27 @@ local function controlLoop()
       if (phase == "dash" or phase == "brake") and speed > CFG.YAW_MIN_SPEED then
         src = "course"
         yawTgt = (math.deg(math.atan2(pos.vx, -pos.vz)) + CFG.YAW_OFFSET) % 360
+      elseif spinDeg then
+        -- spin exercise: settle at altitude, yaw +spinDeg (clockwise = heading
+        -- up), hold, yaw back, hold. Progress printed with the live error.
+        src = "spin"
+        if not spinBase then
+          if math.abs(e) < 3 then spinSettle = (spinSettle or 0) + dt else spinSettle = 0 end
+          yawTgt = hdgNow
+          if spinSettle > 2 then spinBase = hdgNow spinStep = 1 spinT = t print(string.format("spin: base heading %.0f, yawing +%d", spinBase, spinDeg)) end
+        elseif spinStep == 1 or spinStep == 2 then
+          yawTgt = (spinBase + (spinStep == 1 and spinDeg or 0)) % 360
+          local reached = math.abs(((yawTgt - hdgNow + 540) % 360) - 180) < 5
+          if reached and not spinHeld then spinHeld = t end
+          if not reached then spinHeld = nil end
+          if spinHeld and t - spinHeld > 3 then
+            print(string.format("spin: step %d reached (%.1fs), heading %.0f", spinStep, t - spinT, hdgNow))
+            spinStep, spinT, spinHeld = spinStep + 1, t, nil
+            if spinStep == 3 then print("spin: done, holding") end
+          end
+        else
+          yawTgt = spinBase
+        end
       elseif src ~= yawSrc or not yawTgt then
         yawTgt = hdgNow                       -- re-seed at the heading we have now
       end
