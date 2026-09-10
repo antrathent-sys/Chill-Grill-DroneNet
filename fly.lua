@@ -46,7 +46,7 @@ local CFG = {
 
   PKP = 0.2, VMAX = 3, PKV = 1.0,
   PKI = 0.05, TRIM_MAX = 3,
-  TILT_MAX = 3,
+  TILT_MAX = 6,                       -- quad: 3 let the hold drift 45 blocks after a brake (2026-09-10)
   SPEED_GUARD = 4,
   PITCH_DIR = -1, ROLL_DIR = 1,
   -- Quad frame, fitted from two position-hold flights on 2026-09-10 (world
@@ -95,7 +95,7 @@ local CFG = {
   -- of full power, and HOVER is 0.27, so 74 deg is the absolute ceiling and
   -- 72 leaves a sliver for the altitude loop. 80 would sink.
   CRUISE_DEG = 72,                    -- max lean during cruise
-  CRUISE_SPEED = 20,                  -- b/s target closing speed
+  CRUISE_SPEED = 35,                  -- b/s target closing speed (20 b/s took 45 deg of lean)
   -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
   -- heading only splits the final lean into pitch and roll. 1290-block flight
   -- 2026-09-10: CKV 3 turned every 5 b/s wobble into 15 deg of lean and the
@@ -104,6 +104,22 @@ local CFG = {
   CKI = 0.5,                          -- deg/s of lean per b/s of velocity error (P alone left a drag offset)
   HDG_CRUISE_ALPHA = 0.01,            -- per-iteration blend of the cruise heading (tau ~10 s at 10 Hz):
                                       -- the flat table's reading wanders with tilt, the craft's yaw does not
+
+  -- Yaw hold, four thrusters only: the mixer vectors the nozzles tangentially
+  -- to spin the craft about its thrust axis. In cruise the target is the
+  -- course plus YAW_OFFSET, so the sails meet the airflow the same way every
+  -- flight; otherwise the heading at phase entry. The 1290-block flight of
+  -- 2026-09-10 yawed 260 deg with nothing holding it. YAW_SIGN is unknown
+  -- until flown: a spin guard drops yaw hold for the rest of the flight if
+  -- the heading turns more than YAW_ABORT_DEG in 2 s.
+  YAW_HOLD = true,
+  YAW_SIGN = 1,                       -- flip if the first flight spins instead of settling
+  YAW_OFFSET = 0,                     -- deg between held heading and course in cruise
+  YAW_KP = 0.01,                      -- yaw demand per deg of heading error
+  YAW_KD = 0.02,                      -- yaw demand per deg/s of heading rate (Sable angular velocity)
+  YAW_MAX = 0.25,                     -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
+  YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
+  YAW_ABORT_DEG = 90,                 -- heading change in 2 s that counts as a spin
   BRAKE_K = 1.0,                      -- brake distance = K * speed^2 / 10
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
@@ -205,7 +221,7 @@ if #accs > 1 then print("accumulators: " .. #accs .. " (averaged)") end
 -- the log: nozzle vector on the single thruster, differential demand in diff
 -- mode.
 local mixSat = false
-local function drive(p, up, ur)
+local function drive(p, up, ur, yaw)
   local cp, cr = CFG.P_SIGN * up, CFG.R_SIGN * ur
   local vx = clamp(CFG.P_AXIS == "x" and cp or cr, CFG.VEC_MAX)
   local vy = clamp(CFG.P_AXIS == "x" and cr or cp, CFG.VEC_MAX)
@@ -214,7 +230,7 @@ local function drive(p, up, ur)
     thr.setPowerNormalized(math.max(0, math.min(1, p)))
     return vx, vy
   end
-  local d = { lift = math.max(0, math.min(1, p)) }
+  local d = { lift = math.max(0, math.min(1, p)), yawRate = yaw or 0 }
   if CFG.MIX_MODE ~= "vector" then
     -- mixer pitch +1 raises gimbal pitch (that is how mixcal defines the
     -- signs), so a positive pitch error wants a negative demand
@@ -389,7 +405,7 @@ local function pump(on)
   end
 end
 -- forward (nose-axis) speed from the velocity sensor, positive = moving forward
-local pos = { x = 0, z = 0, vx = 0, vz = 0, t = 0, rej = 0 }
+local pos = { x = 0, z = 0, vx = 0, vz = 0, t = 0, rej = 0, wy = 0 }   -- wy: world yaw rate, deg/s
 
 -- raw sensor reads, in the AIRFRAME's own (tilted) frame
 local sFwd = peripheral.wrap(CFG.FWD_NAME)
@@ -550,6 +566,13 @@ local function posLoop()
         -- trusted velocity: take it, no outlier gate needed
         pos.vx, pos.vz = vx, vz
         pos.x, pos.z, pos.t, pos.rej = x, z, now, 0
+        -- yaw rate for the yaw hold: one more Sable call, in this coroutine
+        -- so the control loop pays nothing. Treated as rad/s (unverified -
+        -- the flightlog's yrate column will show if it is already deg/s).
+        if CFG.YAW_HOLD and usingSable then
+          local okw, w = pcall(sublevel.getAngularVelocity)
+          if okw and type(w) == "table" and w.y then pos.wy = -math.deg(w.y) end   -- +y spin turns heading DOWN
+        end
       else
         local dt = math.max(now - pos.t, 0.05)
         local ok = pos.t == 0 or (math.abs(x - (pos.x + pos.vx * dt)) < 12 and math.abs(z - (pos.z + pos.vz * dt)) < 12)
@@ -618,7 +641,7 @@ else
 end
 
 local log = fs.open("flightlog", "w")
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -644,6 +667,9 @@ local function controlLoop()
   local tpS, trS = 0, 0    -- rate-limited tilt targets
   local cruiseIx, cruiseIz = 0, 0   -- go-mode speed integrators, world frame (deg of lean)
   local cruiseHdg = nil             -- slow-filtered heading used for the cruise split
+  local yawOK = CFG.YAW_HOLD and mixer ~= nil
+  local yawTgt, yawSrc, yawErr, yawDem = nil, nil, 0, 0
+  local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
   local alignStart, captureStart, released = nil, nil, false
   local alignBad = 0
@@ -855,13 +881,42 @@ local function controlLoop()
     lp, lr = a[1], a[2]
     ip = clamp(ip + KI * ep * dt, CFG.IMAX)
     ir = clamp(ir + KI * er * dt, CFG.IMAX)
-    local vx, vy = drive(pwr, KP * ep + ip + KD * dp, KP * er + ir + KD * dr)
+    -- yaw hold
+    yawErr, yawDem = 0, 0
+    if yawOK then
+      local hdgUsed = (phase == "dash" or phase == "brake") and cruiseHdg or hdgNow
+      local src = "hold"
+      if (phase == "dash" or phase == "brake") and speed > CFG.YAW_MIN_SPEED then
+        src = "course"
+        yawTgt = (math.deg(math.atan2(pos.vx, -pos.vz)) + CFG.YAW_OFFSET) % 360
+      elseif src ~= yawSrc or not yawTgt then
+        yawTgt = hdgNow                       -- re-seed at the heading we have now
+      end
+      yawSrc = src
+      yawErr = ((yawTgt - hdgUsed + 540) % 360) - 180
+      yawDem = clamp(CFG.YAW_SIGN * (CFG.YAW_KP * yawErr - CFG.YAW_KD * pos.wy), CFG.YAW_MAX)
+      -- spin guard on the raw heading: more than YAW_ABORT_DEG in 2 s
+      local slot = iter % 20
+      local old = hdgHist[slot]
+      hdgHist[slot] = hdgNow
+      if old then
+        local turned = math.abs(((hdgNow - old + 540) % 360) - 180)
+        if turned > CFG.YAW_ABORT_DEG then
+          yawOK, yawDem = false, 0
+          chime.play("warn")
+          print(string.format("yaw hold OFF: turned %.0f deg in 2 s - YAW_SIGN wrong?", turned))
+        end
+      end
+    end
+
+    local vx, vy = drive(pwr, KP * ep + ip + KD * dp, KP * er + ir + KD * dr, yawDem)
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
-      motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0))
+      motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
+      yawErr, pos.wy, yawDem))
     if phase == "docked" then return end
     sleep(0.05)
   end

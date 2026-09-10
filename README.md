@@ -42,6 +42,8 @@ All peripherals are found by type except the velocity sensors, which are address
 
 The sensors (`gimbal_sensor`, `altitude_sensor`, `velocity_sensor`, `navigation_table`) come from **Create: Avionics**; the thruster comes from **Gadgets & Gizmos**, whose thrusters accept either FE or liquid fuel through a thruster gimbal or bearing. Method names used here were checked against the Avionics docs in September 2026 and are current.
 
+**Yaw.** The airframe has no yaw sensor beyond the nav tables and no dedicated yaw actuator, but four corner thrusters vectored tangentially spin it about the thrust axis. The 1290-block flight of 2026-09-10 yawed 260° with nothing holding it, which matters because the sails are symmetric about a body plane and want the same angle to the airflow every flight. `YAW_HOLD` holds course + `YAW_OFFSET` in cruise. The sign of the tangential response has not been flown yet.
+
 The velocity sensors tilt with the airframe. With the vertical axis measured, the body vector is rotated back to level, so "forward speed" stays horizontal-forward even at 70 deg of lean.
 
 ### Four thrusters
@@ -266,6 +268,7 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `CRUISE_DEG` | Max lean during cruise. |
 | `CRUISE_SPEED` | Target closing speed in b/s. |
 | `CKV`, `CKI` | Degrees of lean per b/s of velocity error, and deg/s per b/s for the integrator that removes the drag steady-state error. Both act on the world-frame velocity error. |
+| `YAW_HOLD`, `YAW_SIGN`, `YAW_OFFSET`, `YAW_KP`, `YAW_KD`, `YAW_MAX`, `YAW_MIN_SPEED`, `YAW_ABORT_DEG` | Yaw hold via tangential nozzle vectoring (four thrusters only). Cruise target = course + `YAW_OFFSET`; otherwise the heading at phase entry. Yaw rate from Sable's angular velocity, read in `posLoop`. A spin guard switches yaw hold off for the flight if the heading turns more than `YAW_ABORT_DEG` in 2 s. Logged as `yerr,yrate,ydem`. |
 | `HDG_CRUISE_ALPHA` | Per-iteration blend of the heading used to split cruise lean into pitch/roll. The flat nav table's reading swings ±40° at 50° of tilt while the craft yaws a few degrees a minute, so cruise trusts a slow filter seeded when level. |
 | `BRAKE_K` | Brake distance = `BRAKE_K * speed^2 / 10`. |
 | `ARRIVE` | Blocks from target at which cruise hands over to brake regardless of speed. |
