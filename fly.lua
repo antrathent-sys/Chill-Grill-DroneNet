@@ -1029,7 +1029,12 @@ local function controlLoop()
       -- world-frame velocity error and integrator; heading enters only at
       -- the split into pitch and roll, and a wrong heading there merely
       -- rotates the lean, it cannot unwind the integrator
-      local vCruise = math.min(CFG.CRUISE_SPEED, math.sqrt(2 * CFG.CRUISE_DECEL * d))
+      -- Speed TARGET rides a curve at half the planned deceleration, ending
+      -- at the hold radius, so it always sits under the kinematic braking
+      -- curve below. (Using the braking curve itself as the target made the
+      -- loop re-accelerate to 59 b/s with 33 blocks to go, 2026-09-10.)
+      local vCruise = math.min(CFG.CRUISE_SPEED,
+        math.sqrt(2 * (CFG.CRUISE_DECEL * 0.5) * math.max(d - CFG.APPROACH_HOLD_DIST, 0)))
       local eWx, eWz = vCruise * ux - pos.vx, vCruise * uz - pos.vz
       local cWx, cWz = CFG.CKV * eWx + cruiseIx, CFG.CKV * eWz + cruiseIz
       if speed > 1 then
