@@ -75,9 +75,17 @@ trilateration solves to fractions. The heading-error table below is therefore
 pessimistic for the drone, though the closed-loop oscillation it describes was
 still observed.
 
-**That GPS fix looks wrong, though.** A y of -48.56 is suspicious. Check
-`gps.locate` against the actual F3 position: if it disagrees, the volcano host
-array is giving bad fixes and that alone could explain the flight problems.
+**That GPS fix WAS wrong, and it is now fixed.** The run showed a y of -48.56
+against a real position nowhere near it. Cause: the host constellation was
+degenerate. CC distances are exact so hosts need not be far apart, but they
+must not be collinear or coplanar, and four hosts at one height cannot solve
+the vertical at all. Rearranged so one host is offset in Y and fixes are good.
+
+**Refly before touching any gains.** Heading is derived from GPS displacement,
+so bad fixes produced a bad heading, which leaned the drone the wrong way,
+which moved it, which produced another bad heading. The oscillation being
+chased in tuning may simply have been this. Measure again before changing
+anything.
 
 ## Known issues
 
