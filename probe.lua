@@ -282,13 +282,33 @@ end
 -- question is answerable: if pose.position tracks gps as the craft moves, it
 -- is world with an offset; if it does not move at all, it is something else.
 local function logRun(secs)
+  -- Every nav table, sorted by name so the columns are stable run to run.
+  -- With one table on each plane, the ones that track north and the ones
+  -- that go degenerate separate themselves as the craft moves.
+  local navs = {}
+  for _, p in ipairs({ peripheral.find("navigation_table") }) do
+    navs[#navs + 1] = { p = p, name = peripheral.getName and peripheral.getName(p) or ("nav" .. #navs) }
+  end
+  table.sort(navs, function(a, b) return a.name < b.name end)
+  local navCols = {}
+  for _, t in ipairs(navs) do navCols[#navCols + 1] = t.name:gsub("navigation_table_", "nav") end
+  local gimP = peripheral.find("gimbal_sensor")
+
   local rows = {}
-  rows[1] = "t,px,py,pz,qx,qy,qz,qw,qnorm,gx,gy,gz,lvx,lvy,lvz,avx,avy,avz,lpx,lpy,lpz,lqw"
+  rows[1] = "t,px,py,pz,gp,gr,qx,qy,qz,qw,qnorm,gx,gy,gz,lvx,lvy,lvz,avx,avy,avz,lpx,lpy,lpz,lqw"
+    .. (#navCols > 0 and ("," .. table.concat(navCols, ",")) or "")
   local t0 = os.clock()
   local n = 0
-  print(string.format("logging for %ds - MOVE THE CRAFT NOW", secs))
+  print(string.format("logging for %ds with %d nav tables - MOVE THE CRAFT NOW", secs, #navs))
   while os.clock() - t0 < secs do
     local t = os.clock() - t0
+    local gp, gr = 0, 0
+    if gimP then local okg, a = pcall(gimP.getAngles) if okg and a then gp, gr = a[1] or 0, a[2] or 0 end end
+    local navVals = {}
+    for i, tb in ipairs(navs) do
+      local okn, v = pcall(tb.p.getRelativeAngle)
+      navVals[i] = string.format("%.2f", okn and v or -1)
+    end
     local okp, pose = pcall(sublevel.getLogicalPose)
     local okl, last = pcall(sublevel.getLastPose)
     local okv, lv = pcall(sublevel.getLinearVelocity)
@@ -305,17 +325,18 @@ local function logRun(secs)
 
     n = n + 1
     rows[n + 1] = string.format(
-      "%.2f,%.4f,%.4f,%.4f,%.5f,%.5f,%.5f,%.5f,%.5f,%s,%s,%s,%.4f,%.4f,%.4f,%.5f,%.5f,%.5f,%.4f,%.4f,%.4f,%.5f",
-      t, p.x or 0, p.y or 0, p.z or 0,
+      "%.2f,%.4f,%.4f,%.4f,%.2f,%.2f,%.5f,%.5f,%.5f,%.5f,%.5f,%s,%s,%s,%.4f,%.4f,%.4f,%.5f,%.5f,%.5f,%.4f,%.4f,%.4f,%.5f",
+      t, p.x or 0, p.y or 0, p.z or 0, gp, gr,
       q.x or 0, q.y or 0, q.z or 0, q.w or 0, qn,
       gx and string.format("%.4f", gx) or "", gy and string.format("%.4f", gy) or "",
       gz and string.format("%.4f", gz) or "",
       lv.x or 0, lv.y or 0, lv.z or 0, av.x or 0, av.y or 0, av.z or 0,
       lp.x or 0, lp.y or 0, lp.z or 0, lq.w or 0)
+      .. (#navVals > 0 and ("," .. table.concat(navVals, ",")) or "")
 
-    if n % 10 == 0 then
-      print(string.format("  %4.1fs  pos %.1f %.1f %.1f  qnorm %.3f  n=%d",
-        t, p.x or 0, p.y or 0, p.z or 0, qn, n))
+    if n % 6 == 0 then
+      print(string.format("  %4.1fs  g %+5.1f/%+5.1f  nav %s",
+        t, gp, gr, table.concat(navVals, " ")))
     end
     sleep(0.5)
   end
