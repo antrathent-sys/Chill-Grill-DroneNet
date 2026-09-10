@@ -4,7 +4,8 @@
 --
 --   probe            one snapshot
 --   probe watch      refresh once a second until Ctrl+T
---   probe save       one snapshot, written to probe.txt and pushed to the repo
+--   probe save [lbl] one snapshot, written to probe.txt (or probe_<lbl>.txt)
+--                    and pushed to the repo as data/probe.txt (data/probe-pose-<lbl>.txt)
 --                    (terminals cannot be copied out of, so this is how the
 --                     output gets somewhere readable)
 --   probe here <x> <y> <z>
@@ -17,6 +18,9 @@
 
 local WATCH = arg[1] == "watch"
 local SAVE  = arg[1] == "save"
+local LABEL = SAVE and arg[2] and arg[2]:gsub("[^%w_%-]", "") or nil
+local SAVE_LOCAL  = LABEL and ("probe_" .. LABEL .. ".txt") or "probe.txt"
+local SAVE_REMOTE = LABEL and ("data/probe-pose-" .. LABEL .. ".txt") or "data/probe.txt"
 local LOG   = arg[1] == "log"
 local LOGSECS = tonumber(arg[2]) or 30
 local HERE  = arg[1] == "here" and {
@@ -241,9 +245,6 @@ local function snapshot()
               perp < 0.05 and "(good)" or "(gimbal model off here)"))
             print(string.format("  thrust axis in world: %+.2f %+.2f %+.2f   quat %.3f %.3f %.3f %.3f",
               tw.x, tw.y, tw.z, q.x, q.y, q.z, q.w))
-            if not ATT.gimbalTrusted(ga[1], ga[2]) then
-              print("  NOTE: gimbal beyond 45 deg - attitude here is UNVERIFIED (see BACKLOG)")
-            end
           else
             print("  no solution: " .. tostring(diag.reason))
           end
@@ -415,20 +416,20 @@ elseif WATCH then
 elseif SAVE then
   snapshot()
   print = realPrint
-  local f = fs.open("probe.txt", "w")
+  local f = fs.open(SAVE_LOCAL, "w")
   f.write(table.concat(buf, "\n") .. "\n")
   f.close()
   print("")
-  print("written to probe.txt (" .. #buf .. " lines)")
+  print("written to " .. SAVE_LOCAL .. " (" .. #buf .. " lines)")
   if fs.exists("upload.lua") and http then
-    print("pushing to the repo...")
+    print("pushing to the repo as " .. SAVE_REMOTE .. " ...")
     local ok, err = pcall(function()
-      if shell then return shell.run("upload", "sync", "probe.txt", "data/probe.txt") end
-      return os.run({}, "upload.lua", "sync", "probe.txt", "data/probe.txt")
+      if shell then return shell.run("upload", "sync", SAVE_LOCAL, SAVE_REMOTE) end
+      return os.run({}, "upload.lua", "sync", SAVE_LOCAL, SAVE_REMOTE)
     end)
     if not ok then print("push failed: " .. tostring(err)) end
   else
-    print("no upload.lua or no http - copy probe.txt off manually")
+    print("no upload.lua or no http - copy " .. SAVE_LOCAL .. " off manually")
   end
 else
   snapshot()

@@ -35,13 +35,9 @@ local function simulate(q, mounts)
   local qc = A.conj(q)
   local gBody = A.rotate(qc, DOWN_W)
   local nBody = A.rotate(qc, NORTH_W)
-  -- invert gravityFromGimbal (independent elevations) to get the gimbal
-  -- angles this attitude implies. sin p = g.z, sin r = -g.x, and an inverted
-  -- craft (g.y > 0) is encoded by pushing pitch past 90 so cos(p) < 0.
-  local clamp = function(x) return math.max(-1, math.min(1, x)) end
-  local pitch = math.deg(math.asin(clamp(gBody.z)))
-  local roll  = math.deg(math.asin(clamp(-gBody.x)))
-  if gBody.y > 1e-9 then pitch = (pitch >= 0) and (180 - pitch) or (-180 - pitch) end
+  -- the gimbal angles this attitude implies, using the calibrated
+  -- projected-tilt convention (see gravityFromGimbal)
+  local pitch, roll = A.gimbalFromGravity(gBody)
   local tables = {}
   for _, m in ipairs(mounts) do
     local ang = A.expectedAngle(m, nBody)

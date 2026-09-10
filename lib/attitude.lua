@@ -129,41 +129,55 @@ end
 
 -- ---------- step 2: gravity in body frame from the gimbal ----------
 --- Gimbal pitch and roll (degrees) to the unit "down" vector in the body
--- frame, treating pitch as the elevation of the nose axis and roll as the
--- elevation of the starboard axis, each independently.
+-- frame.
 --
--- VALIDITY. Fitted against a 43-sample tumble log on 2026-09-10, this was the
--- best of every standard Euler ordering and two non-Euler models, and it is
--- near-perfect below about 30 degrees of tilt (north.gravity within 0.005 to
--- 0.02 of zero). Beyond roughly 45 degrees it is NOT trustworthy: the log
--- contains readings such as (131.8, -127.1) whose sines square-sum above 1,
--- which no pair of orthogonal axis elevations can produce, so the real gimbal
--- uses a convention none of the candidates match at large angles. Hover,
--- docking and moderate manoeuvres are fine. A VTOL transition through 90
--- degrees is not, until the gimbal is calibrated at known stationary
--- attitudes. See BACKLOG.md.
+-- CONVENTION (calibrated 2026-09-10). The Avionics gimbal reports
+--     pitch = atan2( g.z, -g.y )      roll = atan2( -g.x, -g.y )
+-- i.e. each angle is the projected tilt of the down vector onto the pitch and
+-- roll planes, NOT the elevation of an axis. Inverting that:
+--     g  ~  ( -sin r * |cos p| ,  -|cos p| * cos r ,  sin p * |cos r| )
+-- Both angles run past +-90 together when the craft is inverted (cos p and
+-- cos r go negative), and a single-axis 90 degree tilt reads +-90 on BOTH
+-- axes - which is what the four stationary calibration poses showed
+-- (data/probe-pose-*.txt) and what looked like gimbal lock before. Under
+-- this model north.gravity is within 0.005 of zero on all 43 tumble samples
+-- (data/probelog-run8-sixtables-tumble.csv) and all four stationary poses,
+-- including on-its-side and 45 degrees, so it is trusted at every attitude.
 function A.gravityFromGimbal(pitchDeg, rollDeg, signs)
   signs = signs or {}
   local p = math.rad(pitchDeg * (signs.pitch or 1))
   local r = math.rad(rollDeg * (signs.roll or 1))
-  local sx, sz = -math.sin(r), math.sin(p)
-  local y2 = math.max(0, 1 - sx * sx - sz * sz)
-  -- past 90 on either axis means over the top: the vertical sense flips
-  local sgn = (math.cos(p) >= 0 and math.cos(r) >= 0) and -1 or 1
-  return v(sx, sgn * math.sqrt(y2), sz)
+  local cp, cr = math.cos(p), math.cos(r)
+  local acp, acr = math.abs(cp), math.abs(cr)
+  local g = v(-math.sin(r) * acp, -acp * cr, math.sin(p) * acr)
+  if len(g) < 1e-9 then return v(0, -1, 0) end   -- (0,0) exactly on the pole
+  return norm(g)
 end
 
---- Whether a gimbal reading is inside the range this model is trusted for.
+--- Inverse of gravityFromGimbal: the angles the gimbal reports for a given
+-- body-frame down vector. Used by tests and the harness.
+function A.gimbalFromGravity(g)
+  return math.deg(math.atan2(g.z, -g.y)), math.deg(math.atan2(-g.x, -g.y))
+end
+
+--- Whether a gimbal reading is inside the range the model is trusted for.
+-- Kept for callers; the calibrated model is valid everywhere, so the limit
+-- now only flags readings that are numerically meaningless (NaN).
 function A.gimbalTrusted(pitchDeg, rollDeg, limitDeg)
-  local lim = limitDeg or 45
-  return math.abs(pitchDeg) <= lim and math.abs(rollDeg) <= lim
+  if pitchDeg ~= pitchDeg or rollDeg ~= rollDeg then return false end
+  if limitDeg then
+    return math.abs(pitchDeg) <= limitDeg and math.abs(rollDeg) <= limitDeg
+  end
+  return true
 end
 
 -- ---------- presets ----------
 -- The mounting fitted from data/probelog-run8-sixtables-tumble.csv by
--- tools/fit_mounts.py: all five tables agree to 0.00 degrees under it, and the
+-- tools/fit_mounts.py: all tables agree to 0.00 degrees under it, and the
 -- fitted heading swung 78.9 degrees between the two rest states against
--- nav4's own 79.0. Axis strings are the body frame above.
+-- nav4's own 79.0. Axis strings are the body frame above. The airframe now
+-- carries only tables 4, 5 and 7 (one per plane); 8 and 9 were removed and
+-- are kept here commented out in case they come back.
 A.presets = {
   airframe1 = {
     gimbalSigns = { pitch = 1, roll = 1 },
@@ -171,8 +185,8 @@ A.presets = {
       { name = "navigation_table_4", normal = "-y", forward = "+x" },
       { name = "navigation_table_5", normal = "-x", forward = "-z" },
       { name = "navigation_table_7", normal = "+z", forward = "-x" },
-      { name = "navigation_table_8", normal = "+x", forward = "+z" },
-      { name = "navigation_table_9", normal = "-z", forward = "+x" },
+      -- { name = "navigation_table_8", normal = "+x", forward = "+z" },
+      -- { name = "navigation_table_9", normal = "-z", forward = "+x" },
     },
   },
 }

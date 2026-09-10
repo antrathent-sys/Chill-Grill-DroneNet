@@ -423,22 +423,27 @@ samples, and the fitted heading swung 78.9 degrees between the two rest states
 against nav4's own 79.0. `probe` now computes and prints the live quaternion,
 heading, agreement residual and the north.gravity check on the pod.
 
-**Still open: the gimbal's convention at large tilt.** Every standard Euler
-ordering (all 48 axis/order/sign variants) and two non-Euler models were tried.
-The best, independent axis elevations, is near-perfect below ~30 degrees
-(north.gravity 0.000 to 0.008) but stuck at ~0.11 beyond 45, and that is not
-read lag: two stationary samples at (-89, -88) are still 6 degrees off. The
-log also contains readings such as (131.8, -127.1) whose sines square-sum to
-1.19, which no pair of orthogonal axis elevations can produce. So the real
-gimbal reports something none of the candidates match once tilt is large.
+**Gimbal convention at large tilt: SOLVED (2026-09-10).** Four stationary
+poses at known attitudes settled it
+([data/probe-pose-tail.txt](data/probe-pose-tail.txt) upright,
+[probe-pose-45.txt](data/probe-pose-45.txt),
+[probe-pose-side.txt](data/probe-pose-side.txt),
+[probe-pose-side_2.txt](data/probe-pose-side_2.txt)). Both on-its-side poses
+read about (-90, +90) on BOTH axes for a single-axis tilt, which is not gimbal
+lock - it is the signature of a *projected tilt* convention:
 
-**Consequence:** attitude is trusted within ~45 degrees of tilt, which covers
-hover, docking and moderate manoeuvres. The VTOL transition through 90 degrees
-is not covered until the gimbal is understood. **The clean way to understand
-it is stationary readings at KNOWN attitudes**, free of tumble artefacts: rest
-the craft on its side (exactly 90 about one axis, 0 about the other), nose
-down (the other axis), and propped at 45, and run `probe save` at each. Three
-or four known attitudes pin the convention outright.
+    pitch = atan2( g.z, -g.y )      roll = atan2( -g.x, -g.y )
+
+Each angle is the tilt of the down vector projected onto that plane, not the
+elevation of an axis, and both blow through 90 together as soon as the craft
+passes horizontal. Inverting it, `g ~ (-sin r |cos p|, -|cos p| cos r,
+sin p |cos r|)`. Under that model north.gravity is within 0.005 of zero on all
+four poses AND all 43 tumble samples, including the (131.8, -127.1) reading
+that no elevation model could produce. `lib/attitude.lua` now uses it, the
+45-degree trust limit is gone, and the VTOL transition through 90 is covered.
+The independent-elevations model it replaces was only ever right where the two
+coincide (small angles), which is why it looked good below 30 degrees.
+
 
 **Table 5 is dead; table 4 is a compass to spawn** (superseded, see above)
 ([data/probe-run7-yawed.txt](data/probe-run7-yawed.txt)). A quarter-turn yaw
