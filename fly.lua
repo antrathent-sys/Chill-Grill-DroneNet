@@ -17,7 +17,10 @@ local CFG = {
   -- cannot outrun that. Loop trimmed to one gimbal read and a nav read every
   -- HDG_EVERY iterations; KD pulled back to the middle.
   KP_HOVER = 0.010, KI_HOVER = 0.001, KD_HOVER = 0.015,
-  KP_DASH  = 0.010, KI_DASH  = 0.001, KD_DASH  = 0.015,   -- = hover gains until the quad proves otherwise
+  -- Above SCHED_HI the sails' pitching moment grows with airspeed: at 100 b/s
+  -- the lean ran 25 deg past command and tumbled (2026-09-10). More P and a
+  -- real integrator so a steady aero moment is trimmed out, not tolerated.
+  KP_DASH  = 0.015, KI_DASH  = 0.004, KD_DASH  = 0.015,
   SCHED_LO = 10, SCHED_HI = 40,       -- deg: all-hover below LO, all-dash above HI
   IMAX = 0.4,
   VEC_MAX = 1.0,                      -- full nozzle authority
@@ -112,7 +115,7 @@ local CFG = {
   -- ~74 deg only applies at standstill. Allowed lean = LEAN_AT_0 at rest,
   -- rising linearly to CRUISE_DEG at LEAN_FULL_SPD; pulled back by
   -- ALT_PROTECT_GAIN deg per block once more than ALT_PROTECT below goal.
-  CRUISE_DEG = 75,                    -- max lean during cruise, at speed
+  CRUISE_DEG = 65,                    -- max lean during cruise, at speed (75 + 25 of tracking error = past horizontal)
   LEAN_AT_0 = 50,                     -- deg allowed from standstill
   LEAN_FULL_SPD = 60,                 -- b/s at which CRUISE_DEG is allowed
   ALT_PROTECT = 15,                   -- blocks below goal before the lean cap is reduced
@@ -147,7 +150,7 @@ local CFG = {
   YAW_OFFSET = 0,                     -- deg between held heading and course in cruise
   -- 2026-09-10: with P capped at 0.05 the yaw sat 100 deg off the course all
   -- cruise (lean was all roll, sails sideways). P/KD now settle at ~10 deg/s.
-  YAW_KP = 0.01,                      -- yaw demand per deg of heading error
+  YAW_KP = 0.006,                     -- yaw demand per deg of heading error (0.01 wandered +-40 slowly)
   YAW_KD = 0.02,                      -- yaw demand per deg/s of heading rate (Sable gives rad/s; converted)
   YAW_MAX = 0.2,                      -- demand clamp (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
   YAW_P_MAX = 0.2,                    -- cap on the heading term alone
