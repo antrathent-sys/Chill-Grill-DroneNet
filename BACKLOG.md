@@ -423,6 +423,13 @@ samples, and the fitted heading swung 78.9 degrees between the two rest states
 against nav4's own 79.0. `probe` now computes and prints the live quaternion,
 heading, agreement residual and the north.gravity check on the pod.
 
+**Quad status, end of 2026-09-10.** Flies: 3200-block `go` in 143 s at 45°
+/ 35 b/s, altitude ±0.3, brake and hold arrive within ~11 blocks; 103 b/s
+reached at 65°+ lean before the attitude loop lost it. Yaw sweeps show drag
+is flat with orientation at 45°, so `CRUISE_COORD` stays off. **Next:** push
+the lean cap back up from 65 with the stiffer `*_DASH` gains and the
+lean-scheduled yaw clamp, watching `p` vs `tp` above 60 b/s.
+
 **TRIAD heading is mirrored (open, low priority).** Two position-hold
 flights fitted with `tools/fit_heading.py` fix the controller's heading at
 `HDG_SIGN = -1, HDG_OFFSET = 269` (the flat table faces down and reads

@@ -160,7 +160,13 @@ local CFG = {
   -- target both times) but KP 0.01 / MAX 0.25 was bang-bang: a 157 deg
   -- initial error slewed at 20-45 deg/s mid-transition and tripped the guard.
   YAW_SIGN = 1,
-  YAW_OFFSET = 0,                     -- deg between held heading and course in cruise
+  -- Two full yaw sweeps at 45 deg / 35 b/s (2026-09-10, tools/yaw_sweep.py):
+  -- speed per degree of lean is 0.70-0.80 in every 30-degree bin, yaw quiet
+  -- everywhere. Orientation about the thrust axis does not change drag, so
+  -- cruise yaw just holds still: "hold" = entry heading, "course" = follow
+  -- the track + YAW_OFFSET (the old behaviour, more yaw activity for nothing).
+  YAW_CRUISE = "hold",
+  YAW_OFFSET = 0,                     -- deg between held heading and course when YAW_CRUISE = "course"
   -- 2026-09-10: with P capped at 0.05 the yaw sat 100 deg off the course all
   -- cruise (lean was all roll, sails sideways). P/KD now settle at ~10 deg/s.
   -- fly spin 40 (2026-09-10): sign confirmed (+ = heading up = clockwise),
@@ -1036,7 +1042,8 @@ local function controlLoop()
         -- point the lean axis (CRUISE_LEAN_AXIS clockwise from the nose) at the target
         src = "target"
         yawTgt = (math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) - CFG.CRUISE_LEAN_AXIS + yawOff) % 360
-      elseif (phase == "dash" or phase == "brake") and speed > CFG.YAW_MIN_SPEED then
+      elseif (phase == "dash" or phase == "brake") and speed > CFG.YAW_MIN_SPEED
+             and (CFG.YAW_CRUISE == "course" or CFG.YAW_SWEEP ~= 0) then
         src = "course"
         yawTgt = (math.deg(math.atan2(pos.vx, -pos.vz)) + yawOff) % 360
       elseif spinDeg then
