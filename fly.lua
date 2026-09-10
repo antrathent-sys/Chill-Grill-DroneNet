@@ -23,11 +23,12 @@ local CFG = {
   -- Above SCHED_HI the sails' pitching moment grows with airspeed: at 100 b/s
   -- the lean ran 25 deg past command and tumbled (2026-09-10). More P and a
   -- real integrator so a steady aero moment is trimmed out, not tolerated.
-  -- 2026-09-10, 100 b/s departure: while the lean error grew 3 -> 17 deg the
-  -- vector command sat at 0.04-0.15 - too soft to use the authority it had.
-  -- x3 (0.05 / 0.04) then rang bang-bang at +-1: the craft rolls at
-  -- 50-100 deg/s and KD 0.04 saturates on that. x2 is the size.
-  KP_DASH  = 0.03, KI_DASH  = 0.008, KD_DASH  = 0.02,
+  -- 2026-09-10: 0.015/0.015 held 65 deg within 2 deg at 81 b/s. The 100 b/s
+  -- departure that looked like softness was the gimbal's projected roll
+  -- (fixed below); x3 rang bang-bang, x2 oscillated at 0.77 Hz and grew over
+  -- five cycles at 66 deg - KD adds lag, not damping, at that period with
+  -- 0.1-0.2 s of loop delay. Back to the proven set.
+  KP_DASH  = 0.015, KI_DASH  = 0.004, KD_DASH  = 0.015,
   SCHED_LO = 10, SCHED_HI = 40,       -- deg: all-hover below LO, all-dash above HI
   IMAX = 0.6,
   VEC_MAX = 1.0,                      -- full nozzle authority
