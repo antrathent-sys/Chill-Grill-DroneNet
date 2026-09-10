@@ -79,8 +79,11 @@ local CFG = {
   TUMBLE = 85,
   DASH_SETTLE = 3.0,                  -- transition this many blocks below goal
   CLIMB_POWER = 0.9,                  -- throttle on the way up
-  CLIMB_RATE = 10,                    -- b/s: climb-phase target, and the rate cap of the altitude hold
-                                      -- (fly 500 on 2026-09-10 crawled at 7 b/s because PMAX/AKD capped it at 3.5)
+  CLIMB_RATE = 20,                    -- b/s: climb-phase target, and the rate cap of the altitude hold
+                                      -- (10 b/s cost 0.26-0.32 power on 2026-09-10, barely above hover)
+  VRATE_SLEW = 10,                    -- b/s^2: the rate request ramps, a step to full rate rang 13->8->11 b/s
+  INTEG_BAND = 2,                     -- b/s: integrate altitude only when the rate request is below this
+                                      -- (it wound to its clamp during the last 30 blocks and overshot +5)
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
   TILT_RATE = 60,                     -- deg/s: how fast tilt targets may move
@@ -667,6 +670,7 @@ if CFG.PUMP_PRIME > 0 then print("priming pump") sleep(CFG.PUMP_PRIME) end
 
 local function controlLoop()
   local lastH, lastT, integ = alt.getHeight(), os.clock(), 0
+  local vWantS = 0          -- slew-limited vertical rate request
   local a = gim.getAngles()
   local lp, lr = a[1], a[2]
   local iter, rawH = 0, rawHeading()
@@ -809,8 +813,9 @@ local function controlLoop()
       -- integrate when the rate request is not saturated, so a long climb
       -- does not wind the integrator up and overshoot the top.
       local vWant = clamp(CFG.AKP / CFG.AKD * e, CFG.CLIMB_RATE)
-      if math.abs(vWant) < CFG.CLIMB_RATE then integ = clamp(integ + CFG.AKI * e * dt, 0.3) end
-      pwr = CFG.HOVER + integ + CFG.AKD * (vWant - v)
+      vWantS = vWantS + clamp(vWant - vWantS, CFG.VRATE_SLEW * dt)      -- ramp, never step
+      if math.abs(vWant) < CFG.INTEG_BAND then integ = clamp(integ + CFG.AKI * e * dt, 0.3) end
+      pwr = CFG.HOVER + integ + CFG.AKD * (vWantS - v)
       if phase == "climb" then
         -- climb hard, but ease off as the climb rate reaches target
         pwr = CFG.CLIMB_POWER - CFG.AKD * (v - CFG.CLIMB_RATE)
