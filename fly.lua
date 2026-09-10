@@ -200,7 +200,7 @@ local CFG = {
   -- flight and it corkscrewed for a minute. Yaw damping now runs at every
   -- lean (the gyro-integrated heading is safe there) and the guard only warns.
   YAW_MAX = 0.9,                      -- demand clamp at hover (the mixer scales it by YAW_AUTH = 0.35 of nozzle range)
-  YAW_MAX_LEAN = 0.3,                 -- demand clamp above YAW_LEAN_HI of lean: the sweep flight thrashed
+  YAW_MAX_LEAN = 0.5,                 -- demand clamp above YAW_LEAN_HI of lean: the sweep flight thrashed
                                       -- +-55 deg/s at 60-80 deg and tumbled; tangential deflection also
                                       -- steals attitude authority exactly where it is scarcest
   YAW_LEAN_LO = 20, YAW_LEAN_HI = 45, -- deg: clamp blends from YAW_MAX to YAW_MAX_LEAN across this band
@@ -813,6 +813,7 @@ local function controlLoop()
   local yawTgtS = nil               -- slew-limited target actually held
   local yawWarned = false
   local lastHdgNow, projErrA, projErrB = nil, 0, 0   -- thrust-axis rate projection: sign self-select
+  local leanTrue = 0                                 -- true lean (deg), set each iteration
   local spinning, spinT = false, 0                   -- spin recovery state
   local spinBase, spinStep, spinT, spinHeld, spinSettle = nil, 0, 0, nil, 0
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
@@ -844,9 +845,11 @@ local function controlLoop()
     -- swung +-25 deg, the lean split rotated with it and the attitude loop
     -- chased its own tail at 117 b/s (2026-09-10). Thrust axis in world from
     -- the gimbal's gravity vector and the current heading estimate.
+    leanTrue = math.sqrt(a[1] * a[1] + a[2] * a[2])   -- true lean this iteration (deg); refined below
     if ATT then
       local gB0 = ATT.gravityFromGimbal(a[1], a[2])
       local L = math.acos(math.max(-1, math.min(1, -gB0.y)))                 -- lean
+      leanTrue = math.deg(L)
       local bL = math.rad((cruiseHdg or hdgNow) + math.deg(math.atan2(gB0.x, -gB0.z)))  -- world bearing of the lean
       -- Two candidate projections (lean bearing, and +180: the sign of the
       -- horizontal part depends on conventions that have bitten before, and
@@ -1114,6 +1117,9 @@ local function controlLoop()
       cap = clamp(cap - clamp(CFG.ALT_LEAN_GAIN * e, CFG.ALT_LEAN_MAX), dashDeg)
       cap = math.max(30, cap)
       if spinning then cap = 30 end
+      -- true lean, aero bias included: above 75 the thrust vector cannot be
+      -- steered sideways without yawing, and every departure was there
+      if leanTrue > CFG.CRUISE_DEG then cap = math.max(30, cap - 2 * (leanTrue - CFG.CRUISE_DEG)) end
       local mag = math.sqrt(tp * tp + tr * tr)
       leanAtCap = cap >= dashDeg - 0.5 and mag > cap
       if mag > cap then
@@ -1186,8 +1192,24 @@ local function controlLoop()
     if ATT then
       local gB = ATT.gravityFromGimbal(a[1], a[2])
       local gT = ATT.gravityFromGimbal(tp, tr)
-      ep = math.deg(gB.y * gT.z - gB.z * gT.y)      -- about body x (pitch)
-      er = math.deg(gB.x * gT.y - gB.y * gT.x)      -- about body z (roll)
+      local cx = gB.y * gT.z - gB.z * gT.y          -- rotation gB -> gT, about body x (pitch)
+      local cz = gB.x * gT.y - gB.y * gT.x          -- about body z (roll)
+      -- At high lean both down-vectors are nearly horizontal and the rotation
+      -- between them points along the THRUST axis: the cross product reports
+      -- the error as yaw and pitch/roll see almost nothing (roll ran 60 deg
+      -- off at 80 deg of lean with a 0.3 vector command, 2026-09-10). So the
+      -- lean MAGNITUDE error is taken exactly, along the body direction of
+      -- the lean, and only the direction part comes from the cross product.
+      local Lm = math.acos(math.max(-1, math.min(1, -gB.y)))
+      local Lt = math.acos(math.max(-1, math.min(1, -gT.y)))
+      local hx, hz = gB.x, gB.z
+      local hn = math.sqrt(hx * hx + hz * hz)
+      if hn > 1e-3 then
+        local mx, mz = -hz / hn, -hx / hn            -- (pitch, roll) axis that changes lean magnitude
+        local along = cx * mx + cz * mz
+        cx, cz = cx - along * mx + (Lm - Lt) * mx, cz - along * mz + (Lm - Lt) * mz
+      end
+      ep, er = math.deg(cx), math.deg(cz)
       if gLast then
         local gx, gy, gz = (gB.x - gLast.x) / dt, (gB.y - gLast.y) / dt, (gB.z - gLast.z) / dt
         dp = math.deg(gy * gB.z - gz * gB.y)        -- (gdot x g).x
