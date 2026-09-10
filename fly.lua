@@ -82,10 +82,14 @@ local CFG = {
   TUMBLE = 85,
   DASH_SETTLE = 3.0,                  -- transition this many blocks below goal
   CLIMB_POWER = 0.9,                  -- throttle on the way up
-  CLIMB_RATE = 50,                    -- b/s: climb-phase target, and the rate cap of the altitude hold
-                                      -- (20 b/s flew clean on ~0.3 power, 2026-09-10; descents use the same cap,
-                                      -- AKP/AKD = 0.5 starts the taper 100 blocks out)
-  VRATE_SLEW = 10,                    -- b/s^2: the rate request ramps, a step to full rate rang 13->8->11 b/s
+  -- Vertical rate request: as fast as the remaining distance can stop.
+  -- 50 b/s reached in 5 s on 0.55 power (2026-09-10) but overshot 35 blocks:
+  -- gravity here is ~10 b/s^2 (measured on the coast-down), so 50 b/s needs
+  -- 125 blocks to arrest at zero throttle and the linear taper gave it 100.
+  -- vWant = min(CLIMB_RATE, sqrt(2 * DECEL * |e|), (AKP/AKD) * |e|).
+  CLIMB_RATE = 100,                   -- b/s: hard cap; distance governs long before this
+  DECEL = 8,                          -- b/s^2 the taper plans for (coasting climb ~10, descents have thrust to spare)
+  VRATE_SLEW = 50,                    -- b/s^2: full throttle within a fraction of a second of takeoff
   INTEG_BAND = 2,                     -- b/s: integrate altitude only when the rate request is below this
                                       -- (it wound to its clamp during the last 30 blocks and overshot +5)
   DASH_DIR = -1,
@@ -106,7 +110,7 @@ local CFG = {
   -- power saturated (no differential headroom left for attitude), altitude
   -- went and it tumbled. 60 deg needs 0.54 of full power to hold height.
   CRUISE_DEG = 60,                    -- max lean during cruise
-  CRUISE_SPEED = 28,                  -- b/s target closing speed (20 b/s took 45 deg of lean)
+  CRUISE_SPEED = 45,                  -- b/s target closing speed; the lean cap is the real limit
   -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
   -- heading only splits the final lean into pitch and roll. 1290-block flight
   -- 2026-09-10: CKV 3 turned every 5 b/s wobble into 15 deg of lean and the
@@ -823,7 +827,9 @@ local function controlLoop()
       -- rate at CLIMB_RATE (not PMAX, which capped it at 3.5 b/s), and only
       -- integrate when the rate request is not saturated, so a long climb
       -- does not wind the integrator up and overshoot the top.
-      local vWant = clamp(CFG.AKP / CFG.AKD * e, CFG.CLIMB_RATE)
+      local ae = math.abs(e)
+      local vMag = math.min(CFG.AKP / CFG.AKD * ae, math.sqrt(2 * CFG.DECEL * ae), CFG.CLIMB_RATE)
+      local vWant = (e >= 0) and vMag or -vMag
       vWantS = vWantS + clamp(vWant - vWantS, CFG.VRATE_SLEW * dt)      -- ramp, never step
       if math.abs(vWant) < CFG.INTEG_BAND then integ = clamp(integ + CFG.AKI * e * dt, 0.3) end
       pwr = CFG.HOVER + integ + CFG.AKD * (vWantS - v)
