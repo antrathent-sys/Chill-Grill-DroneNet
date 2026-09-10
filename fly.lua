@@ -23,7 +23,8 @@ local CFG = {
   --   "vector" legacy: every nozzle vectored together like the one thruster
   --   "both"   differential AND vectored, same signs as above
   MIX_MODE = "diff",
-  MIX_GAIN = 1.0,                     -- PID output (nozzle units) -> differential demand, before PITCH_AUTH
+  MIX_GAIN = 0.5,                     -- PID output (nozzle units) -> differential demand, before PITCH_AUTH.
+                                      -- 1.0 gave an undamped 2.5 s pitch oscillation at 0.25 s/iteration (flight 2026-09-10)
   MIX_P_SIGN = 1, MIX_R_SIGN = 1,     -- flip one if the craft diverges on that axis in diff mode
   -- Which thruster sits in which corner, as the SIGN of the gimbal response
   -- when it fires alone (mixcal run1 + run2 agreed). mixmap.csv on the
