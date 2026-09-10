@@ -4,7 +4,10 @@
 -- writes flightlog on the computer every run
 local CFG = {
   HOVER = 0.27,                       -- quad: 0.3 still climbs ~7 b/s, 0.5 was the single thruster
-  AKP = 0.03, AKI = 0.01, AKD = 0.1,
+  -- quad 2026-09-10: AKD 0.1 (about 12 b/s^2 per b/s of rate error) rang
+  -- against a 0.2 s vertical-speed sample; halved, with AKP/AKD raised to 0.5
+  -- so the final approach tapers in 5 s instead of 10
+  AKP = 0.025, AKI = 0.01, AKD = 0.05,
   PMAX = 0.35,                        -- altitude P clamp near the goal (legacy; the rate cap below governs climbs)
 
   -- attitude gains, scheduled by tilt magnitude
@@ -554,15 +557,29 @@ end
 
 --- One position read from whichever source is configured.
 -- Returns x, z, vx, vz (world frame) or nil.
+local unpack_ = unpack or table.unpack
 local function readPos()
   if usingSable then
-    local okp, pose = pcall(sublevel.getLogicalPose)
-    if not okp or type(pose) ~= "table" or not pose.position then return nil end
+    -- Each Sable call is a game tick. Issued from separate coroutines they
+    -- land in the same tick (see lib/mixer.lua), so pose, linear and angular
+    -- velocity together cost one tick instead of three, and the vertical
+    -- speed the altitude loop damps on is 0.1 s old rather than 0.2.
+    local pose, lv, av
+    local jobs = {
+      function() local ok, r = pcall(sublevel.getLogicalPose) if ok then pose = r end end,
+      function() local ok, r = pcall(sublevel.getLinearVelocity) if ok then lv = r end end,
+    }
+    if CFG.YAW_HOLD then
+      jobs[#jobs + 1] = function() local ok, r = pcall(sublevel.getAngularVelocity) if ok then av = r end end
+    end
+    if parallel and parallel.waitForAll then parallel.waitForAll(unpack_(jobs))
+    else for _, j in ipairs(jobs) do j() end end
+    if type(pose) ~= "table" or not pose.position then return nil end
     -- Velocity comes straight from the physics engine rather than being
     -- differenced, so it carries none of the noise the GPS path had.
     local vx, vy, vz = 0, 0, 0
-    local okv, lv = pcall(sublevel.getLinearVelocity)
-    if okv and type(lv) == "table" then vx, vy, vz = lv.x or 0, lv.y or 0, lv.z or 0 end
+    if type(lv) == "table" then vx, vy, vz = lv.x or 0, lv.y or 0, lv.z or 0 end
+    if type(av) == "table" and av.y then pos.wy = -math.deg(av.y) end   -- +y spin turns heading DOWN
     return pose.position.x, pose.position.z, vx, vz, vy
   end
   local x, _, z = gps.locate(0.3)
@@ -578,13 +595,6 @@ local function posLoop()
         -- trusted velocity: take it, no outlier gate needed
         pos.vx, pos.vz, pos.vy = vx, vz, vy or 0
         pos.x, pos.z, pos.t, pos.rej = x, z, now, 0
-        -- yaw rate for the yaw hold: one more Sable call, in this coroutine
-        -- so the control loop pays nothing. Treated as rad/s (unverified -
-        -- the flightlog's yrate column will show if it is already deg/s).
-        if CFG.YAW_HOLD and usingSable then
-          local okw, w = pcall(sublevel.getAngularVelocity)
-          if okw and type(w) == "table" and w.y then pos.wy = -math.deg(w.y) end   -- +y spin turns heading DOWN
-        end
       else
         local dt = math.max(now - pos.t, 0.05)
         local ok = pos.t == 0 or (math.abs(x - (pos.x + pos.vx * dt)) < 12 and math.abs(z - (pos.z + pos.vz * dt)) < 12)
