@@ -1,3 +1,22 @@
+**Reverted to the 6dfe25a flight code (end of 2026-09-10).** Everything after
+the 136 b/s flight - continuous/kinematic approach, thrust-axis heading rate,
+gravity-vector attitude error, spin recovery - is in git history between
+83ea611 and c2e154b, not in the flying build. What that series established,
+for whoever picks it up:
+- The gimbal's projected roll angle amplifies the second axis's loop gain
+  with lean (2.4x at 65, 5.8x at 80). `lib/attitude.leanError` (c2e154b,
+  sign-tested) is the correct error metric; it was flown once with a pitch
+  sign error and once without a fair test.
+- Sable's world-vertical angular rate is mostly body roll above ~60 deg of
+  lean; integrating it into the heading swings the estimate +-25 at 117 b/s.
+  A thrust-axis projection needs its horizontal-part sign settled from the
+  raw omega (logged as `wx,wyr,wz` in those builds) before it flies again.
+- Vectoring torque is thrust x deflection: never coast at zero throttle
+  while leaning (`ATT_MIN_POWER` in those builds).
+- Above ~75 deg of true lean the thrust vector cannot be steered sideways
+  without yawing; cap measured lean, not commanded lean.
+Re-introduce one at a time, each with its own flight.
+
 # Backlog
 
 Wanted but not built. Newest ideas at the top of each section.

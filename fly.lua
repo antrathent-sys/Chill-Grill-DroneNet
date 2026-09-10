@@ -211,21 +211,10 @@ local CFG = {
   YAW_TILT_MAX = 180,                 -- deg: lean above which yaw is not commanded (off)
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
   YAW_ABORT_DEG = 90,                 -- heading change in 2 s that counts as a spin
-  BRAKE_K = 0.12,                     -- backstop only: brake distance = K * speed^2 / 10
-  -- Continuous approach (2026-09-10): one controller from cruise to the
-  -- hold. Allowed speed at distance d is sqrt(2 * CRUISE_DECEL * d); the
-  -- along-track lean is CKV * (allowed - actual), positive to accelerate and
-  -- NEGATIVE up to BRAKE_DEG to decelerate, so lean tapers with distance by
-  -- construction and there is no brake phase to overshoot. The hold takes
-  -- over inside APPROACH_HOLD_DIST below APPROACH_HOLD_SPD. The old brake
-  -- phase remains only as a backstop (BRAKE_K small).
-  CRUISE_DECEL = 10,                  -- b/s^2 (132 b/s stopped in ~575 blocks: ~15 available)
-  GRAV = 10,                          -- b/s^2, measured on a zero-throttle coast: braking lean = atan(decel / GRAV)
-  BRAKE_BACKSTOP_SPD = 15,            -- b/s: the old brake phase fires only if still faster than this inside 20 blocks
-  APPROACH_HOLD_DIST = 30,            -- blocks
-  APPROACH_HOLD_SPD = 10,             -- b/s
-  SPIN_RATE = 40,                     -- deg/s of heading rate for >1 s: spin recovery (yaw off, lean cap 30)
-  ALT_LEAN_MAX = 10,                  -- deg: bound on the altitude-by-lean cap adjustment
+  BRAKE_K = 0.3,                      -- brake distance = K * speed^2 / 10 (132 b/s stopped in ~575 blocks: ~15 b/s^2)
+  CRUISE_DECEL = 8,                   -- b/s^2 the cruise speed target plans for: v = min(CRUISE_SPEED, sqrt(2*DECEL*d)),
+                                      -- so a short leg never leans to the cap (a 125-block re-cruise did, and
+                                      -- ping-ponged dash/brake four times, 2026-09-10)
   RECRUISE_DIST = 60,                 -- blocks: a brake that ends further out than this goes back to dash
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
@@ -515,8 +504,7 @@ local function pump(on)
   end
 end
 -- forward (nose-axis) speed from the velocity sensor, positive = moving forward
-local pos = { x = 0, z = 0, vx = 0, vz = 0, vy = nil, t = 0, rej = 0, wy = 0,   -- vy: Sable vertical speed; wy: heading rate deg/s
-              wvx = 0, wvy = 0, wvz = 0 }                                        -- raw world angular velocity, rad/s
+local pos = { x = 0, z = 0, vx = 0, vz = 0, vy = nil, t = 0, rej = 0, wy = 0 }   -- vy: Sable vertical speed; wy: world yaw rate, deg/s
 
 -- raw sensor reads, in the AIRFRAME's own (tilted) frame
 local sFwd = peripheral.wrap(CFG.FWD_NAME)
@@ -675,10 +663,7 @@ local function readPos()
     -- differenced, so it carries none of the noise the GPS path had.
     local vx, vy, vz = 0, 0, 0
     if type(lv) == "table" then vx, vy, vz = lv.x or 0, lv.y or 0, lv.z or 0 end
-    if type(av) == "table" and av.y then
-      pos.wvx, pos.wvy, pos.wvz = av.x or 0, av.y or 0, av.z or 0   -- world frame, rad/s
-      if not ATT then pos.wy = -math.deg(av.y) end                -- level-only fallback
-    end
+    if type(av) == "table" and av.y then pos.wy = -math.deg(av.y) end   -- +y spin turns heading DOWN
     return pose.position.x, pose.position.z, vx, vz, vy
   end
   local x, _, z = gps.locate(0.3)
@@ -774,7 +759,7 @@ else
 end
 
 local log = fs.open("flightlog", "w")
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,wx,wyr,wz")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -812,9 +797,6 @@ local function controlLoop()
   local yawTgt, yawSrc, yawErr, yawDem = nil, nil, 0, 0
   local yawTgtS = nil               -- slew-limited target actually held
   local yawWarned = false
-  local lastHdgNow, projErrA, projErrB = nil, 0, 0   -- thrust-axis rate projection: sign self-select
-  local leanTrue = 0                                 -- true lean (deg), set each iteration
-  local spinning, spinT = false, 0                   -- spin recovery state
   local spinBase, spinStep, spinT, spinHeld, spinSettle = nil, 0, 0, nil, 0
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
@@ -839,23 +821,6 @@ local function controlLoop()
     if iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1 then rawH = rawHeading() end
     a = gim.getAngles()
     local hdgNow = heading(a[1], a[2], rawH)
-    -- Heading rate = angular velocity about the THRUST axis, not about world
-    -- vertical. At 70 deg of lean world-vertical is 0.94 roll / 0.34 yaw, so
-    -- attitude motion was being integrated into the heading, the estimate
-    -- swung +-25 deg, the lean split rotated with it and the attitude loop
-    -- chased its own tail at 117 b/s (2026-09-10). Thrust axis in world from
-    -- the gimbal's gravity vector and the current heading estimate.
-    leanTrue = math.sqrt(a[1] * a[1] + a[2] * a[2])   -- true lean this iteration (deg); refined below
-    if ATT then
-      local gB0 = ATT.gravityFromGimbal(a[1], a[2])
-      leanTrue = math.deg(math.acos(math.max(-1, math.min(1, -gB0.y))))
-    end
-    -- Heading rate: plain world-vertical angular rate, as flown at 119 and
-    -- 136 b/s. A thrust-axis projection was tried (2026-09-10); its
-    -- horizontal-part sign could not be pinned down and an online sign
-    -- selector flipped mid-spin, so the yaw damper alternately fought and
-    -- drove the spin. Contaminated by roll at high lean, but sign-consistent.
-    pos.wy = -math.deg(pos.wvy)
     -- cruise heading: complementary filter. Sable's yaw rate is integrated
     -- every iteration (no lag when the craft really yaws), and the result is
     -- pulled slowly toward the nav heading (no drift). A plain slow filter
@@ -896,20 +861,14 @@ local function controlLoop()
       phase = "brake" brakeStart = t enter("brake")
     elseif phase == "dash" and (mode == "go" or mode == "dock") then
       local d = math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2)
-      local gsNow = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
-      if d < CFG.APPROACH_HOLD_DIST and gsNow < CFG.APPROACH_HOLD_SPD then
-        phase = (mode == "dock") and "align" or "hold"
-        enter(phase)
-      end
       local f, l = fwdSpeed(), latSpeed()
       -- ground speed from Sable (the body-frame sensors are legacy); the old
       -- 40 b/s cap limited the brake point to 160 blocks and an 82 b/s
       -- cruise ran straight through the target (2026-09-10)
       local fs = math.min(math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz), 150)
-      if d < 20 and fs > CFG.BRAKE_BACKSTOP_SPD then
-        -- backstop only: the approach should have done this
+      if d < math.max(CFG.ARRIVE, CFG.BRAKE_K * fs * fs / 10) then
         phase = "brake" brakeStart = t chime.play("brake")
-        print(string.format("BACKSTOP brake at %.0f blocks, %.1f b/s", d, fs))
+        print(string.format("brake at %.0f blocks, %.1f b/s", d, fs))
       end
     elseif phase == "brake" then
       -- done on TOTAL ground speed: this craft cruises largely sideways, and
@@ -1014,10 +973,7 @@ local function controlLoop()
         -- not all the attitude authority (full power leaves the mixer no
         -- differential headroom, which is how the 100 b/s departure went)
         local ct = math.cos(math.rad(a[1])) * math.cos(math.rad(a[2]))
-        -- in brake the sails already carry the craft: cap the feed-forward at
-        -- 1/cos 45 or it climbs 25 blocks while stopping
-        local ctFloor = (phase == "brake") and 0.71 or 0.42
-        pwr = pwr + CFG.HOVER * (1 / math.max(ct, ctFloor) - 1) + CFG.DASH_POWER
+        pwr = pwr + CFG.HOVER * (1 / math.max(ct, 0.42) - 1) + CFG.DASH_POWER
         -- throttle floor in cruise: altitude is trimmed by the lean cap
         -- instead. The floor yields whenever we are above the goal or still
         -- climbing hard (it once held 0.6 through the goal at 50 b/s and
@@ -1054,34 +1010,15 @@ local function controlLoop()
       -- world-frame velocity error and integrator; heading enters only at
       -- the split into pitch and roll, and a wrong heading there merely
       -- rotates the lean, it cannot unwind the integrator
-      -- Speed TARGET rides a curve at half the planned deceleration, ending
-      -- at the hold radius, so it always sits under the kinematic braking
-      -- curve below. (Using the braking curve itself as the target made the
-      -- loop re-accelerate to 59 b/s with 33 blocks to go, 2026-09-10.)
-      local vCruise = math.min(CFG.CRUISE_SPEED,
-        math.sqrt(2 * (CFG.CRUISE_DECEL * 0.5) * math.max(d - CFG.APPROACH_HOLD_DIST, 0)))
+      local vCruise = math.min(CFG.CRUISE_SPEED, math.sqrt(2 * CFG.CRUISE_DECEL * d))
       local eWx, eWz = vCruise * ux - pos.vx, vCruise * uz - pos.vz
       local cWx, cWz = CFG.CKV * eWx + cruiseIx, CFG.CKV * eWz + cruiseIz
-      if speed > 1 then
-        -- Along-track: kinematics decide. The deceleration that stops us at
-        -- the hold radius is v^2 / 2d; the lean that produces it is
-        -- atan(decel / GRAV). When that exceeds what the cruise loop is
-        -- asking for, command it directly against the velocity (bounded by
-        -- BRAKE_DEG); otherwise keep the CRUISE_NO_BRAKE behaviour (never
-        -- fight drag for a few b/s of overspeed).
+      if CFG.CRUISE_NO_BRAKE and speed > 1 then
+        -- drop any component of the lean that points against the travel
+        -- direction: overspeed is bled off by drag, not by leaning back
         local along = (cWx * pos.vx + cWz * pos.vz) / speed
-        local dStop = math.max(d - CFG.APPROACH_HOLD_DIST, 1)
-        local aReq = speed * speed / (2 * dStop)
-        local brakeLean = 0
-        if aReq > CFG.CRUISE_DECEL * 0.5 then
-          brakeLean = math.min(CFG.BRAKE_DEG, math.deg(math.atan(aReq / CFG.GRAV)))
-        end
-        local want = -brakeLean
-        if along > want or (brakeLean == 0 and along < 0) then
-          local fix = along - (brakeLean > 0 and want or 0)
-          if brakeLean > 0 or along < 0 then
-            cWx, cWz = cWx - fix * pos.vx / speed, cWz - fix * pos.vz / speed
-          end
+        if along < 0 then
+          cWx, cWz = cWx - along * pos.vx / speed, cWz - along * pos.vz / speed
         end
       end
       local r = math.rad(cruiseHdg)
@@ -1100,15 +1037,9 @@ local function controlLoop()
       -- lean cap: speed-scheduled, altitude-protected
       local cap = math.min(dashDeg, CFG.LEAN_AT_0 + (dashDeg - CFG.LEAN_AT_0) * math.min(1, speed / CFG.LEAN_FULL_SPD))
       if e > CFG.ALT_PROTECT then cap = math.max(30, cap - CFG.ALT_PROTECT_GAIN * (e - CFG.ALT_PROTECT)) end
-      -- altitude by lean: above the goal (e < 0) lean more, below it lean
-      -- less - bounded, it once added 25 deg to a low-speed leg and put the
-      -- craft past horizontal
-      cap = clamp(cap - clamp(CFG.ALT_LEAN_GAIN * e, CFG.ALT_LEAN_MAX), dashDeg)
+      -- altitude by lean: above the goal (e < 0) lean more, below it lean less
+      cap = clamp(cap - CFG.ALT_LEAN_GAIN * e, dashDeg)
       cap = math.max(30, cap)
-      if spinning then cap = 30 end
-      -- true lean, aero bias included: above 75 the thrust vector cannot be
-      -- steered sideways without yawing, and every departure was there
-      if leanTrue > CFG.CRUISE_DEG then cap = math.max(30, cap - 2 * (leanTrue - CFG.CRUISE_DEG)) end
       local mag = math.sqrt(tp * tp + tr * tr)
       leanAtCap = cap >= dashDeg - 0.5 and mag > cap
       if mag > cap then
@@ -1181,7 +1112,8 @@ local function controlLoop()
     if ATT then
       local gB = ATT.gravityFromGimbal(a[1], a[2])
       local gT = ATT.gravityFromGimbal(tp, tr)
-      ep, er = ATT.leanError(gB, gT)   -- see lib/attitude.lua; sign-tested in tools/test_attitude.lua
+      ep = math.deg(gB.y * gT.z - gB.z * gT.y)      -- about body x (pitch)
+      er = math.deg(gB.x * gT.y - gB.y * gT.x)      -- about body z (roll)
       if gLast then
         local gx, gy, gz = (gB.x - gLast.x) / dt, (gB.y - gLast.y) / dt, (gB.z - gLast.z) / dt
         dp = math.deg(gy * gB.z - gz * gB.y)        -- (gdot x g).x
@@ -1252,17 +1184,6 @@ local function controlLoop()
       yawDem = clamp(CFG.YAW_SIGN * (pTerm - CFG.YAW_KD * pos.wy), yMax)
       local tiltNow = math.sqrt(a[1] * a[1] + a[2] * a[2])
       if tiltNow > CFG.YAW_TILT_MAX then yawDem = 0 end
-      -- spin recovery: a sustained fast heading rate means the yaw loop is
-      -- not helping (wrong sign, or aero); stop commanding yaw and bring the
-      -- lean down until it settles
-      if math.abs(pos.wy) > CFG.SPIN_RATE then
-        spinT = spinT + dt
-        if spinT > 1 and not spinning then spinning = true chime.play("warn") print("SPIN: yaw off, lean 30 until it settles") end
-      else
-        spinT = math.max(0, spinT - dt * 0.5)
-        if spinning and math.abs(pos.wy) < 10 and spinT <= 0 then spinning = false print("spin over") end
-      end
-      if spinning then yawDem = 0 end
       -- spin guard on the raw heading: more than YAW_ABORT_DEG in 2 s
       local slot = iter % 20
       local old = hdgHist[slot]
@@ -1283,10 +1204,10 @@ local function controlLoop()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.3f",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
-      yawErr, pos.wy, yawDem, pos.wvx, pos.wvy, pos.wvz))
+      yawErr, pos.wy, yawDem))
     if phase == "docked" then return end
     sleep(0.05)
   end

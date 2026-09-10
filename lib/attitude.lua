@@ -154,27 +154,6 @@ function A.gravityFromGimbal(pitchDeg, rollDeg, signs)
   return norm(g)
 end
 
---- Attitude error (deg) about body x (pitch) and body z (roll) between the
--- measured and target down-vectors. The lean MAGNITUDE error is taken
--- exactly along the body direction of the lean (the cross product alone
--- goes blind to it when both vectors are near horizontal); the direction
--- part comes from the cross product. Identical to (p - tp, r - tr) at level.
--- Signs follow the calibrated gimbal: nose-down is negative pitch (g.z < 0),
--- port is positive roll (g.x < 0).
-function A.leanError(gB, gT)
-  local cx = gB.y * gT.z - gB.z * gT.y
-  local cz = gB.x * gT.y - gB.y * gT.x
-  local Lm = math.acos(math.max(-1, math.min(1, -gB.y)))
-  local Lt = math.acos(math.max(-1, math.min(1, -gT.y)))
-  local hn = math.sqrt(gB.x * gB.x + gB.z * gB.z)
-  if hn > 1e-3 then
-    local mx, mz = gB.z / hn, -gB.x / hn
-    local along = cx * mx + cz * mz
-    cx, cz = cx - along * mx + (Lm - Lt) * mx, cz - along * mz + (Lm - Lt) * mz
-  end
-  return math.deg(cx), math.deg(cz)
-end
-
 --- Inverse of gravityFromGimbal: the angles the gimbal reports for a given
 -- body-frame down vector. Used by tests and the harness.
 function A.gimbalFromGravity(g)

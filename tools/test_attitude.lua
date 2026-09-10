@@ -109,21 +109,6 @@ tt3[2].angle = (tt3[2].angle + 25) % 360        -- side table off by 25 deg
 local e3, d3 = A.estimate(tt3, gg3, NORTH_W)
 check("residual reports the disagreement", d3.residual > 5, d3.residual)
 
-print("leanError signs (the pitch sign once drove the lean the wrong way in flight)")
-do
-  local function le(p, r, tp, tr) return A.leanError(A.gravityFromGimbal(p, r), A.gravityFromGimbal(tp, tr)) end
-  local ep, er = le(-10, 0, -5, 0)
-  check("level nose-down too far: ep = -5", math.abs(ep + 5) < 0.2 and math.abs(er) < 0.2, ep)
-  ep, er = le(0, 10, 0, 5)
-  check("level port too far: er = +5", math.abs(er - 5) < 0.2 and math.abs(ep) < 0.2, er)
-  ep, er = le(-77, -45.9, -26.1, -50.7)
-  check("77 deg nose-down against 26: ep strongly negative", ep < -15, ep)
-  ep, er = le(-44.1, -60.1, -49.2, -47.3)
-  check("roll too far negative at 60 deg lean: er negative", er < -3, er)
-  ep, er = le(30, 30, 30, 30)
-  check("no error when equal", math.abs(ep) < 0.01 and math.abs(er) < 0.01, ep)
-end
-
 print("thrust axis in world")
 local qLevel = q0
 check("level: thrust points up (+y)", math.abs(A.thrustWorld(qLevel).y - 1) < 1e-9, A.thrustWorld(qLevel).y)
