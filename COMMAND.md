@@ -48,13 +48,30 @@ sub-level, and name it with the order id so `getName()` identifies it. The drone
 verifies the right package by reading `getConnectedName()` after capture and
 comparing it against the order.
 
-### Open questions for the first trials
+A landed package persists. The sub-level simply unloads with its chunk and comes
+back when someone arrives, so a delivery keeps until the customer collects it.
+Nothing expires, which is the whole reason this beats dropping items.
 
-- Does a landed package sub-level survive chunk unload while it waits to be
-  collected? Test before promising deliveries to remote sites.
-- How much drop height does the barrel tolerate before it tips or takes damage?
-  That sets `dropAlt`, and it may argue for a low hover and a gentle release
-  rather than a true airdrop.
+Still to establish on the first trials: how much drop height the barrel tolerates
+before it tips or takes damage. That sets `dropAlt`, and it may argue for a low
+hover and a gentle release rather than a true airdrop.
+
+### Tell the customer where it actually landed
+
+A package released from height falls, and may roll or settle. The release point
+is not the landing point, and once the chunk unloads nobody can go looking with
+a sensor. So the landing position has to be captured at the moment of delivery
+and stored with the order.
+
+Two ways, pick by how much a package is worth:
+
+- **Cheap.** Report the release position and the drop altitude. Good enough from
+  a low hover, and it costs nothing.
+- **Exact.** Put a computer and an ender modem in the package contraption. The
+  package is a sub-level, so its own computer can call
+  `sublevel.getLogicalPose()` and report precisely where it came to rest, then
+  go quiet when the chunk unloads. Worth it for a reusable barrel, overkill for
+  a one-way crate.
 
 ## Entities
 
@@ -85,8 +102,17 @@ Only a `docked` drone above the charge threshold is dispatchable.
 
 ### Package
 
-Tracked by order id from assembly to release. Location is one of `fill_pad`,
-`staging`, `drone:<id>`, `delivered`, `lost`.
+Tracked by order id for its whole life, not just to release. Location is one of
+`fill_pad`, `staging`, `drone:<id>`, `landed`, `collected`, `lost`.
+
+Delivery is not the end of the record. A landed package sits in the world until
+the customer collects it, so the depot keeps the landing coordinates and the
+order stays queryable: a customer who forgets where their drop went can ask.
+
+Barrels are not free, so the empty ones are an asset worth recovering. Because
+the docking connector works in both directions, a later flight can re-dock with
+an empty package and carry it home, which makes recovery an ordinary mission
+rather than a special mechanism. That is what the `collected` state is for.
 
 ## Protocol
 
