@@ -39,10 +39,15 @@ telemetry are unwritten.
 **Four-thruster mixer.** Blocked on the airframe and on `probe` output. See
 [FRAMES.md](FRAMES.md) for the axis convention it must use.
 
-**Rewire the controller to CC:Sable.** Blocked on `probe`. Retires GPS, the
-whole `HDG_*` motion-heading estimator, the gimbal sensor and the three
-velocity sensors, and cuts the control loop from about 15 main-thread calls per
-iteration to 5.
+**Rewire the controller to CC:Sable.** Position and velocity: **done**, the
+drone now flies on `getLogicalPose().position` and `getLinearVelocity()`.
+
+Still outstanding, and now blocked upstream rather than on measurement: the
+`HDG_*` motion-heading estimator and the gimbal sensor cannot be retired while
+the orientation quaternion reads null, because that was the only source of
+yaw. The three velocity sensors could go, since `getLinearVelocity` covers
+world-frame speed, but body-frame speed still needs either them or a working
+quaternion to rotate with.
 
 ## Measured in game
 

@@ -41,9 +41,25 @@ The sensors (`gimbal_sensor`, `altitude_sensor`, `velocity_sensor`, `navigation_
 
 The velocity sensors tilt with the airframe. With the vertical axis measured, the body vector is rotated back to level, so "forward speed" stays horizontal-forward even at 70 deg of lean.
 
+### Position
+
+**The drone flies on CC:Sable's `getLogicalPose().position`, not GPS.** Measured
+against ground truth on 2026-09-10: the pose was accurate to 2.7 blocks (and
+that 2.7 is just the computer block sitting below the player), while the GPS
+array was out by 45 blocks. `CFG.POS_SOURCE` is `"auto"`, which prefers the
+pose and falls back to GPS off a sub-level; `"gps"` forces the old path.
+
+Velocity comes from `getLinearVelocity()` too, straight from the physics
+engine, so it carries none of the noise that differencing GPS produced.
+
+Both run in their own coroutine, so the control loop's per-iteration call
+budget is unchanged.
+
 ### GPS hosts
 
-`fly` needs a GPS fix for every mode except `find`. Four computers with ender modems running `gps host` are set up at the volcano and must stay **chunk-loaded**. They must also not be collinear or coplanar: CC distances are exact so the hosts need not be far apart, but four at one height cannot solve the vertical and will return a plausible-looking, wrong `y`. Offset one host in Y. CC: Sable can replace GPS *for the drone*, but not for customers: the `sublevel` API only answers on a sub-level, so a pocket computer on the ground still needs GPS to locate itself. Keep the array up. See [COMMAND.md](COMMAND.md). If the fix is lost, the position loop rejects updates after 5 bad samples and position hold stops leaning until the fix returns. Position hold is also disabled above `SPEED_GUARD` ground speed so a stale fix cannot command a big lean.
+GPS is no longer used by the drone, but customers on the ground still need it:
+`sublevel` only answers on a sub-level, so a pocket computer has no other way
+to locate itself. Four computers with ender modems running `gps host` are set up at the volcano and must stay **chunk-loaded**. They must also not be collinear or coplanar: CC distances are exact so the hosts need not be far apart, but four at one height cannot solve the vertical and will return a plausible-looking, wrong `y`. Offset one host in Y. CC: Sable can replace GPS *for the drone*, but not for customers: the `sublevel` API only answers on a sub-level, so a pocket computer on the ground still needs GPS to locate itself. Keep the array up. See [COMMAND.md](COMMAND.md). If the fix is lost, the position loop rejects updates after 5 bad samples and position hold stops leaning until the fix returns. Position hold is also disabled above `SPEED_GUARD` ground speed so a stale fix cannot command a big lean.
 
 ### Monitoring
 

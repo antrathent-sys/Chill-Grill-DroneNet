@@ -20,6 +20,7 @@ local EXPECT = {
 }
 
 local pass, warn, bad = 0, 0, 0
+local haveSable = false
 local function ok(m)   pass = pass + 1 print("  ok   " .. m) end
 local function wrn(m)  warn = warn + 1 print("  WARN " .. m) end
 local function err(m)  bad = bad + 1  print("  FAIL " .. m) end
@@ -107,7 +108,7 @@ end
 
 -- ---------- position ----------
 head("position")
-local haveSable = false
+haveSable = false
 if _G.sublevel then
   local okg, grid = pcall(sublevel.isInPlotGrid)
   if okg and grid then
@@ -196,6 +197,47 @@ else
     end
   end
 end
+
+-- ---------- everything actually attached ----------
+-- Not just what fly.lua wants: the full inventory, so a device that is fitted
+-- but unused, or fitted and misnamed, shows up.
+head("devices attached")
+local names = peripheral.getNames and peripheral.getNames() or {}
+if #names == 0 then
+  err("no peripherals found at all - is anything actually attached?")
+else
+  local byType = {}
+  for _, nm in ipairs(names) do
+    local ty = peripheral.getType(nm) or "?"
+    byType[ty] = (byType[ty] or 0) + 1
+    local ms = peripheral.getMethods(nm) or {}
+    print(string.format("  %-24s %-24s %d methods", nm, ty, #ms))
+  end
+  pass = pass + 1
+  local kinds = {}
+  for ty, n in pairs(byType) do kinds[#kinds + 1] = ty .. " x" .. n end
+  table.sort(kinds)
+  print("  -> " .. #names .. " devices: " .. table.concat(kinds, ", "))
+end
+
+-- ---------- what is missing, by what it would unlock ----------
+head("capability check")
+local function want(label, present, why, fatal)
+  if present then ok(label .. " - " .. why)
+  elseif fatal then err(label .. " MISSING - " .. why)
+  else wrn(label .. " absent - " .. why) end
+end
+
+want("vector_thruster", thr ~= nil, "the only actuator", true)
+want("altitude_sensor", alt ~= nil, "altitude hold and the dock gap", true)
+want("gimbal_sensor",  gim ~= nil, "attitude; still needed, the Sable quaternion reads null", true)
+want("velocity_sensor x3", #vs >= 3, "body-frame speed for brake and the dock align gate", true)
+want("CC:Sable sublevel", haveSable, "position and velocity; 45x better than the GPS array here", true)
+want("modular_accumulator", acc ~= nil, "energy monitoring and range planning", false)
+want("docking_connector", dockP ~= nil, "docking, and payload release", false)
+want("speaker", peripheral.find("speaker") ~= nil, "flight chimes", false)
+want("modem", peripheral.find("modem") ~= nil, "telemetry and remote recall", false)
+want("navigation_table", nav ~= nil, "bearing to a lodestone target; heading no longer needs it", false)
 
 -- ---------- files ----------
 head("files")

@@ -39,7 +39,9 @@ local function step(to)
     sim.speed = math.max(sim.speed - 5 * dt, 0)
   end
   local mv = math.min(sim.speed * dt, d)
+  local ox, oz = sim.x, sim.z
   if d > 1e-6 then sim.x = sim.x + dx / d * mv sim.z = sim.z + dz / d * mv end
+  if dt > 0 then sim.wvx = (sim.x - ox) / dt sim.wvz = (sim.z - oz) / dt end
   -- DRIFT: real station keeping wanders around the target rather than parking
   -- on it. Needed to make GPS_QUANT cross block boundaries the way it will
   -- in game.
@@ -164,6 +166,13 @@ _G.peripheral = {
   end,
   wrap = function(name) return periphs[name] end,
   getName = function(p) return names[p] end,
+  getNames = function()
+    local out = {}
+    for nm in pairs(periphs) do out[#out+1] = nm end
+    table.sort(out)
+    return out
+  end,
+  getType = function(name) return periphs[name] and periphs[name].__type or nil end,
   getMethods = function(name)
     local p = periphs[name]
     if not p then return nil end
@@ -212,7 +221,7 @@ _G.sublevel = {
              rotationPoint = { x = 0, y = 0, z = 0 } }
   end,
   getLastPose = function() return _G.sublevel.getLogicalPose() end,
-  getLinearVelocity = function() return { x = sim.speed, y = sim.vv, z = 0 } end,
+  getLinearVelocity = function() return { x = sim.wvx or 0, y = sim.vv, z = sim.wvz or 0 } end,
   getAngularVelocity = function() return { x = 0, y = 0, z = 0 } end,
   getVelocity = function() return { x = sim.speed, y = sim.vv, z = 0 } end,
   getCenterOfMass = function() return { x = 0, y = 0, z = 0 } end,

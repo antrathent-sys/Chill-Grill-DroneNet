@@ -90,6 +90,13 @@ local CFG = {
   DOCK_TRIES = 3,                     -- capture attempts before giving up and just holding
   DOCK_RELEASE_T = 1.5,               -- seconds of thrust before 'undock' drops the connector
 
+  -- Position source. Measured against ground truth 2026-09-10: CC:Sable's
+  -- pose was accurate to 2.7 blocks while the GPS array was out by 45, so
+  -- "sable" is the default. "gps" forces the old path, "auto" prefers sable
+  -- and falls back.
+  POS_SOURCE = "auto",
+  POS_POLL = 0.05,                    -- seconds between position reads
+
   AUTO_UPLOAD = true,                 -- push the flightlog to GitHub when the flight ends
   CHIME = true,                       -- speaker tones on phase changes, if a speaker is attached
 }
@@ -354,28 +361,67 @@ local function heading()
   return 0
 end
 
--- ---------- gps ----------
-local function gpsLoop()
+-- ---------- position ----------
+-- Both loops fill the same `pos` table, so nothing downstream cares which is
+-- running. Neither runs in the control loop, so the per-iteration call budget
+-- is unchanged either way.
+
+local haveSable = false
+if _G.sublevel then
+  local okg, grid = pcall(sublevel.isInPlotGrid)
+  haveSable = okg and grid == true
+end
+
+local usingSable = (CFG.POS_SOURCE == "sable") or (CFG.POS_SOURCE == "auto" and haveSable)
+if CFG.POS_SOURCE == "sable" and not haveSable then
+  error("POS_SOURCE is 'sable' but this computer is not on a sub-level", 0)
+end
+
+--- One position read from whichever source is configured.
+-- Returns x, z, vx, vz (world frame) or nil.
+local function readPos()
+  if usingSable then
+    local okp, pose = pcall(sublevel.getLogicalPose)
+    if not okp or type(pose) ~= "table" or not pose.position then return nil end
+    -- Velocity comes straight from the physics engine rather than being
+    -- differenced, so it carries none of the noise the GPS path had.
+    local vx, vz = 0, 0
+    local okv, lv = pcall(sublevel.getLinearVelocity)
+    if okv and type(lv) == "table" then vx, vz = lv.x or 0, lv.z or 0 end
+    return pose.position.x, pose.position.z, vx, vz
+  end
+  local x, _, z = gps.locate(0.3)
+  return x, z, nil, nil
+end
+
+local function posLoop()
   while true do
-    local x, _, z = gps.locate(0.3)
+    local x, z, vx, vz = readPos()
     local now = os.clock()
     if x then
-      local dt = math.max(now - pos.t, 0.05)
-      local ok = pos.t == 0 or (math.abs(x - (pos.x + pos.vx * dt)) < 12 and math.abs(z - (pos.z + pos.vz * dt)) < 12)
-      if ok then
-        if pos.t > 0 then
-          pos.vx = 0.7 * pos.vx + 0.3 * (x - pos.x) / dt
-          pos.vz = 0.7 * pos.vz + 0.3 * (z - pos.z) / dt
-        end
+      if vx then
+        -- trusted velocity: take it, no outlier gate needed
+        pos.vx, pos.vz = vx, vz
         pos.x, pos.z, pos.t, pos.rej = x, z, now, 0
       else
-        pos.rej = pos.rej + 1
-        if pos.rej >= 5 then pos.t = 0 end
+        local dt = math.max(now - pos.t, 0.05)
+        local ok = pos.t == 0 or (math.abs(x - (pos.x + pos.vx * dt)) < 12 and math.abs(z - (pos.z + pos.vz * dt)) < 12)
+        if ok then
+          if pos.t > 0 then
+            pos.vx = 0.7 * pos.vx + 0.3 * (x - pos.x) / dt
+            pos.vz = 0.7 * pos.vz + 0.3 * (z - pos.z) / dt
+          end
+          pos.x, pos.z, pos.t, pos.rej = x, z, now, 0
+        else
+          pos.rej = pos.rej + 1
+          if pos.rej >= 5 then pos.t = 0 end
+        end
       end
     end
-    sleep(0.05)
+    sleep(CFG.POS_POLL)
   end
 end
+
 
 -- ---------- modes ----------
 local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ
@@ -383,8 +429,10 @@ local padY, dockAlt, cruiseY, undockFirst
 if arg[1] == "find" then
   mode = "find" findP = tonumber(arg[2]) or CFG.HOVER
 else
-  local px, _, pz = gps.locate(1)
-  if not px then error("no GPS fix") end
+  local px, pz = readPos()
+  if not px then
+    error(usingSable and "no pose from sublevel - is the pod assembled?" or "no GPS fix", 0)
+  end
   pos.x, pos.z, pos.t = px, pz, os.clock()
   if arg[1] == "dash" then
     mode = "dash"
@@ -432,6 +480,8 @@ print(mode == "find" and ("find: holding " .. findP)
       tgtX, tgtZ, padY, dockAlt, goal)
    or undockFirst and string.format("undock: release then hold Y %.1f", goal)
    or string.format("fly: Y %.1f to %.1f,%.1f hdg %.0f", goal, goalX, goalZ, rawHeading()))
+print("position: " .. (usingSable and "CC:Sable pose" or "gps") ..
+      (usingSable and "" or "  (WARNING: the host array was 45 blocks out when last measured)"))
 print("Ctrl+T stops")
 pump(true)
 if CFG.PUMP_PRIME > 0 then print("priming pump") sleep(CFG.PUMP_PRIME) end
@@ -636,7 +686,7 @@ local function controlLoop()
   end
 end
 
-local ok, err = pcall(parallel.waitForAny, controlLoop, gpsLoop, monLoop, chime.loop)
+local ok, err = pcall(parallel.waitForAny, controlLoop, posLoop, monLoop, chime.loop)
 drive(0, 0, 0) pump(false) log.close()
 print("thrusters off, pump off - flightlog saved")
 -- Sounded here, not in the loop: the control loop returns the instant it docks,
