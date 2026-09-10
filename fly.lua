@@ -9,8 +9,11 @@ local CFG = {
 
   -- attitude gains, scheduled by tilt magnitude
   -- quad, 2026-09-10: KI 0.005 made the loop unstable at low stiffness (the
-  -- I-term matched P with 45 deg of lag at 1 rad/s); KD raised for damping
-  KP_HOVER = 0.010, KI_HOVER = 0.001, KD_HOVER = 0.020,
+  -- I-term matched P with 45 deg of lag at 1 rad/s). KD 0.020 then rang at
+  -- 1 Hz with +-0.4 demand: the loop was 0.25 s per iteration and the D-term
+  -- cannot outrun that. Loop trimmed to one gimbal read and a nav read every
+  -- HDG_EVERY iterations; KD pulled back to the middle.
+  KP_HOVER = 0.010, KI_HOVER = 0.001, KD_HOVER = 0.015,
   KP_DASH  = 0.020, KI_DASH  = 0.003, KD_DASH  = 0.020,
   SCHED_LO = 10, SCHED_HI = 40,       -- deg: all-hover below LO, all-dash above HI
   IMAX = 0.4,
@@ -24,7 +27,8 @@ local CFG = {
   --            (4 peripheral calls per iteration, the vectors are cached)
   --   "vector" legacy: every nozzle vectored together like the one thruster
   --   "both"   differential AND vectored, same signs as above
-  MIX_MODE = "diff",
+  MIX_MODE = "vector",                -- vector: the gains were tuned for it, and the nozzle-to-CoM
+                                      -- arm on a tail-sitter beats the corner offset. diff rang at 1 Hz.
   MIX_GAIN = 1.0,                     -- PID output (nozzle units) -> differential demand, before PITCH_AUTH.
                                       -- 1.0: steady +-10 deg / 2.5 s pitch wobble; 0.5: growing +-22 deg / 6 s.
                                       -- Lower stiffness made it WORSE, so the fix is in KI/KD, not here.
@@ -65,6 +69,8 @@ local CFG = {
   NAV_PRIMARY = true,                 -- nav table is THE heading; motion heading is legacy fallback
   NAV_NAME = nil,                     -- which navigation_table (the FLAT one); nil = first found
   NAV_FALLBACK = true,                -- legacy: use nav table when motion heading has no lock
+  HDG_EVERY = 4,                      -- read the nav table every N control iterations (each read is a tick;
+                                      -- the craft yaws slowly, so heading tolerates being ~0.5 s stale)
   TUMBLE = 85,
   DASH_SETTLE = 3.0,                  -- transition this many blocks below goal
   CLIMB_POWER = 0.9,                  -- throttle on the way up
@@ -616,6 +622,7 @@ local function controlLoop()
   local lastH, lastT, integ = alt.getHeight(), os.clock(), 0
   local a = gim.getAngles()
   local lp, lr = a[1], a[2]
+  local iter, rawH = 0, rawHeading()
   local ip, ir = 0, 0
   local trimP, trimR = 0, 0
   local phase = (mode == "dash" or mode == "go" or mode == "dock") and "climb" or mode
@@ -631,17 +638,18 @@ local function controlLoop()
     local v = (h - lastH) / dt
     lastH, lastT = h, t
 
-    -- One gimbal read and one nav read here serve heading AND body speed.
-    local rawH = rawHeading()
-    local hdgNow
-    do
-      local ga = gim.getAngles()
-      hdgNow = heading(ga[1], ga[2], rawH)
-      if haveVelSensors then
-        bodyF, bodyL = bodyVel(ga[1], ga[2])
-      else
-        bodyF, bodyL = bodyFromWorld(hdgNow, pos.vx, pos.vz)
-      end
+    -- ONE gimbal read per iteration serves heading, body speed and the
+    -- attitude PID (nothing else is called before the PID uses it, so it is
+    -- as fresh there as a second read would be). The nav table is read every
+    -- HDG_EVERY iterations and the raw angle cached between.
+    iter = iter + 1
+    if iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1 then rawH = rawHeading() end
+    a = gim.getAngles()
+    local hdgNow = heading(a[1], a[2], rawH)
+    if haveVelSensors then
+      bodyF, bodyL = bodyVel(a[1], a[2])
+    else
+      bodyF, bodyL = bodyFromWorld(hdgNow, pos.vx, pos.vz)
     end
     if haveVelSensors then updateMotionHeading(t) end
 
@@ -789,12 +797,6 @@ local function controlLoop()
     trS = trS + clamp(tr - trS, maxStep)
     tp, tr = tpS, trS
 
-    a = gim.getAngles()
-    if haveVelSensors then
-      bodyF, bodyL = bodyVel(a[1], a[2])
-    else
-      bodyF, bodyL = bodyFromWorld(hdgNow, pos.vx, pos.vz)
-    end
     if CFG.TUMBLE > 0 and (math.abs(a[1]) > CFG.TUMBLE or math.abs(a[2]) > CFG.TUMBLE) then
         chime.play("alarm")
       error(string.format("tumbled (%.0f, %.0f) - thrust cut", a[1], a[2]))

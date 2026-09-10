@@ -307,6 +307,43 @@ do
 end
 want("navigation_table", nav ~= nil, "bearing to a lodestone target; heading no longer needs it", false)
 
+-- ---------- call costs ----------
+-- Every main-thread peripheral call parks the coroutine until the next game
+-- tick (50 ms). The control loop's period is the sum of these, and the
+-- attitude loop's usable bandwidth follows from it, so measure rather than
+-- guess. setPowerNormalized(0) / setVector(0, 0) are harmless on the ground.
+head("call costs (ms per call, 5 calls each)")
+if os.epoch then
+  local function cost(label, fn)
+    local okc, ms = pcall(function()
+      local t0 = os.epoch("utc")
+      for _ = 1, 5 do fn() end
+      return (os.epoch("utc") - t0) / 5
+    end)
+    if okc then
+      print(string.format("  %-32s %5.0f ms%s", label, ms, ms >= 40 and "  (a tick)" or ms < 5 and "  (free)" or ""))
+      return ms
+    end
+    print(string.format("  %-32s failed: %s", label, tostring(ms)))
+    return 0
+  end
+  local total = 0
+  total = total + cost("gimbal getAngles", function() return gim.getAngles() end)
+  total = total + cost("altitude getHeight", function() return alt.getHeight() end)
+  if nav then cost("nav getRelativeAngle", function() return nav.getRelativeAngle() end) end
+  local perThr = cost("thruster setPowerNormalized(0)", function() return thr.setPowerNormalized(0) end)
+  cost("thruster setVector(0,0)", function() return thr.setVector(0, 0) end)
+  total = total + perThr * #allThr
+  if _G.sublevel then
+    cost("sublevel getLogicalPose", function() return sublevel.getLogicalPose() end)
+    cost("sublevel getLinearVelocity", function() return sublevel.getLinearVelocity() end)
+  end
+  print(string.format("  control loop estimate: ~%.0f ms per iteration (+50 ms sleep, + nav every %s)",
+    total, "HDG_EVERY"))
+else
+  wrn("os.epoch missing - cannot time calls")
+end
+
 -- ---------- files ----------
 head("files")
 for _, f in ipairs({ "fly.lua", "kill.lua", "upload.lua" }) do

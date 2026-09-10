@@ -146,9 +146,12 @@ function mixer.write(d)
   local thrusts, sat = mixer.allocate(d)
   local vecs = mixer.vectors(d)
   for i, w in ipairs(wrapped) do
-    pcall(w.p.setPowerNormalized, thrusts[i] or 0)
-    -- setVector only when it changes: in diff mode the nozzles never move,
-    -- which halves the per-iteration cost
+    -- every call is a game tick, so write only what changed: power holds
+    -- still in vector mode at fixed lift, vectors hold still in diff mode
+    local pw = thrusts[i] or 0
+    if not w.lp or math.abs(w.lp - pw) > 1e-3 then
+      if pcall(w.p.setPowerNormalized, pw) then w.lp = pw end
+    end
     local x = vecs[i] and vecs[i].x or 0
     local y = vecs[i] and vecs[i].y or 0
     if not w.lv or math.abs(w.lv.x - x) > 1e-6 or math.abs(w.lv.y - y) > 1e-6 then
@@ -163,7 +166,7 @@ function mixer.stop()
   for _, w in ipairs(wrapped) do
     pcall(w.p.setPowerNormalized, 0)
     pcall(w.p.setVector, 0, 0)
-    w.lv = nil
+    w.lv, w.lp = nil, nil
   end
 end
 

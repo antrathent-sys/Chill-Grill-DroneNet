@@ -166,7 +166,8 @@ if os.getenv("QUAD") then
         for _, q in pairs(sim.quad) do sum = sum + q.pwr end
         sim.pwr = sum / 4
       end,
-      setVector = function() end,
+      -- a common vector on all four tilts the craft like the single thruster did
+      setVector = function(a, b) sim.vx, sim.vy = a, b end,
       getThrust = function() return sim.quad[nm].pwr * 100 end,
       getEnergy = function() return 40000 end,
       getEnergyCapacity = function() return 50000 end,
@@ -174,7 +175,8 @@ if os.getenv("QUAD") then
   end
   -- the gimbal now reports the tilt those corner thrusters would produce
   sim.quadTilt = function()
-    local p, r = 0, 0
+    -- vectoring tilt (legacy model) plus differential tilt
+    local p, r = sim.vy * 40, sim.vx * 40
     for _, q in pairs(sim.quad) do
       p = p - q.n * q.pwr * 12      -- lifting a +n corner pitches nose down
       r = r + q.s * q.pwr * 12
