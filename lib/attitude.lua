@@ -182,11 +182,14 @@ A.presets = {
   airframe1 = {
     gimbalSigns = { pitch = 1, roll = 1 },
     tables = {
-      { name = "navigation_table_4", normal = "-y", forward = "+x" },
-      { name = "navigation_table_5", normal = "-x", forward = "-z" },
-      { name = "navigation_table_7", normal = "+z", forward = "-x" },
-      -- { name = "navigation_table_8", normal = "+x", forward = "+z" },
-      -- { name = "navigation_table_9", normal = "-z", forward = "+x" },
+      -- Yaw of the body frame fixed by flight 2026-09-10: position hold
+      -- showed the nose points ~north on the pad, where this preset had
+      -- said ~south, so every mount is turned 180 about y (x, z negated).
+      { name = "navigation_table_4", normal = "-y", forward = "-x" },
+      { name = "navigation_table_5", normal = "+x", forward = "+z" },
+      { name = "navigation_table_7", normal = "-z", forward = "+x" },
+      -- { name = "navigation_table_8", normal = "-x", forward = "-z" },
+      -- { name = "navigation_table_9", normal = "+z", forward = "-x" },
     },
   },
 }
