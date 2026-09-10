@@ -224,6 +224,7 @@ local CFG = {
   BRAKE_BACKSTOP_SPD = 15,            -- b/s: the old brake phase fires only if still faster than this inside 20 blocks
   APPROACH_HOLD_DIST = 30,            -- blocks
   APPROACH_HOLD_SPD = 10,             -- b/s
+  SPIN_RATE = 40,                     -- deg/s of heading rate for >1 s: spin recovery (yaw off, lean cap 30)
   ALT_LEAN_MAX = 10,                  -- deg: bound on the altitude-by-lean cap adjustment
   RECRUISE_DIST = 60,                 -- blocks: a brake that ends further out than this goes back to dash
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
@@ -773,7 +774,7 @@ else
 end
 
 local log = fs.open("flightlog", "w")
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,wx,wyr,wz")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -811,6 +812,8 @@ local function controlLoop()
   local yawTgt, yawSrc, yawErr, yawDem = nil, nil, 0, 0
   local yawTgtS = nil               -- slew-limited target actually held
   local yawWarned = false
+  local lastHdgNow, projErrA, projErrB = nil, 0, 0   -- thrust-axis rate projection: sign self-select
+  local spinning, spinT = false, 0                   -- spin recovery state
   local spinBase, spinStep, spinT, spinHeld, spinSettle = nil, 0, 0, nil, 0
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
@@ -845,8 +848,21 @@ local function controlLoop()
       local gB0 = ATT.gravityFromGimbal(a[1], a[2])
       local L = math.acos(math.max(-1, math.min(1, -gB0.y)))                 -- lean
       local bL = math.rad((cruiseHdg or hdgNow) + math.deg(math.atan2(gB0.x, -gB0.z)))  -- world bearing of the lean
-      local tx, ty, tz = math.sin(L) * math.sin(bL), math.cos(L), -math.sin(L) * math.cos(bL)
-      pos.wy = -math.deg(pos.wvx * tx + pos.wvy * ty + pos.wvz * tz)
+      -- Two candidate projections (lean bearing, and +180: the sign of the
+      -- horizontal part depends on conventions that have bitten before, and
+      -- a wrong sign turns the yaw damper into a spin motor above ~50 deg of
+      -- lean - 2026-09-10). The one whose integral tracks the nav heading's
+      -- actual change wins; at level they are identical.
+      local sL, cL = math.sin(L), math.cos(L)
+      local wA = -math.deg(pos.wvx * sL * math.sin(bL) + pos.wvy * cL - pos.wvz * sL * math.cos(bL))
+      local wB = -math.deg(-pos.wvx * sL * math.sin(bL) + pos.wvy * cL + pos.wvz * sL * math.cos(bL))
+      if lastHdgNow then
+        local dNav = ((hdgNow - lastHdgNow + 540) % 360) - 180
+        projErrA = 0.9 * projErrA + math.abs(wA * dt - dNav)
+        projErrB = 0.9 * projErrB + math.abs(wB * dt - dNav)
+      end
+      lastHdgNow = hdgNow
+      pos.wy = (projErrB < projErrA) and wB or wA
     end
     -- cruise heading: complementary filter. Sable's yaw rate is integrated
     -- every iteration (no lag when the craft really yaws), and the result is
@@ -1097,6 +1113,7 @@ local function controlLoop()
       -- craft past horizontal
       cap = clamp(cap - clamp(CFG.ALT_LEAN_GAIN * e, CFG.ALT_LEAN_MAX), dashDeg)
       cap = math.max(30, cap)
+      if spinning then cap = 30 end
       local mag = math.sqrt(tp * tp + tr * tr)
       leanAtCap = cap >= dashDeg - 0.5 and mag > cap
       if mag > cap then
@@ -1241,6 +1258,17 @@ local function controlLoop()
       yawDem = clamp(CFG.YAW_SIGN * (pTerm - CFG.YAW_KD * pos.wy), yMax)
       local tiltNow = math.sqrt(a[1] * a[1] + a[2] * a[2])
       if tiltNow > CFG.YAW_TILT_MAX then yawDem = 0 end
+      -- spin recovery: a sustained fast heading rate means the yaw loop is
+      -- not helping (wrong sign, or aero); stop commanding yaw and bring the
+      -- lean down until it settles
+      if math.abs(pos.wy) > CFG.SPIN_RATE then
+        spinT = spinT + dt
+        if spinT > 1 and not spinning then spinning = true chime.play("warn") print("SPIN: yaw off, lean 30 until it settles") end
+      else
+        spinT = math.max(0, spinT - dt * 0.5)
+        if spinning and math.abs(pos.wy) < 10 and spinT <= 0 then spinning = false print("spin over") end
+      end
+      if spinning then yawDem = 0 end
       -- spin guard on the raw heading: more than YAW_ABORT_DEG in 2 s
       local slot = iter % 20
       local old = hdgHist[slot]
@@ -1261,10 +1289,10 @@ local function controlLoop()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.3f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
-      yawErr, pos.wy, yawDem))
+      yawErr, pos.wy, yawDem, pos.wvx, pos.wvy, pos.wvz))
     if phase == "docked" then return end
     sleep(0.05)
   end
