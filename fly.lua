@@ -23,9 +23,12 @@ local CFG = {
   -- Above SCHED_HI the sails' pitching moment grows with airspeed: at 100 b/s
   -- the lean ran 25 deg past command and tumbled (2026-09-10). More P and a
   -- real integrator so a steady aero moment is trimmed out, not tolerated.
-  KP_DASH  = 0.015, KI_DASH  = 0.004, KD_DASH  = 0.015,
+  -- 2026-09-10, 100 b/s departure: while the lean error grew 3 -> 17 deg the
+  -- vector command sat at 0.04-0.15 - the loop was too soft to use the
+  -- authority it had. Sized so 10 deg of error asks for half the vector.
+  KP_DASH  = 0.05, KI_DASH  = 0.01, KD_DASH  = 0.04,
   SCHED_LO = 10, SCHED_HI = 40,       -- deg: all-hover below LO, all-dash above HI
-  IMAX = 0.4,
+  IMAX = 0.6,
   VEC_MAX = 1.0,                      -- full nozzle authority
   P_AXIS = "y", P_SIGN = 1,
   R_SIGN = 1,
@@ -127,7 +130,13 @@ local CFG = {
   -- v^2 and above ~85 b/s it out-muscles the vectoring - 65 deg tracked
   -- within 2 deg at 81 b/s, 70 deg ran 10 deg past command at 100 b/s and
   -- departed. Until attitude authority at speed improves, speed is the limit.
-  CRUISE_SPEED = 75,                  -- b/s: the loop eases lean off as it approaches this
+  CRUISE_SPEED = 500,                 -- b/s: not a limit; the loop leans to the cap and speed is what that gives
+  -- Aircraft-style cruise: throttle high and fixed, altitude by lean. With
+  -- the sails carrying the craft the altitude loop used to throttle back to
+  -- 0.3, and vectoring torque scales with thrust, so attitude authority was
+  -- a third of what was available exactly where the aero moment peaks.
+  CRUISE_MIN_POWER = 0.6,             -- throttle floor in cruise
+  ALT_LEAN_GAIN = 1.0,                -- deg of lean cap per block above goal (high -> lean more -> less lift)
   -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
   -- heading only splits the final lean into pitch and roll. 1290-block flight
   -- 2026-09-10: CKV 3 turned every 5 b/s wobble into 15 deg of lean and the
@@ -754,6 +763,7 @@ local function controlLoop()
   local lastH, lastT, integ = alt.getHeight(), os.clock(), 0
   local h0 = lastH          -- start height, for the early dash entry
   local vWantS = 0          -- slew-limited vertical rate request
+  local leanAtCap = false   -- cruise lean pinned at CRUISE_DEG (releases the throttle floor)
   local lastPwr = CFG.HOVER -- last commanded throttle, for integrator anti-windup
   local a = gim.getAngles()
   local lp, lr = a[1], a[2]
@@ -937,6 +947,12 @@ local function controlLoop()
         -- differential headroom, which is how the 100 b/s departure went)
         local ct = math.cos(math.rad(a[1])) * math.cos(math.rad(a[2]))
         pwr = pwr + CFG.HOVER * (1 / math.max(ct, 0.42) - 1) + CFG.DASH_POWER
+        -- throttle floor in cruise: altitude is trimmed by the lean cap
+        -- instead; only when the lean is already at its cap and we are still
+        -- climbing does the floor give way
+        if phase == "dash" and mode ~= "dash" and not (leanAtCap and e < -5) then
+          pwr = math.max(pwr, CFG.CRUISE_MIN_POWER)
+        end
       end
       if phase == "capture" then pwr = pwr - CFG.DOCK_SINK end
       if phase == "docked" then pwr = 0 end
@@ -981,7 +997,11 @@ local function controlLoop()
       -- lean cap: speed-scheduled, altitude-protected
       local cap = math.min(dashDeg, CFG.LEAN_AT_0 + (dashDeg - CFG.LEAN_AT_0) * math.min(1, speed / CFG.LEAN_FULL_SPD))
       if e > CFG.ALT_PROTECT then cap = math.max(30, cap - CFG.ALT_PROTECT_GAIN * (e - CFG.ALT_PROTECT)) end
+      -- altitude by lean: above the goal (e < 0) lean more, below it lean less
+      cap = clamp(cap - CFG.ALT_LEAN_GAIN * e, dashDeg)
+      cap = math.max(30, cap)
       local mag = math.sqrt(tp * tp + tr * tr)
+      leanAtCap = cap >= dashDeg - 0.5 and mag > cap
       if mag > cap then
         tp, tr = tp * cap / mag, tr * cap / mag
       else

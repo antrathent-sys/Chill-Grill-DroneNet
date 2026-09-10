@@ -24,7 +24,14 @@ local function step(to)
   sim.lastT = to
   -- vertical: power maps to ACCELERATION plus drag. Modelling it as a direct
   -- velocity made the controller's D term a divergent feedback term.
-  local accel = (sim.pwr - HOVER) * 25 - 0.4 * sim.vv
+  -- lift falls with cos(lean) on the quad so the throttle floor and the
+  -- altitude-by-lean loop interact the way they do in the air
+  local lift = sim.pwr
+  if sim.quad then
+    local tp, tr = sim.quadTilt()
+    lift = sim.pwr * math.max(0.15, math.cos(math.rad(tp)) * math.cos(math.rad(tr)))
+  end
+  local accel = (lift - HOVER) * 25 - 0.4 * sim.vv
   sim.vv = sim.vv + accel * dt
   sim.h = sim.h + sim.vv * dt
   if sim.h < 1 then sim.h = 1 sim.vv = 0 end
@@ -132,8 +139,11 @@ end
 add("altitude_sensor_0", "altitude_sensor", { getHeight = function() return sim.h end })
 add("gimbal_sensor_0", "gimbal_sensor", {
   getAngles = function()
-    -- lean roughly proportional to commanded vector, plus a little noise
-    return { sim.vy * 40, sim.vx * 40 }
+    -- lean proportional to the commanded vector. NEGATIVE: vectoring a
+    -- nozzle toward + tips the craft toward -, as on the real airframe
+    -- (the tuned P_SIGN/R_SIGN assume that). The old positive sign was a
+    -- hidden positive-feedback loop that only converged because KP*40 < 1.
+    return { -sim.vy * 40, -sim.vx * 40 }
   end,
 })
 add("navigation_table_0", "navigation_table", { getRelativeAngle = function() return 90 end })
@@ -174,14 +184,28 @@ if os.getenv("QUAD") then
     })
   end
   -- the gimbal now reports the tilt those corner thrusters would produce
+  -- Attitude is second order: nozzle vector and corner differential make
+  -- torque, the airframe has inertia and a little aerodynamic damping.
+  -- (A static or first-order model made the D-term see rates the real
+  -- craft cannot produce and limit-cycled at the flight-sized gains.)
+  -- Signs: vectoring toward + tips the craft toward -, as tuned for real.
+  sim.tiltP, sim.tiltR, sim.rateP, sim.rateR, sim.tiltT = 0, 0, 0, 0, 0
   sim.quadTilt = function()
-    -- vectoring tilt (legacy model) plus differential tilt
-    local p, r = sim.vy * 40, sim.vx * 40
-    for _, q in pairs(sim.quad) do
-      p = p - q.n * q.pwr * 12      -- lifting a +n corner pitches nose down
-      r = r + q.s * q.pwr * 12
+    local dt = math.max(0, math.min(0.2, T - sim.tiltT)) sim.tiltT = T
+    if dt > 0 then
+      local dP, dR = 0, 0
+      for _, q in pairs(sim.quad) do
+        dP = dP - q.n * q.pwr       -- lifting a +n corner pitches nose down
+        dR = dR + q.s * q.pwr
+      end
+      local accP = -200 * sim.vy + 60 * dP - 2 * sim.rateP
+      local accR = -200 * sim.vx + 60 * dR - 2 * sim.rateR
+      sim.rateP = sim.rateP + accP * dt
+      sim.rateR = sim.rateR + accR * dt
+      sim.tiltP = math.max(-120, math.min(120, sim.tiltP + sim.rateP * dt))
+      sim.tiltR = math.max(-120, math.min(120, sim.tiltR + sim.rateR * dt))
     end
-    return p, r
+    return sim.tiltP, sim.tiltR
   end
   periphs["gimbal_sensor_0"].getAngles = function()
     local p, r = sim.quadTilt()

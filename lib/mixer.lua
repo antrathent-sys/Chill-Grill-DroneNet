@@ -29,8 +29,8 @@ local mixer = {}
 
 mixer.cfg = {
   thrusters = {},
-  PITCH_AUTH = 0.25,   -- max share of range spent on pitch
-  ROLL_AUTH  = 0.25,
+  PITCH_AUTH = 0.4,    -- max share of range spent on pitch (0.25 until the 100 b/s departure)
+  ROLL_AUTH  = 0.4,
   VEC_MAX    = 1.0,    -- nozzle vector clamp
   YAW_AUTH   = 0.35,   -- max nozzle deflection spent on yaw rate
   -- How setVector(x, y) maps onto the body axes. The single-thruster code used
