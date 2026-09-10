@@ -1,3 +1,11 @@
+**Next: landing (2026-09-11).** Reverted build flies: 97 b/s, brake, hold
+0.7 blocks off at 200 ([log](logs/flights/2026-09-11-quad-go-reverted-build.csv)).
+Landing = descend from the hold to the ground under the altitude cascade
+(`CLIMB_RATE` symmetric, taper by `DECEL`), touchdown detect (Sable vertical
+speed ~0 with altitude not falling, or the dock connector), then thrust to
+zero. Reuse the dock mode's descend/capture states where they fit; a plain
+`fly land [x z]` first, pad docking after.
+
 **Reverted to the 6dfe25a flight code (end of 2026-09-10).** Everything after
 the 136 b/s flight - continuous/kinematic approach, thrust-axis heading rate,
 gravity-vector attitude error, spin recovery - is in git history between
