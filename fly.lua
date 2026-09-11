@@ -361,9 +361,12 @@ local CFG = {
   -- blocks take two seconds - too short to drift, too short to wind the
   -- rate integrator up and hover at the flare while the magnet drags the
   -- craft sideways. A retry climbs back to the same height.
-  DOCK_ALIGN = 2.0,                   -- blocks: rough, at cruise altitude
+  -- DOCK_STAGE = 0 turns the stage off: one align at cruise altitude to
+  -- DOCK_ALIGN, then straight down - the quick drop.
+  DOCK_ALIGN = 1.0,                   -- blocks: at cruise altitude (rough when staged; the only gate when not.
+                                      -- 1.0 unstaged latched first try twice; 2.0 arrived 2.8 off and failed)
   DOCK_ALIGN_FINAL = 0.5,             -- blocks: tight, at the staging height (the connector's lock window)
-  DOCK_STAGE = 15,                    -- blocks above the park height to stop and settle
+  DOCK_STAGE = 0,                     -- blocks above the park height to stop and settle; 0 = no stage
   DOCK_TRIM_X = 0, DOCK_TRIM_Z = 0,   -- blocks added to the dock target, if the connector is not directly
                                       -- under the craft's centre of mass
   -- getConnectedName() is the connector's entire API and it returns "" even
@@ -1497,8 +1500,8 @@ local function flyLeg()
       local square = (not CFG.DOCK_CARDINAL) or offCard < CFG.DOCK_YAW_TOL
       -- Already at or below the staging height (a retry, or a low cruise):
       -- the tight tolerance applies from here.
-      if not staged and h <= dockAlt + CFG.DOCK_STAGE + CFG.DOCK_BAND then staged = true end
-      local tol = staged and CFG.DOCK_ALIGN_FINAL or CFG.DOCK_ALIGN
+      if not staged and (CFG.DOCK_STAGE <= 0 or h <= dockAlt + CFG.DOCK_STAGE + CFG.DOCK_BAND) then staged = true end
+      local tol = (staged and CFG.DOCK_STAGE > 0) and CFG.DOCK_ALIGN_FINAL or CFG.DOCK_ALIGN
       if pos.t > 0 and (t - pos.t) < 1.5 and d < tol and sp < CFG.DOCK_ALIGN_SPD and square then
         if not alignStart then alignStart = t end
         alignBad = 0

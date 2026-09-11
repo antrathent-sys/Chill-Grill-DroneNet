@@ -44,8 +44,10 @@ SELFTEST = [
     # from 120 the descent is staged: fall to pad+15, settle tight, then the
     # final 15. The other dock cases cruise at 90, below the staging height,
     # so they go straight down - both paths are covered.
+    # (with DOCK_STAGE = 0 the stage is off and this goes straight down; set
+    # DOCK_STAGE = 15 and expect align, descend, align, descend to test it)
     ("dock", ["dock", "100", "70", "50", "120"], {"TMAX": "150"},
-     ["climb", "dash", "brake", "align", "descend", "align", "descend", "capture", "docked"]),
+     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
     # DOCK_TRIES = 3, so capture is attempted three times before it gives up
     ("dock abort", ["dock", "100", "70", "50", "90"], {"TMAX": "300", "NODOCK": "1"},
      ["climb", "dash", "brake"] + ["align", "descend", "capture"] * 3 + ["hold"]),
