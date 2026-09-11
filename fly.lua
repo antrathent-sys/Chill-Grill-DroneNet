@@ -1331,7 +1331,11 @@ local function controlLoop()
     local tp, tr, ex, ez = 0, 0, 0, 0
     local fresh = mode ~= "find" and pos.t > 0 and (t - pos.t) < 1.5
     local speed = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
-    if phase == "dash" and mode == "go" then
+    -- DOCK BELONGS HERE TOO. It did not, until 2026-09-11: dock fell through
+    -- to the open-loop branch below and cruised at a fixed 70 degree lean,
+    -- accelerating with nothing watching the speed. It reached 80 b/s and 83
+    -- degrees of actual lean before departing, on a pad 140 blocks away.
+    if phase == "dash" and (mode == "go" or mode == "dock") then
       -- target direction into body frame (needs heading), then compare against
       -- BODY velocity from the sensors. No GPS velocity in this loop.
       ex, ez = tgtX - pos.x, tgtZ - pos.z
