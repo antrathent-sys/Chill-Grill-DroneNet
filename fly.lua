@@ -340,7 +340,9 @@ local CFG = {
                                       -- free face next to it, so this is the slave's REAR face:
                                       -- { slave = "drone-rs", side = "back" }
   DOCK_NAME = nil,                    -- docking_connector peripheral name; nil = peripheral.find
-  DOCK_ALIGN = 1.0,                   -- blocks: horizontal error to sit inside before descending
+  DOCK_ALIGN = 2.0,                   -- blocks: horizontal error to sit inside before descending. 1.0 cost
+                                      -- ~28 s per dock creeping the last half block at 250 m, and the descent
+                                      -- wanders to 1.3 anyway - the bottom of the profile places it, not this
   DOCK_TRIM_X = 0, DOCK_TRIM_Z = 0,   -- blocks added to the dock target, if the connector is not directly
                                       -- under the craft's centre of mass
   -- getConnectedName() is the connector's entire API and it returns "" even
