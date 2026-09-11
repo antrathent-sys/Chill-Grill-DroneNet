@@ -222,6 +222,11 @@ local CFG = {
   -- 0.3, and vectoring torque scales with thrust, so attitude authority was
   -- a third of what was available exactly where the aero moment peaks.
   CRUISE_MIN_POWER = 0.6,             -- throttle floor in cruise
+  CRUISE_MAX_POWER = 0.8,             -- ceiling while leaned (dash/brake). The mixer's differential lives in
+                                      -- what is left above the mean: at 1.00 there is none, and 2026-09-11 the
+                                      -- altitude loop took all of it on a re-cruise from 56 deg of brake lean -
+                                      -- sat=1, lean ran to 98 deg, and the craft fell. Altitude is recoverable
+                                      -- at 250 m; attitude at full throttle is not.
   -- Vectoring torque is thrust x deflection: at zero throttle the attitude
   -- loop has NO authority. Every departure log has pwr 0.00 just before the
   -- trouble (the altitude loop cutting power while leaning 60-70 deg). Keep
@@ -303,7 +308,8 @@ local CFG = {
   -- craft starts lifting it instead. Set for 6 b/s^2, the worse of the two,
   -- because stopping short costs one re-cruise and overshooting costs a
   -- turn-around.
-  BRAKE_K = 0.8,
+  BRAKE_K = 0.6,                      -- 0.8 was fitted with a 2.5 s reversal; with thrust held through the
+                                      -- swing it stopped 58 and 68 blocks short (2026-09-11), measured 0.57
   CRUISE_DECEL = 8,                   -- b/s^2 the cruise speed target plans for: v = min(CRUISE_SPEED, sqrt(2*DECEL*d)),
                                       -- so a short leg never leans to the cap (a 125-block re-cruise did, and
                                       -- ping-ponged dash/brake four times, 2026-09-10)
@@ -1603,6 +1609,8 @@ local function flyLeg()
           floorLvl = floorLvl + clamp((floorOn and CFG.CRUISE_MIN_POWER or 0) - floorLvl, 0.3 * dt)
           pwr = math.max(pwr, floorLvl)
         end
+        -- and never the whole throttle: the attitude loop needs the headroom
+        pwr = math.min(pwr, CFG.CRUISE_MAX_POWER)
       end
       if phase == "capture" then pwr = pwr - CFG.DOCK_SINK end
       -- attitude authority floor: never coast at zero thrust while leaning
