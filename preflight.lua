@@ -355,6 +355,23 @@ else
   wrn("no .ghtoken - flight logs will not upload")
 end
 if not http then wrn("http API disabled - no updates, no log upload") end
+-- Disk. A three minute flight writes a ~400KB flightlog at 10 Hz and the repo
+-- itself is another 300KB, so a computer with a reduced space limit runs out
+-- mid-update and leaves the tree half old and half new.
+if fs.getFreeSpace then
+  local free = fs.getFreeSpace("/")
+  local big = {}
+  for _, n in ipairs(fs.list("/")) do
+    if not fs.isDir(n) then
+      local sz = fs.getSize(n)
+      if sz > 20000 then big[#big + 1] = string.format("%s %.0fKB", n, sz / 1024) end
+    end
+  end
+  local note = #big > 0 and ("  largest: " .. table.concat(big, ", ")) or ""
+  if free > 400 * 1024 then ok(string.format("disk %.0fKB free", free / 1024) .. note)
+  elseif free > 150 * 1024 then wrn(string.format("disk %.0fKB free - a long flightlog may not fit", free / 1024) .. note)
+  else err(string.format("disk %.0fKB free - delete flightlog before flying", free / 1024) .. note) end
+end
 
 -- ---------- verdict ----------
 print("")

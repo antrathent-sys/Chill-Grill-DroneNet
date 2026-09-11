@@ -69,6 +69,41 @@ if not http then
   return
 end
 
+-- Space. A flight writes ~230 bytes a row at 10 Hz, so a three minute flight
+-- is a 400 KB flightlog, and the repo itself is another 300 KB. On a computer
+-- with the default 1 MB that is survivable; on a server that has turned the
+-- limit down it is not, and the failure looks like "Out of space" halfway
+-- through an update with the tree left half old and half new.
+local DISPOSABLE = { "flightlog", "probe.txt", "preflight.txt", "mixmap.csv", "probelog.csv" }
+
+local function freeSpace() return (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge end
+
+local function reclaim(needed)
+  local freed = {}
+  for _, name in ipairs(DISPOSABLE) do
+    if freeSpace() >= needed then break end
+    if fs.exists(name) then
+      local sz = fs.getSize(name)
+      fs.delete(name)
+      freed[#freed + 1] = string.format("%s (%.0fKB)", name, sz / 1024)
+    end
+  end
+  if #freed > 0 then print("reclaimed: " .. table.concat(freed, ", ")) end
+  return freeSpace()
+end
+
+do
+  local free = freeSpace()
+  if free ~= math.huge then
+    print(string.format("space: %.0fKB free", free / 1024))
+    if free < 400 * 1024 then
+      -- these are all either uploaded to the repo already or regenerable
+      free = reclaim(400 * 1024)
+      print(string.format("space: %.0fKB free after tidying", free / 1024))
+    end
+  end
+end
+
 local updated, unchanged, failed = {}, {}, {}
 for _, name in ipairs(FILES) do
   local body, err = fetch(name)
@@ -80,10 +115,22 @@ for _, name in ipairs(FILES) do
     -- files under lib/ need their directory to exist first
     local dir = name:match("^(.*)/[^/]+$")
     if dir and not fs.exists(dir) then fs.makeDir(dir) end
-    local f = fs.open(name, "w")
-    f.write(body)
-    f.close()
-    updated[#updated + 1] = name
+    -- Delete first: writing over a file that is still taking up room can run
+    -- the disk out on the very file we are replacing. And say which file it
+    -- was, rather than dying on an anonymous line number.
+    if fs.exists(name) then fs.delete(name) end
+    if freeSpace() < #body then reclaim(#body + 8192) end
+    local ok, err = pcall(function()
+      local f = fs.open(name, "w")
+      f.write(body)
+      f.close()
+    end)
+    if ok then
+      updated[#updated + 1] = name
+    else
+      failed[#failed + 1] = string.format("%s (%s, %.0fKB free, needs %.0fKB)",
+        name, tostring(err), freeSpace() / 1024, #body / 1024)
+    end
   end
 end
 
