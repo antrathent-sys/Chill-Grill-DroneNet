@@ -7,10 +7,10 @@ local T = 0.0
 
 -- ---------- simulated world ----------
 local sim = {
-  -- Standing on the pad the altimeter reads PARK (5.5) above padY, and
+  -- Standing on the pad the altimeter reads PARK (7.5) above padY, and
   -- fly.lua works the pad height back out of exactly that. Starting a docked
   -- run at 64 instead made a mission compute its home pad 14 blocks low.
-  h = (os.getenv('START_DOCKED') and 75.5 or 64.0), x = 0.0, z = 0.0,     -- drone
+  h = (os.getenv('START_DOCKED') and 77.5 or 64.0), x = 0.0, z = 0.0,     -- drone
   vv = 0.0, speed = 0.0,
   pwr = 0.0, vx = 0.0, vy = 0.0,
   padX = 100, padZ = 50, padY = 70,
@@ -97,7 +97,7 @@ local function step(to)
   -- sensor is up the airframe and the legs hold the rest. Measured at 7.5 on
   -- the real one, and it has to agree with CFG.DOCK_GAP or the descent aims
   -- somewhere the craft cannot reach.
-  local PARK = 5.5     -- must match CFG.DOCK_GAP in fly.lua
+  local PARK = 7.5     -- must match CFG.DOCK_GAP in fly.lua
   -- docking magnet: needs the connector extended and the drone parked close
   local extended = false
   for _, v in pairs(sim.rs) do if v then extended = true end end

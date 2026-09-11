@@ -370,9 +370,9 @@ local CFG = {
   -- The home pad, in F3 block coordinates and pad Y. Fixed here, not taken
   -- from wherever the craft happened to be when a command was typed.
   HOME_X = 0, HOME_Y = 63, HOME_Z = 0,
-  DOCK_GAP = 5.5,                     -- blocks the altimeter reads above padY when LATCHED. Four flights
-                                      -- started latched at 68.5 over a pad at 63; 70.5 (the old value) is
-                                      -- where the craft sits on the extended connector WITHOUT latching.
+  DOCK_GAP = 7.5,                     -- blocks the altimeter reads above padY when latched: measured 70.5
+                                      -- over a pad at 63, twice. (Briefly 5.5 on the theory that flights
+                                      -- starting at 68.5 were latched; they had started on the ground.)
   DOCK_BAND = 0.5,                    -- blocks: how close to the park altitude counts as arrived
   DOCK_RATE = 1.5,                    -- b/s: how fast the altitude goal walks down
   DOCK_SINK = 0.0,                    -- power bled off in capture so the magnet can pull down
