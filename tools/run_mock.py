@@ -10,6 +10,7 @@ Environment switches the harness honours:
     NOVEL=1        fit no velocity sensors, as the four-thruster airframe has
     DRIFT=1        make station keeping wander instead of parking exactly
     LEGS=x,z;x,z   places to fly to in turn, for a multi-leg mission
+    NO_PAD=1       open ground at the target instead of a solid pad
     NODOCK=1       never let the magnet catch, to exercise the abort path
     START_DOCKED=1 begin the run already docked
     TMAX=<secs>    simulated-time budget
@@ -103,7 +104,7 @@ SELFTEST = [
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's
     # physics actually cruises to.
-    ("land at xyz", ["land", "100", "64", "50"], {"TMAX": "200"},
+    ("land at xyz", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1"},
      ["climb", "dash", "brake", "land", "touchdown"]),
 ]
 
@@ -129,7 +130,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
