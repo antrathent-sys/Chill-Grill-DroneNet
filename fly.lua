@@ -390,9 +390,17 @@ if #thrs > 1 then
   for _, m in ipairs(map) do mixNames[#mixNames + 1] = m.name end
   local n, missing = mixer.configure({ thrusters = map, VEC_MAX = CFG.VEC_MAX })
   if #missing > 0 then error("mixer map names thrusters that are not fitted: " .. table.concat(missing, " ")) end
-  print(string.format("mixer: %d thrusters, mode %s", n, CFG.MIX_MODE))
+  -- Name them. A count alone hid a network picking up peripherals that were
+  -- not on the craft; the mixer will drive whatever is in this list.
+  local names = {}
+  for _, m in ipairs(map) do names[#names + 1] = (m.name:gsub("^vector_thruster_", "#")) end
+  print(string.format("mixer: %d thrusters (%s), mode %s", n, table.concat(names, " "), CFG.MIX_MODE))
 end
-if #accs > 1 then print("accumulators: " .. #accs .. " (averaged)") end
+if #accs > 1 then
+  local an = {}
+  for _, a in ipairs(accs) do an[#an + 1] = (peripheral.getName(a):gsub("^modular_accumulator_", "#")) end
+  print("accumulators: " .. #accs .. " averaged (" .. table.concat(an, " ") .. ")")
+end
 
 -- Push one lift power and the attitude PID's raw pitch/roll outputs (before
 -- P_SIGN/R_SIGN) to the hardware. Returns the two numbers that went out, for
