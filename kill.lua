@@ -4,7 +4,7 @@
 -- is what undocks the drone, so a panic stop must never clear it.
 -- A plain side string, or a remote target as in fly.lua's CFG, e.g.
 --   { slave = "drone-rs", side = "back" }
-local DOCK_SIDE = nil
+local DOCK_SIDE = "back"   -- must match CFG.DOCK_SIDE in fly.lua: a panic stop must never undock
 
 local thrs = { peripheral.find("vector_thruster") }
 if #thrs == 0 then error("no vector_thruster found") end

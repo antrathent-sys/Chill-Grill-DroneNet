@@ -314,7 +314,8 @@ local CFG = {
   -- 0.5 blocks and 20 deg (server config docking_connector_distance/_angle)
   -- and pulls itself the last of the way, so these numbers only have to park
   -- the drone inside its reach, not hit the lock window by flying.
-  DOCK_SIDE = nil,                    -- extends the connector; nil = docking off. On airframe 1 there is no
+  DOCK_SIDE = "back",                 -- proved with `docktest back` on 2026-09-11: signal=true reached the
+                                      -- connector. nil turns docking off. If the layout changes and there is no
                                       -- free face next to it, so this is the slave's REAR face:
                                       -- { slave = "drone-rs", side = "back" }
   DOCK_NAME = nil,                    -- docking_connector peripheral name; nil = peripheral.find
