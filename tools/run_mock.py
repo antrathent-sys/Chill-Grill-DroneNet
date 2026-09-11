@@ -64,6 +64,11 @@ SELFTEST = [
     ("hold from cruise", ["go", "1000", "1000", "300"], {"TMAX": "90", "CMD_AT": "20:h"},
      ["climb", "dash", "hold"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
+    # fly there, then land: the go machinery with a different ending
+    # x y z, y being the ground at the far end. 100,50 is where the mock's
+    # physics actually cruises to.
+    ("land at xyz", ["land", "100", "64", "50"], {"TMAX": "200"},
+     ["climb", "dash", "brake", "land", "touchdown"]),
 ]
 
 

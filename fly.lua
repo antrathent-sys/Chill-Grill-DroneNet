@@ -2,7 +2,10 @@
 -- fly <y> [x] [z]             -> hold Y, hold position or fly to x z
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
--- fly land [x] [z] [groundY] -> hold position, descend, detect touchdown, cut thrust. No pad, no recharge.
+-- fly land                    -> descend where you are, detect touchdown, cut thrust. No pad, no recharge.
+-- fly land <x> <y> <z> [cruiseY] -> fly to x z, then land there. y is the GROUND altitude at the
+--                                destination (straight off F3), which is what the descent profile
+--                                needs to know when to start braking.
 --
 -- IN FLIGHT, without stopping the program: press L to land where you are, H
 -- to hold, U to undock, M for music, +/- for volume. The same words arrive
@@ -130,6 +133,7 @@ local CFG = {
   LAND_FLARE = 10,                    -- blocks above the ground estimate to be down to LAND_CREEP by
   LAND_CREEP = 2,                     -- b/s final approach
   LAND_GROUND = nil,                  -- ground altitude; nil = wherever the program started
+  LAND_CRUISE_UP = 60,                -- blocks above the destination ground to transit at, if not told otherwise
   ATT_MIN_LAND = 0.12,                -- thrust floor while landing: about half hover, so it can descend
                                       -- while leaning without giving up all attitude authority
   TOUCH_VY = 0.4,                     -- b/s: below this counts as not descending
@@ -834,6 +838,7 @@ end
 local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ
 local padY, dockAlt, cruiseY, undockFirst, spinDeg
 local landGround = CFG.LAND_GROUND   -- ground altitude for the descent profile
+local landAtEnd = false              -- a "go" that finishes by landing rather than holding
 if arg[1] == "find" then
   mode = "find" findP = tonumber(arg[2]) or CFG.HOVER
 else
@@ -877,10 +882,28 @@ else
     mode = "fly" undockFirst = true
     goal = tonumber(arg[2]) or (alt.getHeight() + 5)
   elseif arg[1] == "land" then
-    -- hold where we are (or over x z) and go down until the ground says stop
-    mode = "land"
-    goal = alt.getHeight()
-    landGround = tonumber(arg[4]) or landGround
+    local ax, ay, az = tonumber(arg[2]), tonumber(arg[3]), tonumber(arg[4])
+    if ax and ay and az then
+      -- <x> <y> <z>: fly there first. Internally this IS a go - all the
+      -- cruise, brake and re-cruise machinery is reused unchanged - and only
+      -- the phase it finishes in differs. y is the ground at the far end, so
+      -- the descent profile knows where to start braking.
+      mode = "go" landAtEnd = true
+      tgtX, tgtZ = ax, az
+      landGround = ay
+      goal = tonumber(arg[5]) or math.max(alt.getHeight(), ay + CFG.LAND_CRUISE_UP)
+      dashDeg = CFG.CRUISE_DEG
+    elseif ax and ay then
+      -- <x> <z>: fly there, but the ground is a guess (the start height)
+      mode = "go" landAtEnd = true
+      tgtX, tgtZ = ax, ay
+      goal = alt.getHeight()
+      dashDeg = CFG.CRUISE_DEG
+    else
+      -- straight down from here
+      mode = "land"
+      goal = alt.getHeight()
+    end
   elseif arg[1] == "spin" then
     -- pure yaw practice: hover at Y, then rotate about the thrust axis
     mode = "fly" spinDeg = tonumber(arg[3]) or 90
@@ -903,13 +926,14 @@ log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
-   or mode == "go" and string.format("go: to %.0f,%.0f via Y %.0f", tgtX, tgtZ, goal)
+   or (mode == "go" and not landAtEnd) and string.format("go: to %.0f,%.0f via Y %.0f", tgtX, tgtZ, goal)
    or mode == "dock" and string.format("dock: pad %.0f,%.0f Y %.0f, park at %.1f via Y %.0f",
       tgtX, tgtZ, padY, dockAlt, goal)
    or undockFirst and string.format("undock: release then hold Y %.1f", goal)
    or spinDeg and string.format("spin: hold Y %.0f, yaw +%d then back", goal, spinDeg)
-   or mode == "land" and string.format("land: over %.0f,%.0f, up to %g b/s, flare %g above %s",
-      goalX, goalZ, CFG.LAND_MAX_RATE, CFG.LAND_FLARE,
+   or (mode == "land" or landAtEnd) and string.format("land%s: up to %g b/s, flare %g above %s",
+      landAtEnd and string.format(" at %.0f,%.0f via Y %.0f", tgtX, tgtZ, goal) or " here",
+      CFG.LAND_MAX_RATE, CFG.LAND_FLARE,
       landGround and string.format("%.0f", landGround) or "the start height")
    or string.format("fly: Y %.1f to %.1f,%.1f hdg %.0f", goal, goalX, goalZ, rawHeading()))
 print("position: " .. (usingSable and "CC:Sable pose" or "gps") ..
@@ -1063,8 +1087,9 @@ local function controlLoop()
           print(string.format("stopped %.0f blocks short - cruising again", dLeft))
           chime.play("dash")
         else
-          phase = (mode == "dock") and "align" or "hold"
+          phase = (mode == "dock") and "align" or (landAtEnd and "land" or "hold")
           if mode ~= "go" and mode ~= "dock" then goalX, goalZ = pos.x, pos.z end
+          if phase == "land" then landStart, touchT = t, 0 end
           enter(phase)
         end
       end
