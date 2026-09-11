@@ -2,6 +2,7 @@
 -- fly <y> [x] [z]             -> hold Y, hold position or fly to x z
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
+-- fly land [x] [z]            -> hold position, descend, detect touchdown, cut thrust. No pad, no recharge.
 -- fly go <x> <z> y sweep [from] -> as go, but rotate the yaw offset 3 deg/s during cruise from <from> deg
 --                                (drag-vs-yaw experiment, lean capped at 45; analyse with tools/yaw_sweep.py)
 -- writes flightlog on the computer every run
@@ -101,6 +102,18 @@ local CFG = {
   CLIMB_RATE = 100,                   -- b/s: hard cap; distance governs long before this
   DECEL = 8,                          -- b/s^2 the taper plans for (coasting climb ~10, descents have thrust to spare)
   VRATE_SLEW = 50,                    -- b/s^2: full throttle within a fraction of a second of takeoff
+
+  -- Landing. The ground height is not known in advance - the altitude sensor
+  -- is not zeroed to it - so this descends at a fixed rate and detects the
+  -- arrival instead of aiming at a number. Touchdown is "commanded to be
+  -- going down, not going down, and not holding itself up": all three, for
+  -- TOUCH_T, or a sensor glitch at 200 m would cut the thrust.
+  LAND_RATE = 6,                      -- b/s descent
+  LAND_CREEP = 2,                     -- b/s once TOUCH_NEAR of the descent has stopped being clean
+  TOUCH_VY = 0.4,                     -- b/s: below this counts as not descending
+  TOUCH_PWR = 0.9,                    -- fraction of HOVER: below this, the ground is taking the weight
+  TOUCH_T = 0.6,                      -- seconds all three must hold
+  LAND_MAX_T = 90,                    -- give up and hover rather than descend forever
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
   TILT_RATE = 60,                     -- deg/s: how fast tilt targets may move
@@ -818,6 +831,10 @@ else
     -- until the control loop has had DOCK_RELEASE_T of thrust behind it.
     mode = "fly" undockFirst = true
     goal = tonumber(arg[2]) or (alt.getHeight() + 5)
+  elseif arg[1] == "land" then
+    -- hold where we are (or over x z) and go down until the ground says stop
+    mode = "land"
+    goal = alt.getHeight()
   elseif arg[1] == "spin" then
     -- pure yaw practice: hover at Y, then rotate about the thrust axis
     mode = "fly" spinDeg = tonumber(arg[3]) or 90
@@ -828,6 +845,7 @@ else
   end
   goalX, goalZ = px, pz
   if mode == "fly" and not undockFirst and not spinDeg then goalX = tonumber(arg[2]) or px goalZ = tonumber(arg[3]) or pz end
+  if mode == "land" then goalX = tonumber(arg[2]) or px goalZ = tonumber(arg[3]) or pz end
   if mode == "go" or mode == "dock" then goalX, goalZ = tgtX, tgtZ end
   cruiseY = goal
 end
@@ -842,6 +860,7 @@ print(mode == "find" and ("find: holding " .. findP)
       tgtX, tgtZ, padY, dockAlt, goal)
    or undockFirst and string.format("undock: release then hold Y %.1f", goal)
    or spinDeg and string.format("spin: hold Y %.0f, yaw +%d then back", goal, spinDeg)
+   or mode == "land" and string.format("land: descend at %g b/s over %.0f,%.0f until touchdown", CFG.LAND_RATE, goalX, goalZ)
    or string.format("fly: Y %.1f to %.1f,%.1f hdg %.0f", goal, goalX, goalZ, rawHeading()))
 print("position: " .. (usingSable and "CC:Sable pose" or "gps") ..
       (usingSable and "" or "  (WARNING: the host array was 45 blocks out when last measured)"))
@@ -864,6 +883,7 @@ local function controlLoop()
   local ip, ir = 0, 0
   local trimP, trimR = 0, 0
   local phase = (mode == "dash" or mode == "go" or mode == "dock") and "climb" or mode
+  local touchT, landStart = 0, nil     -- touchdown debounce, and the giving-up clock
   local tpS, trS = 0, 0    -- rate-limited tilt targets
   local cruiseIx, cruiseIz = 0, 0   -- go-mode speed integrators, world frame (deg of lean)
   local cruiseHdg = nil             -- slow-filtered heading used for the cruise split
@@ -920,7 +940,27 @@ local function controlLoop()
       chime.play("undocked") print("connector released")
     end
 
-    if phase == "climb" then
+    if phase == "land" then
+      -- Three things at once, sustained: we asked to descend, we are not
+      -- descending, and the throttle is below what hovering costs - so
+      -- something other than the thrusters is holding the craft up.
+      landStart = landStart or t
+      local notFalling = math.abs(v) < CFG.TOUCH_VY
+      local unloaded = lastPwr < CFG.HOVER * CFG.TOUCH_PWR
+      if notFalling and unloaded and vWantS < -0.5 then
+        touchT = touchT + dt
+      else
+        touchT = 0
+      end
+      if touchT >= CFG.TOUCH_T then
+        phase = "touchdown" enter("touchdown")
+        print(string.format("down at %.1f,%.1f after %.0fs", pos.x, pos.z, t - landStart))
+      elseif t - landStart > CFG.LAND_MAX_T then
+        phase = "hold" goal = h goalX, goalZ = pos.x, pos.z
+        print("land: no touchdown in " .. CFG.LAND_MAX_T .. "s - holding instead")
+        chime.play("warn", true)
+      end
+    elseif phase == "climb" then
       -- transition the instant we reach cruise height, still climbing
       -- go/dock: lean in once most of the climb is done and let the altitude
       -- loop finish it underneath; plain dash mode still waits for the top
@@ -1029,6 +1069,7 @@ local function controlLoop()
       local ae = math.abs(e)
       local vMag = math.min(CFG.AKP / CFG.AKD * ae, math.sqrt(2 * CFG.DECEL * ae), CFG.CLIMB_RATE)
       local vWant = (e >= 0) and vMag or -vMag
+      if phase == "land" then vWant = -CFG.LAND_RATE end                -- go down, not to a number
       vWantS = vWantS + clamp(vWant - vWantS, CFG.VRATE_SLEW * dt)      -- ramp, never step
       -- PI on the rate error. The integrator trims a wrong HOVER (payload,
       -- fuel) at any point of the flight, and is frozen while the throttle is
@@ -1282,6 +1323,14 @@ local function controlLoop()
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
       yawErr, pos.wy, yawDem))
+    if phase == "touchdown" then
+      -- weight is on the ground: nothing left to hold up
+      pwr = 0
+      if mixer then mixer.stop() else drive(0, 0, 0) end
+      log.writeLine(string.format("%.2f,touchdown,%.2f,0,0,0,%.1f,%.1f,0,0,0,0,%.0f,%.0f,-1,0,0,%.1f,%.1f,0,0,0,0,0,0,0,0,%.0f,%.0f,0,0,0,0",
+        t - t0, h, pos.x, pos.z, hdg, raw, a[1], a[2], mon.energy, fuel.pct))
+      return
+    end
     if phase == "docked" then return end
     sleep(0.05)
   end

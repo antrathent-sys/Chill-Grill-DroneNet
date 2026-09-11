@@ -3,8 +3,13 @@ brake, hold 0.7 blocks off at 200
 ([log](logs/flights/2026-09-11-quad-go-reverted-build.csv)). Two terminal
 actions share one descent primitive:
 
-- **`fly land [x z]`** - the primitive, and a mission ending in its own
-  right. Descend under the existing altitude cascade (the rate law is
+- **`fly land [x z]`** - DONE (2026-09-11, untested in the air). Descends at
+  `LAND_RATE`, detects touchdown from three conditions at once - commanded
+  down, not going down, throttle below what hovering costs - sustained for
+  `TOUCH_T`, then cuts thrust. Gives up into a hover after `LAND_MAX_T`
+  rather than descending forever. Harness cases `land` and `quad land`.
+  Still to do: the no-recharge warning about whether the accumulator holds
+  enough to get home. Original note: Descend under the existing altitude cascade (the rate law is
   already symmetric, `sqrt(2 * DECEL * e)` tapers it), hold position with
   the normal hold loop the whole way down, touch down when Sable vertical
   speed is ~0 while altitude has stopped falling for ~0.5 s, then thrust to

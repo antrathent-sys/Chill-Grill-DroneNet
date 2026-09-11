@@ -56,6 +56,9 @@ SELFTEST = [
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # the mock never yaws, so this only checks the spin schedule runs
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
+    # land: descend at a fixed rate, detect the ground, cut thrust
+    ("land", ["land"], {"TMAX": "120"}, ["land", "touchdown"]),
+    ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
 ]
 
 
