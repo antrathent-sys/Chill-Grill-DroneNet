@@ -94,6 +94,10 @@ Through the descent the position controller's tilt authority is cut to `LAND_TIL
 
 If it cannot get straight within `LAND_SETTLE_MAX`, it warns and comes down anyway under the tight cap: something is wrong, and hovering until the battery runs out is not better than a crooked descent.
 
+**With a known ground, touchdown cannot be declared above it.** `TOUCH_NEAR` is a hard gate: given `fly land <x> <y> <z>`, no amount of hovering counts as a landing while the craft is more than 3 blocks up. On 2026-09-11 a landing was called **9 blocks up** - the descent itself was excellent (42 b/s peak, flare, arrest to walking pace at 1-2 blocks from the target) but the craft then hovered out the flare transient while the altitude integrator unwound, the altimeter stopped moving, and the detector believed it. Nothing else available is as reliable as being told where the ground is.
+
+That transient had a cause worth fixing too: `LAND_FLARE` was 10, which made the profile discontinuous - it asked for 17 b/s at ground+20 and 2 b/s at ground+10. At 2 the curve is smooth all the way down and consistent with `LAND_DECEL`.
+
 **Touchdown is measured on the altimeter, not on velocity.** The first version tested Sable's vertical speed for "not descending", and on 2026-09-11 it called touchdown while the craft was still in the air on an angle - a single zero from a stale pose read looks exactly like arriving on the ground. It now asks whether the *altitude* has moved: less than `TOUCH_DROP` over a 1.2 s window, while the profile is still commanding a descent and the throttle is below hover, sustained for `TOUCH_T`. At the 2 b/s creep a real descent moves 2.4 blocks in that window, so the margin is wide.
 
 The loop also keeps running for `TOUCH_LOG_T` (3 s) after touchdown with thrust already off, logging normal rows. At the instant it fires a false touchdown is indistinguishable from a real one; only the next three seconds tell them apart. The flightlog's new `vv` column is the vertical speed the altitude loop is actually using - its absence is why a stale zero could masquerade as a landing without showing up anywhere.

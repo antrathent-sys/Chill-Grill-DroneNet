@@ -16,7 +16,7 @@
 --                                (drag-vs-yaw experiment, lean capped at 45; analyse with tools/yaw_sweep.py)
 -- writes flightlog on the computer every run
 local CFG = {
-  HOVER = 0.27,                       -- quad: 0.3 still climbs ~7 b/s, 0.5 was the single thruster
+  HOVER = 0.25,                       -- measured 0.251 over 45 hovering rows, 2026-09-11                       -- quad: 0.3 still climbs ~7 b/s, 0.5 was the single thruster
   -- quad 2026-09-10: AKD 0.1 (about 12 b/s^2 per b/s of rate error) rang
   -- against a 0.2 s vertical-speed sample; halved, with AKP/AKD raised to 0.5
   -- so the final approach tapers in 5 s instead of 10
@@ -130,7 +130,11 @@ local CFG = {
   LAND_MAX_RATE = 60,                 -- b/s cap on the descent
   LAND_DECEL = 15,                    -- b/s^2 the profile plans to stop with. TWR is 5.2, so about
                                       -- 40 is available; this leaves most of it as margin.
-  LAND_FLARE = 10,                    -- blocks above the ground estimate to be down to LAND_CREEP by
+  LAND_FLARE = 2,                     -- blocks above the ground to be down to LAND_CREEP by. Was 10, which
+                                      -- made the profile discontinuous - it wanted 17 b/s at ground+20 and
+                                      -- 2 b/s at ground+10 - and the craft spent the difference hovering
+                                      -- while the altitude integrator unwound. At 2 the curve is smooth
+                                      -- all the way down and consistent with LAND_DECEL.
   LAND_CREEP = 2,                     -- b/s final approach
   LAND_GROUND = nil,                  -- ground altitude; nil = wherever the program started
   CRUISE_Y = 250,                     -- default transit altitude for go, dock and land-at-a-place
@@ -139,6 +143,9 @@ local CFG = {
                                       -- while leaning without giving up all attitude authority
   TOUCH_DROP = 0.6,                   -- blocks: less movement than this over TOUCH_WIN means something
                                       -- is holding us up. Measured on the altimeter, not on velocity.
+  TOUCH_NEAR = 3,                     -- blocks: with a known ground altitude, touchdown cannot be declared
+                                      -- above it. Nothing else is as reliable, and on 2026-09-11 a landing
+                                      -- was called 9 blocks up while the craft hovered out a flare transient.
   TOUCH_LOG_T = 3.0,                  -- seconds to keep logging after touchdown, thrust already off
 
   -- Come down straight. A burn while tilted is a sideways burn: at 0.5 thrust
@@ -1092,7 +1099,10 @@ local function controlLoop()
       hHist[slot] = h
       local stuck = hAgo and math.abs(h - hAgo) < CFG.TOUCH_DROP
       local unloaded = lastPwr < CFG.HOVER * CFG.TOUCH_PWR
-      if stuck and unloaded and vWantS < -0.5 then
+      -- If the ground altitude was given, believe it: no amount of hovering
+      -- counts as a landing while still well above it.
+      local nearGround = (not landGround) or (h - landGround < CFG.TOUCH_NEAR)
+      if stuck and unloaded and nearGround and vWantS < -0.5 then
         touchT = touchT + dt
       else
         touchT = 0
