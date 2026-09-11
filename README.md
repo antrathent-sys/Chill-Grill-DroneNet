@@ -88,6 +88,12 @@ The same words arrive over rednet on `CMD_PROTO`, as a bare string or `{cmd="lan
 
 The profile needs to know where the ground is, and the altitude sensor is not zeroed to it. The default reference is **the altitude the program started at**, which is exactly right when landing where you took off and wrong by the terrain difference anywhere else; a generous flare absorbs small errors, and the third argument sets a known pad. Too high an estimate means a long slow creep, too low means a late flare.
 
+**Come down straight.** A burn while tilted is a sideways burn - at 0.5 thrust and TWR 5.2, ten degrees of lean is half a g of lateral push, which is most of why the early landings finished tens of blocks off. So the descent does not start until the craft has **settled**: under `LAND_SETTLE_TILT` of lean and `LAND_SETTLE_DRIFT` of ground speed, held for `LAND_SETTLE_T`. Falling while still leaning off the brake is what put one landing 38 blocks out.
+
+Through the descent the position controller's tilt authority is cut to `LAND_TILT_MAX` (8 deg), and to `LAND_TILT_BURN` (3 deg) once inside the flare - that is where thrust is highest, so it is where a degree of lean costs the most sideways. Full authority is restored before the drop, while settling, because that is when the drift is meant to be killed.
+
+If it cannot get straight within `LAND_SETTLE_MAX`, it warns and comes down anyway under the tight cap: something is wrong, and hovering until the battery runs out is not better than a crooked descent.
+
 **Touchdown is measured on the altimeter, not on velocity.** The first version tested Sable's vertical speed for "not descending", and on 2026-09-11 it called touchdown while the craft was still in the air on an angle - a single zero from a stale pose read looks exactly like arriving on the ground. It now asks whether the *altitude* has moved: less than `TOUCH_DROP` over a 1.2 s window, while the profile is still commanding a descent and the throttle is below hover, sustained for `TOUCH_T`. At the 2 b/s creep a real descent moves 2.4 blocks in that window, so the margin is wide.
 
 The loop also keeps running for `TOUCH_LOG_T` (3 s) after touchdown with thrust already off, logging normal rows. At the instant it fires a false touchdown is indistinguishable from a real one; only the next three seconds tell them apart. The flightlog's new `vv` column is the vertical speed the altitude loop is actually using - its absence is why a stale zero could masquerade as a landing without showing up anywhere.

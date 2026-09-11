@@ -140,6 +140,20 @@ local CFG = {
   TOUCH_DROP = 0.6,                   -- blocks: less movement than this over TOUCH_WIN means something
                                       -- is holding us up. Measured on the altimeter, not on velocity.
   TOUCH_LOG_T = 3.0,                  -- seconds to keep logging after touchdown, thrust already off
+
+  -- Come down straight. A burn while tilted is a sideways burn: at 0.5 thrust
+  -- and TWR 5.2, ten degrees of lean is half a g of lateral push, which is
+  -- most of why the first landings finished tens of blocks off. So stop and
+  -- level BEFORE dropping, and keep the tilt small all the way down - hardest
+  -- during the flare, where the thrust that makes the error is highest.
+  LAND_SETTLE_TILT = 5,               -- deg: level enough to start falling
+  LAND_SETTLE_DRIFT = 2,              -- b/s: still enough to start falling
+  LAND_SETTLE_T = 0.8,                -- seconds both must hold
+  LAND_SETTLE_MAX = 10,               -- seconds to wait for that before coming down anyway, at the creep
+                                      -- rate. Hovering until the battery runs out is worse than a
+                                      -- slightly crooked descent, and the pilot can still take over.
+  LAND_TILT_MAX = 8,                  -- deg of position correction allowed while descending
+  LAND_TILT_BURN = 3,                 -- deg once inside the flare, where thrust is high
   TOUCH_PWR = 0.9,                    -- fraction of HOVER: below this, the ground is taking the weight
   TOUCH_T = 0.6,                      -- seconds all three must hold
   LAND_MAX_T = 90,                    -- give up and hover rather than descend forever
@@ -963,6 +977,7 @@ local function controlLoop()
   local touchT, landStart = 0, nil     -- touchdown debounce, and the giving-up clock
   local hHist, touchWin = {}, 12       -- ring of recent altitudes, ~1.2 s at 10 Hz
   local touchAt = nil                  -- when touchdown fired, for the post-landing log
+  local landSettled, settleT, settleWarned = false, 0, false  -- stopped and level before the drop
   local tpS, trS = 0, 0    -- rate-limited tilt targets
   local cruiseIx, cruiseIz = 0, 0   -- go-mode speed integrators, world frame (deg of lean)
   local cruiseHdg = nil             -- slow-filtered heading used for the cruise split
@@ -1041,6 +1056,31 @@ local function controlLoop()
       -- descending, and the throttle is below what hovering costs - so
       -- something other than the thrusters is holding the craft up.
       landStart = landStart or t
+      -- Settle first: arrive, stop, level. Falling while still leaning off
+      -- the brake is what put the last one 38 blocks out.
+      if not landSettled then
+        local gs = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
+        local lean = math.sqrt(a[1] * a[1] + a[2] * a[2])
+        if lean < CFG.LAND_SETTLE_TILT and gs < CFG.LAND_SETTLE_DRIFT then
+          settleT = settleT + dt
+          if settleT >= CFG.LAND_SETTLE_T then
+            landSettled = true
+            print(string.format("settled: %.1f deg, %.1f b/s, %.0f blocks out - dropping",
+              lean, gs, math.sqrt((goalX - pos.x)^2 + (goalZ - pos.z)^2)))
+          end
+        else
+          settleT = 0
+        end
+        if not settleWarned and t - landStart > CFG.LAND_SETTLE_MAX then
+          -- Could not get straight. Something is wrong - aero moment, a weak
+          -- corner - and hovering until the battery dies is not better than
+          -- coming down crooked. Go, but keep the tight tilt cap and say so.
+          settleWarned, landSettled = true, true
+          chime.play("warn")
+          print(string.format("did not settle in %ds (%.0f deg, %.1f b/s) - coming down anyway",
+            CFG.LAND_SETTLE_MAX, lean, gs))
+        end
+      end
       -- Measure the ALTITUDE, not the velocity. `v` comes from Sable's
       -- vertical speed, and a single zero from it - stale pose, a dropped
       -- read - looks exactly like arriving on the ground. A flight on
@@ -1176,11 +1216,15 @@ local function controlLoop()
       local vMag = math.min(CFG.AKP / CFG.AKD * ae, math.sqrt(2 * CFG.DECEL * ae), CFG.CLIMB_RATE)
       local vWant = (e >= 0) and vMag or -vMag
       if phase == "land" then
-        -- go down, not to a number: as fast as the height left can arrest
-        local ground = landGround or h0
-        local drop = math.max(0, h - ground - CFG.LAND_FLARE)
-        vWant = -math.max(CFG.LAND_CREEP,
-                  math.min(CFG.LAND_MAX_RATE, math.sqrt(2 * CFG.LAND_DECEL * drop)))
+        if not landSettled then
+          vWant = 0                    -- hold this height until we are straight
+        else
+          -- go down, not to a number: as fast as the height left can arrest
+          local ground = landGround or h0
+          local drop = math.max(0, h - ground - CFG.LAND_FLARE)
+          vWant = -math.max(CFG.LAND_CREEP,
+                    math.min(CFG.LAND_MAX_RATE, math.sqrt(2 * CFG.LAND_DECEL * drop)))
+        end
       end
       vWantS = vWantS + clamp(vWant - vWantS, CFG.VRATE_SLEW * dt)      -- ramp, never step
       -- PI on the rate error. The integrator trims a wrong HOVER (payload,
@@ -1302,8 +1346,16 @@ local function controlLoop()
       local r = math.rad(hdg)
       local fwd   = evx * math.sin(r) - evz * math.cos(r)
       local right = evx * math.cos(r) + evz * math.sin(r)
-      tp = clamp(CFG.PITCH_DIR * CFG.PKV * fwd, CFG.TILT_MAX)
-      tr = clamp(CFG.ROLL_DIR * CFG.PKV * right, CFG.TILT_MAX)
+      -- While landing the thrust vector has to stay pointed down: any tilt
+      -- during a burn is lateral push. Full authority until settled (that is
+      -- when the drift gets killed), then tight, tightest inside the flare.
+      local tiltCap = CFG.TILT_MAX
+      if phase == "land" and landSettled then
+        tiltCap = (h - (landGround or h0) < CFG.LAND_FLARE)
+                  and CFG.LAND_TILT_BURN or CFG.LAND_TILT_MAX
+      end
+      tp = clamp(CFG.PITCH_DIR * CFG.PKV * fwd, tiltCap)
+      tr = clamp(CFG.ROLL_DIR * CFG.PKV * right, tiltCap)
       trimP = clamp(trimP + CFG.PKI * CFG.PITCH_DIR * fwd * dt, CFG.TRIM_MAX)
       trimR = clamp(trimR + CFG.PKI * CFG.ROLL_DIR * right * dt, CFG.TRIM_MAX)
     elseif fresh then
