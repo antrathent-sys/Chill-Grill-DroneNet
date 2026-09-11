@@ -41,8 +41,11 @@ SELFTEST = [
      ["climb", "dash", "brake", "hold"]),
     ("go", ["go", "100", "50", "90"], {"TMAX": "90"},
      ["climb", "dash", "brake", "hold"]),
-    ("dock", ["dock", "100", "70", "50", "90"], {"TMAX": "120"},
-     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+    # from 120 the descent is staged: fall to pad+15, settle tight, then the
+    # final 15. The other dock cases cruise at 90, below the staging height,
+    # so they go straight down - both paths are covered.
+    ("dock", ["dock", "100", "70", "50", "120"], {"TMAX": "150"},
+     ["climb", "dash", "brake", "align", "descend", "align", "descend", "capture", "docked"]),
     # DOCK_TRIES = 3, so capture is attempted three times before it gives up
     ("dock abort", ["dock", "100", "70", "50", "90"], {"TMAX": "300", "NODOCK": "1"},
      ["climb", "dash", "brake"] + ["align", "descend", "capture"] * 3 + ["hold"]),
@@ -78,7 +81,7 @@ SELFTEST = [
     # release nothing, then cruise home and dock. Every leg is an ordinary
     # flight; the only new code is what decides the next one.
     ("deliver", ["deliver", "100", "80", "50", "90"],
-     {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100,50;0,0"},
+     {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;0.5,0.5"},
      # it comes home from the drop height, so the approach passes down through
      # the lock window and the magnet takes hold during align - the same
      # ending as "dock grabs early", reached honestly
@@ -179,7 +182,7 @@ def main(argv=None):
     # A delivery visits two places. The model has to be told both, because it
     # steers to a target rather than integrating the lean it is given.
     if args.mode[0] == "deliver" and len(args.mode) >= 4:
-        env["LEGS"] = "%s,%s;0,0" % (args.mode[1], args.mode[3])
+        env["LEGS"] = "%s,%s;0.5,0.5" % (float(args.mode[1]) + 0.5, float(args.mode[3]) + 0.5)
     run(args.mode, env, logpath)
     print("\nflightlog: %s" % logpath)
     print("phases: %s" % " -> ".join(phases_from(logpath)))

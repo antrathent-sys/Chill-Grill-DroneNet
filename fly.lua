@@ -191,7 +191,11 @@ local CFG = {
 
   -- brake: pitch the other way to kill forward speed
   BRAKE_DEG = 45,                     -- how hard to pitch back against the motion
-  BRAKE_DONE = 3.0,                   -- b/s: below this, brake is finished
+  BRAKE_DONE = 8.0,                   -- b/s: below this, brake is finished and the hold takes the rest. It
+                                      -- leans against the motion too, so the swing is continuous. 3.0 ended the
+                                      -- brake still leaned 50+ deg (the airframe overshoots the 45 demand by 10
+                                      -- and speed falls 14->4 in half a second, faster than any lean can come
+                                      -- off), re-accelerating it 10 b/s the other way - 14 s of hold, twice.
   BRAKE_MAX_T = 20,                   -- give up after this many seconds
   BRAKE_EASE = 15,                    -- b/s under which the brake lean bleeds off toward zero. At 4 the brake
                                       -- handed over at 1 b/s still leaned 58 deg, which re-accelerated the craft
@@ -349,11 +353,17 @@ local CFG = {
                                       -- free face next to it, so this is the slave's REAR face:
                                       -- { slave = "drone-rs", side = "back" }
   DOCK_NAME = nil,                    -- docking_connector peripheral name; nil = peripheral.find
-  DOCK_ALIGN = 1.0,                   -- blocks: horizontal error to sit inside before descending. The descent
-                                      -- does not tighten this - it arrives about a block worse than it left -
-                                      -- and 2.0 (tried 2026-09-11 to save the creep at 250 m) arrived 2.8 off,
-                                      -- where the magnet drags the craft sideways instead of latching: two
-                                      -- failed captures, 40 s. 1.0 latched first try, twice.
+  -- The dock descent is staged. From cruise altitude the alignment only has
+  -- to be rough (DOCK_ALIGN): a long fall does not keep it anyway, arriving
+  -- about a block worse than it left, and settling to half a block at 250 m
+  -- cost 25-40 s of creep. The fall stops DOCK_STAGE above the pad, settles
+  -- there to the lock window (DOCK_ALIGN_FINAL), and the last DOCK_STAGE
+  -- blocks take two seconds - too short to drift, too short to wind the
+  -- rate integrator up and hover at the flare while the magnet drags the
+  -- craft sideways. A retry climbs back to the same height.
+  DOCK_ALIGN = 2.0,                   -- blocks: rough, at cruise altitude
+  DOCK_ALIGN_FINAL = 0.5,             -- blocks: tight, at the staging height (the connector's lock window)
+  DOCK_STAGE = 15,                    -- blocks above the park height to stop and settle
   DOCK_TRIM_X = 0, DOCK_TRIM_Z = 0,   -- blocks added to the dock target, if the connector is not directly
                                       -- under the craft's centre of mass
   -- getConnectedName() is the connector's entire API and it returns "" even
@@ -1243,6 +1253,8 @@ local function flyLeg()
   local touchT, landStart = 0, nil     -- touchdown debounce, and the giving-up clock
   local undockT = 0                    -- seconds at full thrust while still attached
   local descStuck = 0                  -- seconds the dock descent has not been descending
+  local staged = false                 -- past the staging height: align is tight, descend goes to the pad
+  local descAlt = nil                  -- where the current descent is going (stage height or park height)
   local descendStart = 0               -- when this descent began; the altitude ring is stale before touchWin
   local hHist, touchWin = {}, 12       -- ring of recent altitudes, ~1.2 s at 10 Hz
   local touchAt = nil                  -- when touchdown fired, for the post-landing log
@@ -1483,13 +1495,18 @@ local function flyLeg()
       local sp = math.sqrt(bodyF * bodyF + bodyL * bodyL)
       local offCard = math.abs(((hdgNow + 45) % 90) - 45)   -- degrees from the nearest cardinal
       local square = (not CFG.DOCK_CARDINAL) or offCard < CFG.DOCK_YAW_TOL
-      if pos.t > 0 and (t - pos.t) < 1.5 and d < CFG.DOCK_ALIGN and sp < CFG.DOCK_ALIGN_SPD and square then
+      -- Already at or below the staging height (a retry, or a low cruise):
+      -- the tight tolerance applies from here.
+      if not staged and h <= dockAlt + CFG.DOCK_STAGE + CFG.DOCK_BAND then staged = true end
+      local tol = staged and CFG.DOCK_ALIGN_FINAL or CFG.DOCK_ALIGN
+      if pos.t > 0 and (t - pos.t) < 1.5 and d < tol and sp < CFG.DOCK_ALIGN_SPD and square then
         if not alignStart then alignStart = t end
         alignBad = 0
         if t - alignStart > CFG.DOCK_SETTLE_T then
           phase = "descend" chime.play("descend")
           descStuck, descendStart = 0, t
-          print(string.format("descend to %.1f", dockAlt))
+          descAlt = staged and dockAlt or (dockAlt + CFG.DOCK_STAGE)
+          print(string.format("descend to %.1f%s", descAlt, staged and "" or " (staging height)"))
         end
       else
         -- Tolerate a few bad samples before giving up on the settle. Both
@@ -1511,7 +1528,15 @@ local function flyLeg()
         -- height left can arrest, flare to a creep - with dockAlt as the
         -- ground. See the altitude section; goal is only kept in step so the
         -- error term reads sensibly in the log.
-        goal = dockAlt
+        goal = descAlt
+        -- Arrived at the staging height: settle tight, then come the rest of
+        -- the way. align sees `staged` and applies DOCK_ALIGN_FINAL.
+        if not staged and h <= descAlt + CFG.DOCK_BAND then
+          staged = true
+          phase = "align" alignStart = nil
+          print(string.format("staged at %.1f, %.1f off - settling to %.1f before the final %d",
+            h, d, CFG.DOCK_ALIGN_FINAL, CFG.DOCK_STAGE))
+        end
         -- Two ways to have arrived. The park height is a number someone typed
         -- and can be wrong - on 2026-09-11 the craft physically stopped 4.5
         -- blocks above it, so this phase waited for a height it could never
@@ -1523,7 +1548,9 @@ local function flyLeg()
         -- of hovering there read as stuck, capture was declared 2 blocks above
         -- the pad, and the craft sat there tilting until it slid off.
         local unloaded = lastPwr < CFG.HOVER * CFG.TOUCH_PWR
-        if h <= dockAlt + CFG.DOCK_BAND then
+        if phase ~= "descend" then
+          -- just staged; nothing more to decide this iteration
+        elseif h <= dockAlt + CFG.DOCK_BAND then
           phase = "capture" captureStart = t chime.play("capture")
           print("capture - waiting for the magnet")
         elseif hStuck and unloaded and vWantS < -0.5 and t - descendStart > touchWin * 0.1 then
@@ -1572,7 +1599,7 @@ local function flyLeg()
           vWant = 0                    -- hold this height until we are straight
         else
           -- go down, not to a number: as fast as the height left can arrest
-          local ground = (phase == "descend") and dockAlt or (landGround or h0)
+          local ground = (phase == "descend") and descAlt or (landGround or h0)
           local drop = math.max(0, h - ground - CFG.LAND_FLARE)
           -- two limits, whichever is slower: what the height left can arrest,
           -- and a proportional taper that goes to nothing at the ground
@@ -1730,7 +1757,7 @@ local function flyLeg()
       -- during a burn is lateral push. Full authority until settled (that is
       -- when the drift gets killed), then tight, tightest inside the flare.
       local tiltCap = CFG.TILT_MAX
-      local ground = (phase == "descend") and dockAlt or (landGround or h0)
+      local ground = (phase == "descend") and descAlt or (landGround or h0)
       if (phase == "land" and landSettled) or phase == "descend" or phase == "capture" then
         tiltCap = (h - ground < CFG.LAND_FLARE)
                   and CFG.LAND_TILT_BURN or CFG.LAND_TILT_MAX

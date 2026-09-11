@@ -10,10 +10,11 @@ local sim = {
   -- Standing on the pad the altimeter reads PARK (7.5) above padY, and
   -- fly.lua works the pad height back out of exactly that. Starting a docked
   -- run at 64 instead made a mission compute its home pad 14 blocks low.
-  h = (os.getenv('START_DOCKED') and 77.5 or 64.0), x = 0.0, z = 0.0,     -- drone
+  -- block centres, as fly.lua targets them: a pad at 100,50 is flown to at 100.5,50.5
+  h = (os.getenv('START_DOCKED') and 77.5 or 64.0), x = 0.5, z = 0.5,     -- drone
   vv = 0.0, speed = 0.0,
   pwr = 0.0, vx = 0.0, vy = 0.0,
-  padX = 100, padZ = 50, padY = 70,
+  padX = 100.5, padZ = 50.5, padY = 70,
   -- LEGS="x,z;x,z" gives the model more than one place to go, which a
   -- multi-leg mission needs. It steps to the next one when the craft leans
   -- hard while already sitting on the current one: that is the only evidence
