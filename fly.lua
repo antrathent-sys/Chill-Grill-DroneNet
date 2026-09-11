@@ -348,14 +348,23 @@ if #accs > 1 then print("accumulators: " .. #accs .. " (averaged)") end
 -- P_SIGN/R_SIGN) to the hardware. Returns the two numbers that went out, for
 -- the log: nozzle vector on the single thruster, differential demand in diff
 -- mode.
+-- What the thrusters were actually told, as opposed to what was asked for.
+-- The two part company whenever the mixer saturates: attitude-priority
+-- rescales the whole set to make the differential fit, which moves the MEAN.
+-- A flight on 2026-09-11 logged pwr 0.00-0.25 the whole way up while climbing
+-- at 45 b/s, because a saturated mixer pins the mean near 0.50 whatever lift
+-- is asked for. Never diagnose from the demand alone again.
 local mixSat = false
+local mixThr, mixMax = 0, 0        -- mean and worst actual thrust, 0..1
 local function drive(p, up, ur, yaw)
   local cp, cr = CFG.P_SIGN * up, CFG.R_SIGN * ur
   local vx = clamp(CFG.P_AXIS == "x" and cp or cr, CFG.VEC_MAX)
   local vy = clamp(CFG.P_AXIS == "x" and cr or cp, CFG.VEC_MAX)
   if not mixer then
+    local pw = math.max(0, math.min(1, p))
     thr.setVector(vx, vy)
-    thr.setPowerNormalized(math.max(0, math.min(1, p)))
+    thr.setPowerNormalized(pw)
+    mixThr, mixMax = pw, pw
     return vx, vy
   end
   local d = { lift = math.max(0, math.min(1, p)), yawRate = yaw or 0 }
@@ -366,8 +375,15 @@ local function drive(p, up, ur, yaw)
     d.roll  = clamp(-CFG.MIX_R_SIGN * CFG.MIX_GAIN * ur, 1)
   end
   if CFG.MIX_MODE ~= "diff" then d.lat, d.fwd = vx, vy end   -- VEC_X_IS lat, VEC_Y_IS fwd
-  local _, _, sat = mixer.write(d)
+  local thrusts, _, sat = mixer.write(d)
   mixSat = sat
+  local sum, worst, count = 0, 0, 0
+  for _, v in ipairs(thrusts) do
+    sum, count = sum + v, count + 1
+    if v > worst then worst = v end
+  end
+  mixThr = count > 0 and sum / count or 0
+  mixMax = worst
   if CFG.MIX_MODE == "diff" then return d.pitch, d.roll end
   return vx, vy
 end
@@ -863,7 +879,9 @@ else
 end
 
 local log = fs.open("flightlog", "w")
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem")
+-- athr/amax are what the thrusters were ACTUALLY given, mean and worst. pwr
+-- is only what the altitude loop asked for; they part company whenever sat=1.
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -1348,15 +1366,15 @@ local function controlLoop()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
-      yawErr, pos.wy, yawDem))
+      yawErr, pos.wy, yawDem, mixThr, mixMax))
     if phase == "touchdown" then
       -- weight is on the ground: nothing left to hold up
       pwr = 0
       if mixer then mixer.stop() else drive(0, 0, 0) end
-      log.writeLine(string.format("%.2f,touchdown,%.2f,0,0,0,%.1f,%.1f,0,0,0,0,%.0f,%.0f,-1,0,0,%.1f,%.1f,0,0,0,0,0,0,0,0,%.0f,%.0f,0,0,0,0",
+      log.writeLine(string.format("%.2f,touchdown,%.2f,0,0,0,%.1f,%.1f,0,0,0,0,%.0f,%.0f,-1,0,0,%.1f,%.1f,0,0,0,0,0,0,0,0,%.0f,%.0f,0,0,0,0,0,0",
         t - t0, h, pos.x, pos.z, hdg, raw, a[1], a[2], mon.energy, fuel.pct))
       return
     end
