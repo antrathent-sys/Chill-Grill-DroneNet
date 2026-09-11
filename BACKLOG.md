@@ -20,6 +20,19 @@ actions share one descent primitive:
   holds the barrel; a panic stop must not clear either.
 - **`fly dock`** - unchanged, used at the target pad or the home pad.
 
+**Docking may be optional.** The airframe is a 3x3: outer ring is four
+modular accumulators plus the network cable, centre column is the docking
+connector with the CC&A large connector directly above it, so there is no
+free face adjacent to the docking connector for a redstone source - and the
+API has no extend method, only `getConnectedName` (confirmed twice by
+`preflight`). But the CC&A connector moves FE **wirelessly** to its partner
+on the pad, and the hold loop parks within ~0.7 blocks, so `fly land` on the
+pad recharges without any mechanical lock. Docking then only buys resistance
+to being nudged. If it is wanted later: move the docking connector to a ring
+edge position and restack one accumulator a layer up (they need not be
+coplanar); the 0.5 block / 20 deg window is connector-to-connector, so an
+off-centre pair is fine.
+
 Three terminal states then: **drop** (never lands), **land** (ground,
 anywhere, no recharge), **dock** (pad, magnet, recharge). Mission grammar
 once those work: `fly deliver <x> <z>` = go -> drop -> home -> dock,
