@@ -34,7 +34,9 @@ local function step(to)
   local accel = (lift - HOVER) * 25 - 0.4 * sim.vv
   sim.vv = sim.vv + accel * dt
   sim.h = sim.h + sim.vv * dt
-  if sim.h < 1 then sim.h = 1 sim.vv = 0 end
+  -- the craft starts ON the pad, so the ground is the start height: landing
+  -- tests then exercise the real geometry rather than a 63-block creep
+  if sim.h < 64 then sim.h = 64 sim.vv = 0 end
   -- horizontal: stand-in for the translation controller. Cruise toward the
   -- pad while leaning hard, bleed off otherwise.
   local dx, dz = sim.padX - sim.x, sim.padZ - sim.z

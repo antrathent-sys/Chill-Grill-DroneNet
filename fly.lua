@@ -2,7 +2,7 @@
 -- fly <y> [x] [z]             -> hold Y, hold position or fly to x z
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
--- fly land [x] [z]            -> hold position, descend, detect touchdown, cut thrust. No pad, no recharge.
+-- fly land [x] [z] [groundY] -> hold position, descend, detect touchdown, cut thrust. No pad, no recharge.
 --
 -- IN FLIGHT, without stopping the program: press L to land where you are, H
 -- to hold, U to undock, M for music, +/- for volume. The same words arrive
@@ -114,8 +114,24 @@ local CFG = {
   -- arrival instead of aiming at a number. Touchdown is "commanded to be
   -- going down, not going down, and not holding itself up": all three, for
   -- TOUCH_T, or a sensor glitch at 200 m would cut the thrust.
-  LAND_RATE = 6,                      -- b/s descent
-  LAND_CREEP = 2,                     -- b/s once TOUCH_NEAR of the descent has stopped being clean
+  -- Descent profile: fall at whatever the remaining height can arrest, then
+  -- flare to a creep for the last few blocks so the touchdown is soft and the
+  -- detector has time to fire. Allowed rate is sqrt(2 * LAND_DECEL * drop),
+  -- the same kinematics the horizontal approach uses.
+  --
+  -- GROUND REFERENCE. The altitude sensor is not zeroed to the ground, so the
+  -- profile needs to be told where the ground is. Default is the altitude the
+  -- program started at, which is exactly right when landing where you took
+  -- off and wrong by the terrain difference anywhere else. A generous flare
+  -- absorbs small errors; give the third argument for a known pad.
+  LAND_MAX_RATE = 60,                 -- b/s cap on the descent
+  LAND_DECEL = 15,                    -- b/s^2 the profile plans to stop with. TWR is 5.2, so about
+                                      -- 40 is available; this leaves most of it as margin.
+  LAND_FLARE = 10,                    -- blocks above the ground estimate to be down to LAND_CREEP by
+  LAND_CREEP = 2,                     -- b/s final approach
+  LAND_GROUND = nil,                  -- ground altitude; nil = wherever the program started
+  ATT_MIN_LAND = 0.12,                -- thrust floor while landing: about half hover, so it can descend
+                                      -- while leaning without giving up all attitude authority
   TOUCH_VY = 0.4,                     -- b/s: below this counts as not descending
   TOUCH_PWR = 0.9,                    -- fraction of HOVER: below this, the ground is taking the weight
   TOUCH_T = 0.6,                      -- seconds all three must hold
@@ -817,6 +833,7 @@ end
 -- ---------- modes ----------
 local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ
 local padY, dockAlt, cruiseY, undockFirst, spinDeg
+local landGround = CFG.LAND_GROUND   -- ground altitude for the descent profile
 if arg[1] == "find" then
   mode = "find" findP = tonumber(arg[2]) or CFG.HOVER
 else
@@ -863,6 +880,7 @@ else
     -- hold where we are (or over x z) and go down until the ground says stop
     mode = "land"
     goal = alt.getHeight()
+    landGround = tonumber(arg[4]) or landGround
   elseif arg[1] == "spin" then
     -- pure yaw practice: hover at Y, then rotate about the thrust axis
     mode = "fly" spinDeg = tonumber(arg[3]) or 90
@@ -890,7 +908,9 @@ print(mode == "find" and ("find: holding " .. findP)
       tgtX, tgtZ, padY, dockAlt, goal)
    or undockFirst and string.format("undock: release then hold Y %.1f", goal)
    or spinDeg and string.format("spin: hold Y %.0f, yaw +%d then back", goal, spinDeg)
-   or mode == "land" and string.format("land: descend at %g b/s over %.0f,%.0f until touchdown", CFG.LAND_RATE, goalX, goalZ)
+   or mode == "land" and string.format("land: over %.0f,%.0f, up to %g b/s, flare %g above %s",
+      goalX, goalZ, CFG.LAND_MAX_RATE, CFG.LAND_FLARE,
+      landGround and string.format("%.0f", landGround) or "the start height")
    or string.format("fly: Y %.1f to %.1f,%.1f hdg %.0f", goal, goalX, goalZ, rawHeading()))
 print("position: " .. (usingSable and "CC:Sable pose" or "gps") ..
       (usingSable and "" or "  (WARNING: the host array was 45 blocks out when last measured)"))
@@ -1116,7 +1136,13 @@ local function controlLoop()
       local ae = math.abs(e)
       local vMag = math.min(CFG.AKP / CFG.AKD * ae, math.sqrt(2 * CFG.DECEL * ae), CFG.CLIMB_RATE)
       local vWant = (e >= 0) and vMag or -vMag
-      if phase == "land" then vWant = -CFG.LAND_RATE end                -- go down, not to a number
+      if phase == "land" then
+        -- go down, not to a number: as fast as the height left can arrest
+        local ground = landGround or h0
+        local drop = math.max(0, h - ground - CFG.LAND_FLARE)
+        vWant = -math.max(CFG.LAND_CREEP,
+                  math.min(CFG.LAND_MAX_RATE, math.sqrt(2 * CFG.LAND_DECEL * drop)))
+      end
       vWantS = vWantS + clamp(vWant - vWantS, CFG.VRATE_SLEW * dt)      -- ramp, never step
       -- PI on the rate error. The integrator trims a wrong HOVER (payload,
       -- fuel) at any point of the flight, and is frozen while the throttle is
@@ -1154,7 +1180,13 @@ local function controlLoop()
       -- attitude authority floor: never coast at zero thrust while leaning
       if phase ~= "capture" and phase ~= "docked" then
         local tiltA = math.sqrt(a[1] * a[1] + a[2] * a[2])
-        if tiltA > CFG.ATT_MIN_TILT then pwr = math.max(pwr, CFG.ATT_MIN_POWER) end
+        -- Measured hover is about 0.245, so the normal 0.25 floor IS hover:
+        -- above ATT_MIN_TILT it would hold altitude and the craft could never
+        -- come down while still leaning off a cruise. Descending deliberately
+        -- gets a lower floor - still half the vectoring authority, but light
+        -- enough to fall.
+        local floor = (phase == "land") and CFG.ATT_MIN_LAND or CFG.ATT_MIN_POWER
+        if tiltA > CFG.ATT_MIN_TILT then pwr = math.max(pwr, floor) end
       end
       if phase == "docked" then pwr = 0 end
     end
