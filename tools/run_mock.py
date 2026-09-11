@@ -9,6 +9,7 @@ Environment switches the harness honours:
     GPS_QUANT=1    quantise gps.locate to whole blocks, as real CC does
     NOVEL=1        fit no velocity sensors, as the four-thruster airframe has
     DRIFT=1        make station keeping wander instead of parking exactly
+    LEGS=x,z;x,z   places to fly to in turn, for a multi-leg mission
     NODOCK=1       never let the magnet catch, to exercise the abort path
     START_DOCKED=1 begin the run already docked
     TMAX=<secs>    simulated-time budget
@@ -73,6 +74,16 @@ SELFTEST = [
     ("dock to a silent pad", ["dock", "100", "70", "50", "90"],
      {"TMAX": "150", "UNNAMED_PAD": "1", "NO_BRIDGE": "1"},
      ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+    # the round trip: undock, cruise out, drop down to the release height,
+    # release nothing, then cruise home and dock. Every leg is an ordinary
+    # flight; the only new code is what decides the next one.
+    ("deliver", ["deliver", "100", "80", "50", "90"],
+     {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100,50;0,0"},
+     # it comes home from the drop height, so the approach passes down through
+     # the lock window and the magnet takes hold during align - the same
+     # ending as "dock grabs early", reached honestly
+     ["climb", "dash", "brake", "hold", "fly",
+      "climb", "dash", "brake", "align", "docked"]),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # the mock never yaws, so this only checks the spin schedule runs
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
@@ -109,7 +120,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -160,7 +171,12 @@ def main(argv=None):
     if not args.mode:
         ap.error("give fly.lua arguments, or --selftest")
     logpath = os.path.join(HERE, "mock_flightlog")
-    run(args.mode, {"TMAX": "300"}, logpath)
+    env = {"TMAX": os.environ.get("TMAX", "300")}
+    # A delivery visits two places. The model has to be told both, because it
+    # steers to a target rather than integrating the lean it is given.
+    if args.mode[0] == "deliver" and len(args.mode) >= 4:
+        env["LEGS"] = "%s,%s;0,0" % (args.mode[1], args.mode[3])
+    run(args.mode, env, logpath)
     print("\nflightlog: %s" % logpath)
     print("phases: %s" % " -> ".join(phases_from(logpath)))
     return 0

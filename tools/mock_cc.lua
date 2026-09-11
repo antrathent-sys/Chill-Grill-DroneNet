@@ -7,15 +7,31 @@ local T = 0.0
 
 -- ---------- simulated world ----------
 local sim = {
-  h = 64.0, x = 0.0, z = 0.0,     -- drone
+  -- Standing on the pad the altimeter reads PARK (7.5) above padY, and
+  -- fly.lua works the pad height back out of exactly that. Starting a docked
+  -- run at 64 instead made a mission compute its home pad 14 blocks low.
+  h = (os.getenv('START_DOCKED') and 77.5 or 64.0), x = 0.0, z = 0.0,     -- drone
   vv = 0.0, speed = 0.0,
   pwr = 0.0, vx = 0.0, vy = 0.0,
   padX = 100, padZ = 50, padY = 70,
+  -- LEGS="x,z;x,z" gives the model more than one place to go, which a
+  -- multi-leg mission needs. It steps to the next one when the craft leans
+  -- hard while already sitting on the current one: that is the only evidence
+  -- available here that the controller has been pointed somewhere new.
+  legs = nil, legN = 1,
   rs = (os.getenv('START_DOCKED') and { bottom = true } or {}),
   dockedSince = nil, docked = false,
   phaseHint = "",
   lastT = 0.0,
 }
+
+if os.getenv('LEGS') then
+  sim.legs = {}
+  for a, b in string.gmatch(os.getenv('LEGS'), "(-?[%d%.]+),(-?[%d%.]+)") do
+    sim.legs[#sim.legs + 1] = { tonumber(a), tonumber(b) }
+  end
+  if #sim.legs > 0 then sim.padX, sim.padZ = sim.legs[1][1], sim.legs[1][2] end
+end
 
 local HOVER = 0.5
 local function step(to)
@@ -161,7 +177,27 @@ local logLines = {}
 _G.fs = {
   open = function()
     return {
-      writeLine = function(s) logLines[#logLines + 1] = s end,
+      writeLine = function(s)
+        logLines[#logLines + 1] = s
+        -- The controller logs its own position error (ex, ez). When it wants
+        -- to be somewhere far from where this model is steering, it has been
+        -- given a new target, so step the leg list. That is the controller's
+        -- own intent, not an inference from the crude attitude model.
+        if sim.legs and sim.legN < #sim.legs then
+          local n, ex, ez = 0, nil, nil
+          for f in string.gmatch(s, "[^,]+") do
+            n = n + 1
+            if n == 9 then ex = tonumber(f) elseif n == 10 then ez = tonumber(f) end
+          end
+          if ex and ez and math.sqrt(ex * ex + ez * ez) > 5 then
+            local dx, dz = sim.padX - sim.x, sim.padZ - sim.z
+            if math.sqrt(dx * dx + dz * dz) < 2 then
+              sim.legN = sim.legN + 1
+              sim.padX, sim.padZ = sim.legs[sim.legN][1], sim.legs[sim.legN][2]
+            end
+          end
+        end
+      end,
       write = function(s) logLines[#logLines + 1] = s end,
       close = function() end,
     }

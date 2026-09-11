@@ -4,6 +4,9 @@
 --                                shape as fly land, so both take coordinates straight off F3.
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
+-- fly deliver <x> <y> <z>     -> the round trip, starting docked: undock, fly to x z, hover at y,
+--                                release (nothing to release yet), fly home, dock. Home is wherever
+--                                the craft was standing when the command was given.
 -- fly land                    -> descend where you are, detect touchdown, cut thrust. No pad, no recharge.
 -- fly land <x> <y> <z> [cruiseY] -> fly to x z, then land there. y is the GROUND altitude at the
 --                                destination (straight off F3), which is what the descent profile
@@ -373,6 +376,10 @@ local CFG = {
                                       -- minutes of cycling before the craft gave up.
   DOCK_ABORT_DIST = 4,                -- blocks of drift that sends the descent back to align
   DOCK_TRIES = 3,                     -- capture attempts before giving up and just holding
+  LEG_ARRIVE = 4,                     -- blocks: horizontal tolerance for calling a mission leg done
+  LEG_ARRIVE_Y = 4,                   -- blocks: vertical tolerance for the same
+  DROP_HOLD = 2.0,                    -- seconds to sit still over the drop point before releasing
+  DROP_SETTLE_SPD = 1.5,              -- b/s: what counts as sitting still for that
   DOCK_RETRY_UP = 15,                 -- blocks above the park height to back off to for another try.
                                       -- Climbing back to cruise altitude cost 80 s of a 208 s flight:
                                       -- above SPEED_GUARD the position hold does not act at all, so
@@ -1002,6 +1009,10 @@ end
 local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ
 local padY, dockAlt, cruiseY, undockFirst, spinDeg
 local landGround = CFG.LAND_GROUND   -- ground altitude for the descent profile
+-- A mission is a list of legs run back to back. Each leg sets up the ordinary
+-- mode machinery and finishes at a point the phase machine already reaches, so
+-- nothing here duplicates the flying - it only decides what comes next.
+local legs, legIdx, home = nil, 0, nil
 local landAtEnd = false              -- a "go" that finishes by landing rather than holding
 if arg[1] == "find" then
   mode = "find" findP = tonumber(arg[2]) or CFG.HOVER
@@ -1069,6 +1080,28 @@ else
       mode = "land"
       goal = alt.getHeight()
     end
+  elseif arg[1] == "deliver" then
+    -- The whole round trip in one command, which is the point: a dynamics
+    -- change is worth judging over undock, cruise, descent, hover, cruise
+    -- back and dock, not over whichever single leg happened to be flown.
+    local dx = tonumber(arg[2]) or error("deliver needs <x> <y> <z>", 0)
+    local dy = tonumber(arg[3]) or error("deliver needs <x> <y> <z>", 0)
+    local dz = tonumber(arg[4]) or error("deliver needs <x> <y> <z>", 0)
+    goal = tonumber(arg[5]) or CFG.CRUISE_Y
+    -- Home is wherever the craft is standing when the command is given.
+    -- Sitting on the pad the altimeter reads DOCK_GAP above it, which is
+    -- exactly the pad altitude the dock leg wants back.
+    home = { x = blockCentre(px), z = blockCentre(pz), padY = alt.getHeight() - CFG.DOCK_GAP }
+    legs = {
+      { leg = "cruise", x = blockCentre(dx), z = blockCentre(dz), y = goal, undock = true },
+      { leg = "hover",  x = blockCentre(dx), z = blockCentre(dz), y = dy },
+      { leg = "action", what = "drop" },
+      -- no cruise leg home: the dock leg climbs, cruises and brakes on its
+      -- own, which is the same path `fly dock` flies and the one with hours
+      -- of logs behind it.
+      { leg = "dock",   x = home.x, z = home.z, padY = home.padY, y = goal },
+    }
+    mode = "deliver"
   elseif arg[1] == "spin" then
     -- pure yaw practice: hover at Y, then rotate about the thrust axis
     mode = "fly" spinDeg = tonumber(arg[3]) or 90
@@ -1094,6 +1127,8 @@ print(mode == "find" and ("find: holding " .. findP)
    or (mode == "go" and not landAtEnd) and string.format("go: to %.0f,%.0f via Y %.0f", tgtX, tgtZ, goal)
    or mode == "dock" and string.format("dock: pad %.0f,%.0f Y %.0f, park at %.1f via Y %.0f",
       tgtX, tgtZ, padY, dockAlt, goal)
+   or mode == "deliver" and string.format("deliver: %.0f,%.0f drop at Y %.0f, home %.0f,%.0f pad %.0f, via Y %.0f",
+      legs[1].x, legs[1].z, legs[2].y, home.x, home.z, home.padY, goal)
    or undockFirst and string.format("undock: release then hold Y %.1f", goal)
    or spinDeg and string.format("spin: hold Y %.0f, yaw +%d then back", goal, spinDeg)
    or (mode == "land" or landAtEnd) and string.format("land%s: up to %g b/s, flare %g above %s",
@@ -1107,7 +1142,60 @@ print("Ctrl+T stops")
 pump(true)
 if CFG.PUMP_PRIME > 0 then print("priming pump") sleep(CFG.PUMP_PRIME) end
 
-local function controlLoop()
+-- Set up the next leg, or report that the mission is over. Every line here
+-- writes one of the same handful of variables the command line writes for a
+-- single-purpose flight, so a leg flies down exactly the code path the
+-- equivalent command would - there is no second flight controller in here.
+local legKind = nil
+local function nextLeg()
+  if not legs then return false end
+  legIdx = legIdx + 1
+  local L = legs[legIdx]
+  -- Actions happen between legs, instantly, and then we move on.
+  while L and L.leg == "action" do
+    -- Nothing is carried yet. The hook is here and named, so when there is a
+    -- payload the change is this line and nothing else.
+    print("action: " .. tostring(L.what) .. " (no payload fitted - nothing released)")
+    chime.play(L.what == "drop" and "drop" or "ready", true)
+    legIdx = legIdx + 1
+    L = legs[legIdx]
+  end
+  if not L then return false end
+  legKind = L.leg
+  undockFirst = L.undock or false
+  landAtEnd = false
+  dock.armed = false
+  if L.leg == "cruise" then
+    mode = "go"
+    tgtX, tgtZ = L.x, L.z
+    goalX, goalZ = L.x, L.z
+    goal = L.y
+    dashDeg = CFG.CRUISE_DEG
+    cruiseY = goal
+  elseif L.leg == "hover" then
+    mode = "fly"
+    goalX, goalZ = L.x, L.z
+    goal = L.y
+  elseif L.leg == "dock" then
+    mode = "dock"
+    tgtX, tgtZ = L.x + CFG.DOCK_TRIM_X, L.z + CFG.DOCK_TRIM_Z
+    goalX, goalZ = tgtX, tgtZ
+    padY = L.padY
+    dockAlt = padY + CFG.DOCK_GAP
+    goal = L.y or CFG.CRUISE_Y
+    dashDeg = CFG.CRUISE_DEG
+    cruiseY = goal
+    dock.armed = true
+  else
+    error("unknown leg " .. tostring(L.leg), 0)
+  end
+  print(string.format("--- leg %d: %s to %.1f,%.1f at Y %.0f%s",
+    legIdx, L.leg, goalX, goalZ, goal, undockFirst and " (undock first)" or ""))
+  if L.leg == "dock" then chime.play("home") end
+  return true
+end
+
+local function flyLeg()
   local lastH, lastT, integ = alt.getHeight(), os.clock(), 0
   local h0 = lastH          -- start height, for the early dash entry
   local vWantS = 0          -- slew-limited vertical rate request
@@ -1142,6 +1230,7 @@ local function controlLoop()
   local alignBad = 0
   local dockTries = 0
   local lastPhase = nil
+  local legT = 0            -- seconds settled over this leg's waypoint
   while true do
     local t = os.clock()
     local dt = math.max(t - lastT, 0.05)
@@ -1733,8 +1822,36 @@ local function controlLoop()
       if t - touchAt > CFG.TOUCH_LOG_T then return end
     end
     if phase == "docked" then return end
+    -- A cruise or hover leg ends where an ordinary flight would sit and hold:
+    -- over the waypoint, at the height asked for, not moving. Dock and land
+    -- legs end themselves (docked, touchdown) and are deliberately NOT tested
+    -- here - a dock that gave up and fell back to holding must keep holding,
+    -- not return and have the thrusters shut off underneath it.
+    if legs and (legKind == "cruise" or legKind == "hover")
+       and (phase == "hold" or phase == "fly") then
+      local gs = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
+      if fresh and math.abs(e) < CFG.LEG_ARRIVE_Y and gs < CFG.DROP_SETTLE_SPD
+         and math.sqrt(ex * ex + ez * ez) < CFG.LEG_ARRIVE then
+        legT = legT + dt
+      else
+        legT = 0
+      end
+      if legT >= CFG.DROP_HOLD then
+        print(string.format("leg %d done at %.1f,%.1f Y %.1f", legIdx, pos.x, pos.z, h))
+        return
+      end
+    end
     sleep(0.05)
   end
+end
+
+-- A mission is legs flown back to back. Each call to flyLeg starts with all
+-- of its own state fresh, which is what makes a leg boundary a clean break.
+local function controlLoop()
+  if not legs then return flyLeg() end
+  while nextLeg() do flyLeg() end
+  chime.play("delivered", true)
+  print("mission complete")
 end
 
 -- ---------- in-flight commands ----------

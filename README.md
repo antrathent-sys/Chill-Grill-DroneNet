@@ -227,9 +227,49 @@ fly find <power>            hold a fixed throttle to find the hover point
 fly <y> [x] [z]             hold altitude y; hold position, or fly to x z if given
 fly dash <y> <deg> <secs>   climb to y, pitch <deg> for <secs>, brake, then hold
 fly go <x> <z> [y]          climb to y (default +25), cruise to x z, brake, hold there
-fly dock <x> <z> <padY> [y]  cruise to the pad, settle over it, descend and dock
+fly dock <x> <y> <z> [cruiseY]   cruise to the pad, settle over it, descend and dock
+fly land [<x> <y> <z> [cruiseY]] descend where you are, or fly there first; no pad
 fly undock [y]              release the connector once thrust is up, then hold y
+fly deliver <x> <y> <z> [cruiseY]  the round trip: undock, fly out, drop, come home, dock
+fly spin <y> <deg>          hold y, then yaw <deg> and back
 ```
+
+In `dock`, `land` and `deliver` the middle argument is a **Y off F3**: the pad
+altitude for `dock`, the ground for `land`, the release height for `deliver`.
+
+### Missions
+
+`fly deliver <x> <y> <z>` is the one command that exercises everything at once,
+which is the point of it - a change to the dynamics is worth judging over a
+whole round trip, not over whichever single leg happened to be flown. It plans
+three legs and flies them back to back:
+
+```
+cruise  to x,z at cruiseY      (undocking first, because it starts on the pad)
+hover   down to y over x,z     hold still there for DROP_HOLD seconds
+action  drop                   nothing is carried yet; the hook is there and named
+dock    back to where it started
+```
+
+**Home is wherever the craft is standing when the command is given.** Sitting on
+the pad the altimeter reads `DOCK_GAP` above it, so `alt.getHeight() - DOCK_GAP`
+recovers the pad altitude the dock leg needs - no coordinates to type and none
+to get wrong.
+
+**There is no second flight controller in here.** Each leg writes the same
+handful of variables the command line writes for a single-purpose flight and
+then calls the control loop, which starts with all of its own state fresh. A
+`cruise` leg *is* a `fly go`; the `dock` leg *is* a `fly dock`, and it climbs,
+cruises and brakes home on its own - which is why there is no cruise-home leg
+before it. A leg boundary is a clean break and nothing else.
+
+**A leg ends where an ordinary flight would sit and hold**: over the waypoint
+(`LEG_ARRIVE`), at the height asked for (`LEG_ARRIVE_Y`), not moving
+(`DROP_SETTLE_SPD`), for `DROP_HOLD` seconds. Dock and land legs are
+deliberately *not* tested that way - they end themselves, by docking or by
+touching down. A dock that gave up and fell back to holding must keep holding;
+calling that leg finished would return from the control loop and shut the
+thrusters off underneath a craft that is still in the air.
 
 Ctrl+T stops the program. On any exit, including a tumble error, the thruster is cut and `flightlog` is closed.
 
