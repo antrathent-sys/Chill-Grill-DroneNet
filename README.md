@@ -72,6 +72,18 @@ First quad flights (2026-09-10, all at 0.25 s/iteration): `diff` - signs and aut
 
 `MIX_GAIN` scales the PID output into differential demand (the mixer then caps it at `PITCH_AUTH`/`ROLL_AUTH` = 25 % of range), and `MIX_P_SIGN`/`MIX_R_SIGN` flip an axis if it diverges. The flightlog's `vx,vy` columns carry the differential pitch/roll demand in `diff` mode and the nozzle vector otherwise; `sat` is 1 when the mixer ran out of range and traded lift for attitude. The thruster FE buffer is summed across all four; `kill` stops all of them.
 
+**In-flight commands.** Landing is a *command*, not just a mode: quitting the program to run `fly land` means no thrust while you type, which is a fall rather than a landing. A command coroutine reads events - no peripheral calls, so it cannot stall the control loop - and drops a single word for the control loop to pick up at the top of its next iteration:
+
+| Key | Word | Effect |
+|---|---|---|
+| `L` | `land` | descend and touch down, wherever you are |
+| `H` | `hold` | stop here, cancel the target |
+| `U` | `undock` | release the connector |
+| `M` | - | two bars of the cruise groove |
+| `+` `-` | - | chime volume |
+
+The same words arrive over rednet on `CMD_PROTO`, as a bare string or `{cmd="land"}`, so a ground station can fly the thing later. Harness cases `land from cruise` and `hold from cruise` inject a keypress mid-flight (`CMD_AT="20:l"`) and check the phase actually changes.
+
 **Landing.** `fly land [x z]` holds position and descends at `LAND_RATE` until the ground says stop. It does not aim at a height, because the altitude sensor is not zeroed to the ground: touchdown is inferred from three things at once - we commanded a descent, we are not descending, and the throttle has fallen below what hovering costs, so something other than the thrusters is holding the craft up. All three must hold for `TOUCH_T` (0.6 s), or a single sensor glitch at 200 m would cut the thrust. After `LAND_MAX_T` with no touchdown it gives up into a hover rather than descending forever. No pad and no recharge - a landing site is a park or an abort, not a base.
 
 **Chimes.** `lib/chime.lua` is a small note-block sequencer in its own coroutine - `play` queues a name and returns instantly, so nothing here can stall the control loop, and with no speaker every call is a silent no-op. There is a grammar rather than a pile of beeps: rising means something began and is going well, falling means it finished, repeated means attend, dissonant means broken, and a four-note signature (0 7 5 12) opens `boot`, closes `delivered` and runs backwards for `home`, so the same phrase brackets a whole delivery.

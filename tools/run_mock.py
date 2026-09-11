@@ -58,6 +58,11 @@ SELFTEST = [
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
     # land: descend at a fixed rate, detect the ground, cut thrust
     ("land", ["land"], {"TMAX": "120"}, ["land", "touchdown"]),
+    # the one that matters: land requested mid-flight, no restart
+    ("land from cruise", ["go", "1000", "1000", "300"], {"TMAX": "150", "CMD_AT": "20:l"},
+     ["climb", "dash", "land", "touchdown"]),
+    ("hold from cruise", ["go", "1000", "1000", "300"], {"TMAX": "90", "CMD_AT": "20:h"},
+     ["climb", "dash", "hold"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
 ]
 
@@ -71,7 +76,8 @@ def make_test_copy():
 
 def run(args, env, logpath):
     from lupa import LuaRuntime
-    for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT", "UPLOAD_BOOM"):
+    for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
+              "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

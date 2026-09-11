@@ -3,6 +3,12 @@
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
 -- fly land [x] [z]            -> hold position, descend, detect touchdown, cut thrust. No pad, no recharge.
+--
+-- IN FLIGHT, without stopping the program: press L to land where you are, H
+-- to hold, U to undock, M for music, +/- for volume. The same words arrive
+-- over rednet, so a ground station can send them. Landing had to be a command
+-- rather than a mode: quitting to run "fly land" means no thrust while you
+-- type, which is a fall, not a landing.
 -- fly go <x> <z> y sweep [from] -> as go, but rotate the yaw offset 3 deg/s during cruise from <from> deg
 --                                (drag-vs-yaw experiment, lean capped at 45; analyse with tools/yaw_sweep.py)
 -- writes flightlog on the computer every run
@@ -114,6 +120,12 @@ local CFG = {
   TOUCH_PWR = 0.9,                    -- fraction of HOVER: below this, the ground is taking the weight
   TOUCH_T = 0.6,                      -- seconds all three must hold
   LAND_MAX_T = 90,                    -- give up and hover rather than descend forever
+
+  -- In-flight commands. Keys are read from an event coroutine, so they cost
+  -- no peripheral calls and cannot stall the control loop.
+  CMD_KEYS = true,                    -- accept single keypresses on the pod itself
+  CMD_RADIO = true,                   -- accept the same words over rednet, for a ground station
+  CMD_PROTO = "drone-cmd",
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
   TILT_RATE = 60,                     -- deg/s: how fast tilt targets may move
@@ -940,6 +952,23 @@ local function controlLoop()
       chime.play("undocked") print("connector released")
     end
 
+    -- A command from the keyboard or the radio, taken at a clean point.
+    if cmdReq then
+      local r = cmdReq cmdReq = nil
+      if r == "land" and phase ~= "land" and phase ~= "touchdown" and phase ~= "docked" then
+        phase = "land" landStart, touchT = t, 0
+        goalX, goalZ = pos.x, pos.z
+        enter("land")
+      elseif r == "hold" and phase ~= "touchdown" and phase ~= "docked" then
+        phase = "hold" goal = h goalX, goalZ = pos.x, pos.z
+        dock.armed = false
+        enter("hold")
+      elseif r == "undock" then
+        dock.armed = false dockExtend(false)
+        chime.play("undocked") print("connector released")
+      end
+    end
+
     if phase == "land" then
       -- Three things at once, sustained: we asked to descend, we are not
       -- descending, and the throttle is below what hovering costs - so
@@ -1336,7 +1365,44 @@ local function controlLoop()
   end
 end
 
-local ok, err = pcall(parallel.waitForAny, controlLoop, posLoop, monLoop, chime.loop)
+-- ---------- in-flight commands ----------
+-- A request is a single word dropped here; the control loop picks it up at the
+-- top of its next iteration, so nothing changes phase halfway through a
+-- calculation. Unknown words are ignored.
+local WORDS = { land = true, hold = true, undock = true }
+
+local function cmdLoop()
+  if not (CFG.CMD_KEYS or CFG.CMD_RADIO) then while true do sleep(3600) end end
+  if CFG.CMD_RADIO and rednet and peripheral.getNames then
+    for _, nm in ipairs(peripheral.getNames()) do
+      if peripheral.getType(nm) == "modem" then pcall(rednet.open, nm) end
+    end
+  end
+  local keymap = { l = "land", h = "hold", u = "undock" }
+  while true do
+    local ev, a, b = os.pullEvent()
+    if ev == "char" and CFG.CMD_KEYS then
+      local c = tostring(a):lower()
+      if keymap[c] then
+        cmdReq = keymap[c]
+        print("command: " .. cmdReq)
+      elseif c == "m" then chime.play("cruise")
+      elseif c == "+" or c == "=" then print(string.format("volume %.1f", chime.volume(math.min(1, chime.volume() + 0.2))))
+      elseif c == "-" then print(string.format("volume %.1f", chime.volume(math.max(0, chime.volume() - 0.2))))
+      end
+    elseif ev == "rednet_message" and CFG.CMD_RADIO then
+      local word = type(b) == "table" and b.cmd or b
+      if WORDS[word] then
+        cmdReq = word
+        print("command from " .. tostring(a) .. ": " .. word)
+      end
+    end
+  end
+end
+
+if CFG.CMD_KEYS then print("in flight: L land, H hold, U undock, M music, +/- volume") end
+
+local ok, err = pcall(parallel.waitForAny, controlLoop, posLoop, monLoop, chime.loop, cmdLoop)
 allStop() pump(false) log.close()
 print("thrusters off, pump off - flightlog saved")
 -- Sounded here, not in the loop: the control loop returns the instant it docks,

@@ -90,6 +90,24 @@ end
 
 -- ---------- CC API ----------
 function sleep(n) coroutine.yield(n or 0) end
+-- The harness has no keyboard and no radio. cmdLoop just has to be able to
+-- park on os.pullEvent without ending (a coroutine that returns would end the
+-- whole flight through parallel.waitForAny).
+_G.os = _G.os or {}
+-- CMD_AT="20:l" presses a key at T=20, so the in-flight command path can be
+-- exercised the way it is actually used: mid-flight, without restarting.
+local cmdAt = os.getenv('CMD_AT')
+os.pullEvent = function()
+  if cmdAt then
+    local at, key = cmdAt:match("^([%d%.]+):(%a)$")
+    at = tonumber(at)
+    cmdAt = nil
+    if at and T < at then coroutine.yield(at - T) end
+    if key then return "char", key end
+  end
+  coroutine.yield(3600)
+  return "timer", 0
+end
 _G.os = _G.os or {}
 os.clock = function() return T end
 os.epoch = function() return math.floor(T * 1000) end
