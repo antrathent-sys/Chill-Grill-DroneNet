@@ -66,19 +66,53 @@ check("A1 highest and B2 lowest",
       m.vector_thruster_8 == math.max(m.vector_thruster_5, m.vector_thruster_6, m.vector_thruster_7, m.vector_thruster_8) and
       m.vector_thruster_6 == math.min(m.vector_thruster_5, m.vector_thruster_6, m.vector_thruster_7, m.vector_thruster_8))
 
-print("saturation keeps attitude, sacrifices lift")
+print("lift is preserved, the differential is what gives way")
 local sat
+local function meanOf(x) local s = 0 for i = 1, 4 do s = s + x[i] end return s / 4 end
+for _, lift in ipairs({ 0, 0.02, 0.25, 0.5, 0.98, 1 }) do
+  a = mixer.allocate({ lift = lift, pitch = 1, roll = 1 })
+  check(string.format("lift %.2f: mean thrust IS the demand", lift), near(meanOf(a), lift, 1e-6), meanOf(a))
+  check(string.format("lift %.2f: every thruster inside 0..1", lift),
+        math.max(a[1],a[2],a[3],a[4]) <= 1 + 1e-9 and math.min(a[1],a[2],a[3],a[4]) >= -1e-9)
+end
+
+-- the regression this replaces: measured in flight on 2026-09-11, a saturated
+-- mixer returned a mean of 0.500 for a commanded 1.00 AND for a commanded 0.00
+print("a saturated mixer no longer invents its own throttle")
+a = mixer.allocate({ lift = 0, pitch = 1, roll = 1 })
+check("commanded zero gives zero, not 0.50", near(meanOf(a), 0, 1e-9), meanOf(a))
+a = mixer.allocate({ lift = 1, pitch = 1, roll = 1 })
+check("commanded full gives full, not 0.50", near(meanOf(a), 1, 1e-9), meanOf(a))
+
+print("the differential still gets through when there is room for it")
+a, sat = mixer.allocate({ lift = 0.5, pitch = 1 })
+m = {}
+for i, t in ipairs(ts) do m[t.name] = a[i] end
+check("half throttle keeps the full pitch differential",
+      near(m.vector_thruster_7 - m.vector_thruster_5, 2 * mixer.cfg.PITCH_AUTH, 1e-6),
+      m.vector_thruster_7 - m.vector_thruster_5)
+check("and is not flagged saturated", not sat)
+
+print("when it does not fit, the shape is scaled rather than clipped")
 a, sat = mixer.allocate({ lift = 0.98, pitch = 1 })
 check("flagged saturated", sat)
 check("nothing above 1", math.max(a[1],a[2],a[3],a[4]) <= 1 + 1e-9, math.max(a[1],a[2],a[3],a[4]))
 check("nothing below 0", math.min(a[1],a[2],a[3],a[4]) >= -1e-9, math.min(a[1],a[2],a[3],a[4]))
 m = {}
 for i, t in ipairs(ts) do m[t.name] = a[i] end
-local diff = m.vector_thruster_7 - m.vector_thruster_5
-check("pitch differential survived intact", near(diff, 2 * mixer.cfg.PITCH_AUTH, 1e-6), diff)
+check("still symmetric about the demand",
+      near(m.vector_thruster_7 - 0.98, -(m.vector_thruster_5 - 0.98), 1e-6))
+check("mean unmoved at the top of the range", near(meanOf(a), 0.98, 1e-9), meanOf(a))
 
 a, sat = mixer.allocate({ lift = 0.02, pitch = -1 })
 check("also holds at the bottom", math.min(a[1],a[2],a[3],a[4]) >= -1e-9 and sat)
+
+print("LIFT_SLACK buys differential back, bounded")
+mixer.cfg.LIFT_SLACK = 0.1
+a = mixer.allocate({ lift = 0.02, pitch = 1, roll = 1 })
+check("mean rose, by no more than the slack",
+      meanOf(a) > 0.02 and meanOf(a) <= 0.02 + 0.1 + 1e-9, meanOf(a))
+mixer.cfg.LIFT_SLACK = 0
 
 print("vectoring: translation is common to all four")
 local v = mixer.vectors({ fwd = 0.5, lat = 0 })

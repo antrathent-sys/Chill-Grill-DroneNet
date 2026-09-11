@@ -40,7 +40,8 @@ mixer.cfg = {
   VEC_Y_IS   = "fwd",
   VEC_X_SIGN = 1,
   VEC_Y_SIGN = 1,
-  ATTITUDE_PRIORITY = true,  -- on saturation, give up lift before attitude
+  LIFT_SLACK = 0,            -- how far the mean may rise above the lift demand to buy differential.
+                             -- 0 keeps the altitude loop honest; see allocate().
 }
 
 local wrapped = {}
@@ -79,37 +80,49 @@ function mixer.allocate(d)
   local n = #mixer.cfg.thrusters
   if n == 0 then return {}, false end
 
+  -- The differential, as a set with mean zero. Subtracting its own mean is
+  -- what lets the lift demand survive: whatever happens to the shape below,
+  -- the average of the four thrusts stays where the altitude loop put it.
   local out, sat = {}, false
-  local lo, hi = math.huge, -math.huge
+  local diff, dsum = {}, 0
   for i, t in ipairs(mixer.cfg.thrusters) do
-    local v = lift + pitch * t.pitch + roll * t.roll
-    out[i] = v
-    if v < lo then lo = v end
-    if v > hi then hi = v end
+    diff[i] = pitch * t.pitch + roll * t.roll
+    dsum = dsum + diff[i]
+  end
+  local dmean = dsum / n
+  local lo, hi = math.huge, -math.huge
+  for i = 1, n do
+    diff[i] = diff[i] - dmean
+    if diff[i] < lo then lo = diff[i] end
+    if diff[i] > hi then hi = diff[i] end
   end
 
-  -- Saturation. Attitude is what keeps the craft the right way up, so when
-  -- there is not enough range for both, move the whole set to make the
-  -- differential fit and let lift suffer. Only if the differential ALONE
-  -- cannot fit do we scale it down.
-  if lo < 0 or hi > 1 then
-    sat = true
-    if cfg.ATTITUDE_PRIORITY then
-      local span = hi - lo
-      if span > 1 then
-        -- differential is wider than the whole range: scale it
-        local k = 1 / span
-        local mid = (hi + lo) / 2
-        for i = 1, n do out[i] = (out[i] - mid) * k + 0.5 end
-      else
-        local shift = 0
-        if lo < 0 then shift = -lo elseif hi > 1 then shift = 1 - hi end
-        for i = 1, n do out[i] = out[i] + shift end
-      end
-    else
-      for i = 1, n do out[i] = math.max(0, math.min(1, out[i])) end
-    end
+  -- LIFT IS PRESERVED, THE DIFFERENTIAL IS SCALED TO FIT.
+  --
+  -- The old rule was the other way round: shift the whole set so the
+  -- differential fits and let lift suffer. That silently pinned mean thrust
+  -- near 0.50 whenever both axes saturated - measured in flight on
+  -- 2026-09-11, where a commanded 1.00 and a commanded 0.00 both came out at
+  -- 0.500 - so the altitude loop was disconnected from the hardware exactly
+  -- when it mattered. A departure became a climb to 1457 m, and a landing
+  -- creep asking for 0.02 got 0.30 and hung above the ground.
+  --
+  -- Losing differential instead costs attitude authority only when lift is
+  -- low, and lift is low only when descending. In cruise the tilt
+  -- feed-forward already puts lift at 0.5-0.6, where almost all of the
+  -- differential still fits. LIFT_SLACK allows a little shift back if an
+  -- airframe ever needs it; 0 means the mean is exactly what was asked for.
+  local base = lift
+  if lo < 0 then
+    local need = -lo - lift              -- how far the lowest thruster goes below zero
+    if need > 0 then base = lift + math.min(need, cfg.LIFT_SLACK or 0) end
   end
+  local k = 1
+  if hi > 0 then k = math.min(k, (1 - base) / hi) end
+  if lo < 0 then k = math.min(k, base / -lo) end
+  k = math.max(0, math.min(1, k))
+  sat = k < 1 - 1e-9
+  for i = 1, n do out[i] = base + k * diff[i] end
 
   for i = 1, n do out[i] = math.max(0, math.min(1, out[i])) end
   return out, sat
