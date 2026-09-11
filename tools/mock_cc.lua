@@ -94,6 +94,14 @@ _G.os = _G.os or {}
 os.clock = function() return T end
 os.epoch = function() return math.floor(T * 1000) end
 
+-- rednet is only exercised by lib/rs.lua when a remote redstone target is
+-- configured; the harness configures none, so this just has to exist.
+_G.rednet = {
+  open = function() end,
+  broadcast = function() end,
+  receive = function() return nil end,
+}
+
 _G.redstone = {
   setOutput = function(side, on) sim.rs[side] = on and true or false end,
   getOutput = function(side) return sim.rs[side] or false end,
@@ -242,6 +250,7 @@ _G.peripheral = {
     return table.unpack(out)
   end,
   wrap = function(name) return periphs[name] end,
+  getType = function(name) local p = periphs[name] return p and p.__type or nil end,
   isPresent = function(name)
     -- LOSE_THRUSTER=<name> makes that peripheral vanish after 10 s, to
     -- exercise the monitoring path

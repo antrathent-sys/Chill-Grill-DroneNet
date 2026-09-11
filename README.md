@@ -72,6 +72,16 @@ First quad flights (2026-09-10, all at 0.25 s/iteration): `diff` - signs and aut
 
 `MIX_GAIN` scales the PID output into differential demand (the mixer then caps it at `PITCH_AUTH`/`ROLL_AUTH` = 25 % of range), and `MIX_P_SIGN`/`MIX_R_SIGN` flip an axis if it diverges. The flightlog's `vx,vy` columns carry the differential pitch/roll demand in `diff` mode and the nozzle vector otherwise; `sat` is 1 when the mixer ran out of range and traded lift for attitude. The thruster FE buffer is summed across all four; `kill` stops all of them.
 
+**Redstone that is not on this computer.** The 3x3 airframe has no free face next to the docking connector - the outer ring is accumulators and network cable, the centre column above it is the CC&A power connector, and the connector's API has no extend method (`getConnectedName` only, confirmed twice by `preflight`). So `DOCK_SIDE`, `PUMP_SIDE` and the coming payload side accept either a plain side string (a face of the flight computer) or a remote target:
+
+| Target | Meaning |
+|---|---|
+| `"back"` | a side of the flight computer, free, instant |
+| `{ relay = "redstone_relay_0", side = "back" }` | a CC:Tweaked Redstone Relay on the wired network (needs CC >= 1.109 - check with `print(_HOST)` on the pod) |
+| `{ slave = "drone-rs", side = "back" }` | a small computer running `rsio.lua`, reached by rednet over the craft's own cable |
+
+The slave path is fire-and-forget: waiting for an acknowledgement would stall whichever coroutine asked, and `dockExtend()` is called from the control loop. `rsio.lua` instead broadcasts its whole output state once a second, `monLoop` picks that up with `rs.poll()`, and `rs.check()` warns if the slave goes quiet or is holding something other than what was asked - so a dead slave shows up during the cruise rather than on final approach. `kill.lua` clears remote sides too, and never the docking one. Wired modems are preferred over wireless when opening rednet, so one drone cannot drive another's connector. Tests: `python tools/run_rs_test.py`.
+
 **Losing a thruster.** Every mixer write is `pcall`ed, so a thruster that drops off the wired network fails silently and a quad flips on the remaining three. `monLoop` checks `peripheral.isPresent` for each mapped thruster once per `MON_POLL` and, as a free backstop, `mixer.faults()` reports any thruster whose last three writes failed. Either one sounds the alarm chime and prints `THRUSTER LOST`. Worth knowing before you re-route network cable on the airframe.
 
 **First flight in diff mode:** `fly find 0.5` on the pad with `TUMBLE` low. If it rolls or pitches away instead of levelling, flip the matching `MIX_*_SIGN`. If it holds level but wallows, raise `MIX_GAIN`; if it twitches, lower it. Nothing about the tuning constants has been changed, so the hover gains are the single-thruster ones and will need a pass.
@@ -341,6 +351,7 @@ python tools/run_mission_test.py       lib/mission.lua, 24 cases
 python tools/run_chime_test.py         lib/chime.lua, 13 cases
 python tools/run_mixcal_test.py        mixcal.lua against a known corner rig
 python tools/run_mixer_test.py         lib/mixer.lua, 24 cases
+python tools/run_rs_test.py            lib/rs.lua, 19 cases
 python tools/run_attitude_test.py      lib/attitude.lua, 18 cases incl. singularities
 ```
 

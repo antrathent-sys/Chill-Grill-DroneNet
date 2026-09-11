@@ -227,6 +227,10 @@ local CFG = {
   FUEL_CAP = 0,                       -- mB; only needed when a fluid source reports amount but not capacity
   FUEL_WARN = 25,                     -- %: print LOW THRUSTER when the thruster buffer drops below this
   -- pump auto-start: switched on before takeoff, off when the program exits
+  -- Redstone outputs. A plain string is a side of THIS computer. A table is
+  -- somewhere else on the wired network - see lib/rs.lua:
+  --   { relay = "redstone_relay_0", side = "back" }   CC:Tweaked relay, CC >= 1.109
+  --   { slave = "drone-rs",         side = "back" }   a computer running rsio.lua
   PUMP_SIDE = nil,                    -- redstone side to hold high, e.g. "back" -> clutch on the pump shaft
   PUMP_MOTOR = nil,                   -- CC&A electric motor peripheral name that spins the pump
   PUMP_RPM = 32,
@@ -236,7 +240,9 @@ local CFG = {
   -- 0.5 blocks and 20 deg (server config docking_connector_distance/_angle)
   -- and pulls itself the last of the way, so these numbers only have to park
   -- the drone inside its reach, not hit the lock window by flying.
-  DOCK_SIDE = nil,                    -- redstone side that extends the connector; nil = docking off
+  DOCK_SIDE = nil,                    -- extends the connector; nil = docking off. On airframe 1 there is no
+                                      -- free face next to it, so this is the slave's REAR face:
+                                      -- { slave = "drone-rs", side = "back" }
   DOCK_NAME = nil,                    -- docking_connector peripheral name; nil = peripheral.find
   DOCK_ALIGN = 1.5,                   -- blocks: horizontal error to sit inside before descending
   DOCK_ALIGN_SPD = 0.5,               -- b/s: ground speed to be under as well
@@ -357,7 +363,32 @@ local dock = { armed = false, connected = false, name = "" }
 local dockP = CFG.DOCK_NAME and peripheral.wrap(CFG.DOCK_NAME) or peripheral.find("docking_connector")
 if CFG.DOCK_NAME and not dockP then print("WARNING: docking connector " .. CFG.DOCK_NAME .. " not found") end
 local function dockExtend(on)
-  if CFG.DOCK_SIDE then redstone.setOutput(CFG.DOCK_SIDE, on) end
+  if CFG.DOCK_SIDE then
+    local ok, err = RS.set(CFG.DOCK_SIDE, on)
+    if not ok then print("DOCK REDSTONE FAILED: " .. tostring(err)) end
+  end
+end
+
+-- Libraries. These load unconditionally: they were once nested inside the
+-- chime block, which meant turning chimes off silently dropped the attitude
+-- maths back to raw gimbal angles.
+--
+-- attitude maths (gravity vector from the gimbal's projected angles)
+local okA, libA = pcall(dofile, "lib/attitude.lua")
+ATT = okA and type(libA) == "table" and libA or nil
+if not ATT then print("WARNING: lib/attitude.lua missing - attitude errors fall back to raw gimbal angles") end
+
+-- redstone that is not necessarily on this computer's faces (see lib/rs.lua)
+local okR, libR = pcall(dofile, "lib/rs.lua")
+RS = okR and type(libR) == "table" and libR or nil
+if not RS then
+  RS = { set = function(t, on) if type(t) == "string" then redstone.setOutput(t, on) return true end
+                               return false, "lib/rs.lua missing, cannot drive " .. tostring(t) end,
+         clear = function(keep) for _, s in ipairs(redstone.getSides()) do
+                   if s ~= keep then redstone.setOutput(s, false) end end end,
+         poll = function() end, check = function() return {} end,
+         describe = function(t) return tostring(t) end }
+  print("WARNING: lib/rs.lua missing - only redstone on this computer's own faces will work")
 end
 
 -- Chimes. Optional, silent without a speaker, and every call returns instantly
@@ -365,10 +396,6 @@ end
 local chime = { play = function() end, loop = function() while true do sleep(1) end end }
 if CFG.CHIME and fs.exists("lib/chime.lua") then
   local ok, lib = pcall(dofile, "lib/chime.lua")
-  -- attitude maths (gravity vector from the gimbal's projected angles)
-  local okA, libA = pcall(dofile, "lib/attitude.lua")
-  ATT = okA and type(libA) == "table" and libA or nil
-  if not ATT then print("WARNING: lib/attitude.lua missing - attitude errors fall back to raw gimbal angles") end
   if ok and lib then
     local spk = peripheral.find("speaker")
     if spk and lib.attach(spk) then chime = lib print("speaker: chimes on") end
@@ -442,7 +469,7 @@ do
 end
 
 local function monLoop()
-  local warnE, warnF, warnT = false, false, false
+  local warnE, warnF, warnT, warnR = false, false, false, false
   local lastE, lastT = nil, nil
   while true do
     -- Thrusters still on the network? Losing one corner flips a quad, and
@@ -467,6 +494,20 @@ local function monLoop()
       else
         warnT = false
       end
+    end
+    -- Remote redstone: a dead slave means the docking connector cannot be
+    -- extended or released. Better to hear about it in the cruise than on
+    -- final approach. rs.poll costs at most a tick, and only here.
+    RS.poll()
+    local rsBad = RS.check()
+    if #rsBad > 0 then
+      if not warnR then
+        warnR = true
+        chime.play("warn")
+        print("REDSTONE: " .. table.concat(rsBad, "; "))
+      end
+    else
+      warnR = false
     end
     if acc then
       local sum, n = 0, 0
@@ -523,7 +564,10 @@ end
 local pumpMotor = CFG.PUMP_MOTOR and peripheral.wrap(CFG.PUMP_MOTOR) or nil
 if CFG.PUMP_MOTOR and not pumpMotor then print("WARNING: pump motor " .. CFG.PUMP_MOTOR .. " not found") end
 local function pump(on)
-  if CFG.PUMP_SIDE then redstone.setOutput(CFG.PUMP_SIDE, on) end
+  if CFG.PUMP_SIDE then
+    local ok, err = RS.set(CFG.PUMP_SIDE, on)
+    if not ok then print("PUMP REDSTONE FAILED: " .. tostring(err)) end
+  end
   if pumpMotor then
     if on then pumpMotor.setSpeed(CFG.PUMP_RPM) else pumpMotor.stop() end
   end
@@ -1251,7 +1295,7 @@ if chime.playNow then
 end
 if dock.connected then
   -- DOCK_SIDE is deliberately left high: dropping it is what undocks.
-  print("docked to " .. dock.name .. " - " .. tostring(CFG.DOCK_SIDE) .. " held, 'fly undock' releases")
+  print("docked to " .. dock.name .. " - " .. RS.describe(CFG.DOCK_SIDE) .. " held, 'fly undock' releases")
 end
 
 -- Push the log last, once the thruster is already off. Wrapped so a bad token,
