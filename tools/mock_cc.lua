@@ -112,10 +112,12 @@ local function step(to)
     near = math.abs(sim.h - (sim.padY + PARK)) < 1.6 and d < 1.5
   end
   if os.getenv('NODOCK') then extended = false end
-  -- PAD_SOLID: the craft cannot get below the pad surface, so a park height
-  -- typed too low leaves the descent waiting for an altitude it can never
-  -- reach. That hung a real flight on 2026-09-11.
-  if os.getenv('PAD_SOLID') and d < 3 and sim.h < sim.padY + PARK then
+  -- The pad is solid: the craft cannot get below the park height over it.
+  -- (Used to be opt-in as PAD_SOLID; without it the model sank through the
+  -- pad once the flare stopped hovering, which no real pad allows. A park
+  -- height typed too low then leaves the descent waiting for an altitude it
+  -- can never reach - that hung a real flight on 2026-09-11.)
+  if d < 3 and sim.h < sim.padY + PARK then
     sim.h = sim.padY + PARK
     if sim.vv < 0 then sim.vv = 0 end
   end
