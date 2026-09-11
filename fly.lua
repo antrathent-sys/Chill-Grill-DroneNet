@@ -282,7 +282,15 @@ local CFG = {
   YAW_TILT_MAX = 180,                 -- deg: lean above which yaw is not commanded (off)
   YAW_MIN_SPEED = 5,                  -- b/s: below this the course is meaningless, hold heading instead
   YAW_ABORT_DEG = 90,                 -- heading change in 2 s that counts as a spin
-  BRAKE_K = 0.3,                      -- brake distance = K * speed^2 / 10 (132 b/s stopped in ~575 blocks: ~15 b/s^2)
+  -- Brake distance = K * speed^2 / 10, i.e. K = 5 / (b/s^2 achievable).
+  -- MEASURED 2026-09-11: two brakes managed 8 and 6 b/s^2, taking 130 blocks
+  -- to stop from 47 b/s where K = 0.3 predicted 72 - so it overshot and had
+  -- to turn round. Not a tuning slip but the physics: braking is a lean
+  -- against the travel, and past about 45 degrees the thrust that slows the
+  -- craft starts lifting it instead. Set for 6 b/s^2, the worse of the two,
+  -- because stopping short costs one re-cruise and overshooting costs a
+  -- turn-around.
+  BRAKE_K = 0.8,
   CRUISE_DECEL = 8,                   -- b/s^2 the cruise speed target plans for: v = min(CRUISE_SPEED, sqrt(2*DECEL*d)),
                                       -- so a short leg never leans to the cap (a 125-block re-cruise did, and
                                       -- ping-ponged dash/brake four times, 2026-09-10)
@@ -330,6 +338,10 @@ local CFG = {
   DOCK_CAPTURE_T = 25,                -- seconds to wait for the magnet before aborting
   DOCK_ABORT_DIST = 4,                -- blocks of drift that sends the descent back to align
   DOCK_TRIES = 3,                     -- capture attempts before giving up and just holding
+  DOCK_RETRY_UP = 15,                 -- blocks above the park height to back off to for another try.
+                                      -- Climbing back to cruise altitude cost 80 s of a 208 s flight:
+                                      -- above SPEED_GUARD the position hold does not act at all, so
+                                      -- the craft coasted 250 blocks away and then crawled back.
   -- Undocking. Dropping the connector and THEN spooling up is a fall: the
   -- pad lets go the instant the signal goes low. So hold full thrust against
   -- the magnet first and only release once the hardware confirms it has it.
@@ -1265,8 +1277,9 @@ local function controlLoop()
       local dx, dz = tgtX - pos.x, tgtZ - pos.z
       local d = math.sqrt(dx * dx + dz * dz)
       if d > CFG.DOCK_ABORT_DIST then
-        phase = "align" alignStart = nil goal = cruiseY
-        print(string.format("drifted %.1f blocks - back to align", d))
+        phase = "align" alignStart = nil
+        goal = math.min(cruiseY, dockAlt + CFG.DOCK_RETRY_UP)
+        print(string.format("drifted %.1f blocks - back to align at %.0f", d, goal))
       else
         -- The descent itself is the landing profile - fall at whatever the
         -- height left can arrest, flare to a creep - with dockAlt as the
@@ -1296,7 +1309,7 @@ local function controlLoop()
         phase = "docked" print("DOCKED to " .. dock.name)
       elseif t - captureStart > CFG.DOCK_CAPTURE_T then
         dockTries = dockTries + 1
-        goal = cruiseY
+        goal = math.min(cruiseY, dockAlt + CFG.DOCK_RETRY_UP)
         if dockTries >= CFG.DOCK_TRIES then
           phase = "hold" dockExtend(false) dock.armed = false dock.extended = false
           print("capture failed " .. dockTries .. "x - holding, connector retracted")
