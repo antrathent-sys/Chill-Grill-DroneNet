@@ -76,7 +76,9 @@ local CFG = {
   PKP = 0.2, VMAX = 8, PKV = 3.0,     -- PKV 1 settled at 5.5 b/s on 8 deg; 3 leans harder toward VMAX
   PKI = 0.05, TRIM_MAX = 3,
   TILT_MAX = 20,                      -- quad: 8 deg of lean only bought 2.5 b/s; 20 lets the hold reach VMAX
-  SPEED_GUARD = 6,                    -- b/s: position hold engages below this (4 let a 12 b/s residual coast 148 blocks)
+  SPEED_GUARD = 20,                   -- b/s: position hold engages below this. 6 let the post-brake residual
+                                      -- (brake ends at <3 b/s but still leaned 38 deg, which re-accelerates it
+                                      -- to 12) coast 50 blocks with the hold locked out, three times per arrival
   PITCH_DIR = -1, ROLL_DIR = 1,
   -- Quad frame, fitted from two position-hold flights on 2026-09-10 (world
   -- velocity response to pitch and roll, tools/fit_heading.py): the flat nav
@@ -1587,6 +1589,14 @@ local function flyLeg()
         -- enough to fall.
         local floor = (phase == "land") and CFG.ATT_MIN_LAND or CFG.ATT_MIN_POWER
         if tiltA > CFG.ATT_MIN_TILT then pwr = math.max(pwr, floor) end
+        -- Falling, the floor is not tilt-gated. The dock descent of 2026-09-11
+        -- spent its first four seconds at zero throttle - and zero thrust is
+        -- zero differential, so the attitude loop had nothing to work with:
+        -- roll drifted to 15 deg against a 4 deg demand before the tilt gate
+        -- above finally engaged. ATT_MIN_LAND still falls at ~5 b/s^2.
+        if phase == "descend" or (phase == "land" and landSettled) then
+          pwr = math.max(pwr, CFG.ATT_MIN_LAND)
+        end
       end
       if phase == "docked" or phase == "touchdown" then pwr = 0 end
       -- still bolted to the pad: ask for everything, so the release has
