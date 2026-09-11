@@ -1,5 +1,7 @@
 -- fly find <power>            -> hold fixed power, find hover point
 -- fly <y> [x] [z]             -> hold Y, hold position or fly to x z
+-- fly dock <x> <y> <z> [cruiseY] -> fly to the pad at x z and dock. y is the PAD altitude, the same
+--                                shape as fly land, so both take coordinates straight off F3.
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
 -- fly land                    -> descend where you are, detect touchdown, cut thrust. No pad, no recharge.
@@ -893,9 +895,10 @@ else
   elseif arg[1] == "dock" then
     mode = "dock"
     if not CFG.DOCK_SIDE then error("dock needs CFG.DOCK_SIDE set") end
-    tgtX = tonumber(arg[2]) or error("dock needs x z padY")
-    tgtZ = tonumber(arg[3]) or error("dock needs x z padY")
-    padY = tonumber(arg[4]) or error("dock needs x z padY")
+    -- <x> <y> <z>: the same order as fly land, y being the pad altitude
+    tgtX = tonumber(arg[2]) or error("dock needs <x> <y> <z>", 0)
+    padY = tonumber(arg[3]) or error("dock needs <x> <y> <z>", 0)
+    tgtZ = tonumber(arg[4]) or error("dock needs <x> <y> <z>", 0)
     goal = tonumber(arg[5]) or CFG.CRUISE_Y
     dockAlt = padY + CFG.DOCK_GAP
     dashDeg = CFG.CRUISE_DEG

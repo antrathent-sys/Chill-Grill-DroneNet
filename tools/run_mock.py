@@ -39,19 +39,19 @@ SELFTEST = [
      ["climb", "dash", "brake", "hold"]),
     ("go", ["go", "100", "50", "90"], {"TMAX": "90"},
      ["climb", "dash", "brake", "hold"]),
-    ("dock", ["dock", "100", "50", "70", "90"], {"TMAX": "120"},
+    ("dock", ["dock", "100", "70", "50", "90"], {"TMAX": "120"},
      ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
     # DOCK_TRIES = 3, so capture is attempted three times before it gives up
-    ("dock abort", ["dock", "100", "50", "70", "90"], {"TMAX": "300", "NODOCK": "1"},
+    ("dock abort", ["dock", "100", "70", "50", "90"], {"TMAX": "300", "NODOCK": "1"},
      ["climb", "dash", "brake"] + ["align", "descend", "capture"] * 3 + ["hold"]),
     ("undock", ["undock", "80"], {"TMAX": "40", "START_DOCKED": "1"}, ["fly"]),
     # the four-thruster airframe carries no velocity sensors: body speed comes
     # from Sable world velocity rotated by the nav-table heading instead
-    ("dock, no vel sensors", ["dock", "100", "50", "70", "90"], {"TMAX": "120", "NOVEL": "1"},
+    ("dock, no vel sensors", ["dock", "100", "70", "50", "90"], {"TMAX": "120", "NOVEL": "1"},
      ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
     # four thrusters: fly.lua must pick up lib/mixer.lua and hold attitude by
     # differential thrust (the mock's mixmap-free path uses CFG.MIX_MAP)
-    ("quad dock", ["dock", "100", "50", "70", "90"], {"TMAX": "120", "NOVEL": "1", "QUAD": "1"},
+    ("quad dock", ["dock", "100", "70", "50", "90"], {"TMAX": "120", "NOVEL": "1", "QUAD": "1"},
      ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # the mock never yaws, so this only checks the spin schedule runs

@@ -88,6 +88,19 @@ The same words arrive over rednet on `CMD_PROTO`, as a bare string or `{cmd="lan
 
 The profile needs to know where the ground is, and the altitude sensor is not zeroed to it. The default reference is **the altitude the program started at**, which is exactly right when landing where you took off and wrong by the terrain difference anywhere else; a generous flare absorbs small errors, and the third argument sets a known pad. Too high an estimate means a long slow creep, too low means a late flare.
 
+**Proving the docking connector before trusting it.** `docktest` drives the redstone and watches `getConnectedName()`:
+
+```
+docktest                      report only - nothing is driven
+docktest back                 a side of this computer
+docktest relay redstone_relay_0 back
+docktest slave drone-rs back
+```
+
+It extends, reports for six seconds, releases, reports again - **on the pad only**, since extending arms the magnet and releasing is what undocks. The connector's entire API is `getConnectedName()`, with no "am I extended" to read, so what this can prove is that the output really changed and that the pad answers when it does. `signal=false` means the redstone never reached it; `signal=true` with `docked=no` means the wiring is right and the alignment or the pad is not. With a slave the readback is the heartbeat confirming what it is holding.
+
+`fly dock <x> <y> <z> [cruiseY]` now takes the same argument order as `fly land` - y is the pad altitude - so both read straight off F3.
+
 **Come down straight.** A burn while tilted is a sideways burn - at 0.5 thrust and TWR 5.2, ten degrees of lean is half a g of lateral push, which is most of why the early landings finished tens of blocks off. So the descent does not start until the craft has **settled**: under `LAND_SETTLE_TILT` of lean and `LAND_SETTLE_DRIFT` of ground speed, held for `LAND_SETTLE_T`. Falling while still leaning off the brake is what put one landing 38 blocks out.
 
 Through the descent the position controller's tilt authority is cut to `LAND_TILT_MAX` (8 deg), and to `LAND_TILT_BURN` (3 deg) once inside the flare - that is where thrust is highest, so it is where a degree of lean costs the most sideways. Full authority is restored before the drop, while settling, because that is when the drift is meant to be killed.

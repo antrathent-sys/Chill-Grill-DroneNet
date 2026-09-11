@@ -5,7 +5,7 @@ local REPO   = "antrathent-sys/Chill-Grill-DroneNet"
 local BRANCH = "main"
 local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua", "preflight.lua",
                  "mixcal.lua",
-                 "rsio.lua", "chimes.lua",
+                 "rsio.lua", "chimes.lua", "docktest.lua",
                  "lib/chime.lua", "lib/db.lua", "lib/mission.lua", "lib/rs.lua",
                  "lib/mixer.lua", "lib/attitude.lua" }
 
