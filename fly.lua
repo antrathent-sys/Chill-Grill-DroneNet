@@ -367,7 +367,9 @@ local CFG = {
   -- still asking for 7 b/s when it arrived, and hit the pad at about 10.
   -- To re-measure on a new airframe: land on the pad and take the altimeter
   -- reading where it stops, minus the pad Y.
-  DOCK_GAP = 7.5,
+  DOCK_GAP = 5.5,                     -- blocks the altimeter reads above padY when LATCHED. Four flights
+                                      -- started latched at 68.5 over a pad at 63; 70.5 (the old value) is
+                                      -- where the craft sits on the extended connector WITHOUT latching.
   DOCK_BAND = 0.5,                    -- blocks: how close to the park altitude counts as arrived
   DOCK_RATE = 1.5,                    -- b/s: how fast the altitude goal walks down
   DOCK_SINK = 0.0,                    -- power bled off in capture so the magnet can pull down
@@ -1213,6 +1215,7 @@ local function flyLeg()
   local touchT, landStart = 0, nil     -- touchdown debounce, and the giving-up clock
   local undockT = 0                    -- seconds at full thrust while still attached
   local descStuck = 0                  -- seconds the dock descent has not been descending
+  local descendStart = 0               -- when this descent began; the altitude ring is stale before touchWin
   local hHist, touchWin = {}, 12       -- ring of recent altitudes, ~1.2 s at 10 Hz
   local touchAt = nil                  -- when touchdown fired, for the post-landing log
   local landSettled, settleT, settleWarned = false, 0, false  -- stopped and level before the drop
@@ -1443,6 +1446,7 @@ local function flyLeg()
         alignBad = 0
         if t - alignStart > CFG.DOCK_SETTLE_T then
           phase = "descend" chime.play("descend")
+          descStuck, descendStart = 0, t
           print(string.format("descend to %.1f", dockAlt))
         end
       else
@@ -1470,10 +1474,17 @@ local function flyLeg()
         -- and can be wrong - on 2026-09-11 the craft physically stopped 4.5
         -- blocks above it, so this phase waited for a height it could never
         -- reach, with thrust at zero, indefinitely. Stopping is arriving.
+        -- "Stopped" has to mean the pad is taking the weight - throttle below
+        -- hover, as land's touchdown test requires - not merely that the
+        -- altitude has not moved. On 2026-09-11 a 40 b/s descent arrested
+        -- exactly at the flare height with the rate integrator wound up; 0.6 s
+        -- of hovering there read as stuck, capture was declared 2 blocks above
+        -- the pad, and the craft sat there tilting until it slid off.
+        local unloaded = lastPwr < CFG.HOVER * CFG.TOUCH_PWR
         if h <= dockAlt + CFG.DOCK_BAND then
           phase = "capture" captureStart = t chime.play("capture")
           print("capture - waiting for the magnet")
-        elseif hStuck and vWantS < -0.5 then
+        elseif hStuck and unloaded and vWantS < -0.5 and t - descendStart > touchWin * 0.1 then
           descStuck = descStuck + dt
           if descStuck >= CFG.TOUCH_T then
             phase = "capture" captureStart = t chime.play("capture")
