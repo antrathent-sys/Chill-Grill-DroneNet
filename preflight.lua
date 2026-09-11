@@ -359,6 +359,15 @@ if not http then wrn("http API disabled - no updates, no log upload") end
 -- ---------- verdict ----------
 print("")
 print(string.format("%d ok, %d warnings, %d failures", pass, warn, bad))
+-- Say it out loud too: on the pad you are usually looking at the craft, not
+-- at the screen.
+do
+  local okC, ch = pcall(dofile, "lib/chime.lua")
+  local spk = peripheral.find("speaker")
+  if okC and type(ch) == "table" and spk and ch.attach(spk) then
+    ch.playNow(bad > 0 and "preflight_fail" or "preflight_ok")
+  end
+end
 if bad > 0 then
   print("DO NOT FLY until the failures are cleared.")
 else

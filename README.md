@@ -72,6 +72,12 @@ First quad flights (2026-09-10, all at 0.25 s/iteration): `diff` - signs and aut
 
 `MIX_GAIN` scales the PID output into differential demand (the mixer then caps it at `PITCH_AUTH`/`ROLL_AUTH` = 25 % of range), and `MIX_P_SIGN`/`MIX_R_SIGN` flip an axis if it diverges. The flightlog's `vx,vy` columns carry the differential pitch/roll demand in `diff` mode and the nozzle vector otherwise; `sat` is 1 when the mixer ran out of range and traded lift for attitude. The thruster FE buffer is summed across all four; `kill` stops all of them.
 
+**Chimes.** `lib/chime.lua` is a small note-block sequencer in its own coroutine - `play` queues a name and returns instantly, so nothing here can stall the control loop, and with no speaker every call is a silent no-op. There is a grammar rather than a pile of beeps: rising means something began and is going well, falling means it finished, repeated means attend, dissonant means broken, and a four-note signature (0 7 5 12) opens `boot`, closes `delivered` and runs backwards for `home`, so the same phrase brackets a whole delivery.
+
+Any phase name with a matching set chimes automatically, because `enter()` plays the phase name - so `land`, `touchdown` and `drop` are already written and will sound the moment those phases exist. Faults have distinct voices instead of one generic alarm: `lost` (a tritone - a corner stopped answering), `spin`, `lowpower`, `lowfuel`, `warn`. `chime.play(name, true)` jumps the queue for anything that should not wait behind three phase chimes. `chime.volume(0..1)` scales everything, `chime.melody{...}` plays an ad-hoc sequence, and `cruise` is an opt-in two-bar groove you can queue during a long dash.
+
+Audition them on the pad with `chimes` (all of them, named as they play), `chimes docked` (one), `chimes cruise 4` (four times) or `chimes list`. Tests: `python tools/run_chime_test.py` - 25 cases, including that every set terminates, no chord exceeds the speaker's 8 notes per tick, and a speaker that throws cannot kill the loop.
+
 **Redstone that is not on this computer.** The 3x3 airframe has no free face next to the docking connector - the outer ring is accumulators and network cable, the centre column above it is the CC&A power connector, and the connector's API has no extend method (`getConnectedName` only, confirmed twice by `preflight`). So `DOCK_SIDE`, `PUMP_SIDE` and the coming payload side accept either a plain side string (a face of the flight computer) or a remote target:
 
 | Target | Meaning |

@@ -398,7 +398,11 @@ if CFG.CHIME and fs.exists("lib/chime.lua") then
   local ok, lib = pcall(dofile, "lib/chime.lua")
   if ok and lib then
     local spk = peripheral.find("speaker")
-    if spk and lib.attach(spk) then chime = lib print("speaker: chimes on") end
+    if spk and lib.attach(spk) then
+      chime = lib
+      print("speaker: chimes on (" .. #chime.list() .. " sounds; 'chimes' to audition)")
+      chime.play("boot")
+    end
   end
 end
 
@@ -487,7 +491,7 @@ local function monLoop()
       if #lost > 0 then
         if not warnT then
           warnT = true
-          chime.play("alarm")
+          chime.play("lost", true)
           print("THRUSTER LOST: " .. table.concat(lost, ", "))
           print("  attitude authority is gone on that corner - land now")
         end
@@ -526,7 +530,7 @@ local function monLoop()
         mon.energy, mon.t = pct, now
         if pct < CFG.ENERGY_WARN and not warnE then
           warnE = true
-          chime.play("warn")
+          chime.play("lowpower")
           local eta = mon.rate < 0 and string.format(" (~%.1f min to empty)", -pct / mon.rate) or ""
           print(string.format("LOW ENERGY %.0f%%%s", pct, eta))
         elseif pct >= CFG.ENERGY_WARN + 5 then
@@ -541,7 +545,8 @@ local function monLoop()
         fuel.pct = (cap and cap > 0) and (100 * amt / cap) or -1
         if fuel.pct >= 0 then
           if fuel.pct < CFG.FUEL_WARN and not warnF then
-            warnF = true print(string.format("LOW %s %.0f%%", fuelLabel, fuel.pct))
+            warnF = true chime.play("lowfuel")
+            print(string.format("LOW %s %.0f%%", fuelLabel, fuel.pct))
           elseif fuel.pct >= CFG.FUEL_WARN + 5 then
             warnF = false
           end
@@ -1263,7 +1268,7 @@ local function controlLoop()
           -- sign is confirmed in flight; a fast turn now is aero, and the
           -- damping is the only thing fighting it, so warn but keep going
           yawWarned = true
-          chime.play("warn")
+          chime.play("spin")
           print(string.format("yaw: turned %.0f deg in 2 s - damping hard", turned))
         end
       end
@@ -1290,7 +1295,8 @@ print("thrusters off, pump off - flightlog saved")
 if chime.playNow then
   pcall(function()
     if dock.connected then chime.playNow("docked")
-    elseif not ok then chime.playNow("alarm") end
+    elseif not ok then chime.playNow("alarm")
+    else chime.playNow("shutdown") end
   end)
 end
 if dock.connected then
@@ -1301,6 +1307,7 @@ end
 -- Push the log last, once the thruster is already off. Wrapped so a bad token,
 -- a dead link or a disabled http API can never mask how the flight went.
 if CFG.AUTO_UPLOAD and http and fs.exists("upload.lua") then
+  if chime.playNow then pcall(chime.playNow, "upload") end
   local sent, why = pcall(function()
     if shell then return shell.run("upload") end
     return os.run({}, "upload.lua")

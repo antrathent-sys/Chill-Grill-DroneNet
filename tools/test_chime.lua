@@ -36,7 +36,7 @@ played = {}
 chime.play("docked")
 local ok, err = drain(12)
 check("loop runs without error", ok, err)
-check("docked played 3 notes", #played == 3, #played)
+check("docked plays 4 notes, root included", #played == 4, #played)
 check("notes rise", played[1].p < played[2].p and played[2].p < played[3].p,
       table.concat({played[1].p, played[2].p, played[3].p}, ","))
 
@@ -80,6 +80,73 @@ for i = 1, 50 do chime.play("tick") end
 played = {}
 drain(30)
 check("dropped the backlog rather than queueing 50", #played < 12, #played)
+
+print("the signature theme brackets a delivery")
+local function pitches(name)
+  chime.detach() chime.attach(spk) played = {}
+  chime.play(name) drain(40)
+  local t = {} for _, x in ipairs(played) do t[#t+1] = x.p end return t
+end
+local function has(seq, sub)
+  for i = 0, #seq - #sub do
+    local hit = true
+    for j = 1, #sub do if seq[i+j] ~= sub[j] then hit = false break end end
+    if hit then return true end
+  end
+  return false
+end
+local THEME = { 12, 19, 17, 24 }              -- 0 7 5 12 around the centre
+check("boot opens with the theme", has(pitches("boot"), THEME), table.concat(pitches("boot"), " "))
+check("delivered opens with the theme", has(pitches("delivered"), THEME))
+check("home runs it backwards", has(pitches("home"), { 24, 17, 19, 12 }))
+
+print("faults can jump the queue")
+chime.detach() chime.attach(spk) played = {}
+chime.play("hold") chime.play("hold") chime.play("hold")
+chime.play("alarm", true)
+drain(30)
+check("alarm played first", played[1] and played[1].i == "basedrum", played[1] and played[1].i)
+
+print("volume scales everything, including what is already queued")
+chime.detach() chime.attach(spk) played = {}
+chime.volume(0.5) chime.play("docked") drain(20)
+local loud = played[#played].v
+chime.volume(1.0) played = {}
+chime.play("docked") drain(20)
+check("half volume is half as loud", math.abs(loud * 2 - played[#played].v) < 1e-6,
+      loud .. " vs " .. played[#played].v)
+chime.volume(0) played = {}
+chime.play("docked") drain(20)
+check("zero volume plays nothing", #played == 0, #played)
+chime.volume(1)
+
+print("ad-hoc melodies and the name list")
+chime.detach() chime.attach(spk) played = {}
+check("melody queues", chime.melody({ { inst = "harp", pitch = 12, vol = 1, wait = 0.1 } }))
+drain(6)
+check("melody played", #played == 1, #played)
+local names = chime.list()
+check("list is sorted and populated", #names > 20 and names[1] < names[2], #names)
+
+print("every set can finish: non-empty, and the last note waits")
+local bad = nil
+for _, name in ipairs(chime.list()) do
+  local seq = chime.sets[name]
+  if seq.inst then seq = { seq } end
+  if #seq == 0 then bad = name .. " is empty"
+  elseif not (seq[#seq].wait and seq[#seq].wait > 0) then bad = name .. " ends on wait 0" end
+end
+check("all sets terminate", bad == nil, bad)
+
+print("the cruise groove is two bars and stays inside the chord limit")
+local cruise = chime.sets.cruise
+local steps, worst, cur = 0, 0, 0
+for _, note in ipairs(cruise) do
+  cur = cur + 1
+  if note.wait > 0 then steps = steps + 1 if cur > worst then worst = cur end cur = 0 end
+end
+check("16 steps", steps == 16, steps)
+check("at most 3 voices at once", worst <= 3, worst)
 
 print("a broken speaker cannot kill the loop")
 chime.attach({ playNote = function() error("speaker exploded") end })
