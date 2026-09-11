@@ -137,7 +137,9 @@ local CFG = {
   LAND_CRUISE_UP = 60,                -- minimum clearance above the destination ground, if CRUISE_Y is lower
   ATT_MIN_LAND = 0.12,                -- thrust floor while landing: about half hover, so it can descend
                                       -- while leaning without giving up all attitude authority
-  TOUCH_VY = 0.4,                     -- b/s: below this counts as not descending
+  TOUCH_DROP = 0.6,                   -- blocks: less movement than this over TOUCH_WIN means something
+                                      -- is holding us up. Measured on the altimeter, not on velocity.
+  TOUCH_LOG_T = 3.0,                  -- seconds to keep logging after touchdown, thrust already off
   TOUCH_PWR = 0.9,                    -- fraction of HOVER: below this, the ground is taking the weight
   TOUCH_T = 0.6,                      -- seconds all three must hold
   LAND_MAX_T = 90,                    -- give up and hover rather than descend forever
@@ -923,7 +925,7 @@ end
 local log = fs.open("flightlog", "w")
 -- athr/amax are what the thrusters were ACTUALLY given, mean and worst. pwr
 -- is only what the altitude loop asked for; they part company whenever sat=1.
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -959,6 +961,8 @@ local function controlLoop()
   local trimP, trimR = 0, 0
   local phase = (mode == "dash" or mode == "go" or mode == "dock") and "climb" or mode
   local touchT, landStart = 0, nil     -- touchdown debounce, and the giving-up clock
+  local hHist, touchWin = {}, 12       -- ring of recent altitudes, ~1.2 s at 10 Hz
+  local touchAt = nil                  -- when touchdown fired, for the post-landing log
   local tpS, trS = 0, 0    -- rate-limited tilt targets
   local cruiseIx, cruiseIz = 0, 0   -- go-mode speed integrators, world frame (deg of lean)
   local cruiseHdg = nil             -- slow-filtered heading used for the cruise split
@@ -1037,9 +1041,18 @@ local function controlLoop()
       -- descending, and the throttle is below what hovering costs - so
       -- something other than the thrusters is holding the craft up.
       landStart = landStart or t
-      local notFalling = math.abs(v) < CFG.TOUCH_VY
+      -- Measure the ALTITUDE, not the velocity. `v` comes from Sable's
+      -- vertical speed, and a single zero from it - stale pose, a dropped
+      -- read - looks exactly like arriving on the ground. A flight on
+      -- 2026-09-11 called touchdown while still in the air on an angle.
+      -- Altitude is a direct reading: if it has not moved while we are asking
+      -- to come down, something is holding us up.
+      local slot = iter % touchWin + 1     -- this slot still holds h from touchWin iterations ago
+      local hAgo = hHist[slot]
+      hHist[slot] = h
+      local stuck = hAgo and math.abs(h - hAgo) < CFG.TOUCH_DROP
       local unloaded = lastPwr < CFG.HOVER * CFG.TOUCH_PWR
-      if notFalling and unloaded and vWantS < -0.5 then
+      if stuck and unloaded and vWantS < -0.5 then
         touchT = touchT + dt
       else
         touchT = 0
@@ -1214,7 +1227,7 @@ local function controlLoop()
         local floor = (phase == "land") and CFG.ATT_MIN_LAND or CFG.ATT_MIN_POWER
         if tiltA > CFG.ATT_MIN_TILT then pwr = math.max(pwr, floor) end
       end
-      if phase == "docked" then pwr = 0 end
+      if phase == "docked" or phase == "touchdown" then pwr = 0 end
     end
 
     local hdg, raw = hdgNow, rawH
@@ -1424,17 +1437,18 @@ local function controlLoop()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
-      yawErr, pos.wy, yawDem, mixThr, mixMax))
+      yawErr, pos.wy, yawDem, mixThr, mixMax, v))
     if phase == "touchdown" then
-      -- weight is on the ground: nothing left to hold up
-      pwr = 0
-      if mixer then mixer.stop() else drive(0, 0, 0) end
-      log.writeLine(string.format("%.2f,touchdown,%.2f,0,0,0,%.1f,%.1f,0,0,0,0,%.0f,%.0f,-1,0,0,%.1f,%.1f,0,0,0,0,0,0,0,0,%.0f,%.0f,0,0,0,0,0,0",
-        t - t0, h, pos.x, pos.z, hdg, raw, a[1], a[2], mon.energy, fuel.pct))
-      return
+      -- Thrust is already zero (see the power section). Keep flying the loop
+      -- for a few more seconds purely to log: at the instant it fires, a
+      -- false touchdown looks exactly like a real one, and only what happens
+      -- next tells them apart. Normal rows, so height, tilt and vv are all
+      -- there.
+      touchAt = touchAt or t
+      if t - touchAt > CFG.TOUCH_LOG_T then return end
     end
     if phase == "docked" then return end
     sleep(0.05)
