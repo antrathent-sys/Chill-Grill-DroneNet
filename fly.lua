@@ -989,7 +989,7 @@ end
 local log = fs.open("flightlog", "w")
 -- athr/amax are what the thrusters were ACTUALLY given, mean and worst. pwr
 -- is only what the altitude loop asked for; they part company whenever sat=1.
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -1026,6 +1026,7 @@ local function controlLoop()
   local phase = (mode == "dash" or mode == "go" or mode == "dock") and "climb" or mode
   local touchT, landStart = 0, nil     -- touchdown debounce, and the giving-up clock
   local undockT = 0                    -- seconds at full thrust while still attached
+  local descStuck = 0                  -- seconds the dock descent has not been descending
   local hHist, touchWin = {}, 12       -- ring of recent altitudes, ~1.2 s at 10 Hz
   local touchAt = nil                  -- when touchdown fired, for the post-landing log
   local landSettled, settleT, settleWarned = false, 0, false  -- stopped and level before the drop
@@ -1101,6 +1102,13 @@ local function controlLoop()
       end
     end
 
+    -- Has the altimeter stopped moving? Both landing and docking need this,
+    -- and it must be sampled every iteration or the ring buffer is meaningless.
+    local hSlot = iter % touchWin + 1
+    local hAgo = hHist[hSlot]
+    hHist[hSlot] = h
+    local hStuck = hAgo ~= nil and math.abs(h - hAgo) < CFG.TOUCH_DROP
+
     lastPhase = phase
     -- A command from the keyboard or the radio, taken at a clean point.
     if cmdReq then
@@ -1155,10 +1163,7 @@ local function controlLoop()
       -- 2026-09-11 called touchdown while still in the air on an angle.
       -- Altitude is a direct reading: if it has not moved while we are asking
       -- to come down, something is holding us up.
-      local slot = iter % touchWin + 1     -- this slot still holds h from touchWin iterations ago
-      local hAgo = hHist[slot]
-      hHist[slot] = h
-      local stuck = hAgo and math.abs(h - hAgo) < CFG.TOUCH_DROP
+      local stuck = hStuck
       local unloaded = lastPwr < CFG.HOVER * CFG.TOUCH_PWR
       -- If the ground altitude was given, believe it: no amount of hovering
       -- counts as a landing while still well above it.
@@ -1268,9 +1273,21 @@ local function controlLoop()
         -- ground. See the altitude section; goal is only kept in step so the
         -- error term reads sensibly in the log.
         goal = dockAlt
+        -- Two ways to have arrived. The park height is a number someone typed
+        -- and can be wrong - on 2026-09-11 the craft physically stopped 4.5
+        -- blocks above it, so this phase waited for a height it could never
+        -- reach, with thrust at zero, indefinitely. Stopping is arriving.
         if h <= dockAlt + CFG.DOCK_BAND then
           phase = "capture" captureStart = t chime.play("capture")
           print("capture - waiting for the magnet")
+        elseif hStuck and vWantS < -0.5 then
+          descStuck = descStuck + dt
+          if descStuck >= CFG.TOUCH_T then
+            phase = "capture" captureStart = t chime.play("capture")
+            print(string.format("stopped descending at %.1f (park height %.1f) - trying the magnet here", h, dockAlt))
+          end
+        else
+          descStuck = 0
         end
       end
     elseif phase == "capture" then
@@ -1593,10 +1610,10 @@ local function controlLoop()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
-      yawErr, pos.wy, yawDem, mixThr, mixMax, v))
+      yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0))
     if phase == "touchdown" then
       -- Thrust is already zero (see the power section). Keep flying the loop
       -- for a few more seconds purely to log: at the instant it fires, a

@@ -58,6 +58,11 @@ SELFTEST = [
     # that ends the flight wherever we happen to be
     ("dock grabs early", ["dock", "100", "70", "50", "90"], {"TMAX": "120", "DOCK_EARLY": "1"},
      ["climb", "dash", "brake", "align", "docked"]),
+    # the park height is typed 6 too low and the pad is solid: the descent can
+    # only end by noticing it has stopped descending
+    ("dock with a wrong pad height", ["dock", "100", "64", "50", "90"],
+     {"TMAX": "150", "PAD_SOLID": "1"},
+     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # the mock never yaws, so this only checks the spin schedule runs
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
@@ -93,7 +98,7 @@ def make_test_copy():
 def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
-              "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY"):
+              "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

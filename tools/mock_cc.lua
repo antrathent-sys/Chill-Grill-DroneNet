@@ -90,6 +90,13 @@ local function step(to)
     near = math.abs(sim.h - (sim.padY + 3)) < 1.6 and d < 1.5
   end
   if os.getenv('NODOCK') then extended = false end
+  -- PAD_SOLID: the craft cannot get below the pad surface, so a park height
+  -- typed too low leaves the descent waiting for an altitude it can never
+  -- reach. That hung a real flight on 2026-09-11.
+  if os.getenv('PAD_SOLID') and d < 3 and sim.h < sim.padY + 3 then
+    sim.h = sim.padY + 3
+    if sim.vv < 0 then sim.vv = 0 end
+  end
   if extended and near then
     if not sim.dockedSince then sim.dockedSince = to end
     if to - sim.dockedSince > 1.5 then sim.docked = true end
