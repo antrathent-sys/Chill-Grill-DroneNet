@@ -142,6 +142,8 @@ local CFG = {
                                       -- to the height left, so it eases in rather than meeting the last
                                       -- couple of blocks at whatever sqrt(2*DECEL*drop) happens to give
   LAND_FLARE = 2,                     -- blocks above the ground to be down to LAND_CREEP by. Was 10, which
+  FLARE_INTEG_BAND = 1,               -- blocks above the flare height from which a positive rate integrator
+                                      -- is discarded, so the creep really creeps (see the descent profile)
                                       -- made the profile discontinuous - it wanted 17 b/s at ground+20 and
                                       -- 2 b/s at ground+10 - and the craft spent the difference hovering
                                       -- while the altitude integrator unwound. At 2 the curve is smooth
@@ -1611,6 +1613,13 @@ local function flyLeg()
                     math.min(CFG.LAND_MAX_RATE,
                              math.sqrt(2 * CFG.LAND_DECEL * drop),
                              CFG.LAND_APPROACH_K * math.max(0, h - ground)))
+          -- The arrest winds the rate integrator up (the throttle it took to
+          -- stop a 35 b/s fall). Carried into the flare it holds the craft at
+          -- hover, 2 blocks above the pad, for the 3-4 s it takes to unwind -
+          -- and four long dock descents in a row hovered there, drifted off
+          -- while the magnet pulled, and aborted (2026-09-11). Inside the
+          -- flare band the integrator may only ever ask for LESS than hover.
+          if h - ground < CFG.LAND_FLARE + CFG.FLARE_INTEG_BAND and integ > 0 then integ = 0 end
         end
       end
       vWantS = vWantS + clamp(vWant - vWantS, CFG.VRATE_SLEW * dt)      -- ramp, never step
