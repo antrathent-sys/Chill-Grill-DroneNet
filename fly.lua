@@ -133,7 +133,8 @@ local CFG = {
   LAND_FLARE = 10,                    -- blocks above the ground estimate to be down to LAND_CREEP by
   LAND_CREEP = 2,                     -- b/s final approach
   LAND_GROUND = nil,                  -- ground altitude; nil = wherever the program started
-  LAND_CRUISE_UP = 60,                -- blocks above the destination ground to transit at, if not told otherwise
+  CRUISE_Y = 250,                     -- default transit altitude for go, dock and land-at-a-place
+  LAND_CRUISE_UP = 60,                -- minimum clearance above the destination ground, if CRUISE_Y is lower
   ATT_MIN_LAND = 0.12,                -- thrust floor while landing: about half hover, so it can descend
                                       -- while leaning without giving up all attitude authority
   TOUCH_VY = 0.4,                     -- b/s: below this counts as not descending
@@ -856,7 +857,7 @@ else
     mode = "go"
     tgtX = tonumber(arg[2]) or error("go needs x z")
     tgtZ = tonumber(arg[3]) or error("go needs x z")
-    goal = tonumber(arg[4]) or (alt.getHeight() + 25)
+    goal = tonumber(arg[4]) or CFG.CRUISE_Y
     dashDeg = CFG.CRUISE_DEG
     for i = 4, 5 do
       if arg[i] == "sweep" then
@@ -872,7 +873,7 @@ else
     tgtX = tonumber(arg[2]) or error("dock needs x z padY")
     tgtZ = tonumber(arg[3]) or error("dock needs x z padY")
     padY = tonumber(arg[4]) or error("dock needs x z padY")
-    goal = tonumber(arg[5]) or (alt.getHeight() + 25)
+    goal = tonumber(arg[5]) or CFG.CRUISE_Y
     dockAlt = padY + CFG.DOCK_GAP
     dashDeg = CFG.CRUISE_DEG
     dock.armed = true
@@ -891,13 +892,13 @@ else
       mode = "go" landAtEnd = true
       tgtX, tgtZ = ax, az
       landGround = ay
-      goal = tonumber(arg[5]) or math.max(alt.getHeight(), ay + CFG.LAND_CRUISE_UP)
+      goal = tonumber(arg[5]) or math.max(CFG.CRUISE_Y, ay + CFG.LAND_CRUISE_UP)
       dashDeg = CFG.CRUISE_DEG
     elseif ax and ay then
       -- <x> <z>: fly there, but the ground is a guess (the start height)
       mode = "go" landAtEnd = true
       tgtX, tgtZ = ax, ay
-      goal = alt.getHeight()
+      goal = tonumber(arg[4]) or CFG.CRUISE_Y
       dashDeg = CFG.CRUISE_DEG
     else
       -- straight down from here
