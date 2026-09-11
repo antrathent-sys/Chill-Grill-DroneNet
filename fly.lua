@@ -330,7 +330,19 @@ local CFG = {
   DOCK_CAPTURE_T = 25,                -- seconds to wait for the magnet before aborting
   DOCK_ABORT_DIST = 4,                -- blocks of drift that sends the descent back to align
   DOCK_TRIES = 3,                     -- capture attempts before giving up and just holding
-  DOCK_RELEASE_T = 1.5,               -- seconds of thrust before 'undock' drops the connector
+  -- Undocking. Dropping the connector and THEN spooling up is a fall: the
+  -- pad lets go the instant the signal goes low. So hold full thrust against
+  -- the magnet first and only release once the hardware confirms it has it.
+  UNDOCK_THRUST = 1.0,                -- commanded while still attached
+  UNDOCK_CONFIRM = 0.95,              -- fraction of it that athr must actually reach
+  UNDOCK_HOLD = 0.3,                  -- seconds it must hold there before the connector drops
+  DOCK_RELEASE_T = 8,                 -- seconds before giving up waiting for that and releasing anyway
+
+  -- Square up to the pad. The connector locks within 20 degrees, so meeting
+  -- it already square means the magnet has only to close the gap, not twist
+  -- the craft. Cardinal because that is how pads get built.
+  DOCK_CARDINAL = true,
+  DOCK_YAW_TOL = 8,                   -- degrees off the nearest cardinal that still counts as square
 
   -- Position source. Measured against ground truth 2026-09-10: CC:Sable's
   -- pose was accurate to 2.7 blocks while the GPS array was out by 45, so
@@ -1013,6 +1025,7 @@ local function controlLoop()
   local trimP, trimR = 0, 0
   local phase = (mode == "dash" or mode == "go" or mode == "dock") and "climb" or mode
   local touchT, landStart = 0, nil     -- touchdown debounce, and the giving-up clock
+  local undockT = 0                    -- seconds at full thrust while still attached
   local hHist, touchWin = {}, 12       -- ring of recent altitudes, ~1.2 s at 10 Hz
   local touchAt = nil                  -- when touchdown fired, for the post-landing log
   local landSettled, settleT, settleWarned = false, 0, false  -- stopped and level before the drop
@@ -1068,9 +1081,24 @@ local function controlLoop()
     end
     if haveVelSensors then updateMotionHeading(t) end
 
-    if undockFirst and not released and t - t0 > CFG.DOCK_RELEASE_T then
-      released = true dock.armed = false dock.extended = false dockExtend(false)
-      chime.play("undocked") print("connector released")
+    if undockFirst and not released then
+      -- Spool up against the magnet BEFORE letting go. The pad releases the
+      -- instant the signal drops, so releasing first and building thrust
+      -- afterwards is a fall with extra steps.
+      if mixThr >= CFG.UNDOCK_THRUST * CFG.UNDOCK_CONFIRM then
+        undockT = undockT + dt
+      else
+        undockT = 0
+      end
+      if undockT >= CFG.UNDOCK_HOLD then
+        released = true dock.armed = false dock.extended = false dockExtend(false)
+        chime.play("undocked")
+        print(string.format("released at %.2f thrust", mixThr))
+      elseif t - t0 > CFG.DOCK_RELEASE_T then
+        released = true dock.armed = false dock.extended = false dockExtend(false)
+        chime.play("warn")
+        print(string.format("released WITHOUT full thrust (%.2f) after %ds", mixThr, CFG.DOCK_RELEASE_T))
+      end
     end
 
     lastPhase = phase
@@ -1211,7 +1239,9 @@ local function controlLoop()
       -- which would reset the settle timer forever. bodyF/bodyL are already
       -- cached this iteration, so this costs no extra peripheral call.
       local sp = math.sqrt(bodyF * bodyF + bodyL * bodyL)
-      if pos.t > 0 and (t - pos.t) < 1.5 and d < CFG.DOCK_ALIGN and sp < CFG.DOCK_ALIGN_SPD then
+      local offCard = math.abs(((hdgNow + 45) % 90) - 45)   -- degrees from the nearest cardinal
+      local square = (not CFG.DOCK_CARDINAL) or offCard < CFG.DOCK_YAW_TOL
+      if pos.t > 0 and (t - pos.t) < 1.5 and d < CFG.DOCK_ALIGN and sp < CFG.DOCK_ALIGN_SPD and square then
         if not alignStart then alignStart = t end
         alignBad = 0
         if t - alignStart > CFG.DOCK_SETTLE_T then
@@ -1233,8 +1263,11 @@ local function controlLoop()
         phase = "align" alignStart = nil goal = cruiseY
         print(string.format("drifted %.1f blocks - back to align", d))
       else
-        -- walk the altitude goal down; the existing altitude PID follows it
-        goal = math.max(dockAlt, goal - CFG.DOCK_RATE * dt)
+        -- The descent itself is the landing profile - fall at whatever the
+        -- height left can arrest, flare to a creep - with dockAlt as the
+        -- ground. See the altitude section; goal is only kept in step so the
+        -- error term reads sensibly in the log.
+        goal = dockAlt
         if h <= dockAlt + CFG.DOCK_BAND then
           phase = "capture" captureStart = t chime.play("capture")
           print("capture - waiting for the magnet")
@@ -1268,12 +1301,15 @@ local function controlLoop()
       local ae = math.abs(e)
       local vMag = math.min(CFG.AKP / CFG.AKD * ae, math.sqrt(2 * CFG.DECEL * ae), CFG.CLIMB_RATE)
       local vWant = (e >= 0) and vMag or -vMag
-      if phase == "land" then
-        if not landSettled then
+      if phase == "land" or phase == "descend" then
+        -- descend (docking) uses the same profile, with the park height as
+        -- its ground; align has already done the settling for it
+        local settled = (phase == "descend") or landSettled
+        if not settled then
           vWant = 0                    -- hold this height until we are straight
         else
           -- go down, not to a number: as fast as the height left can arrest
-          local ground = landGround or h0
+          local ground = (phase == "descend") and dockAlt or (landGround or h0)
           local drop = math.max(0, h - ground - CFG.LAND_FLARE)
           vWant = -math.max(CFG.LAND_CREEP,
                     math.min(CFG.LAND_MAX_RATE, math.sqrt(2 * CFG.LAND_DECEL * drop)))
@@ -1325,6 +1361,9 @@ local function controlLoop()
         if tiltA > CFG.ATT_MIN_TILT then pwr = math.max(pwr, floor) end
       end
       if phase == "docked" or phase == "touchdown" then pwr = 0 end
+      -- still bolted to the pad: ask for everything, so the release has
+      -- something to confirm and the craft leaves positively
+      if undockFirst and not released then pwr = CFG.UNDOCK_THRUST end
     end
 
     local hdg, raw = hdgNow, rawH
@@ -1407,8 +1446,9 @@ local function controlLoop()
       -- during a burn is lateral push. Full authority until settled (that is
       -- when the drift gets killed), then tight, tightest inside the flare.
       local tiltCap = CFG.TILT_MAX
-      if phase == "land" and landSettled then
-        tiltCap = (h - (landGround or h0) < CFG.LAND_FLARE)
+      local ground = (phase == "descend") and dockAlt or (landGround or h0)
+      if (phase == "land" and landSettled) or phase == "descend" or phase == "capture" then
+        tiltCap = (h - ground < CFG.LAND_FLARE)
                   and CFG.LAND_TILT_BURN or CFG.LAND_TILT_MAX
       end
       tp = clamp(CFG.PITCH_DIR * CFG.PKV * fwd, tiltCap)
@@ -1477,8 +1517,15 @@ local function controlLoop()
       local hdgUsed = (phase == "dash" or phase == "brake") and cruiseHdg or hdgNow
       local src = "hold"
       local yawOff = CFG.YAW_OFFSET
+      local docking = (phase == "align" or phase == "descend" or phase == "capture")
       if CFG.YAW_SWEEP ~= 0 and dashStart then yawOff = (yawOff + CFG.YAW_SWEEP * (t - dashStart)) % 360 end
-      if phase == "dash" and CFG.CRUISE_COORD and (mode == "go" or mode == "dock") then
+      if docking and CFG.DOCK_CARDINAL then
+        -- square up to the nearest cardinal so the connector meets the pad
+        -- already aligned; its lock window is 20 degrees and the magnet
+        -- should only have to close the gap, not twist the craft
+        src = "cardinal"
+        yawTgt = (math.floor(hdgNow / 90 + 0.5) * 90) % 360
+      elseif phase == "dash" and CFG.CRUISE_COORD and (mode == "go" or mode == "dock") then
         -- point the lean axis (CRUISE_LEAN_AXIS clockwise from the nose) at the target
         src = "target"
         yawTgt = (math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) - CFG.CRUISE_LEAN_AXIS + yawOff) % 360

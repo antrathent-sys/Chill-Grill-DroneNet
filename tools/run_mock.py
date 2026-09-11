@@ -21,6 +21,7 @@ It proves nothing about tuning: the drone model is a crude stand-in, not the
 mod's physics.
 """
 import argparse
+import re
 import os
 import sys
 
@@ -78,7 +79,13 @@ SELFTEST = [
 
 def make_test_copy():
     src = open(os.path.join(ROOT, "fly.lua"), encoding="utf-8").read()
-    out = src.replace("DOCK_SIDE = nil,", 'DOCK_SIDE = "bottom",')
+    # The mock's pad only watches the "bottom" side, so whatever DOCK_SIDE is
+    # set to for the real airframe is rewritten here. This used to match the
+    # literal `nil` and silently stopped matching when the real value became
+    # "back", leaving START_DOCKED unable to report a dock at all.
+    out, nsub = re.subn(r'DOCK_SIDE = (?:nil|"[a-z]+"),', 'DOCK_SIDE = "bottom",', src, count=1)
+    if nsub != 1:
+        raise SystemExit("run_mock: could not find DOCK_SIDE in fly.lua to rewrite")
     open(TEST_COPY, "w", encoding="utf-8", newline="\n").write(out)
     return TEST_COPY
 
