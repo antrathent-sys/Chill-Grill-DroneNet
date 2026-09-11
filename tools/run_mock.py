@@ -63,6 +63,11 @@ SELFTEST = [
     ("dock with a wrong pad height", ["dock", "100", "64", "50", "90"],
      {"TMAX": "150", "PAD_SOLID": "1"},
      ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+    # the real pad: latched, but getConnectedName reads "". Only the network
+    # bridge gives it away, and the flight must still end.
+    ("dock to an unnamed pad", ["dock", "100", "70", "50", "90"],
+     {"TMAX": "150", "UNNAMED_PAD": "1"},
+     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # the mock never yaws, so this only checks the spin schedule runs
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
@@ -98,7 +103,8 @@ def make_test_copy():
 def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
-              "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID"):
+              "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
+              "UNNAMED_PAD"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

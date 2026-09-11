@@ -68,7 +68,12 @@ local baseN = npers()
 local now, err = connected()
 print("  docked  : " .. (now or (err and ("ERROR " .. err) or "no")))
 print("  raw     : " .. raw())
-print("  network : " .. baseN .. " peripherals visible (a dock bridges the pad's in)")
+print("  network : " .. baseN .. " peripherals visible")
+print("")
+print("NOTE: on this pad getConnectedName() reads \"\" even while docked, so the")
+print("      peripheral count is the signal that matters. Run this docked and")
+print("      undocked and compare the two numbers - fly.lua calls a dock when")
+print("      the count rises by DOCK_BRIDGE_MIN above what it saw at startup.")
 
 -- ---------- what we would drive ----------
 local target

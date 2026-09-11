@@ -338,6 +338,13 @@ local CFG = {
   DOCK_ALIGN = 1.0,                   -- blocks: horizontal error to sit inside before descending
   DOCK_TRIM_X = 0, DOCK_TRIM_Z = 0,   -- blocks added to the dock target, if the connector is not directly
                                       -- under the craft's centre of mass
+  -- getConnectedName() is the connector's entire API and it returns "" even
+  -- when physically latched, at least to an unnamed pad - confirmed on the
+  -- ground 2026-09-11 while docked. So the dock is detected by the wired
+  -- network instead: latching bridges the pad's peripherals in, and the count
+  -- visible to this computer jumps. The baseline is taken at startup, before
+  -- the connector is ever extended.
+  DOCK_BRIDGE_MIN = 2,                -- extra peripherals that count as a dock
   DOCK_ALIGN_SPD = 0.5,               -- b/s: ground speed to be under as well
   DOCK_SETTLE_T = 2.0,                -- seconds of holding both of those before the descent starts
   DOCK_ALIGN_GRACE = 6,               -- failing samples tolerated before the settle timer resets
@@ -438,6 +445,13 @@ if #thrs > 1 then
   local names = {}
   for _, m in ipairs(map) do names[#names + 1] = (m.name:gsub("^vector_thruster_", "#")) end
   print(string.format("mixer: %d thrusters (%s), mode %s", n, table.concat(names, " "), CFG.MIX_MODE))
+end
+do
+  local okN, names = pcall(peripheral.getNames)
+  if okN and type(names) == "table" then
+    print(string.format("network: %d peripherals (docking should add at least %d more)",
+      #names, CFG.DOCK_BRIDGE_MIN))
+  end
 end
 if #accs > 1 then
   local an = {}
@@ -706,7 +720,7 @@ local function monLoop()
       if okN and type(names) == "table" then
         dock.npers = #names
         dock.nbase = dock.nbase or dock.npers      -- what we see on our own
-        dock.bridged = dock.npers > dock.nbase
+        dock.bridged = dock.npers >= dock.nbase + CFG.DOCK_BRIDGE_MIN
       end
     end
     if dock.armed and dockP then

@@ -267,6 +267,9 @@ if os.getenv("SPEAKER") then
 end
 add("docking_connector_0", "docking_connector", {
   getConnectedName = function()
+    -- UNNAMED_PAD reproduces the real one: latched, but the name reads "".
+    -- The only way to know is the network bridge, which is what fly.lua uses.
+    if os.getenv("UNNAMED_PAD") then return "" end
     if os.getenv("START_DOCKED") and sim.rs["bottom"] then return "TestPad" end
     return sim.docked and "TestPad" or "" end,
 })
@@ -276,6 +279,11 @@ add("velocity_sensor_0", "velocity_sensor", { getVelocity = function() return -(
 add("velocity_sensor_1", "velocity_sensor", { getVelocity = function() return 0 end, getAxis = function() return "z" end })
 add("velocity_sensor_3", "velocity_sensor", { getVelocity = function() return -sim.vv end, getAxis = function() return "y" end })
 end
+
+-- Docking bridges the pad's wired network in, so more peripherals become
+-- visible. Named pad_* so they cannot be confused with the craft's own.
+local padPeriphs = {}
+for i = 1, 4 do padPeriphs["pad_device_" .. i] = { __type = "modem" } end
 
 _G.peripheral = {
   find = function(ptype)
@@ -296,6 +304,9 @@ _G.peripheral = {
   getNames = function()
     local out = {}
     for nm in pairs(periphs) do out[#out+1] = nm end
+    -- latching bridges the pad's network in, which is the only dock signal an
+    -- unnamed pad gives
+    if sim.docked then for nm in pairs(padPeriphs) do out[#out+1] = nm end end
     table.sort(out)
     return out
   end,
