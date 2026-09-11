@@ -193,7 +193,10 @@ local CFG = {
   BRAKE_DEG = 45,                     -- how hard to pitch back against the motion
   BRAKE_DONE = 3.0,                   -- b/s: below this, brake is finished
   BRAKE_MAX_T = 20,                   -- give up after this many seconds
-  BRAKE_EASE = 4,                     -- b/s over which brake tilt ramps to full
+  BRAKE_EASE = 15,                    -- b/s under which the brake lean bleeds off toward zero. At 4 the brake
+                                      -- handed over at 1 b/s still leaned 58 deg, which re-accelerated the craft
+                                      -- to 16 b/s and 55 blocks past the target before the hold won (19 s, twice
+                                      -- per trip, 2026-09-11). Costs about a second of braking.
 
   -- go mode
   -- Lean is bounded by thrust: holding altitude at tilt T needs HOVER / cos T
@@ -346,9 +349,11 @@ local CFG = {
                                       -- free face next to it, so this is the slave's REAR face:
                                       -- { slave = "drone-rs", side = "back" }
   DOCK_NAME = nil,                    -- docking_connector peripheral name; nil = peripheral.find
-  DOCK_ALIGN = 2.0,                   -- blocks: horizontal error to sit inside before descending. 1.0 cost
-                                      -- ~28 s per dock creeping the last half block at 250 m, and the descent
-                                      -- wanders to 1.3 anyway - the bottom of the profile places it, not this
+  DOCK_ALIGN = 1.0,                   -- blocks: horizontal error to sit inside before descending. The descent
+                                      -- does not tighten this - it arrives about a block worse than it left -
+                                      -- and 2.0 (tried 2026-09-11 to save the creep at 250 m) arrived 2.8 off,
+                                      -- where the magnet drags the craft sideways instead of latching: two
+                                      -- failed captures, 40 s. 1.0 latched first try, twice.
   DOCK_TRIM_X = 0, DOCK_TRIM_Z = 0,   -- blocks added to the dock target, if the connector is not directly
                                       -- under the craft's centre of mass
   -- getConnectedName() is the connector's entire API and it returns "" even
