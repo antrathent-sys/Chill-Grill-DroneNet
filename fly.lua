@@ -130,8 +130,12 @@ local CFG = {
   -- off and wrong by the terrain difference anywhere else. A generous flare
   -- absorbs small errors; give the third argument for a known pad.
   LAND_MAX_RATE = 60,                 -- b/s cap on the descent
-  LAND_DECEL = 15,                    -- b/s^2 the profile plans to stop with. TWR is 5.2, so about
-                                      -- 40 is available; this leaves most of it as margin.
+  LAND_DECEL = 10,                    -- b/s^2 the profile plans to stop with. Horizontal braking measured
+                                      -- 6-8, so 15 was optimistic about the vertical too and the craft
+                                      -- arrived faster than the profile intended.
+  LAND_APPROACH_K = 1.5,              -- 1/s: near the ground the allowed speed also tapers in proportion
+                                      -- to the height left, so it eases in rather than meeting the last
+                                      -- couple of blocks at whatever sqrt(2*DECEL*drop) happens to give
   LAND_FLARE = 2,                     -- blocks above the ground to be down to LAND_CREEP by. Was 10, which
                                       -- made the profile discontinuous - it wanted 17 b/s at ground+20 and
                                       -- 2 b/s at ground+10 - and the craft spent the difference hovering
@@ -145,7 +149,11 @@ local CFG = {
                                       -- while leaning without giving up all attitude authority
   TOUCH_DROP = 0.6,                   -- blocks: less movement than this over TOUCH_WIN means something
                                       -- is holding us up. Measured on the altimeter, not on velocity.
-  TOUCH_NEAR = 3,                     -- blocks: with a known ground altitude, touchdown cannot be declared
+  TOUCH_NEAR = 6,                     -- blocks: with a known ground altitude, touchdown cannot be declared
+                                      -- above it. Generous, because the altimeter sits some way up the
+                                      -- airframe (+2.8 on this one) and the craft rests on its legs, so
+                                      -- "on the ground" is several blocks above the y you type. Its only
+                                      -- job is to refuse a landing called from 9 blocks up.
                                       -- above it. Nothing else is as reliable, and on 2026-09-11 a landing
                                       -- was called 9 blocks up while the craft hovered out a flare transient.
   TOUCH_LOG_T = 3.0,                  -- seconds to keep logging after touchdown, thrust already off
@@ -493,7 +501,13 @@ local fuel = { pct = -1, amt = -1, cap = -1, t = 0 }
 -- magnet, so nothing is attracted until DOCK_SIDE goes high. getConnectedName()
 -- is the only dock-state signal the mod exposes; it is polled in monLoop and
 -- only while a dock is actually armed.
-local dock = { armed = false, connected = false, name = "", extended = false }
+-- `npers` is how many peripherals the wired network can see. Docking bridges
+-- the pad's network to the craft's, so the count jumps - an independent signal
+-- that the connector has taken hold, for when getConnectedName() is unhelpful.
+-- (It is also almost certainly why a preflight once reported 8 thrusters and 8
+-- accumulators on a 4-of-each airframe.)
+local dock = { armed = false, connected = false, name = "", extended = false,
+               npers = 0, nbase = nil, bridged = false }
 local dockP = CFG.DOCK_NAME and peripheral.wrap(CFG.DOCK_NAME) or peripheral.find("docking_connector")
 if CFG.DOCK_NAME and not dockP then print("WARNING: docking connector " .. CFG.DOCK_NAME .. " not found") end
 local function dockExtend(on)
@@ -685,6 +699,14 @@ local function monLoop()
             warnF = false
           end
         end
+      end
+    end
+    do
+      local okN, names = pcall(peripheral.getNames)
+      if okN and type(names) == "table" then
+        dock.npers = #names
+        dock.nbase = dock.nbase or dock.npers      -- what we see on our own
+        dock.bridged = dock.npers > dock.nbase
       end
     end
     if dock.armed and dockP then
@@ -1012,7 +1034,7 @@ end
 local log = fs.open("flightlog", "w")
 -- athr/amax are what the thrusters were ACTUALLY given, mean and worst. pwr
 -- is only what the altitude loop asked for; they part company whenever sat=1.
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -1246,11 +1268,14 @@ local function controlLoop()
           enter(phase)
         end
       end
-    elseif dock.connected and (phase == "align" or phase == "descend" or phase == "capture") then
+    elseif (dock.connected or dock.bridged) and (phase == "align" or phase == "descend" or phase == "capture") then
       -- The magnet has it. That is the whole objective, whichever phase we
       -- happened to be in when it took hold - there is nothing left to fly.
       phase = "docked"
-      print("DOCKED to " .. tostring(dock.name) .. " (from " .. tostring(lastPhase) .. ")")
+      print(string.format("DOCKED to %s (from %s, %s)", 
+        dock.name ~= "" and dock.name or "unnamed pad", tostring(lastPhase),
+        dock.connected and "connector reports it" or
+          string.format("network went %d -> %d peripherals", dock.nbase or 0, dock.npers)))
     elseif phase == "align" then
       -- Extend on entry, not on exit: the connector is magnet-assisted, so
       -- arming it while we settle over the pad lets it help pull the last
@@ -1352,8 +1377,12 @@ local function controlLoop()
           -- go down, not to a number: as fast as the height left can arrest
           local ground = (phase == "descend") and dockAlt or (landGround or h0)
           local drop = math.max(0, h - ground - CFG.LAND_FLARE)
+          -- two limits, whichever is slower: what the height left can arrest,
+          -- and a proportional taper that goes to nothing at the ground
           vWant = -math.max(CFG.LAND_CREEP,
-                    math.min(CFG.LAND_MAX_RATE, math.sqrt(2 * CFG.LAND_DECEL * drop)))
+                    math.min(CFG.LAND_MAX_RATE,
+                             math.sqrt(2 * CFG.LAND_DECEL * drop),
+                             CFG.LAND_APPROACH_K * math.max(0, h - ground)))
         end
       end
       vWantS = vWantS + clamp(vWant - vWantS, CFG.VRATE_SLEW * dt)      -- ramp, never step
@@ -1634,10 +1663,10 @@ local function controlLoop()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
-      yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0))
+      yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0, dock.npers))
     if phase == "touchdown" then
       -- Thrust is already zero (see the power section). Keep flying the loop
       -- for a few more seconds purely to log: at the instant it fires, a

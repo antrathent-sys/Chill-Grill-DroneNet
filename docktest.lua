@@ -47,8 +47,28 @@ local function connected()
   return name
 end
 
+-- Raw, because an empty string and a nil mean different things and a docked
+-- pad with no label may well report one of them.
+local function raw()
+  local ok, name = pcall(conn.getConnectedName)
+  if not ok then return "ERROR " .. tostring(name) end
+  if name == nil then return "nil" end
+  return string.format("%q", tostring(name))
+end
+
+-- Docking bridges the pad's wired network to the craft's, so the number of
+-- peripherals visible jumps. That is a dock you can see even if the connector
+-- will not say so.
+local function npers()
+  local ok, names = pcall(peripheral.getNames)
+  return ok and type(names) == "table" and #names or -1
+end
+local baseN = npers()
+
 local now, err = connected()
 print("  docked  : " .. (now or (err and ("ERROR " .. err) or "no")))
+print("  raw     : " .. raw())
+print("  network : " .. baseN .. " peripherals visible (a dock bridges the pad's in)")
 
 -- ---------- what we would drive ----------
 local target
@@ -91,18 +111,19 @@ end
 
 local function watch(label, secs)
   local t0 = os.clock()
-  local last
+  local last, lastN
   while os.clock() - t0 < secs do
-    local name = connected()
-    if name ~= last then
-      print(string.format("  %5.1fs  %-8s docked=%s  signal=%s",
-        os.clock() - t0, label, name or "no", readback()))
-      last = name
+    local name, n = connected(), npers()
+    if name ~= last or n ~= lastN then
+      print(string.format("  %5.1fs  %-8s name=%s  peripherals=%d%s  signal=%s",
+        os.clock() - t0, label, raw(), n,
+        n > baseN and " BRIDGED" or "", readback()))
+      last, lastN = name, n
     end
     sleep(STEP)
   end
-  print(string.format("  %5.1fs  %-8s docked=%s  signal=%s",
-    secs, label, connected() or "no", readback()))
+  print(string.format("  %5.1fs  %-8s name=%s  peripherals=%d%s  signal=%s",
+    secs, label, raw(), npers(), npers() > baseN and " BRIDGED" or "", readback()))
 end
 
 print("")
@@ -124,6 +145,8 @@ if final then
 else
   print("released cleanly")
 end
-print("if docked=no throughout, the signal line is the thing to check first:")
-print("  signal=false means the output never changed")
-print("  signal=true with docked=no means wiring is fine, alignment or the pad is not")
+print("reading this:")
+print("  signal=false            the redstone never reached the connector")
+print("  signal=true, name=\"\"    wiring fine; alignment or the pad's own connector is not")
+print("  peripherals jumped      it IS docked, whatever the name says - the pad's")
+print("                          network is bridged in, and that counts")
