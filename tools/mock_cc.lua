@@ -255,8 +255,16 @@ if os.getenv("QUAD") then
     return { p, r }
   end
 end
+sim.fe = 500000
 add("modular_accumulator_0", "modular_accumulator", {
   getPercent = function() return math.max(0, 90 - T * 0.4) end,
+  getCapacity = function() return 1000000 end,
+  -- the pad feeds the craft only once latched; otherwise the thrusters drain it
+  getEnergy = function()
+    sim.fe = sim.fe + (sim.docked and 4000 or -200)
+    sim.fe = math.max(0, math.min(1000000, sim.fe))
+    return sim.fe
+  end,
 })
 -- SPEAKER=1 attaches a speaker so the chime path is exercised
 if os.getenv("SPEAKER") then
@@ -306,7 +314,10 @@ _G.peripheral = {
     for nm in pairs(periphs) do out[#out+1] = nm end
     -- latching bridges the pad's network in, which is the only dock signal an
     -- unnamed pad gives
-    if sim.docked then for nm in pairs(padPeriphs) do out[#out+1] = nm end end
+    -- NO_BRIDGE reproduces the real pad, where the count never moves
+    if sim.docked and not os.getenv('NO_BRIDGE') then
+      for nm in pairs(padPeriphs) do out[#out+1] = nm end
+    end
     table.sort(out)
     return out
   end,

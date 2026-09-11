@@ -68,6 +68,11 @@ SELFTEST = [
     ("dock to an unnamed pad", ["dock", "100", "70", "50", "90"],
      {"TMAX": "150", "UNNAMED_PAD": "1"},
      ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+    # the worst case the real pad presents: the name reads "" AND the network
+    # count never changes. Only the charge tells us, and the flight must end.
+    ("dock to a silent pad", ["dock", "100", "70", "50", "90"],
+     {"TMAX": "150", "UNNAMED_PAD": "1", "NO_BRIDGE": "1"},
+     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # the mock never yaws, so this only checks the spin schedule runs
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
@@ -104,7 +109,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD"):
+              "UNNAMED_PAD", "NO_BRIDGE"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

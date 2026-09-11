@@ -344,7 +344,16 @@ local CFG = {
   -- network instead: latching bridges the pad's peripherals in, and the count
   -- visible to this computer jumps. The baseline is taken at startup, before
   -- the connector is ever extended.
-  DOCK_BRIDGE_MIN = 2,                -- extra peripherals that count as a dock
+  -- The peripheral count does not change either: 32 docked and 32 undocked,
+  -- measured on the ground. So neither thing the connector or the network can
+  -- tell us distinguishes the two states.
+  --
+  -- What DOES change is the power. The pad only feeds the craft once latched,
+  -- so an accumulator that is gaining charge while the thrusters are idle is
+  -- a dock - a physical fact rather than an API's opinion.
+  DOCK_BRIDGE_MIN = 2,                -- extra peripherals that count as a dock (kept; harmless if never true)
+  DOCK_CHARGE_FE = 200,               -- FE of gain between polls that counts as charging
+  DOCK_CHARGE_N = 3,                  -- consecutive polls of it before calling it a dock
   DOCK_ALIGN_SPD = 0.5,               -- b/s: ground speed to be under as well
   DOCK_SETTLE_T = 2.0,                -- seconds of holding both of those before the descent starts
   DOCK_ALIGN_GRACE = 6,               -- failing samples tolerated before the settle timer resets
@@ -521,7 +530,9 @@ local fuel = { pct = -1, amt = -1, cap = -1, t = 0 }
 -- (It is also almost certainly why a preflight once reported 8 thrusters and 8
 -- accumulators on a 4-of-each airframe.)
 local dock = { armed = false, connected = false, name = "", extended = false,
-               npers = 0, nbase = nil, bridged = false }
+               npers = 0, nbase = nil, bridged = false,
+               lastFE = nil, chargeN = 0, charging = false }
+local accCap = {}          -- accumulator capacities, read once
 local dockP = CFG.DOCK_NAME and peripheral.wrap(CFG.DOCK_NAME) or peripheral.find("docking_connector")
 if CFG.DOCK_NAME and not dockP then print("WARNING: docking connector " .. CFG.DOCK_NAME .. " not found") end
 local function dockExtend(on)
@@ -676,13 +687,32 @@ local function monLoop()
       warnR = false
     end
     if acc then
-      local sum, n = 0, 0
-      for _, a in ipairs(accs) do
-        local ok, pct = pcall(a.getPercent)
-        if ok and pct then sum, n = sum + pct, n + 1 end
+      -- getEnergy rather than getPercent: same one call per accumulator, but
+      -- raw FE resolves a trickle of charge that a rounded percentage hides.
+      local sumE, sumC, n = 0, 0, 0
+      for i, a in ipairs(accs) do
+        local ok, e = pcall(a.getEnergy)
+        if ok and e then
+          sumE, n = sumE + e, n + 1
+          if not accCap[i] then
+            local okc, c = pcall(a.getCapacity)
+            accCap[i] = (okc and c) or 0
+          end
+          sumC = sumC + (accCap[i] or 0)
+        end
       end
+      -- Charging while docked is the one thing that tells the two states
+      -- apart on this pad. Thrusters only ever take power out, so a rise is
+      -- the pad feeding us.
+      if dock.lastFE and sumE > dock.lastFE + CFG.DOCK_CHARGE_FE then
+        dock.chargeN = (dock.chargeN or 0) + 1
+      else
+        dock.chargeN = 0
+      end
+      dock.lastFE = sumE
+      dock.charging = (dock.chargeN or 0) >= CFG.DOCK_CHARGE_N
       if n > 0 then
-        local pct = sum / n
+        local pct = (sumC > 0) and (100 * sumE / sumC) or 0
         local now = os.clock()
         if lastE and now > lastT then
           local r = (pct - lastE) / (now - lastT) * 60
@@ -1048,7 +1078,7 @@ end
 local log = fs.open("flightlog", "w")
 -- athr/amax are what the thrusters were ACTUALLY given, mean and worst. pwr
 -- is only what the altitude loop asked for; they part company whenever sat=1.
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -1282,13 +1312,15 @@ local function controlLoop()
           enter(phase)
         end
       end
-    elseif (dock.connected or dock.bridged) and (phase == "align" or phase == "descend" or phase == "capture") then
+    elseif (dock.connected or dock.bridged or dock.charging)
+           and (phase == "align" or phase == "descend" or phase == "capture") then
       -- The magnet has it. That is the whole objective, whichever phase we
       -- happened to be in when it took hold - there is nothing left to fly.
       phase = "docked"
       print(string.format("DOCKED to %s (from %s, %s)", 
         dock.name ~= "" and dock.name or "unnamed pad", tostring(lastPhase),
         dock.connected and "connector reports it" or
+        dock.charging and "the pad is charging us" or
           string.format("network went %d -> %d peripherals", dock.nbase or 0, dock.npers)))
     elseif phase == "align" then
       -- Extend on entry, not on exit: the connector is magnet-assisted, so
@@ -1677,10 +1709,11 @@ local function controlLoop()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
-      yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0, dock.npers))
+      yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0, dock.npers,
+      dock.charging and 1 or 0))
     if phase == "touchdown" then
       -- Thrust is already zero (see the power section). Keep flying the loop
       -- for a few more seconds purely to log: at the instant it fires, a
