@@ -112,6 +112,10 @@ def make_test_copy():
     out, nsub = re.subn(r'DOCK_SIDE = (?:nil|"[a-z]+"),', 'DOCK_SIDE = "bottom",', src, count=1)
     if nsub != 1:
         raise SystemExit("run_mock: could not find DOCK_SIDE in fly.lua to rewrite")
+    # the model's pad is at Y 70; the real home pad in CFG is wherever it is
+    out, nsub = re.subn(r'HOME_X = -?\d+, HOME_Y = -?\d+, HOME_Z = -?\d+,', 'HOME_X = 0, HOME_Y = 70, HOME_Z = 0,', out, count=1)
+    if nsub != 1:
+        raise SystemExit("run_mock: could not find HOME_X/Y/Z in fly.lua to rewrite")
     open(TEST_COPY, "w", encoding="utf-8", newline="\n").write(out)
     return TEST_COPY
 

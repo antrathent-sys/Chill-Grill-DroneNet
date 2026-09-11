@@ -5,8 +5,8 @@
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
 -- fly deliver <x> <y> <z>     -> the round trip, starting docked: undock, fly to x z, hover at y,
---                                release (nothing to release yet), fly home, dock. Home is wherever
---                                the craft was standing when the command was given.
+--                                release (nothing to release yet), fly home, dock. Home is the pad
+--                                in CFG.HOME_X/Y/Z. `fly dock` with no coordinates goes there too.
 -- fly land                    -> descend where you are, detect touchdown, cut thrust. No pad, no recharge.
 -- fly land <x> <y> <z> [cruiseY] -> fly to x z, then land there. y is the GROUND altitude at the
 --                                destination (straight off F3), which is what the descent profile
@@ -367,6 +367,9 @@ local CFG = {
   -- still asking for 7 b/s when it arrived, and hit the pad at about 10.
   -- To re-measure on a new airframe: land on the pad and take the altimeter
   -- reading where it stops, minus the pad Y.
+  -- The home pad, in F3 block coordinates and pad Y. Fixed here, not taken
+  -- from wherever the craft happened to be when a command was typed.
+  HOME_X = 0, HOME_Y = 63, HOME_Z = 0,
   DOCK_GAP = 5.5,                     -- blocks the altimeter reads above padY when LATCHED. Four flights
                                       -- started latched at 68.5 over a pad at 63; 70.5 (the old value) is
                                       -- where the craft sits on the extended connector WITHOUT latching.
@@ -1046,10 +1049,11 @@ else
   elseif arg[1] == "dock" then
     mode = "dock"
     if not CFG.DOCK_SIDE then error("dock needs CFG.DOCK_SIDE set") end
-    -- <x> <y> <z>: the same order as fly land, y being the pad altitude
-    tgtX = blockCentre(tonumber(arg[2]) or error("dock needs <x> <y> <z>", 0)) + CFG.DOCK_TRIM_X
-    padY = tonumber(arg[3]) or error("dock needs <x> <y> <z>", 0)
-    tgtZ = blockCentre(tonumber(arg[4]) or error("dock needs <x> <y> <z>", 0)) + CFG.DOCK_TRIM_Z
+    -- <x> <y> <z>: the same order as fly land, y being the pad altitude.
+    -- No coordinates means the home pad in CFG.
+    tgtX = blockCentre(tonumber(arg[2]) or CFG.HOME_X) + CFG.DOCK_TRIM_X
+    padY = tonumber(arg[3]) or CFG.HOME_Y
+    tgtZ = blockCentre(tonumber(arg[4]) or CFG.HOME_Z) + CFG.DOCK_TRIM_Z
     goal = tonumber(arg[5]) or CFG.CRUISE_Y
     dockAlt = padY + CFG.DOCK_GAP
     dashDeg = CFG.CRUISE_DEG
@@ -1090,10 +1094,9 @@ else
     local dy = tonumber(arg[3]) or error("deliver needs <x> <y> <z>", 0)
     local dz = tonumber(arg[4]) or error("deliver needs <x> <y> <z>", 0)
     goal = tonumber(arg[5]) or CFG.CRUISE_Y
-    -- Home is wherever the craft is standing when the command is given.
-    -- Sitting on the pad the altimeter reads DOCK_GAP above it, which is
-    -- exactly the pad altitude the dock leg wants back.
-    home = { x = blockCentre(px), z = blockCentre(pz), padY = alt.getHeight() - CFG.DOCK_GAP }
+    -- Home is the pad in CFG, not wherever the craft is standing: a mission
+    -- launched from the wrong place still comes back to the right one.
+    home = { x = blockCentre(CFG.HOME_X), z = blockCentre(CFG.HOME_Z), padY = CFG.HOME_Y }
     legs = {
       { leg = "cruise", x = blockCentre(dx), z = blockCentre(dz), y = goal, undock = true },
       { leg = "hover",  x = blockCentre(dx), z = blockCentre(dz), y = dy },

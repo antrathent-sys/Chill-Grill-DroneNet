@@ -227,7 +227,7 @@ fly find <power>            hold a fixed throttle to find the hover point
 fly <y> [x] [z]             hold altitude y; hold position, or fly to x z if given
 fly dash <y> <deg> <secs>   climb to y, pitch <deg> for <secs>, brake, then hold
 fly go <x> <z> [y]          climb to y (default +25), cruise to x z, brake, hold there
-fly dock <x> <y> <z> [cruiseY]   cruise to the pad, settle over it, descend and dock
+fly dock [<x> <y> <z>] [cruiseY] cruise to the pad (default: home), settle, descend and dock
 fly land [<x> <y> <z> [cruiseY]] descend where you are, or fly there first; no pad
 fly undock [y]              release the connector once thrust is up, then hold y
 fly deliver <x> <y> <z> [cruiseY]  the round trip: undock, fly out, drop, come home, dock
@@ -251,10 +251,10 @@ action  drop                   nothing is carried yet; the hook is there and nam
 dock    back to where it started
 ```
 
-**Home is wherever the craft is standing when the command is given.** Sitting on
-the pad the altimeter reads `DOCK_GAP` above it, so `alt.getHeight() - DOCK_GAP`
-recovers the pad altitude the dock leg needs - no coordinates to type and none
-to get wrong.
+**Home is the pad in `CFG.HOME_X/Y/Z`**, block coordinates and pad Y straight
+off F3 - not wherever the craft happened to be standing when the command was
+typed. A mission launched from the wrong place still comes back to the right
+one. `fly dock` with no coordinates docks there too.
 
 **There is no second flight controller in here.** Each leg writes the same
 handful of variables the command line writes for a single-purpose flight and
