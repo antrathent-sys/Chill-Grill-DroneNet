@@ -357,11 +357,20 @@ local CFG = {
   DOCK_ALIGN_SPD = 0.5,               -- b/s: ground speed to be under as well
   DOCK_SETTLE_T = 2.0,                -- seconds of holding both of those before the descent starts
   DOCK_ALIGN_GRACE = 6,               -- failing samples tolerated before the settle timer resets
-  DOCK_GAP = 3,                       -- blocks above padY to park; 3 is the connectors' own spacing
+  -- MEASURED, not guessed: with the pad at Y 63 the craft comes to rest with
+  -- the altimeter reading 70.5, so the gap is 7.5 - the altimeter sits 2.8
+  -- blocks up the airframe and the legs hold the rest. At the old value of 3
+  -- the descent profile aimed 4.5 blocks below anything reachable, so it was
+  -- still asking for 7 b/s when it arrived, and hit the pad at about 10.
+  -- To re-measure on a new airframe: land on the pad and take the altimeter
+  -- reading where it stops, minus the pad Y.
+  DOCK_GAP = 7.5,
   DOCK_BAND = 0.5,                    -- blocks: how close to the park altitude counts as arrived
   DOCK_RATE = 1.5,                    -- b/s: how fast the altitude goal walks down
   DOCK_SINK = 0.0,                    -- power bled off in capture so the magnet can pull down
-  DOCK_CAPTURE_T = 25,                -- seconds to wait for the magnet before aborting
+  DOCK_CAPTURE_T = 8,                 -- seconds to wait for the magnet before aborting. It either takes
+                                      -- hold almost at once or it is not going to; 25 just meant three
+                                      -- minutes of cycling before the craft gave up.
   DOCK_ABORT_DIST = 4,                -- blocks of drift that sends the descent back to align
   DOCK_TRIES = 3,                     -- capture attempts before giving up and just holding
   DOCK_RETRY_UP = 15,                 -- blocks above the park height to back off to for another try.

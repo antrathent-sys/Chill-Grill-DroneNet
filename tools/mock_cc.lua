@@ -77,6 +77,11 @@ local function step(to)
   else
     sim.jx, sim.jz, sim.driftSpeed = 0, 0, 0
   end
+  -- The craft comes to rest with its altimeter PARK blocks above the pad: the
+  -- sensor is up the airframe and the legs hold the rest. Measured at 7.5 on
+  -- the real one, and it has to agree with CFG.DOCK_GAP or the descent aims
+  -- somewhere the craft cannot reach.
+  local PARK = 7.5
   -- docking magnet: needs the connector extended and the drone parked close
   local extended = false
   for _, v in pairs(sim.rs) do if v then extended = true end end
@@ -87,14 +92,14 @@ local function step(to)
   if os.getenv('DOCK_EARLY') then
     near = sim.h - sim.padY < 40 and d < 8
   else
-    near = math.abs(sim.h - (sim.padY + 3)) < 1.6 and d < 1.5
+    near = math.abs(sim.h - (sim.padY + PARK)) < 1.6 and d < 1.5
   end
   if os.getenv('NODOCK') then extended = false end
   -- PAD_SOLID: the craft cannot get below the pad surface, so a park height
   -- typed too low leaves the descent waiting for an altitude it can never
   -- reach. That hung a real flight on 2026-09-11.
-  if os.getenv('PAD_SOLID') and d < 3 and sim.h < sim.padY + 3 then
-    sim.h = sim.padY + 3
+  if os.getenv('PAD_SOLID') and d < 3 and sim.h < sim.padY + PARK then
+    sim.h = sim.padY + PARK
     if sim.vv < 0 then sim.vv = 0 end
   end
   if extended and near then
