@@ -1623,6 +1623,13 @@ local function flyLeg()
         if phase == "descend" or (phase == "land" and landSettled) then
           pwr = math.max(pwr, CFG.ATT_MIN_LAND)
         end
+        -- Braking too. The reversal from cruise lean to brake lean passes
+        -- through level, where the tilt gate above does not apply - and the
+        -- brake has usually just climbed the craft 10 blocks, so the altitude
+        -- loop is asking for nothing. 2026-09-11: pwr 0.00 for 0.4 s
+        -- mid-swing, the swing stalled at 7-10 deg, and the whole reversal
+        -- took 2.5 s - 80 blocks at 32 b/s, which was the entire overshoot.
+        if phase == "brake" then pwr = math.max(pwr, CFG.ATT_MIN_POWER) end
       end
       if phase == "docked" or phase == "touchdown" then pwr = 0 end
       -- still bolted to the pad: ask for everything, so the release has
