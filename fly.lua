@@ -327,7 +327,9 @@ local CFG = {
                                       -- free face next to it, so this is the slave's REAR face:
                                       -- { slave = "drone-rs", side = "back" }
   DOCK_NAME = nil,                    -- docking_connector peripheral name; nil = peripheral.find
-  DOCK_ALIGN = 1.5,                   -- blocks: horizontal error to sit inside before descending
+  DOCK_ALIGN = 1.0,                   -- blocks: horizontal error to sit inside before descending
+  DOCK_TRIM_X = 0, DOCK_TRIM_Z = 0,   -- blocks added to the dock target, if the connector is not directly
+                                      -- under the craft's centre of mass
   DOCK_ALIGN_SPD = 0.5,               -- b/s: ground speed to be under as well
   DOCK_SETTLE_T = 2.0,                -- seconds of holding both of those before the descent starts
   DOCK_ALIGN_GRACE = 6,               -- failing samples tolerated before the settle timer resets
@@ -378,6 +380,15 @@ local vels = { peripheral.find("velocity_sensor") }
 for k, v in pairs({ alt = alt, gim = gim, nav = nav, thr = thr }) do if not v then error("missing " .. k) end end
 
 local function clamp(v, l) return math.max(-l, math.min(l, v)) end
+
+-- F3 reports the block's integer coordinate, but a block at x=0 spans 0..1
+-- and its centre is 0.5 - and a craft parks its centre of mass over a point,
+-- not its corner. Typing pad coordinates straight off F3 therefore left the
+-- drone exactly half a block out in BOTH axes: a 0.71 diagonal against a
+-- connector that locks within 0.5, so it sat just outside the magnet's reach
+-- for three whole flights (2026-09-11). Aim at the middle of the named block.
+-- Idempotent for coordinates already given as centres.
+local function blockCentre(v) return math.floor(v) + 0.5 end
 local function rawHeading() return (CFG.HDG_SIGN * nav.getRelativeAngle() + CFG.HDG_OFFSET) % 360 end
 
 -- ---------- thrusters ----------
@@ -932,8 +943,8 @@ else
     dashSecs = tonumber(arg[4]) or 5
   elseif arg[1] == "go" then
     mode = "go"
-    tgtX = tonumber(arg[2]) or error("go needs x z")
-    tgtZ = tonumber(arg[3]) or error("go needs x z")
+    tgtX = blockCentre(tonumber(arg[2]) or error("go needs x z"))
+    tgtZ = blockCentre(tonumber(arg[3]) or error("go needs x z"))
     goal = tonumber(arg[4]) or CFG.CRUISE_Y
     dashDeg = CFG.CRUISE_DEG
     for i = 4, 5 do
@@ -948,9 +959,9 @@ else
     mode = "dock"
     if not CFG.DOCK_SIDE then error("dock needs CFG.DOCK_SIDE set") end
     -- <x> <y> <z>: the same order as fly land, y being the pad altitude
-    tgtX = tonumber(arg[2]) or error("dock needs <x> <y> <z>", 0)
+    tgtX = blockCentre(tonumber(arg[2]) or error("dock needs <x> <y> <z>", 0)) + CFG.DOCK_TRIM_X
     padY = tonumber(arg[3]) or error("dock needs <x> <y> <z>", 0)
-    tgtZ = tonumber(arg[4]) or error("dock needs <x> <y> <z>", 0)
+    tgtZ = blockCentre(tonumber(arg[4]) or error("dock needs <x> <y> <z>", 0)) + CFG.DOCK_TRIM_Z
     goal = tonumber(arg[5]) or CFG.CRUISE_Y
     dockAlt = padY + CFG.DOCK_GAP
     dashDeg = CFG.CRUISE_DEG
@@ -968,14 +979,14 @@ else
       -- the phase it finishes in differs. y is the ground at the far end, so
       -- the descent profile knows where to start braking.
       mode = "go" landAtEnd = true
-      tgtX, tgtZ = ax, az
+      tgtX, tgtZ = blockCentre(ax), blockCentre(az)
       landGround = ay
       goal = tonumber(arg[5]) or math.max(CFG.CRUISE_Y, ay + CFG.LAND_CRUISE_UP)
       dashDeg = CFG.CRUISE_DEG
     elseif ax and ay then
       -- <x> <z>: fly there, but the ground is a guess (the start height)
       mode = "go" landAtEnd = true
-      tgtX, tgtZ = ax, ay
+      tgtX, tgtZ = blockCentre(ax), blockCentre(ay)
       goal = tonumber(arg[4]) or CFG.CRUISE_Y
       dashDeg = CFG.CRUISE_DEG
     else
