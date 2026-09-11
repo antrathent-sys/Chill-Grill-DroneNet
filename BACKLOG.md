@@ -1,3 +1,16 @@
+**The mixer fix is confirmed in flight (2026-09-11).** First flight with lift
+preserved: `athr` equals `pwr` on every single row, saturated or not (zero
+rows differ by more than 0.02, against a mixer that used to pin the mean at
+0.500). Complete mission in 40 s - climb, dash, brake, re-cruise, brake,
+land, touchdown - 536 blocks, 61 b/s, cruise saturation 7%, down 10 blocks
+from the target. The landing crept and settled instead of hanging.
+[log](logs/flights/2026-09-11-quad-liftpreserve.csv)
+
+Next candidates, in the order they cost time: the brake arrives 40-75 blocks
+short and then re-cruises (two brake phases in this flight, ~7 s); cruise
+attitude tracking still wanders up to 48 degrees off command even at 7%
+saturation.
+
 **Next: landing and delivery (2026-09-11).** The reverted build flies: 97 b/s,
 brake, hold 0.7 blocks off at 200
 ([log](logs/flights/2026-09-11-quad-go-reverted-build.csv)). Two terminal
