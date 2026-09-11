@@ -53,6 +53,10 @@ SELFTEST = [
     # differential thrust (the mock's mixmap-free path uses CFG.MIX_MAP)
     ("quad dock", ["dock", "100", "70", "50", "90"], {"TMAX": "120", "NOVEL": "1", "QUAD": "1"},
      ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+    # the magnet can take hold at any point once the connector is out, and
+    # that ends the flight wherever we happen to be
+    ("dock grabs early", ["dock", "100", "70", "50", "90"], {"TMAX": "120", "DOCK_EARLY": "1"},
+     ["climb", "dash", "brake", "align", "docked"]),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # the mock never yaws, so this only checks the spin schedule runs
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
@@ -82,7 +86,7 @@ def make_test_copy():
 def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
-              "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT"):
+              "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

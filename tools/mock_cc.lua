@@ -80,7 +80,15 @@ local function step(to)
   -- docking magnet: needs the connector extended and the drone parked close
   local extended = false
   for _, v in pairs(sim.rs) do if v then extended = true end end
-  local near = math.abs(sim.h - (sim.padY + 3)) < 1.6 and d < 1.5
+  -- DOCK_EARLY: a generous magnet that takes hold from a long way up, to
+  -- exercise the flight ending while still in align or descend rather than
+  -- only in capture.
+  local near
+  if os.getenv('DOCK_EARLY') then
+    near = sim.h - sim.padY < 40 and d < 8
+  else
+    near = math.abs(sim.h - (sim.padY + 3)) < 1.6 and d < 1.5
+  end
   if os.getenv('NODOCK') then extended = false end
   if extended and near then
     if not sim.dockedSince then sim.dockedSince = to end

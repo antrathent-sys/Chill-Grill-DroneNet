@@ -292,6 +292,9 @@ local CFG = {
   -- monitoring: accumulator and thruster buffer are polled in their own
   -- coroutine, never from the control loop
   MON_POLL = 1.0,                     -- seconds between reads (one peripheral call per source)
+  DOCK_POLL = 0.25,                   -- seconds between connector reads once the approach has started.
+                                      -- The magnet can grab at any moment and that ends the flight, so
+                                      -- this is the one thing worth asking about four times a second.
   ENERGY_WARN = 25,                   -- %: print LOW ENERGY (accumulator) when it drops below this
   FUEL_MODE = "fe",                   -- "fe": thruster FE buffer first; "fluid": liquid tank first
   FUEL_NAME = nil,                    -- thruster-side source; nil = the thruster itself
@@ -446,7 +449,7 @@ local fuel = { pct = -1, amt = -1, cap = -1, t = 0 }
 -- magnet, so nothing is attracted until DOCK_SIDE goes high. getConnectedName()
 -- is the only dock-state signal the mod exposes; it is polled in monLoop and
 -- only while a dock is actually armed.
-local dock = { armed = false, connected = false, name = "" }
+local dock = { armed = false, connected = false, name = "", extended = false }
 local dockP = CFG.DOCK_NAME and peripheral.wrap(CFG.DOCK_NAME) or peripheral.find("docking_connector")
 if CFG.DOCK_NAME and not dockP then print("WARNING: docking connector " .. CFG.DOCK_NAME .. " not found") end
 local function dockExtend(on)
@@ -648,7 +651,23 @@ local function monLoop()
         dock.connected = false
       end
     end
-    sleep(CFG.MON_POLL)
+    -- While the connector is extended the magnet can take hold at any moment,
+    -- and that is what ends the flight, so ask often. Everything else in this
+    -- loop is happy at MON_POLL.
+    if dock.armed and dockP then
+      local until_ = os.clock() + CFG.MON_POLL
+      repeat
+        sleep(CFG.DOCK_POLL)
+        local ok, name = pcall(dockP.getConnectedName)
+        if ok and type(name) == "string" and name ~= "" then
+          dock.connected, dock.name = true, name
+        else
+          dock.connected = false
+        end
+      until dock.connected or os.clock() >= until_
+    else
+      sleep(CFG.MON_POLL)
+    end
   end
 end
 
@@ -1001,6 +1020,7 @@ local function controlLoop()
   local alignStart, captureStart, released = nil, nil, false
   local alignBad = 0
   local dockTries = 0
+  local lastPhase = nil
   while true do
     local t = os.clock()
     local dt = math.max(t - lastT, 0.05)
@@ -1040,10 +1060,11 @@ local function controlLoop()
     if haveVelSensors then updateMotionHeading(t) end
 
     if undockFirst and not released and t - t0 > CFG.DOCK_RELEASE_T then
-      released = true dock.armed = false dockExtend(false)
+      released = true dock.armed = false dock.extended = false dockExtend(false)
       chime.play("undocked") print("connector released")
     end
 
+    lastPhase = phase
     -- A command from the keyboard or the radio, taken at a clean point.
     if cmdReq then
       local r = cmdReq cmdReq = nil
@@ -1160,7 +1181,17 @@ local function controlLoop()
           enter(phase)
         end
       end
+    elseif dock.connected and (phase == "align" or phase == "descend" or phase == "capture") then
+      -- The magnet has it. That is the whole objective, whichever phase we
+      -- happened to be in when it took hold - there is nothing left to fly.
+      phase = "docked"
+      print("DOCKED to " .. tostring(dock.name) .. " (from " .. tostring(lastPhase) .. ")")
     elseif phase == "align" then
+      -- Extend on entry, not on exit: the connector is magnet-assisted, so
+      -- arming it while we settle over the pad lets it help pull the last
+      -- half block in rather than waiting until we are already there.
+      if not dock.extended then dockExtend(true) dock.extended = true
+        print("connector extended") end
       -- sit over the pad until position and speed are both settled. Plain
       -- arithmetic on the shared pos table, no peripheral reads.
       local dx, dz = tgtX - pos.x, tgtZ - pos.z
@@ -1175,8 +1206,8 @@ local function controlLoop()
         if not alignStart then alignStart = t end
         alignBad = 0
         if t - alignStart > CFG.DOCK_SETTLE_T then
-          phase = "descend" dockExtend(true) chime.play("descend")
-          print(string.format("descend to %.1f, connector extended", dockAlt))
+          phase = "descend" chime.play("descend")
+          print(string.format("descend to %.1f", dockAlt))
         end
       else
         -- Tolerate a few bad samples before giving up on the settle. Both
@@ -1208,7 +1239,7 @@ local function controlLoop()
         dockTries = dockTries + 1
         goal = cruiseY
         if dockTries >= CFG.DOCK_TRIES then
-          phase = "hold" dockExtend(false) dock.armed = false
+          phase = "hold" dockExtend(false) dock.armed = false dock.extended = false
           print("capture failed " .. dockTries .. "x - holding, connector retracted")
         else
           phase = "align" alignStart = nil
