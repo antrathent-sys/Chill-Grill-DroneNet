@@ -124,6 +124,11 @@ local function step(to)
   else
     sim.dockedSince = nil
   end
+  -- Latched, the pose is frozen: thrust moves nothing. That is what the
+  -- latch probe in fly.lua reads.
+  if sim.docked then
+    sim.h, sim.vv = sim.padY + PARK, 0
+  end
 end
 
 -- ---------- CC API ----------
@@ -227,6 +232,7 @@ add("gimbal_sensor_0", "gimbal_sensor", {
     -- nozzle toward + tips the craft toward -, as on the real airframe
     -- (the tuned P_SIGN/R_SIGN assume that). The old positive sign was a
     -- hidden positive-feedback loop that only converged because KP*40 < 1.
+    if sim.docked then return { 0, 0 } end   -- latched: the pad owns the pose
     return { -sim.vy * 40, -sim.vx * 40 }
   end,
 })
@@ -275,6 +281,8 @@ if os.getenv("QUAD") then
   -- Signs: vectoring toward + tips the craft toward -, as tuned for real.
   sim.tiltP, sim.tiltR, sim.rateP, sim.rateR, sim.tiltT = 0, 0, 0, 0, 0
   sim.quadTilt = function()
+    -- latched, the pad owns the pose: level, and staying level
+    if sim.docked then sim.tiltP, sim.tiltR, sim.rateP, sim.rateR = 0, 0, 0, 0 return 0, 0 end
     local dt = math.max(0, math.min(0.2, T - sim.tiltT)) sim.tiltT = T
     if dt > 0 then
       local dP, dR = 0, 0

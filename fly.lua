@@ -376,6 +376,16 @@ local CFG = {
                                       -- over a pad at 63, twice. (Briefly 5.5 on the theory that flights
                                       -- starting at 68.5 were latched; they had started on the ground.)
   DOCK_BAND = 0.5,                    -- blocks: how close to the park altitude counts as arrived
+  -- Latched, the pad owns the pose: every velocity, the yaw rate and both
+  -- gimbal angles read exactly 0.00, and stay there. A hovering craft never
+  -- reads all of those at once. That is a mechanical latch you can see with
+  -- nothing from the pad - it showed on 2026-09-11 in a flight the pad
+  -- never charged - and it needs no thrust to test, so it cannot hop an
+  -- unlatched craft off its alignment the way a throttle probe would.
+  DOCK_STILL_V = 0.01,                -- b/s: below this on all three axes
+  DOCK_STILL_W = 0.05,                -- deg/s of yaw
+  DOCK_STILL_TILT = 0.05,             -- deg on both gimbal axes
+  DOCK_STILL_T = 1.0,                 -- seconds of all of it
   DOCK_RATE = 1.5,                    -- b/s: how fast the altitude goal walks down
   DOCK_SINK = 0.0,                    -- power bled off in capture so the magnet can pull down
   DOCK_CAPTURE_T = 8,                 -- seconds to wait for the magnet before aborting. It either takes
@@ -1235,6 +1245,7 @@ local function flyLeg()
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
   local alignStart, captureStart, released = nil, nil, false
+  local stillT = 0                     -- seconds the pose has read frozen (see DOCK_STILL_*)
   local alignBad = 0
   local dockTries = 0
   local lastPhase = nil
@@ -1303,6 +1314,18 @@ local function flyLeg()
     local hAgo = hHist[hSlot]
     hHist[hSlot] = h
     local hStuck = hAgo ~= nil and math.abs(h - hAgo) < CFG.TOUCH_DROP
+    -- Frozen pose = the pad has it (see DOCK_STILL_* in CFG). Only counted
+    -- while the connector is armed and the pose is fresh, so a stale read is
+    -- not mistaken for a latch.
+    if dock.armed and usingSable and pos.t > 0 and (t - pos.t) < 1.5
+       and math.abs(pos.vx) < CFG.DOCK_STILL_V and math.abs(pos.vz) < CFG.DOCK_STILL_V
+       and math.abs(pos.vy or 1) < CFG.DOCK_STILL_V and math.abs(pos.wy) < CFG.DOCK_STILL_W
+       and math.abs(a[1]) < CFG.DOCK_STILL_TILT and math.abs(a[2]) < CFG.DOCK_STILL_TILT then
+      stillT = stillT + dt
+    else
+      stillT = 0
+    end
+    dock.frozen = stillT >= CFG.DOCK_STILL_T
 
     lastPhase = phase
     -- A command from the keyboard or the radio, taken at a clean point.
@@ -1418,7 +1441,7 @@ local function flyLeg()
           enter(phase)
         end
       end
-    elseif (dock.connected or dock.bridged or dock.charging)
+    elseif (dock.connected or dock.bridged or dock.charging or dock.frozen)
            and (phase == "align" or phase == "descend" or phase == "capture") then
       -- The magnet has it. That is the whole objective, whichever phase we
       -- happened to be in when it took hold - there is nothing left to fly.
@@ -1426,6 +1449,7 @@ local function flyLeg()
       print(string.format("DOCKED to %s (from %s, %s)", 
         dock.name ~= "" and dock.name or "unnamed pad", tostring(lastPhase),
         dock.connected and "connector reports it" or
+        dock.frozen and "pose frozen - the pad has it" or
         dock.charging and "the pad is charging us" or
           string.format("network went %d -> %d peripherals", dock.nbase or 0, dock.npers)))
     elseif phase == "align" then
