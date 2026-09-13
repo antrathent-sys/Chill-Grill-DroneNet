@@ -49,7 +49,9 @@ local CFG = {
   -- steady +5..+8 deg roll error for ~10 s (flightlog ee7e92af) - the
   -- "arrival overshoot" that took a 75 cap to 84-85. Integral corner ~0.13 Hz,
   -- well under the 0.77 Hz mode above, so the damping is left alone.
-  KP_DASH  = 0.015, KI_DASH  = 0.012, KD_DASH  = 0.015,
+  -- 0.012 (2026-09-13, flightlog f657d831) trimmed the cap in 3 s but brought a
+  -- slow ~6 s mode that grew on the second leg and tumbled at 47 b/s. Back.
+  KP_DASH  = 0.015, KI_DASH  = 0.004, KD_DASH  = 0.015,
   SCHED_LO = 10, SCHED_HI = 40,       -- deg: all-hover below LO, all-dash above HI
   IMAX = 0.6,
   VEC_MAX = 1.0,                      -- full nozzle authority
