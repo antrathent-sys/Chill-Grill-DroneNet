@@ -16,7 +16,7 @@
 local mission = {}
 
 --- Measured performance. Fill from flight logs, not from CFG.
--- cruise: blocks/sec actually achieved in the dash phase
+-- cruise: blocks/sec actually achieved in the cruise phase
 -- drain : accumulator %/min at cruise
 -- climb : blocks/sec achieved climbing
 -- hover : accumulator %/min while station keeping
@@ -194,7 +194,7 @@ function mission.calibrateFromLog(path)
     h.close() return nil, "log is missing required columns"
   end
 
-  local dashN, dashSum = 0, 0
+  local cruiseN, cruiseSum = 0, 0
   local climbN, climbSum = 0, 0
   local e0, e1, t0, t1 = nil, nil, nil, nil
   local lastH, lastT = nil, nil
@@ -211,9 +211,9 @@ function mission.calibrateFromLog(path)
       t0 = t0 or t
       t1 = t
       if energy and energy >= 0 then e0 = e0 or energy e1 = energy end
-      if phase == "dash" then
+      if phase == "cruise" or phase == "dash" then   -- logs before 2026-09-13 called it dash
         local fwd = tonumber(f[col.fwdH])
-        if fwd then dashN = dashN + 1 dashSum = dashSum + math.abs(fwd) end
+        if fwd then cruiseN = cruiseN + 1 cruiseSum = cruiseSum + math.abs(fwd) end
       elseif phase == "climb" and lastH and lastT and t > lastT then
         climbN = climbN + 1
         climbSum = climbSum + (height - lastH) / (t - lastT)
@@ -224,12 +224,12 @@ function mission.calibrateFromLog(path)
   h.close()
 
   local out = {}
-  if dashN > 0 then out.cruise = dashSum / dashN end
+  if cruiseN > 0 then out.cruise = cruiseSum / cruiseN end
   if climbN > 0 then out.climb = climbSum / climbN end
   if e0 and e1 and t1 and t0 and t1 > t0 then
     out.drain = (e0 - e1) / ((t1 - t0) / 60)
   end
-  if not (out.cruise or out.drain) then return nil, "log had no usable dash or energy data" end
+  if not (out.cruise or out.drain) then return nil, "log had no usable cruise or energy data" end
   return out
 end
 

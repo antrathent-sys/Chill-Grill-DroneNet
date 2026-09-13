@@ -3,6 +3,8 @@
 -- fly dock <x> <y> <z> [cruiseY] -> fly to the pad at x z and dock. y is the PAD altitude, the same
 --                                shape as fly land, so both take coordinates straight off F3.
 -- fly dash <y> <deg> <secs>   -> climb to Y, hold, pitch <deg> for <secs>, level, hold
+--                                (the fast sideways phase of every flight logs as "cruise";
+--                                 before 2026-09-13 it logged as "dash")
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
 -- fly deliver <x> <y> <z>     -> the round trip, starting docked: undock, fly to x z, hover at y,
 --                                release (nothing to release yet), fly home, dock. Home is the pad
@@ -643,7 +645,8 @@ end
 
 -- Announce a phase change once, in one place.
 local function enter(newPhase)
-  chime.play(newPhase)
+  -- the cruise phase keeps its short "dash" sound: "cruise" is the music groove
+  chime.play(newPhase == "cruise" and "dash" or newPhase)
   print(newPhase)
 end
 
@@ -1312,7 +1315,7 @@ local function flyLeg()
     -- pulled slowly toward the nav heading (no drift). A plain slow filter
     -- lagged 120 deg behind a 12 deg/s yaw and the yaw hold chased it round
     -- in circles (fly go 0 0 500, 2026-09-10).
-    if phase == "dash" or phase == "brake" then
+    if phase == "cruise" or phase == "brake" then
       if not cruiseHdg then cruiseHdg = hdgNow end
       cruiseHdg = cruiseHdg + pos.wy * dt
       local dh = ((hdgNow - cruiseHdg + 540) % 360) - 180
@@ -1447,11 +1450,11 @@ local function flyLeg()
         entryH = math.min(entryH, h0 + CFG.DASH_ENTRY_FRAC * (goal - h0))
       end
       if h >= entryH then
-        phase = "dash" dashStart = t enter("dash")
+        phase = "cruise" dashStart = t enter("cruise")
       end
-    elseif phase == "dash" and mode == "dash" and t - dashStart > dashSecs then
+    elseif phase == "cruise" and mode == "dash" and t - dashStart > dashSecs then
       phase = "brake" brakeStart = t enter("brake")
-    elseif phase == "dash" and (mode == "go" or mode == "dock") then
+    elseif phase == "cruise" and (mode == "go" or mode == "dock") then
       local d = math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2)
       local f, l = fwdSpeed(), latSpeed()
       -- ground speed from Sable (the body-frame sensors are legacy); the old
@@ -1470,7 +1473,7 @@ local function flyLeg()
         local dLeft = (mode == "go" or mode == "dock") and math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2) or 0
         if dLeft > CFG.RECRUISE_DIST then
           -- stopped short: cruise again rather than crawl in on the hold
-          phase = "dash" dashStart = t cruiseIx, cruiseIz = 0, 0
+          phase = "cruise" dashStart = t cruiseIx, cruiseIz = 0, 0
           print(string.format("stopped %.0f blocks short - cruising again", dLeft))
           chime.play("dash")
         else
@@ -1649,7 +1652,7 @@ local function flyLeg()
       -- (the climb phase used to have its own full-throttle law here; with
       -- CLIMB_RATE 100 it handed over to dash at 197 m still doing 60 b/s and
       -- coasted to 348. The distance-aware cascade above covers it.)
-      if phase == "dash" or phase == "brake" then
+      if phase == "cruise" or phase == "brake" then
         -- leaning tips the thrust over: scale the hover feed-forward by
         -- 1 / cos(tilt) so the altitude loop is not left to find it
         -- floored at 1/cos 65: past that an overshoot costs a little altitude,
@@ -1662,7 +1665,7 @@ local function flyLeg()
         -- climbing hard (it once held 0.6 through the goal at 50 b/s and
         -- put the craft 100 blocks high), with hysteresis so it does not
         -- chatter around the goal.
-        if phase == "dash" and mode ~= "dash" then
+        if phase == "cruise" and mode ~= "dash" then
           -- Let go AT the goal, not past it. At -5 blocks / 10 b/s the floor held 0.60 through 250 m
           -- and handed over a 12-15 b/s climb that 0.25 throttle at 55 b/s could not stop - the sails
           -- carry it: 339 m on 2026-09-13, 89 over.
@@ -1719,7 +1722,7 @@ local function flyLeg()
     -- to the open-loop branch below and cruised at a fixed 70 degree lean,
     -- accelerating with nothing watching the speed. It reached 80 b/s and 83
     -- degrees of actual lean before departing, on a pad 140 blocks away.
-    if phase == "dash" and (mode == "go" or mode == "dock") then
+    if phase == "cruise" and (mode == "go" or mode == "dock") then
       -- target direction into body frame (needs heading), then compare against
       -- BODY velocity from the sensors. No GPS velocity in this loop.
       ex, ez = tgtX - pos.x, tgtZ - pos.z
@@ -1767,7 +1770,7 @@ local function flyLeg()
         cruiseIx = clamp(cruiseIx + CFG.CKI * eWx * dt, cap)
         cruiseIz = clamp(cruiseIz + CFG.CKI * eWz * dt, cap)
       end
-    elseif phase == "dash" then
+    elseif phase == "cruise" then
       tp = CFG.DASH_DIR * dashDeg
     elseif phase == "brake" then
       -- lean against the WORLD velocity vector, both axes, split into body
@@ -1803,10 +1806,10 @@ local function flyLeg()
     elseif fresh then
       ex, ez = goalX - pos.x, goalZ - pos.z
     end
-    if phase ~= "dash" and phase ~= "brake" then tp, tr = tp + trimP, tr + trimR end
+    if phase ~= "cruise" and phase ~= "brake" then tp, tr = tp + trimP, tr + trimR end
 
     -- rate-limit tilt targets so phase changes are smooth, not steps
-    local maxStep = ((phase == "dash" and mode ~= "dash") and CFG.CRUISE_TILT_RATE or CFG.TILT_RATE) * dt
+    local maxStep = ((phase == "cruise" and mode ~= "dash") and CFG.CRUISE_TILT_RATE or CFG.TILT_RATE) * dt
     tpS = tpS + clamp(tp - tpS, maxStep)
     trS = trS + clamp(tr - trS, maxStep)
     tp, tr = tpS, trS
@@ -1859,7 +1862,7 @@ local function flyLeg()
     -- yaw hold
     yawErr, yawDem = 0, 0
     if yawOK then
-      local hdgUsed = (phase == "dash" or phase == "brake") and cruiseHdg or hdgNow
+      local hdgUsed = (phase == "cruise" or phase == "brake") and cruiseHdg or hdgNow
       local src = "hold"
       local yawOff = CFG.YAW_OFFSET
       local docking = (phase == "align" or phase == "descend" or phase == "capture")
@@ -1870,11 +1873,11 @@ local function flyLeg()
         -- should only have to close the gap, not twist the craft
         src = "cardinal"
         yawTgt = (math.floor(hdgNow / 90 + 0.5) * 90) % 360
-      elseif phase == "dash" and CFG.CRUISE_COORD and (mode == "go" or mode == "dock") then
+      elseif phase == "cruise" and CFG.CRUISE_COORD and (mode == "go" or mode == "dock") then
         -- point the lean axis (CRUISE_LEAN_AXIS clockwise from the nose) at the target
         src = "target"
         yawTgt = (math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) - CFG.CRUISE_LEAN_AXIS + yawOff) % 360
-      elseif (phase == "dash" or phase == "brake") and speed > CFG.YAW_MIN_SPEED
+      elseif (phase == "cruise" or phase == "brake") and speed > CFG.YAW_MIN_SPEED
              and (CFG.YAW_CRUISE == "course" or CFG.YAW_SWEEP ~= 0) then
         src = "course"
         yawTgt = (math.deg(math.atan2(pos.vx, -pos.vz)) + yawOff) % 360

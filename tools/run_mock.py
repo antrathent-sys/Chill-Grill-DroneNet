@@ -39,47 +39,47 @@ SELFTEST = [
     ("fly to xz", ["90", "20", "20"], {"TMAX": "40"}, ["fly"]),
     ("find", ["find", "0.55"], {"TMAX": "20"}, ["find"]),
     ("dash", ["dash", "90", "30", "4"], {"TMAX": "60"},
-     ["climb", "dash", "brake", "hold"]),
+     ["climb", "cruise", "brake", "hold"]),
     ("go", ["go", "100", "50", "90"], {"TMAX": "90"},
-     ["climb", "dash", "brake", "hold"]),
+     ["climb", "cruise", "brake", "hold"]),
     # from 120 the descent is staged: fall to pad+15, settle tight, then the
     # final 15. The other dock cases cruise at 90, below the staging height,
     # so they go straight down - both paths are covered.
     # (with DOCK_STAGE = 0 the stage is off and this goes straight down; set
     # DOCK_STAGE = 15 and expect align, descend, align, descend to test it)
     ("dock", ["dock", "100", "70", "50", "120"], {"TMAX": "150"},
-     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # DOCK_TRIES = 3, so capture is attempted three times before it gives up
     ("dock abort", ["dock", "100", "70", "50", "90"], {"TMAX": "300", "NODOCK": "1"},
-     ["climb", "dash", "brake"] + ["align", "descend", "capture"] * 3 + ["hold"]),
+     ["climb", "cruise", "brake"] + ["align", "descend", "capture"] * 3 + ["hold"]),
     ("undock", ["undock", "80"], {"TMAX": "40", "START_DOCKED": "1"}, ["fly"]),
     # the four-thruster airframe carries no velocity sensors: body speed comes
     # from Sable world velocity rotated by the nav-table heading instead
     ("dock, no vel sensors", ["dock", "100", "70", "50", "90"], {"TMAX": "120", "NOVEL": "1"},
-     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # four thrusters: fly.lua must pick up lib/mixer.lua and hold attitude by
     # differential thrust (the mock's mixmap-free path uses CFG.MIX_MAP)
     ("quad dock", ["dock", "100", "70", "50", "90"], {"TMAX": "120", "NOVEL": "1", "QUAD": "1"},
-     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # the magnet can take hold at any point once the connector is out, and
     # that ends the flight wherever we happen to be
     ("dock grabs early", ["dock", "100", "70", "50", "90"], {"TMAX": "120", "DOCK_EARLY": "1"},
-     ["climb", "dash", "brake", "align", "docked"]),
+     ["climb", "cruise", "brake", "align", "docked"]),
     # the park height is typed 6 too low and the pad is solid: the descent can
     # only end by noticing it has stopped descending
     ("dock with a wrong pad height", ["dock", "100", "64", "50", "90"],
      {"TMAX": "150", "PAD_SOLID": "1"},
-     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # the real pad: latched, but getConnectedName reads "". Only the network
     # bridge gives it away, and the flight must still end.
     ("dock to an unnamed pad", ["dock", "100", "70", "50", "90"],
      {"TMAX": "150", "UNNAMED_PAD": "1"},
-     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # the worst case the real pad presents: the name reads "" AND the network
     # count never changes. Only the charge tells us, and the flight must end.
     ("dock to a silent pad", ["dock", "100", "70", "50", "90"],
      {"TMAX": "150", "UNNAMED_PAD": "1", "NO_BRIDGE": "1"},
-     ["climb", "dash", "brake", "align", "descend", "capture", "docked"]),
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # the round trip: undock, cruise out, drop down to the release height,
     # release nothing, then cruise home and dock. Every leg is an ordinary
     # flight; the only new code is what decides the next one.
@@ -88,8 +88,8 @@ SELFTEST = [
      # it comes home from the drop height, so the approach passes down through
      # the lock window and the magnet takes hold during align - the same
      # ending as "dock grabs early", reached honestly
-     ["climb", "dash", "brake", "hold", "fly",
-      "climb", "dash", "brake", "align", "docked"]),
+     ["climb", "cruise", "brake", "hold", "fly",
+      "climb", "cruise", "brake", "align", "docked"]),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # the mock never yaws, so this only checks the spin schedule runs
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
@@ -97,15 +97,15 @@ SELFTEST = [
     ("land", ["land"], {"TMAX": "120"}, ["land", "touchdown"]),
     # the one that matters: land requested mid-flight, no restart
     ("land from cruise", ["go", "1000", "1000", "300"], {"TMAX": "150", "CMD_AT": "20:l"},
-     ["climb", "dash", "land", "touchdown"]),
+     ["climb", "cruise", "land", "touchdown"]),
     ("hold from cruise", ["go", "1000", "1000", "300"], {"TMAX": "90", "CMD_AT": "20:h"},
-     ["climb", "dash", "hold"]),
+     ["climb", "cruise", "hold"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's
     # physics actually cruises to.
     ("land at xyz", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1"},
-     ["climb", "dash", "brake", "land", "touchdown"]),
+     ["climb", "cruise", "brake", "land", "touchdown"]),
 ]
 
 

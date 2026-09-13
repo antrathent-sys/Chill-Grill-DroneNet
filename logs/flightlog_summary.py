@@ -4,7 +4,7 @@
 Usage:
     python logs/flightlog_summary.py path/to/flightlog [--rows N] [--phase NAME]
 
-Prints one block per flight phase (climb / dash / brake / hold / fly / find)
+Prints one block per flight phase (climb / cruise / brake / hold / fly / find)
 with duration, altitude band, power, tilt, GPS fix ratio and energy drain,
 then a table of N evenly spaced rows (default 25) so you can eyeball the trend
 without opening the whole file.

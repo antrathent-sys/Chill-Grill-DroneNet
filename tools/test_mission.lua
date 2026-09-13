@@ -98,10 +98,10 @@ local rows = { "t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,t
 local h, e = 64, 90
 for i = 1, 120 do
   local t = i * 0.5
-  local phase = i <= 20 and "climb" or "dash"
+  local phase = i <= 20 and "climb" or "cruise"
   if phase == "climb" then h = h + 5 end          -- 10 b/s climb
   e = e - 0.05                                     -- 6 %/min at 0.5s steps
-  local fwd = phase == "dash" and 7.5 or 0
+  local fwd = phase == "cruise" and 7.5 or 0
   rows[#rows + 1] = string.format(
     "%.2f,%s,%.2f,0,0.5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,%.2f,0,%.0f,80",
     t, phase, h, fwd, e)
@@ -111,7 +111,7 @@ vfiles["flightlog"] = table.concat(rows, "\n") .. "\n"
 local perf, err2 = m.calibrateFromLog("flightlog")
 check("reads the log", perf ~= nil, err2)
 if perf then
-  check("cruise speed from the dash phase", math.abs(perf.cruise - 7.5) < 0.1, perf.cruise)
+  check("cruise speed from the cruise phase", math.abs(perf.cruise - 7.5) < 0.1, perf.cruise)
   check("climb rate from the climb phase", math.abs(perf.climb - 10) < 0.5, perf.climb)
   check("drain rate in %/min", math.abs(perf.drain - 6) < 0.5, perf.drain)
 end

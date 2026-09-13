@@ -118,7 +118,7 @@ The flightlog gained a `dockc` column at the same time - whether `getConnectedNa
 
 **`dock` cruises with the velocity controller, same as `go`.** Until 2026-09-11 it did not: the cruise branch tested `mode == "go"` only, so a dock flight fell through to the open-loop `dash` branch and held a fixed `CRUISE_DEG` lean with nothing watching the speed. On a pad 140 blocks away it reached 80 b/s and 83 degrees of actual lean, still accelerating, and departed ([log](logs/flights/2026-09-11-quad-dock-attempt.csv)). The harness never caught it because the mock's physics cruises toward its pad regardless of which way the craft leans, and the brake still triggered on distance.
 
-**Docking ends when the magnet has it, not when a phase says so.** The connector extends on entry to `align` rather than on the way out of it - it is magnet-assisted, so arming it while the craft settles over the pad lets it help pull the last half block in. From then on `getConnectedName()` returning a name ends the flight from **whichever phase** the craft is in, align, descend or capture: that is the whole objective, and there is nothing left to fly. The connector is polled every `DOCK_POLL` (0.25 s) once armed rather than at the ordinary `MON_POLL`, because the grab can happen at any moment and it is the one thing worth asking about four times a second. Harness case `dock grabs early` covers it with a deliberately generous magnet: `climb -> dash -> brake -> align -> docked`, no capture at all.
+**Docking ends when the magnet has it, not when a phase says so.** The connector extends on entry to `align` rather than on the way out of it - it is magnet-assisted, so arming it while the craft settles over the pad lets it help pull the last half block in. From then on `getConnectedName()` returning a name ends the flight from **whichever phase** the craft is in, align, descend or capture: that is the whole objective, and there is nothing left to fly. The connector is polled every `DOCK_POLL` (0.25 s) once armed rather than at the ordinary `MON_POLL`, because the grab can happen at any moment and it is the one thing worth asking about four times a second. Harness case `dock grabs early` covers it with a deliberately generous magnet: `climb -> cruise -> brake -> align -> docked`, no capture at all.
 
 **Proving the docking connector before trusting it.** `docktest` drives the redstone and watches `getConnectedName()`:
 
@@ -279,14 +279,14 @@ Phases as they appear in the log:
 
 - **find / fly**: single phase, altitude PID plus position hold.
 - **climb**: fixed `CLIMB_POWER` eased by climb rate, no lean. Transitions `DASH_SETTLE` blocks below the goal while still climbing.
-- **dash**: `dash` mode holds a fixed pitch. `go` mode steers toward the target with a velocity controller in the world frame, lean capped at `CRUISE_DEG`.
+- **cruise** (logged as `dash` before 2026-09-13): `dash` mode holds a fixed pitch. `go` mode steers toward the target with a velocity controller in the world frame, lean capped at `CRUISE_DEG`.
 - **cruise rework (2026-09-10)**: `go`/`dock` start leaning at `DASH_ENTRY_FRAC` of the climb and let the altitude cascade finish underneath; the lean target slews at `CRUISE_TILT_RATE`; with `CRUISE_NO_BRAKE` the speed loop never leans against the travel direction (overspeed bleeds off by drag). Smooth and committed beats exact.
 - **result of the sweeps (2026-09-10)**: two full circles at 45° lean / 35 b/s gave speed-per-degree-of-lean of 0.70–0.80 in every 30° bin with yaw quiet throughout ([sweep 2](logs/flights/2026-09-10-quad-go-yawsweep2.csv), [sweep 3](logs/flights/2026-09-10-quad-go-yawsweep3-from180.csv)). Orientation about the thrust axis does not change drag at that regime, so `YAW_CRUISE = "hold"` keeps the entry heading and `CRUISE_COORD` stays off. The high-speed instabilities were the sails' pitching moment and undamped yaw at 60°+ lean, not compound fin angles.
 - **yaw sweep** (`YAW_SWEEP` deg/s): rotates the yaw offset through 360° during cruise so `tools/yaw_sweep.py` can bin speed, lean and yaw disturbance against relative yaw. The fins are drag-only panels along the length, so the least-drag bin is where the crossflow runs edge-on to them - that fixes `YAW_OFFSET` / `CRUISE_LEAN_AXIS` from data rather than from the photo.
 - **coordinated cruise** (`CRUISE_COORD`, off until the sweep fixes the axis): lean only along the body direction `CRUISE_LEAN_AXIS` degrees clockwise from the nose (0 pitch, 90 roll, 45 diagonal - the fins are on the corners), yaw hold turns that axis onto the target, steering by yaw - so the symmetric sails see one angle of attack instead of a compound one. Lean fades in with cos(yaw error).
 - **brake**: leans against the world velocity vector on both axes (the craft cruises largely sideways, so a forward-only brake left the lateral speed alone) and finishes on total ground speed below `BRAKE_DONE`.
 - **brake**: pitches the other way against forward speed until it drops below `BRAKE_DONE` or `BRAKE_MAX_T` runs out.
-- **hold**: altitude plus position hold at the current spot (`dash`) or the target (`go`).
+- **hold**: altitude plus position hold at the current spot (`fly dash`) or the target (`go`).
 - **align**: `dock` only. Position hold over the pad, waiting for the drone to be within `DOCK_ALIGN` blocks and under `DOCK_ALIGN_SPD` for `DOCK_SETTLE_T` seconds. Speed comes from the velocity sensors rather than differenced GPS, and up to `DOCK_ALIGN_GRACE` bad samples are tolerated before the timer resets. **If a dock hangs in align, this gate is why**: raise `DOCK_ALIGN_SPD` first, then `DOCK_ALIGN_GRACE`.
 - **descend**: `dock` only. Extends the connector, then walks the altitude goal down at `DOCK_RATE` until the park altitude is reached. Drifting more than `DOCK_ABORT_DIST` from the pad sends it back to align.
 - **capture**: `dock` only. Holds at the park altitude and waits for the magnet to pull the connectors together, up to `DOCK_CAPTURE_T` seconds.
@@ -326,8 +326,8 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `AKP`, `AKI`, `AKD` | Altitude PID gains on height error / integral / vertical speed. |
 | `PMAX` | Clamp on the altitude P term so a big error cannot saturate the throttle. |
 | `CLIMB_POWER`, `CLIMB_RATE` | Throttle during climb, and the b/s climb rate it eases toward. |
-| `DASH_SETTLE` | Blocks below the goal at which climb hands over to dash. |
-| `DASH_POWER` | Extra throttle added during dash and brake to make up for tilted thrust. |
+| `DASH_SETTLE` | Blocks below the goal at which climb hands over to cruise. |
+| `DASH_POWER` | Extra throttle added during cruise and brake to make up for tilted thrust. |
 
 **Attitude (inner loop)**
 
@@ -335,7 +335,7 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 |---|---|
 | `KP_HOVER`, `KI_HOVER`, `KD_HOVER` | Attitude PID gains when near level. |
 | `KP_DASH`, `KI_DASH`, `KD_DASH` | Attitude PID gains at high lean. |
-| `SCHED_LO`, `SCHED_HI` | Tilt in degrees over which gains blend from hover to dash values. |
+| `SCHED_LO`, `SCHED_HI` | Tilt in degrees over which gains blend from hover to cruise (`*_DASH`) values. |
 | `IMAX` | Attitude integrator clamp. |
 | `VEC_MAX` | Nozzle vector clamp. 1.0 is full authority. |
 | `P_AXIS`, `P_SIGN`, `R_SIGN` | Which thruster axis is pitch, and the sign of each axis. Airframe wiring. |

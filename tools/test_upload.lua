@@ -132,7 +132,7 @@ local API = "https://api.github.com/repos/antrathent-sys/Chill-Grill-DroneNet/co
 -- a small flight log with phase changes
 local rows = { "t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel" }
 for i = 1, 100 do
-  local ph = i < 30 and "climb" or (i < 60 and "dash" or "hold")
+  local ph = i < 30 and "climb" or (i < 60 and "cruise" or "hold")
   rows[#rows + 1] = string.format("%.2f,%s,64,0,0.5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,90,80", i * 0.05, ph)
 end
 files["flightlog"] = table.concat(rows, "\n") .. "\n"
@@ -161,8 +161,8 @@ check("downsampled", n > 5 and n < 40, n .. " lines")
 check("header preserved", decoded:match("^t,phase,height"))
 local seen = {}
 for ph in decoded:gmatch("\n[%d%.]+,(%a+)") do seen[ph] = true end
-check("all three phases survive", seen.climb and seen.dash and seen.hold,
-      table.concat({ tostring(seen.climb), tostring(seen.dash), tostring(seen.hold) }, ","))
+check("all three phases survive", seen.climb and seen.cruise and seen.hold,
+      table.concat({ tostring(seen.climb), tostring(seen.cruise), tostring(seen.hold) }, ","))
 
 print("existing file: sha fetched and sent")
 responses = {
