@@ -12,6 +12,7 @@ Environment switches the harness honours:
     LEGS=x,z;x,z   places to fly to in turn, for a multi-leg mission
     NO_PAD=1       open ground at the target instead of a solid pad
     TRIAD=1        fit nav tables 4/5/7 reporting a level heading of 30 deg
+    DISK_KB=<kb>   a disk that small; DISK_LIE=1 also hides it from getFreeSpace
     NODOCK=1       never let the magnet catch, to exercise the abort path
     START_DOCKED=1 begin the run already docked
     TMAX=<secs>    simulated-time budget
@@ -95,6 +96,14 @@ SELFTEST = [
     # three-table heading is logged (not flown with): level rows must read the
     # heading the mock's tables were built for
     ("triad log", ["90"], {"TMAX": "30", "TRIAD": "1"}, ["fly"]),
+    # a full disk must never end a flight: with little space the log thins to
+    # phase changes and still records every phase...
+    ("tiny disk", ["go", "100", "50", "90"], {"TMAX": "90", "DISK_KB": "40"},
+     ["climb", "cruise", "brake", "hold"]),
+    # ...and when writes fail without warning the log stops but the craft
+    # still gets there (judged by where it ends up, the log being truncated)
+    ("disk lies", ["go", "100", "50", "90"], {"TMAX": "90", "DISK_KB": "25", "DISK_LIE": "1"},
+     "reaches 100.5 50.5"),
     # the mock never yaws, so this only checks the spin schedule runs
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
     # land: descend at a fixed rate, detect the ground, cut thrust
@@ -134,10 +143,11 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
+    os.environ["HARNESS_FINAL"] = logpath + ".final"
     L = LuaRuntime(unpack_returned_tuples=True)
     entry = L.eval("function(h, s, a) local f = assert(loadfile(h)) return f(s, a) end")
     lua_args = L.eval("{" + ",".join('"%s"' % a for a in args) + "}")
@@ -192,17 +202,24 @@ def main(argv=None):
                 print("FAIL  %-12s %s" % (name, str(exc)[:120]))
                 failures += 1
                 continue
-            ok = got == expect
             extra = None
+            if isinstance(expect, str):
+                tx, tz = [float(v) for v in expect.split()[1:3]]
+                fx, fz, fh = [float(v) for v in open(logpath + ".final").read().split()]
+                dist = ((fx - tx) ** 2 + (fz - tz) ** 2) ** 0.5
+                ok = dist < 3
+                extra = "ended at %.1f,%.1f, %.1f blocks from the target" % (fx, fz, dist)
+            else:
+                ok = got == expect
             if env.get("TRIAD"):
                 tok, extra = triad_check(logpath)
                 ok = ok and tok
             failures += 0 if ok else 1
             print("%-5s %-12s %s" % ("ok" if ok else "FAIL", name, " -> ".join(got)))
-            if got != expect:
+            if not isinstance(expect, str) and got != expect:
                 print("      expected: %s" % " -> ".join(expect))
             if extra:
-                print("      triad: %s" % extra)
+                print("      note: %s" % extra)
         print("\n%s" % ("all passed" if not failures else "%d failed" % failures))
         return 1 if failures else 0
 

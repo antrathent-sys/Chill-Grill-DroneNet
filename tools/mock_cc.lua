@@ -183,10 +183,17 @@ _G.gps = { locate = function()
 end }
 
 local logLines = {}
+-- DISK_KB models a small disk; DISK_LIE additionally makes getFreeSpace
+-- report plenty while writes past DISK_KB throw, as when something else
+-- has filled the disk.
+local diskUsed = 0
+local diskLimit = os.getenv("DISK_KB") and tonumber(os.getenv("DISK_KB")) * 1024 or nil
 _G.fs = {
   open = function()
     return {
       writeLine = function(s)
+        if diskLimit and diskUsed + #s + 1 > diskLimit then error("Out of space", 0) end
+        diskUsed = diskUsed + #s + 1
         logLines[#logLines + 1] = s
         -- The controller logs its own position error (ex, ez). When it wants
         -- to be somewhere far from where this model is steering, it has been
@@ -210,6 +217,10 @@ _G.fs = {
       write = function(s) logLines[#logLines + 1] = s end,
       close = function() end,
     }
+  end,
+  getFreeSpace = function()
+    if diskLimit and not os.getenv("DISK_LIE") then return diskLimit - diskUsed end
+    return 1e9
   end,
   exists = function(p)
     -- UPLOAD_BOOM makes upload.lua present but explosive, to prove a failed
@@ -490,6 +501,12 @@ print(string.format("final: h=%.2f x=%.1f z=%.1f docked=%s rs=%s",
 print("log rows:", #logLines)
 
 -- write the flightlog out so the Python analyser can be run on it
+-- where the craft ended up, for cases judged by outcome rather than by the log
+if os.getenv("HARNESS_FINAL") then
+  local ff = io.open(os.getenv("HARNESS_FINAL"), "w")
+  ff:write(string.format("%.2f %.2f %.2f", sim.x, sim.z, sim.h))
+  ff:close()
+end
 local out = io.open(os.getenv("HARNESS_LOG") or "harness_flightlog", "w")
 for _, l in ipairs(logLines) do out:write(l, "\n") end
 out:close()

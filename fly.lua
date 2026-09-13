@@ -463,6 +463,8 @@ local CFG = {
   POS_POLL = 0.05,                    -- seconds between position reads
 
   AUTO_UPLOAD = true,                 -- push the flightlog to GitHub when the flight ends
+  LOG_RESERVE_KB = 40,                -- free space the flightlog budget leaves for everything else
+  LOG_HARD_KB = 8,                    -- never write a row that would leave less than this free
   CHIME = true,                       -- speaker tones on phase changes, if a speaker is attached
 }
 
@@ -1196,9 +1198,38 @@ else
 end
 
 local log = fs.open("flightlog", "w")
+-- A full disk must never end a flight. fs throws "Out of space" from inside
+-- writeLine, and that used to take the control loop - and the thrusters -
+-- down with it: on 2026-09-13 a 10,000-block round trip filled the 1 MB disk
+-- with a 736 KB log at 333 s and cut out in align, 250 m over home.
+-- Rows are budgeted against the free space at takeoff: every row for the
+-- first half of the budget, then every 2nd, then every 4th, then only phase
+-- changes. A write that fails anyway stops logging, never the flight.
+local logFree = (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge
+local logBudget = logFree - CFG.LOG_RESERVE_KB * 1024
+local logBytes, logOn, logN, logPhase = 0, true, 0, nil
+local function logRow(ph, s)
+  if not logOn then return end
+  logN = logN + 1
+  local changed = ph ~= logPhase
+  if logBytes >= logBudget and not changed then return end
+  local every = (logBytes < logBudget * 0.5) and 1 or ((logBytes < logBudget * 0.8) and 2 or 4)
+  if not changed and logN % every ~= 0 then return end
+  if logBytes + #s + 1 > logFree - CFG.LOG_HARD_KB * 1024 then
+    logOn = false
+    print("flightlog: disk nearly full - logging stopped, flight continues")
+    return
+  end
+  if pcall(log.writeLine, s) then
+    logBytes, logPhase = logBytes + #s + 1, ph
+  else
+    logOn = false
+    print("flightlog: write failed (disk full?) - logging stopped, flight continues")
+  end
+end
 -- athr/amax are what the thrusters were ACTUALLY given, mean and worst. pwr
 -- is only what the altitude loop asked for; they part company whenever sat=1.
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg,nav4,nav5,nav7,trihdg,trires")
+pcall(log.writeLine, "t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg,nav4,nav5,nav7,trihdg,trires")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -2008,7 +2039,7 @@ local function flyLeg()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f",
+    logRow(phase, string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
       yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0, dock.npers,
@@ -2095,7 +2126,7 @@ end
 if CFG.CMD_KEYS then print("in flight: L land, H hold, U undock, M music, +/- volume") end
 
 local ok, err = pcall(parallel.waitForAny, controlLoop, posLoop, monLoop, chime.loop, cmdLoop)
-allStop() pump(false) log.close()
+allStop() pump(false) pcall(log.close)
 print("thrusters off, pump off - flightlog saved")
 -- Sounded here, not in the loop: the control loop returns the instant it docks,
 -- so a queued chime would be cut off before it played.
