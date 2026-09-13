@@ -1281,6 +1281,14 @@ local function flyLeg()
   local dockTries = 0
   local lastPhase = nil
   local legT = 0            -- seconds settled over this leg's waypoint
+  -- The connector undocks on its power going OFF - an edge, not a level. A
+  -- world reload resets every CC output to false but keeps the dock, so the
+  -- craft can sit latched with the signal already low, and dropping a signal
+  -- that is already low changes nothing: 96 s at full thrust on 2026-09-13,
+  -- with getOutput and getInput both false. Raise it now, while we spool up
+  -- against the magnet, so the release 0.3 s later is a real edge. Harmless
+  -- when not docked: the connector just extends for that moment.
+  if undockFirst then dockExtend(true) end
   while true do
     local t = os.clock()
     local dt = math.max(t - lastT, 0.05)
