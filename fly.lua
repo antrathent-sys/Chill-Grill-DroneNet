@@ -1727,9 +1727,10 @@ local function flyLeg()
   local spinBase, spinStep, spinT, spinHeld, spinSettle = nil, 0, 0, nil, 0
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
-  local brkWx, brkWz = nil, nil       -- BRAKE_SLEW: the brake's world lean vector on its way
-  local trkX, trkZ = nil, nil         -- CRUISE_TRACK: where this cruise started (the line runs from here)
-  local brkUx, brkUz = nil, nil       -- BRAKE_ALONG: unit velocity at brake entry
+  -- one table, not six locals: Cobalt's 200-local limit (tools/check_locals.py)
+  local st = {}                       -- st.brkWx/st.brkWz: BRAKE_SLEW world lean vector on its way;
+                                      -- st.trkX/st.trkZ: CRUISE_TRACK cruise start (the line runs from here);
+                                      -- st.brkUx/st.brkUz: BRAKE_ALONG unit velocity at brake entry
   local alignStart, captureStart, released = nil, nil, false
   local stillT = 0                     -- seconds the pose has read frozen (see DOCK_STILL_*)
   local alignBad = 0
@@ -1910,10 +1911,10 @@ local function flyLeg()
         entryH = math.min(entryH, h0 + CFG.DASH_ENTRY_FRAC * (goal - h0))
       end
       if h >= entryH then
-        phase = "cruise" dashStart = t trkX, trkZ = pos.x, pos.z enter("cruise")
+        phase = "cruise" dashStart = t st.trkX, st.trkZ = pos.x, pos.z enter("cruise")
       end
     elseif phase == "cruise" and mode == "dash" and t - dashStart > dashSecs then
-      phase = "brake" brakeStart = t brkWx = nil brkUx = nil enter("brake")
+      phase = "brake" brakeStart = t st.brkWx = nil st.brkUx = nil enter("brake")
     elseif phase == "cruise" and (mode == "go" or mode == "dock") then
       local d = math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2)
       local f, l = fwdSpeed(), latSpeed()
@@ -1922,23 +1923,23 @@ local function flyLeg()
       -- cruise ran straight through the target (2026-09-10)
       local fs = math.min(math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz), 150)
       if d < math.max(CFG.ARRIVE, FL.brakeDistance(fs, math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz))) then
-        phase = "brake" brakeStart = t brkWx = nil brkUx = nil chime.play("brake")
+        phase = "brake" brakeStart = t st.brkWx = nil st.brkUx = nil chime.play("brake")
         print(string.format("brake at %.0f blocks, %.1f b/s", d, fs))
       end
     elseif phase == "brake" then
       -- done on TOTAL ground speed: this craft cruises largely sideways, and
       -- judging by forward speed alone ended a brake at 12 b/s (2026-09-10)
       local gs = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
-      local done = gs < CFG.BRAKE_DONE
-      if CFG.BRAKE_ALONG and brkUx then
+      st.done = gs < CFG.BRAKE_DONE
+      if CFG.BRAKE_ALONG and st.brkUx then
         -- along-speed gone and the rest small enough for the hold to take
-        done = pos.vx * brkUx + pos.vz * brkUz < CFG.BRAKE_DONE and gs < CFG.SPEED_GUARD - 2
+        st.done = pos.vx * st.brkUx + pos.vz * st.brkUz < CFG.BRAKE_DONE and gs < CFG.SPEED_GUARD - 2
       end
-      if done or t - brakeStart > CFG.BRAKE_MAX_T then
+      if st.done or t - brakeStart > CFG.BRAKE_MAX_T then
         local dLeft = (mode == "go" or mode == "dock") and math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2) or 0
         if dLeft > CFG.RECRUISE_DIST then
           -- stopped short: cruise again rather than crawl in on the hold
-          phase = "cruise" dashStart = t cruiseIx, cruiseIz = 0, 0 trkX, trkZ = pos.x, pos.z
+          phase = "cruise" dashStart = t cruiseIx, cruiseIz = 0, 0 st.trkX, st.trkZ = pos.x, pos.z
           print(string.format("stopped %.0f blocks short - cruising again", dLeft))
           chime.play("dash")
         else
@@ -2211,8 +2212,8 @@ local function flyLeg()
       -- rotates the lean, it cannot unwind the integrator
       local vCruise = math.min(CFG.CRUISE_SPEED, FL.planSpeed(d))
       local eWx, eWz = vCruise * ux - pos.vx, vCruise * uz - pos.vz
-      if CFG.CRUISE_TRACK and trkX and tgtX then
-        eWx, eWz = FL.trackAdd(eWx, eWz, trkX, trkZ, tgtX, tgtZ)
+      if CFG.CRUISE_TRACK and st.trkX and tgtX then
+        eWx, eWz = FL.trackAdd(eWx, eWz, st.trkX, st.trkZ, tgtX, tgtZ)
       end
       local cWx, cWz = CFG.CKV * eWx + cruiseIx, CFG.CKV * eWz + cruiseIz
       if CFG.CRUISE_NO_BRAKE and speed > 1 then
@@ -2237,12 +2238,12 @@ local function flyLeg()
       -- altitude by lean: above the goal (e < 0) lean more, below it lean less
       -- (ALT_LEAN_LOW: at speed the pull-down while low stops ALT_LEAN_LOW_DROP
       -- under the cruise lean - unless ALT_PROTECT already took it lower)
-      local capLo = 30
+      st.capLo = 30
       if CFG.ALT_LEAN_LOW_ON and e > 0 and speed >= CFG.LEAN_FULL_SPD then
-        capLo = math.max(30, math.min(cap, dashDeg - CFG.ALT_LEAN_LOW_DROP))
+        st.capLo = math.max(30, math.min(cap, dashDeg - CFG.ALT_LEAN_LOW_DROP))
       end
       cap = clamp(cap - CFG.ALT_LEAN_GAIN * e, dashDeg + ((CFG.ALT_LEAN_OVER_ON and e < 0) and CFG.ALT_LEAN_OVER or 0))
-      cap = math.max(capLo, cap)
+      cap = math.max(st.capLo, cap)
       -- Aimed by the attitude, the lean is sized and capped as the world
       -- command itself - a true lean - and pointed afterwards; otherwise as
       -- before, on the heading-split pitch and roll.
@@ -2276,28 +2277,28 @@ local function flyLeg()
       if speed > 0.1 then
         local bWx, bWz = FL.brakeWorld(speed)
         if CFG.BRAKE_ALONG then
-          if not brkUx then brkUx, brkUz = pos.vx / speed, pos.vz / speed end
-          local along = pos.vx * brkUx + pos.vz * brkUz
+          if not st.brkUx then st.brkUx, st.brkUz = pos.vx / speed, pos.vz / speed end
+          local along = pos.vx * st.brkUx + pos.vz * st.brkUz
           -- along-track only while there is along-speed to kill; below
           -- BRAKE_DONE the brake is only still running because the residual
           -- is too big for the hold, and then it is the total that matters
-          if along >= CFG.BRAKE_DONE then bWx, bWz = FL.brakeWorldAlong(along, brkUx, brkUz) end
+          if along >= CFG.BRAKE_DONE then bWx, bWz = FL.brakeWorldAlong(along, st.brkUx, st.brkUz) end
         end
         if CFG.BRAKE_SLEW then
           -- start from the lean the craft actually has, taken to lie along
           -- the velocity (cruise aims it there), and walk the world vector
           -- straight to the brake vector: through level, no sideways leg
-          if not brkWx then
+          if not st.brkWx then
             local gB = ATT and ATT.gravityFromGimbal(a[1], a[2])
             local lt = gB and math.deg(math.acos(math.max(-1, math.min(1, -gB.y))))
                        or math.sqrt(a[1] * a[1] + a[2] * a[2])
-            brkWx, brkWz = pos.vx / speed * lt, pos.vz / speed * lt
+            st.brkWx, st.brkWz = pos.vx / speed * lt, pos.vz / speed * lt
           end
-          local dx, dz = bWx - brkWx, bWz - brkWz
+          local dx, dz = bWx - st.brkWx, bWz - st.brkWz
           local dm, st = math.sqrt(dx * dx + dz * dz), CFG.TILT_RATE * dt
           if dm > st then dx, dz = dx * st / dm, dz * st / dm end
-          brkWx, brkWz = brkWx + dx, brkWz + dz
-          bWx, bWz = brkWx, brkWz
+          st.brkWx, st.brkWz = st.brkWx + dx, st.brkWz + dz
+          bWx, bWz = st.brkWx, st.brkWz
         end
         tp, tr = FL.brakeLeanW(bWx, bWz, cruiseHdg)
         -- BRAKE_AIM: point the same world vector through the attitude, only
