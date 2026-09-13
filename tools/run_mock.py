@@ -205,6 +205,12 @@ def main(argv=None):
 
     if args.selftest:
         failures = 0
+        # CC refuses to compile a function declaring more than 200 locals, a
+        # limit no desktop Lua here enforces the same way - so count them first
+        import check_locals
+        if check_locals.main([]) != 0:
+            failures += 1
+            print("FAIL  locals     a deployed function declares too many locals")
         for name, a, env, expect in SELFTEST:
             logpath = os.path.join(HERE, "mock_%s" % name.replace(" ", "_"))
             try:

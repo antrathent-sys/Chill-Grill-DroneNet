@@ -501,7 +501,11 @@ local function rawHeading() return (CFG.HDG_SIGN * nav.getRelativeAngle() + CFG.
 -- sit idle and the craft would flip on lift-off.
 local mixer = nil
 local mixNames = {}
-if #thrs > 1 then
+-- Run once inside a function: its temporaries and loops would otherwise
+-- count against the main chunk's locals, which CC caps at 200 counting every
+-- declaration (tools/check_locals.py). Results still land in the outer
+-- variables it assigns.
+if #thrs > 1 then (function()
   local okM, lib = pcall(dofile, "lib/mixer.lua")
   if not okM or type(lib) ~= "table" then error(#thrs .. " thrusters but no lib/mixer.lua: " .. tostring(lib)) end
   mixer = lib
@@ -534,7 +538,7 @@ if #thrs > 1 then
   local names = {}
   for _, m in ipairs(map) do names[#names + 1] = (m.name:gsub("^vector_thruster_", "#")) end
   print(string.format("mixer: %d thrusters (%s), mode %s", n, table.concat(names, " "), CFG.MIX_MODE))
-end
+end)() end
 do
   local okN, names = pcall(peripheral.getNames)
   if okN and type(names) == "table" then
@@ -690,7 +694,11 @@ end
 -- Which method reads the thruster side depends on mode and mod version, so
 -- probe once at startup and remember.
 local fuelRead, fuelLabel = nil, "FUEL"
-do
+-- Run once inside a function: its temporaries and loops would otherwise
+-- count against the main chunk's locals, which CC caps at 200 counting every
+-- declaration (tools/check_locals.py). Results still land in the outer
+-- variables it assigns.
+do (function()
   local name = CFG.FUEL_NAME or peripheral.getName(thr)
   local p = CFG.FUEL_NAME and peripheral.wrap(CFG.FUEL_NAME) or thr
   local has = {}
@@ -745,7 +753,7 @@ do
     print("WARNING: no energy/fuel method on " .. name .. " - thruster monitoring off")
     print("  methods: " .. table.concat(list, " "))
   end
-end
+end)() end
 
 local function monLoop()
   local warnE, warnF, warnT, warnR = false, false, false, false
@@ -1100,6 +1108,11 @@ local landGround = CFG.LAND_GROUND   -- ground altitude for the descent profile
 -- nothing here duplicates the flying - it only decides what comes next.
 local legs, legIdx, home = nil, 0, nil
 local landAtEnd = false              -- a "go" that finishes by landing rather than holding
+-- Run once inside a function: its temporaries and loops would otherwise
+-- count against the main chunk's locals, which CC caps at 200 counting every
+-- declaration (tools/check_locals.py). Results still land in the outer
+-- variables it assigns.
+do (function()
 if arg[1] == "find" then
   mode = "find" findP = tonumber(arg[2]) or CFG.HOVER
 else
@@ -1202,6 +1215,7 @@ else
   if mode == "go" or mode == "dock" then goalX, goalZ = tgtX, tgtZ end
   cruiseY = goal
 end
+end)() end
 
 local log = fs.open("flightlog", "w")
 -- A full disk must never end a flight. fs throws "Out of space" from inside
@@ -1310,6 +1324,111 @@ local function nextLeg()
   return true
 end
 
+-- flyLeg sits near the Lua limit on locals: CC counts every local DECLARED in
+-- a function, loop internals included, and refuses past 200 ("function at
+-- line 1313 has more than 200 local variables", 2026-09-13, a file every
+-- desktop Lua compiled). tools/check_locals.py guards it. So self-contained
+-- pieces of the loop live here, as fields of one table: a field costs the
+-- main chunk nothing, where a local function would cost it one.
+local FL = {}
+
+-- Read the three nav tables and solve the attitude (into tri).
+function FL.triRead(pitch, roll, t)
+  local readings = {}
+  for _, tt in ipairs(triTables) do
+    local ok, ang = pcall(tt.p.getRelativeAngle)
+    tri.ang[tt.name] = (ok and type(ang) == "number") and ang or nil
+    if tri.ang[tt.name] then readings[#readings + 1] = { mount = tt.mount, angle = ang } end
+  end
+  tri.hdg, tri.res, tri.q = -1, -1, nil
+  if #readings >= 2 then
+    local ok, q, diag = pcall(ATT.estimate, readings,
+      { pitch = pitch, roll = roll, signs = triPre.gimbalSigns }, ATT.vec.new(0, 0, -1))
+    if ok and q then tri.hdg, tri.res, tri.q, tri.qt = ATT.heading(q), (diag and diag.residual) or -1, q, t end
+  end
+end
+
+-- World lean command -> pitch/roll by the flat-table heading (the old aim).
+function FL.headingSplit(cWx, cWz, hdgDeg, yawErr)
+  local r = math.rad(hdgDeg)
+  local cF = cWx * math.sin(r) - cWz * math.cos(r)
+  local cL = cWx * math.cos(r) + cWz * math.sin(r)
+  if CFG.CRUISE_COORD then
+    -- project the world command onto the one body direction the fins
+    -- allow (bearing cruiseHdg + axis), fade it in as the yaw comes round
+    local A = math.rad(CFG.CRUISE_LEAN_AXIS)
+    local ra = r + A
+    local L = (cWx * math.sin(ra) - cWz * math.cos(ra)) * math.max(0, math.cos(math.rad(yawErr)))
+    cF, cL = L * math.cos(A), L * math.sin(A)
+  end
+  return CFG.PITCH_DIR * cF, CFG.ROLL_DIR * cL
+end
+
+-- Aim a sized, capped world lean through the attitude; if there is no usable
+-- answer, the heading-split (tp, tr), capped.
+function FL.aimLean(tp, tr, cWx, cWz, mag, cap, pitch, roll)
+  if mag > 1e-6 then
+    local ok, ntp, ntr = pcall(ATT.leanTarget, tri.q, pitch, roll,
+      math.deg(math.atan2(cWx, -cWz)), math.min(mag, cap), triPre.gimbalSigns)
+    if ok and type(ntp) == "number" and ntp == ntp and type(ntr) == "number" and ntr == ntr then
+      return ntp, ntr, true
+    end
+  end
+  local m = math.sqrt(tp * tp + tr * tr)
+  if m > cap then tp, tr = tp * cap / m, tr * cap / m end
+  return tp, tr, false
+end
+
+-- Brake lean against the world velocity, ramped in over BRAKE_EASE.
+function FL.brakeLean(speed, hdgDeg)
+  local k = math.min(1, speed / CFG.BRAKE_EASE)
+  local bx, bz = -pos.vx / speed * CFG.BRAKE_DEG * k, -pos.vz / speed * CFG.BRAKE_DEG * k
+  local r = math.rad(hdgDeg)
+  return CFG.PITCH_DIR * (bx * math.sin(r) - bz * math.cos(r)),
+         CFG.ROLL_DIR  * (bx * math.cos(r) + bz * math.sin(r))
+end
+
+-- Yaw demand from the held-heading error, clamped harder as the lean grows.
+function FL.yawDemand(yawErr, pitch, roll)
+  local pTerm = clamp(CFG.YAW_KP * yawErr, CFG.YAW_P_MAX)
+  local tiltNow = math.sqrt(pitch * pitch + roll * roll)
+  local sLean = math.max(0, clamp((tiltNow - CFG.YAW_LEAN_LO) / (CFG.YAW_LEAN_HI - CFG.YAW_LEAN_LO), 1))
+  local yMax = CFG.YAW_MAX + sLean * (CFG.YAW_MAX_LEAN - CFG.YAW_MAX)
+  local dem = clamp(CFG.YAW_SIGN * (pTerm - CFG.YAW_KD * pos.wy), yMax)
+  if tiltNow > CFG.YAW_TILT_MAX then dem = 0 end
+  return dem
+end
+
+-- Spin guard on the raw heading: warn once if it turns YAW_ABORT_DEG in 2 s.
+function FL.spinGuard(hist, iter, hdgNow, warned)
+  local slot = iter % 20
+  local old = hist[slot]
+  hist[slot] = hdgNow
+  if old then
+    local turned = math.abs(((hdgNow - old + 540) % 360) - 180)
+    if turned > CFG.YAW_ABORT_DEG and not warned then
+      -- sign is confirmed in flight; a fast turn now is aero, and the
+      -- damping is the only thing fighting it, so warn but keep going
+      chime.play("spin")
+      print(string.format("yaw: turned %.0f deg in 2 s - damping hard", turned))
+      return true
+    end
+  end
+  return warned
+end
+
+-- Attitude error between measured and target down-vectors, and body rates
+-- from the measured vector's motion. Returns ep, er, dp, dr and the vector.
+function FL.attError(pitch, roll, tp, tr, gLast, dt)
+  local gB = ATT.gravityFromGimbal(pitch, roll)
+  local gT = ATT.gravityFromGimbal(tp, tr)
+  local ep = math.deg(gB.y * gT.z - gB.z * gT.y)      -- about body x (pitch)
+  local er = math.deg(gB.x * gT.y - gB.y * gT.x)      -- about body z (roll)
+  if not gLast then return ep, er, 0, 0, gB end
+  local gx, gy, gz = (gB.x - gLast.x) / dt, (gB.y - gLast.y) / dt, (gB.z - gLast.z) / dt
+  return ep, er, math.deg(gy * gB.z - gz * gB.y), math.deg(gx * gB.y - gy * gB.x), gB
+end
+
 local function flyLeg()
   local lastH, lastT, integ = alt.getHeight(), os.clock(), 0
   local h0 = lastH          -- start height, for the early dash entry
@@ -1381,18 +1500,7 @@ local function flyLeg()
     -- iteration in cruise when the cruise aims its lean with it
     if #triTables > 0 and (iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1
                            or (CFG.CRUISE_AIM == "attitude" and phase == "cruise")) then
-      local readings = {}
-      for _, tt in ipairs(triTables) do
-        local ok, ang = pcall(tt.p.getRelativeAngle)
-        tri.ang[tt.name] = (ok and type(ang) == "number") and ang or nil
-        if tri.ang[tt.name] then readings[#readings + 1] = { mount = tt.mount, angle = ang } end
-      end
-      tri.hdg, tri.res, tri.q = -1, -1, nil
-      if #readings >= 2 then
-        local ok, q, diag = pcall(ATT.estimate, readings,
-          { pitch = a[1], roll = a[2], signs = triPre.gimbalSigns }, ATT.vec.new(0, 0, -1))
-        if ok and q then tri.hdg, tri.res, tri.q, tri.qt = ATT.heading(q), (diag and diag.residual) or -1, q, t end
-      end
+      FL.triRead(a[1], a[2], t)
     end
     -- cruise heading: complementary filter. Sable's yaw rate is integrated
     -- every iteration (no lag when the craft really yaws), and the result is
@@ -1837,19 +1945,7 @@ local function flyLeg()
           cWx, cWz = cWx - along * pos.vx / speed, cWz - along * pos.vz / speed
         end
       end
-      local r = math.rad(cruiseHdg)
-      local cF = cWx * math.sin(r) - cWz * math.cos(r)
-      local cL = cWx * math.cos(r) + cWz * math.sin(r)
-      if CFG.CRUISE_COORD then
-        -- project the world command onto the one body direction the fins
-        -- allow (bearing cruiseHdg + axis), fade it in as the yaw comes round
-        local A = math.rad(CFG.CRUISE_LEAN_AXIS)
-        local ra = r + A
-        local L = (cWx * math.sin(ra) - cWz * math.cos(ra)) * math.max(0, math.cos(math.rad(yawErr)))
-        cF, cL = L * math.cos(A), L * math.sin(A)
-      end
-      tp = CFG.PITCH_DIR * cF
-      tr = CFG.ROLL_DIR * cL
+      tp, tr = FL.headingSplit(cWx, cWz, cruiseHdg, yawErr)
       -- aim through the attitude only with a solution from this very iteration
       local useQ = CFG.CRUISE_AIM == "attitude" and tri.q ~= nil and tri.qt == t
                    and ATT ~= nil and ATT.leanTarget ~= nil
@@ -1882,30 +1978,13 @@ local function flyLeg()
         cruiseIx = clamp(cruiseIx + CFG.CKI * eWx * dt, cap)
         cruiseIz = clamp(cruiseIz + CFG.CKI * eWz * dt, cap)
       end
-      if useQ and mag > 1e-6 then
-        local okL, ntp, ntr = pcall(ATT.leanTarget, tri.q, a[1], a[2],
-          math.deg(math.atan2(cWx, -cWz)), math.min(mag, cap), triPre.gimbalSigns)
-        if okL and type(ntp) == "number" and ntp == ntp and type(ntr) == "number" and ntr == ntr then
-          tp, tr, aimQ = ntp, ntr, true
-        end
-      end
-      if useQ and not aimQ then
-        -- no usable solution after all: the heading split, capped as before
-        local m2 = math.sqrt(tp * tp + tr * tr)
-        if m2 > cap then tp, tr = tp * cap / m2, tr * cap / m2 end
-      end
+      if useQ then tp, tr, aimQ = FL.aimLean(tp, tr, cWx, cWz, mag, cap, a[1], a[2]) end
     elseif phase == "cruise" then
       tp = CFG.DASH_DIR * dashDeg
     elseif phase == "brake" then
       -- lean against the WORLD velocity vector, both axes, split into body
       -- exactly as cruise does; ramps in over BRAKE_EASE so it is not a step
-      local k = math.min(1, speed / CFG.BRAKE_EASE)
-      if speed > 0.1 then
-        local bx, bz = -pos.vx / speed * CFG.BRAKE_DEG * k, -pos.vz / speed * CFG.BRAKE_DEG * k
-        local r = math.rad(cruiseHdg)
-        tp = CFG.PITCH_DIR * (bx * math.sin(r) - bz * math.cos(r))
-        tr = CFG.ROLL_DIR  * (bx * math.cos(r) + bz * math.sin(r))
-      end
+      if speed > 0.1 then tp, tr = FL.brakeLean(speed, cruiseHdg) end
     elseif phase ~= "climb" and fresh and speed < CFG.SPEED_GUARD then
       ex, ez = goalX - pos.x, goalZ - pos.z
       local vdx = clamp(CFG.PKP * ex, CFG.VMAX)
@@ -1965,18 +2044,7 @@ local function flyLeg()
     -- level; correct at any lean.
     local ep, er, dp, dr
     if ATT then
-      local gB = ATT.gravityFromGimbal(a[1], a[2])
-      local gT = ATT.gravityFromGimbal(tp, tr)
-      ep = math.deg(gB.y * gT.z - gB.z * gT.y)      -- about body x (pitch)
-      er = math.deg(gB.x * gT.y - gB.y * gT.x)      -- about body z (roll)
-      if gLast then
-        local gx, gy, gz = (gB.x - gLast.x) / dt, (gB.y - gLast.y) / dt, (gB.z - gLast.z) / dt
-        dp = math.deg(gy * gB.z - gz * gB.y)        -- (gdot x g).x
-        dr = math.deg(gx * gB.y - gy * gB.x)        -- (gdot x g).z
-      else
-        dp, dr = 0, 0
-      end
-      gLast = gB
+      ep, er, dp, dr, gLast = FL.attError(a[1], a[2], tp, tr, gLast, dt)
     else
       ep, er = a[1] - tp, a[2] - tr
       dp, dr = (a[1] - lp) / dt, (a[2] - lr) / dt
@@ -2038,28 +2106,9 @@ local function flyLeg()
       yawErr = ((yawTgtS - hdgUsed + 540) % 360) - 180
       -- rate damping is the part we trust; the heading term is capped so a
       -- bad heading can never out-shout it
-      local pTerm = clamp(CFG.YAW_KP * yawErr, CFG.YAW_P_MAX)
-      local tiltNow0 = math.sqrt(a[1] * a[1] + a[2] * a[2])
-      local sLean = clamp((tiltNow0 - CFG.YAW_LEAN_LO) / (CFG.YAW_LEAN_HI - CFG.YAW_LEAN_LO), 1)
-      sLean = math.max(0, sLean)
-      local yMax = CFG.YAW_MAX + sLean * (CFG.YAW_MAX_LEAN - CFG.YAW_MAX)
-      yawDem = clamp(CFG.YAW_SIGN * (pTerm - CFG.YAW_KD * pos.wy), yMax)
-      local tiltNow = math.sqrt(a[1] * a[1] + a[2] * a[2])
-      if tiltNow > CFG.YAW_TILT_MAX then yawDem = 0 end
+      yawDem = FL.yawDemand(yawErr, a[1], a[2])
       -- spin guard on the raw heading: more than YAW_ABORT_DEG in 2 s
-      local slot = iter % 20
-      local old = hdgHist[slot]
-      hdgHist[slot] = hdgNow
-      if old then
-        local turned = math.abs(((hdgNow - old + 540) % 360) - 180)
-        if turned > CFG.YAW_ABORT_DEG and not yawWarned then
-          -- sign is confirmed in flight; a fast turn now is aero, and the
-          -- damping is the only thing fighting it, so warn but keep going
-          yawWarned = true
-          chime.play("spin")
-          print(string.format("yaw: turned %.0f deg in 2 s - damping hard", turned))
-        end
-      end
+      yawWarned = FL.spinGuard(hdgHist, iter, hdgNow, yawWarned)
     end
 
     local vx, vy = drive(pwr, KP * ep + ip + KD * dp, KP * er + ir + KD * dr, yawDem)
