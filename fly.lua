@@ -355,6 +355,14 @@ local CFG = {
                                       -- in flightlog 3bc7dbb4: commanded direction +-17.5 deg against 7 for the
                                       -- proportional aim, leading sideways velocity by a quarter-cycle.
                                       -- false = integrate both axes, as before.
+  -- "attitude": aim the BRAKE lean through the three-table attitude the way
+  -- cruise does. With "heading" the brake vector is split into pitch/roll
+  -- on the flat-table heading, which at speed is off by tens of degrees
+  -- (cruise weave was 31 deg the same way): the brake from 190-205 b/s
+  -- ended 200-330 blocks SIDEWAYS of the track every time (663ac06a,
+  -- 01499762, d4fe44a3) and then needed two more brake cycles to get back.
+  -- Falls back to the heading split whenever there is no fresh solution.
+  BRAKE_AIM = "attitude",
   CRUISE_AIM = "attitude",            -- "attitude": aim the cruise lean through the three-table attitude
                                       -- (nav tables 4/5/7 + gimbal, lib/attitude.lua). "heading": the old
                                       -- split by the flat-table heading, which swings ~56 deg with roll at
@@ -1563,9 +1571,12 @@ function FL.leanGain(leanDeg)
 end
 
 -- Brake lean against the world velocity, ramped in over BRAKE_EASE.
-function FL.brakeLean(speed, hdgDeg)
+function FL.brakeWorld(speed)
   local k = math.min(1, speed / CFG.BRAKE_EASE)
-  local bx, bz = -pos.vx / speed * CFG.BRAKE_DEG * k, -pos.vz / speed * CFG.BRAKE_DEG * k
+  return -pos.vx / speed * CFG.BRAKE_DEG * k, -pos.vz / speed * CFG.BRAKE_DEG * k
+end
+function FL.brakeLean(speed, hdgDeg)
+  local bx, bz = FL.brakeWorld(speed)
   local r = math.rad(hdgDeg)
   return CFG.PITCH_DIR * (bx * math.sin(r) - bz * math.cos(r)),
          CFG.ROLL_DIR  * (bx * math.cos(r) + bz * math.sin(r))
@@ -1682,7 +1693,8 @@ local function flyLeg()
     -- three-table attitude: for the log on the nav cadence, and every
     -- iteration in cruise when the cruise aims its lean with it
     if #triTables > 0 and (iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1
-                           or (CFG.CRUISE_AIM == "attitude" and phase == "cruise")) then
+                           or (CFG.CRUISE_AIM == "attitude" and phase == "cruise")
+                           or (CFG.BRAKE_AIM == "attitude" and phase == "brake")) then
       FL.triRead(a[1], a[2], t)
     end
     -- cruise heading: complementary filter. Sable's yaw rate is integrated
@@ -2174,7 +2186,16 @@ local function flyLeg()
     elseif phase == "brake" then
       -- lean against the WORLD velocity vector, both axes, split into body
       -- exactly as cruise does; ramps in over BRAKE_EASE so it is not a step
-      if speed > 0.1 then tp, tr = FL.brakeLean(speed, cruiseHdg) end
+      if speed > 0.1 then
+        tp, tr = FL.brakeLean(speed, cruiseHdg)
+        -- BRAKE_AIM: point the same world vector through the attitude, only
+        -- with a solution from this very iteration (as cruise)
+        if CFG.BRAKE_AIM == "attitude" and tri.q ~= nil and tri.qt == t
+           and ATT ~= nil and ATT.leanTarget ~= nil then
+          local bWx, bWz = FL.brakeWorld(speed)
+          tp, tr, aimQ = FL.aimLean(tp, tr, bWx, bWz, math.sqrt(bWx * bWx + bWz * bWz), CFG.BRAKE_DEG, a[1], a[2])
+        end
+      end
     elseif phase ~= "climb" and fresh and speed < CFG.SPEED_GUARD then
       ex, ez = goalX - pos.x, goalZ - pos.z
       local vdx = clamp(CFG.PKP * ex, CFG.VMAX)
