@@ -313,6 +313,15 @@ local CFG = {
   -- territory. Only while high (e < 0); false = the cap is the cap.
   ALT_LEAN_OVER_ON = true,
   ALT_LEAN_OVER = 6,                  -- deg
+  -- Below cruise height at speed, ALT_LEAN_GAIN may not pull the cap more
+  -- than ALT_LEAN_LOW_DROP under CRUISE_DEG. Flightlogs 0fa26a7c / 663ac06a:
+  -- every height cycle dragged the cap to 50-60 deg to climb 14 blocks and
+  -- dumped 30-40 b/s doing it; the throttle floor climbs the craft on its own
+  -- and 14 blocks at 250 m is nothing. ALT_PROTECT (>15 low) still cuts
+  -- below the floor - that is the sink safety. Only at speed (>= LEAN_FULL_SPD)
+  -- and only while low; false = the cap falls as before.
+  ALT_LEAN_LOW_ON = true,
+  ALT_LEAN_LOW_DROP = 8,              -- deg under CRUISE_DEG
   -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
   -- heading only splits the final lean into pitch and roll. 1290-block flight
   -- 2026-09-10: CKV 3 turned every 5 b/s wobble into 15 deg of lean and the
@@ -2128,8 +2137,14 @@ local function flyLeg()
         cap = math.max(30, cap - CFG.ALT_PROTECT_GAIN * (e - CFG.ALT_PROTECT))
       end
       -- altitude by lean: above the goal (e < 0) lean more, below it lean less
+      -- (ALT_LEAN_LOW: at speed the pull-down while low stops ALT_LEAN_LOW_DROP
+      -- under the cruise lean - unless ALT_PROTECT already took it lower)
+      local capLo = 30
+      if CFG.ALT_LEAN_LOW_ON and e > 0 and speed >= CFG.LEAN_FULL_SPD then
+        capLo = math.max(30, math.min(cap, dashDeg - CFG.ALT_LEAN_LOW_DROP))
+      end
       cap = clamp(cap - CFG.ALT_LEAN_GAIN * e, dashDeg + ((CFG.ALT_LEAN_OVER_ON and e < 0) and CFG.ALT_LEAN_OVER or 0))
-      cap = math.max(30, cap)
+      cap = math.max(capLo, cap)
       -- Aimed by the attitude, the lean is sized and capped as the world
       -- command itself - a true lean - and pointed afterwards; otherwise as
       -- before, on the heading-split pitch and roll.
