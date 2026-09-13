@@ -372,7 +372,10 @@ local CFG = {
   -- and it ended 170-240 blocks beside the track. A straight line in the
   -- world lean plane passes through level with no sideways component.
   -- false = the target jumps as before.
-  BRAKE_SLEW = true,
+  -- OFF: flightlog 4da7ffa8 with the slew built the same +13-17 b/s lateral
+  -- in the first 2 s and ended 263 / 289 beside the track (239 / 170 without).
+  -- The target path was not the source of the side force.
+  BRAKE_SLEW = false,
   CRUISE_AIM = "attitude",            -- "attitude": aim the cruise lean through the three-table attitude
                                       -- (nav tables 4/5/7 + gimbal, lib/attitude.lua). "heading": the old
                                       -- split by the flat-table heading, which swings ~56 deg with roll at
