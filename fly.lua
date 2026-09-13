@@ -53,6 +53,19 @@ local CFG = {
   -- slow ~6 s mode that grew on the second leg and tumbled at 47 b/s. Back.
   KP_DASH  = 0.015, KI_DASH  = 0.004, KD_DASH  = 0.015,
   SCHED_LO = 10, SCHED_HI = 40,       -- deg: all-hover below LO, all-dash above HI
+  -- The pitch/roll loops steer by torque about body x and z. What they
+  -- measure is the down vector in the body frame, and a rotation about x or z
+  -- moves that vector's in-plane components by an amount scaled by g.y =
+  -- cos(lean): the loop's authority over its own error falls as cos(lean),
+  -- 3x weaker at 70 deg and 6x at 80 than level, and every high-lean
+  -- departure (75 -> 84-85, 2026-09-13) was the attitude simply not coming
+  -- back once pushed. In cruise the *_DASH gains are multiplied by
+  -- cos(GAIN_LEAN_REF) / cos(lean), clamped to 1..GAIN_LEAN_MAX, so the loop
+  -- gain at 78 deg is what it is at the reference lean the gains were tuned
+  -- at (65 tracked within 2 deg at 81 b/s). false = fixed gains, as before.
+  GAIN_LEAN = true,
+  GAIN_LEAN_REF = 60,                 -- deg: factor 1 here and below
+  GAIN_LEAN_MAX = 3.0,                -- cap on the factor (reached at ~80 deg)
   IMAX = 0.6,
   VEC_MAX = 1.0,                      -- full nozzle authority
   P_AXIS = "y", P_SIGN = 1,
@@ -1506,6 +1519,13 @@ function FL.planSpeed(d)
   return math.sqrt(2 * CFG.CRUISE_DECEL * d)
 end
 
+-- Attitude gain factor for a true lean (see GAIN_LEAN).
+function FL.leanGain(leanDeg)
+  local c = math.cos(math.rad(math.min(leanDeg, 89)))
+  local f = math.cos(math.rad(CFG.GAIN_LEAN_REF)) / math.max(c, 1e-3)
+  return math.max(1, math.min(CFG.GAIN_LEAN_MAX, f))
+end
+
 -- Brake lean against the world velocity, ramped in over BRAKE_EASE.
 function FL.brakeLean(speed, hdgDeg)
   local k = math.min(1, speed / CFG.BRAKE_EASE)
@@ -2158,9 +2178,10 @@ local function flyLeg()
       tilt = math.deg(math.acos(math.max(-1, math.min(1, -gB0.y))))   -- true lean
     end
     local s = math.max(0, clamp((tilt - CFG.SCHED_LO) / (CFG.SCHED_HI - CFG.SCHED_LO), 1))
-    local KP = CFG.KP_HOVER + s * (CFG.KP_DASH - CFG.KP_HOVER)
-    local KI = CFG.KI_HOVER + s * (CFG.KI_DASH - CFG.KI_HOVER)
-    local KD = CFG.KD_HOVER + s * (CFG.KD_DASH - CFG.KD_HOVER)
+    local gl = (CFG.GAIN_LEAN and phase == "cruise") and FL.leanGain(tilt) or 1
+    local KP = (CFG.KP_HOVER + s * (CFG.KP_DASH - CFG.KP_HOVER)) * gl
+    local KI = (CFG.KI_HOVER + s * (CFG.KI_DASH - CFG.KI_HOVER)) * gl
+    local KD = (CFG.KD_HOVER + s * (CFG.KD_DASH - CFG.KD_HOVER)) * gl
 
     -- Attitude error as the rotation between the measured and the target
     -- down-vector in the body frame, and body rates from that vector's
