@@ -250,7 +250,9 @@ local CFG = {
   -- ~74 deg only applies at standstill. Allowed lean = LEAN_AT_0 at rest,
   -- rising linearly to CRUISE_DEG at LEAN_FULL_SPD; pulled back by
   -- ALT_PROTECT_GAIN deg per block once more than ALT_PROTECT below goal.
-  CRUISE_DEG = 70,                    -- max lean during cruise, at speed. The attitude loop holds ~9 deg MORE than
+  CRUISE_DEG = 74,                    -- max lean during cruise, at speed. 74 with GAIN_LEAN (2026-09-13): accurate 70
+                                      -- peaked 140 b/s, fit says 74 -> ~143 steady, 78 -> 155. Next step 78 if clean.
+                                      -- (History: the attitude loop held ~9 deg MORE than
                                       -- the cap (75 -> 84-85 true, flightlogs 12dcb8b1, 90790865) and TUMBLE is 85,
                                       -- so 75 is one wobble from the cutout; 70 lands at ~79 and has flown 175 b/s.
                                       -- (75 held 157-162 b/s at throttle 0.53.) 70 held 136 b/s with throttle at 0.38 and
