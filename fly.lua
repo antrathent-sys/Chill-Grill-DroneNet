@@ -350,6 +350,18 @@ local CFG = {
   -- there; the floor only needs to let go if the sails really run away.
   CRUISE_MAX_ESCAPE_E = 20,           -- blocks high, or...
   CRUISE_MAX_ESCAPE_V = 8,            -- ...b/s climbing, at which the throttle floor lets go even at full lean
+  -- CRUISE_MAX stretches the lean command to the cap. Along the COMMAND's
+  -- direction, the stretch also blows up its direction: at the brake point
+  -- the planned speed meets the real one, the along-track error goes to
+  -- zero, and the command is left as a few degrees of cross-track
+  -- correction - stretched to a 70 deg lean pointed 13-27 deg off the track
+  -- (thrust azimuth reconstructed from the table angles, flightlogs f623af3c
+  -- and 4da7ffa8). The brake then swings down from that lean and 30-44% of
+  -- the thrust goes sideways for its first 1.3 s: +15 b/s lateral, 170-290
+  -- blocks beside the track. With CRUISE_MAX_ALONG the cross-track part
+  -- stays what the P term asked for and the stretch goes ALONG the track.
+  -- false = stretch along the command, as before.
+  CRUISE_MAX_ALONG = true,
   CRUISE_I_ALONG = true,              -- the cruise speed integrator trims drag ALONG the track only; sideways
                                       -- correction is purely proportional. Its sideways part drove a 6 s hunt
                                       -- in flightlog 3bc7dbb4: commanded direction +-17.5 deg against 7 for the
@@ -2187,7 +2199,13 @@ local function flyLeg()
       -- proportion to the error; the planned speed still tapers with distance,
       -- so a short re-cruise does not ping-pong with the brake
       if CFG.CRUISE_MAX and speed < vCruise and mag > 1e-6 and mag < cap then
-        if useQ then cWx, cWz = cWx * cap / mag, cWz * cap / mag else tp, tr = tp * cap / mag, tr * cap / mag end
+        if useQ and CFG.CRUISE_MAX_ALONG then
+          -- keep the cross-track correction, fill the rest of the cap along the track
+          local cross = -cWx * uz + cWz * ux
+          local along = math.sqrt(math.max(0, cap * cap - cross * cross))
+          cWx, cWz = ux * along - uz * cross, uz * along + ux * cross
+        elseif useQ then cWx, cWz = cWx * cap / mag, cWz * cap / mag
+        else tp, tr = tp * cap / mag, tr * cap / mag end
         mag = cap
       end
       leanAtCap = cap >= dashDeg - 0.5 and mag > cap
