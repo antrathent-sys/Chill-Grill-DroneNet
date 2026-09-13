@@ -264,6 +264,11 @@ local CFG = {
   CRUISE_MAX_TILT_RATE = 40,          -- deg/s lean slew in cruise when CRUISE_MAX
   CRUISE_MAX_ESCAPE_E = 10,           -- blocks high, or...
   CRUISE_MAX_ESCAPE_V = 8,            -- ...b/s climbing, at which the throttle floor lets go even at full lean
+  CRUISE_I_ALONG = true,              -- the cruise speed integrator trims drag ALONG the track only; sideways
+                                      -- correction is purely proportional. Its sideways part drove a 6 s hunt
+                                      -- in flightlog 3bc7dbb4: commanded direction +-17.5 deg against 7 for the
+                                      -- proportional aim, leading sideways velocity by a quarter-cycle.
+                                      -- false = integrate both axes, as before.
   CRUISE_AIM = "attitude",            -- "attitude": aim the cruise lean through the three-table attitude
                                       -- (nav tables 4/5/7 + gimbal, lib/attitude.lua). "heading": the old
                                       -- split by the flat-table heading, which swings ~56 deg with roll at
@@ -1379,6 +1384,21 @@ function FL.aimLean(tp, tr, cWx, cWz, mag, cap, pitch, roll)
   return tp, tr, false
 end
 
+-- Cruise integrator with CRUISE_I_ALONG: keep only the component along the
+-- unit track (ux, uz). Called every cruise iteration, so no sideways part
+-- survives from earlier; the update itself is added along the track too.
+function FL.alongTrack(ix, iz, ux, uz)
+  local a = ix * ux + iz * uz
+  return a * ux, a * uz
+end
+function FL.cruiseIntegrate(ix, iz, eWx, eWz, ux, uz, dt, cap)
+  if not CFG.CRUISE_I_ALONG then
+    return clamp(ix + CFG.CKI * eWx * dt, cap), clamp(iz + CFG.CKI * eWz * dt, cap)
+  end
+  local a = clamp(ix * ux + iz * uz + CFG.CKI * (eWx * ux + eWz * uz) * dt, cap)
+  return a * ux, a * uz
+end
+
 -- Brake lean against the world velocity, ramped in over BRAKE_EASE.
 function FL.brakeLean(speed, hdgDeg)
   local k = math.min(1, speed / CFG.BRAKE_EASE)
@@ -1931,6 +1951,7 @@ local function flyLeg()
       ex, ez = tgtX - pos.x, tgtZ - pos.z
       local d = math.max(math.sqrt(ex * ex + ez * ez), 0.001)
       local ux, uz = ex / d, ez / d
+      if CFG.CRUISE_I_ALONG then cruiseIx, cruiseIz = FL.alongTrack(cruiseIx, cruiseIz, ux, uz) end
       -- world-frame velocity error and integrator; heading enters only at
       -- the split into pitch and roll, and a wrong heading there merely
       -- rotates the lean, it cannot unwind the integrator
@@ -1975,8 +1996,7 @@ local function flyLeg()
         if useQ then cWx, cWz = cWx * cap / mag, cWz * cap / mag else tp, tr = tp * cap / mag, tr * cap / mag end
       else
         -- integrate only while unsaturated (anti-windup)
-        cruiseIx = clamp(cruiseIx + CFG.CKI * eWx * dt, cap)
-        cruiseIz = clamp(cruiseIz + CFG.CKI * eWz * dt, cap)
+        cruiseIx, cruiseIz = FL.cruiseIntegrate(cruiseIx, cruiseIz, eWx, eWz, ux, uz, dt, cap)
       end
       if useQ then tp, tr, aimQ = FL.aimLean(tp, tr, cWx, cWz, mag, cap, a[1], a[2]) end
     elseif phase == "cruise" then
