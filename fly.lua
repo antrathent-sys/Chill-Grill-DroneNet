@@ -372,6 +372,16 @@ local CFG = {
   BRAKE_K = 0.6,                      -- 0.8 was fitted with a 2.5 s reversal; with thrust held through the
                                       -- swing it stopped 58 and 68 blocks short (2026-09-11), measured 0.57
   CRUISE_DECEL = 8,                   -- b/s^2 the cruise speed target plans for: v = min(CRUISE_SPEED, sqrt(2*DECEL*d)),
+  -- CRUISE_TAPER: how the cruise plans its speed against the distance left.
+  -- "decel": v = sqrt(2 * CRUISE_DECEL * d), the taper above, which assumed
+  --   8 b/s^2 of braking and so started shedding lean ~1,500 blocks out: at
+  --   164 b/s it cut the commanded lean 70 -> 16 deg in two seconds, the
+  --   thrust pointed up, the craft climbed 120 blocks and lost 50 b/s before
+  --   the brake had even started (flightlog 2956bf67; 81 blocks on fff745c8).
+  -- "brake": the speed the brake itself can stop from in d, i.e. the inverse
+  --   of the brake trigger. The cruise then holds full lean until the brake
+  --   fires, which is what the brake was refitted for.
+  CRUISE_TAPER = "brake",
                                       -- so a short leg never leans to the cap (a 125-block re-cruise did, and
                                       -- ping-ponged dash/brake four times, 2026-09-10)
   RECRUISE_DIST = 60,                 -- blocks: a brake that ends further out than this goes back to dash
@@ -1478,6 +1488,18 @@ function FL.leanFloor(pitch, roll)
   return CFG.ATT_MIN_POWER + k * (CFG.ATT_MIN_HIGH - CFG.ATT_MIN_POWER)
 end
 
+-- Speed the cruise plans for at distance d (see CRUISE_TAPER). With "brake"
+-- it is the inverse of FL.brakeDistance, so cruise and brake agree.
+function FL.planSpeed(d)
+  if CFG.CRUISE_TAPER == "brake" then
+    if CFG.BRAKE_LINEAR then
+      return math.max(CFG.BRAKE_LIN_MIN_V, (d / CFG.BRAKE_MARGIN - CFG.BRAKE_D0) / CFG.BRAKE_S)
+    end
+    return math.sqrt(10 * d / CFG.BRAKE_K)
+  end
+  return math.sqrt(2 * CFG.CRUISE_DECEL * d)
+end
+
 -- Brake lean against the world velocity, ramped in over BRAKE_EASE.
 function FL.brakeLean(speed, hdgDeg)
   local k = math.min(1, speed / CFG.BRAKE_EASE)
@@ -2035,7 +2057,7 @@ local function flyLeg()
       -- world-frame velocity error and integrator; heading enters only at
       -- the split into pitch and roll, and a wrong heading there merely
       -- rotates the lean, it cannot unwind the integrator
-      local vCruise = math.min(CFG.CRUISE_SPEED, math.sqrt(2 * CFG.CRUISE_DECEL * d))
+      local vCruise = math.min(CFG.CRUISE_SPEED, FL.planSpeed(d))
       local eWx, eWz = vCruise * ux - pos.vx, vCruise * uz - pos.vz
       local cWx, cWz = CFG.CKV * eWx + cruiseIx, CFG.CKV * eWz + cruiseIz
       if CFG.CRUISE_NO_BRAKE and speed > 1 then
