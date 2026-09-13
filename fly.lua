@@ -363,6 +363,16 @@ local CFG = {
   -- 01499762, d4fe44a3) and then needed two more brake cycles to get back.
   -- Falls back to the heading split whenever there is no fresh solution.
   BRAKE_AIM = "attitude",
+  -- Slew the brake's WORLD lean vector from the cruise lean to the brake
+  -- lean at TILT_RATE, and aim each step. Without it the raw gimbal target
+  -- jumps from +70 forward to -45 back and the per-axis slew walks pitch and
+  -- roll at their own rates, so half-way through the swing the target is
+  -- nearly level with 25 deg of roll - a sideways lean. Flightlog f623af3c:
+  -- 18 b/s of lateral speed built in the first 2 s of every brake from 200
+  -- and it ended 170-240 blocks beside the track. A straight line in the
+  -- world lean plane passes through level with no sideways component.
+  -- false = the target jumps as before.
+  BRAKE_SLEW = true,
   CRUISE_AIM = "attitude",            -- "attitude": aim the cruise lean through the three-table attitude
                                       -- (nav tables 4/5/7 + gimbal, lib/attitude.lua). "heading": the old
                                       -- split by the flat-table heading, which swings ~56 deg with roll at
@@ -1577,6 +1587,9 @@ function FL.brakeWorld(speed)
 end
 function FL.brakeLean(speed, hdgDeg)
   local bx, bz = FL.brakeWorld(speed)
+  return FL.brakeLeanW(bx, bz, hdgDeg)
+end
+function FL.brakeLeanW(bx, bz, hdgDeg)
   local r = math.rad(hdgDeg)
   return CFG.PITCH_DIR * (bx * math.sin(r) - bz * math.cos(r)),
          CFG.ROLL_DIR  * (bx * math.cos(r) + bz * math.sin(r))
@@ -1657,6 +1670,7 @@ local function flyLeg()
   local spinBase, spinStep, spinT, spinHeld, spinSettle = nil, 0, 0, nil, 0
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
+  local brkWx, brkWz = nil, nil       -- BRAKE_SLEW: the brake's world lean vector on its way
   local alignStart, captureStart, released = nil, nil, false
   local stillT = 0                     -- seconds the pose has read frozen (see DOCK_STILL_*)
   local alignBad = 0
@@ -1840,7 +1854,7 @@ local function flyLeg()
         phase = "cruise" dashStart = t enter("cruise")
       end
     elseif phase == "cruise" and mode == "dash" and t - dashStart > dashSecs then
-      phase = "brake" brakeStart = t enter("brake")
+      phase = "brake" brakeStart = t brkWx = nil enter("brake")
     elseif phase == "cruise" and (mode == "go" or mode == "dock") then
       local d = math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2)
       local f, l = fwdSpeed(), latSpeed()
@@ -1849,7 +1863,7 @@ local function flyLeg()
       -- cruise ran straight through the target (2026-09-10)
       local fs = math.min(math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz), 150)
       if d < math.max(CFG.ARRIVE, FL.brakeDistance(fs, math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz))) then
-        phase = "brake" brakeStart = t chime.play("brake")
+        phase = "brake" brakeStart = t brkWx = nil chime.play("brake")
         print(string.format("brake at %.0f blocks, %.1f b/s", d, fs))
       end
     elseif phase == "brake" then
@@ -2187,12 +2201,28 @@ local function flyLeg()
       -- lean against the WORLD velocity vector, both axes, split into body
       -- exactly as cruise does; ramps in over BRAKE_EASE so it is not a step
       if speed > 0.1 then
-        tp, tr = FL.brakeLean(speed, cruiseHdg)
+        local bWx, bWz = FL.brakeWorld(speed)
+        if CFG.BRAKE_SLEW then
+          -- start from the lean the craft actually has, taken to lie along
+          -- the velocity (cruise aims it there), and walk the world vector
+          -- straight to the brake vector: through level, no sideways leg
+          if not brkWx then
+            local gB = ATT and ATT.gravityFromGimbal(a[1], a[2])
+            local lt = gB and math.deg(math.acos(math.max(-1, math.min(1, -gB.y))))
+                       or math.sqrt(a[1] * a[1] + a[2] * a[2])
+            brkWx, brkWz = pos.vx / speed * lt, pos.vz / speed * lt
+          end
+          local dx, dz = bWx - brkWx, bWz - brkWz
+          local dm, st = math.sqrt(dx * dx + dz * dz), CFG.TILT_RATE * dt
+          if dm > st then dx, dz = dx * st / dm, dz * st / dm end
+          brkWx, brkWz = brkWx + dx, brkWz + dz
+          bWx, bWz = brkWx, brkWz
+        end
+        tp, tr = FL.brakeLeanW(bWx, bWz, cruiseHdg)
         -- BRAKE_AIM: point the same world vector through the attitude, only
         -- with a solution from this very iteration (as cruise)
         if CFG.BRAKE_AIM == "attitude" and tri.q ~= nil and tri.qt == t
            and ATT ~= nil and ATT.leanTarget ~= nil then
-          local bWx, bWz = FL.brakeWorld(speed)
           tp, tr, aimQ = FL.aimLean(tp, tr, bWx, bWz, math.sqrt(bWx * bWx + bWz * bWz), CFG.BRAKE_DEG, a[1], a[2])
         end
       end
