@@ -218,7 +218,10 @@ local CFG = {
   -- ~74 deg only applies at standstill. Allowed lean = LEAN_AT_0 at rest,
   -- rising linearly to CRUISE_DEG at LEAN_FULL_SPD; pulled back by
   -- ALT_PROTECT_GAIN deg per block once more than ALT_PROTECT below goal.
-  CRUISE_DEG = 70,                    -- max lean during cruise, at speed (65 tracked within 2 deg at 81 b/s)
+  CRUISE_DEG = 75,                    -- max lean during cruise, at speed. 70 held 136 b/s with throttle at 0.38 and
+                                      -- the lean pinned at the cap 95% of the time: speed is lean-limited. Fit
+                                      -- predicts ~157 b/s at 75 (throttle ~0.49), ~174 at 80. Past ~78 the TUMBLE
+                                      -- cut (85, raw gimbal angles) needs to judge true lean first.
   LEAN_AT_0 = 50,                     -- deg allowed from standstill
   LEAN_FULL_SPD = 60,                 -- b/s at which CRUISE_DEG is allowed
   ALT_PROTECT = 15,                   -- blocks below goal before the lean cap is reduced
