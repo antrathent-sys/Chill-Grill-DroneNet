@@ -117,6 +117,15 @@ SELFTEST = [
      ["climb", "cruise", "land", "touchdown"]),
     ("hold from cruise", ["go", "1000", "1000", "300"], {"TMAX": "90", "CMD_AT": "20:h"},
      ["climb", "cruise", "hold"]),
+    # radio commands: a wired `land` on CMD_PROTO is obeyed; the same kind of
+    # word over a wireless modem, or on another protocol, must change nothing
+    # (CMD_RADIO_STRICT - with it off both of these would hold)
+    ("radio land, wired", ["go", "1000", "1000", "300"], {"TMAX": "150", "RADIO_AT": "20:land:drone-cmd:wired"},
+     ["climb", "cruise", "land", "touchdown"]),
+    ("radio ignores wireless", ["go", "1000", "1000", "300"], {"TMAX": "90", "RADIO_AT": "20:hold:drone-cmd:wireless"},
+     ["climb", "cruise"]),
+    ("radio ignores other protocol", ["go", "1000", "1000", "300"], {"TMAX": "90", "RADIO_AT": "20:hold:drone-rs:wired"},
+     ["climb", "cruise"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's
@@ -147,7 +156,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

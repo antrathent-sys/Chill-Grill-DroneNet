@@ -144,7 +144,19 @@ _G.os = _G.os or {}
 -- CMD_AT="20:l" presses a key at T=20, so the in-flight command path can be
 -- exercised the way it is actually used: mid-flight, without restarting.
 local cmdAt = os.getenv('CMD_AT')
+-- RADIO_AT="20:land:drone-cmd:wired" delivers a rednet message at T=20 on that
+-- protocol, but only if the controller opened a modem of that kind
+-- ("wired" or "wireless") - which is what CMD_RADIO_STRICT decides.
+local radioAt = os.getenv('RADIO_AT')
 os.pullEvent = function()
+  if radioAt then
+    local at, word, proto, kind = radioAt:match("^([%d%.]+):(%a+):([%w%-]+):(%a+)$")
+    at = tonumber(at)
+    radioAt = nil
+    if at and T < at then coroutine.yield(at - T) end
+    local open = sim.rednetOpen or {}
+    if word and open["modem_" .. kind] then return "rednet_message", 42, word, proto end
+  end
   if cmdAt then
     local at, key = cmdAt:match("^([%d%.]+):(%a)$")
     at = tonumber(at)
@@ -162,7 +174,7 @@ os.epoch = function() return math.floor(T * 1000) end
 -- rednet is only exercised by lib/rs.lua when a remote redstone target is
 -- configured; the harness configures none, so this just has to exist.
 _G.rednet = {
-  open = function() end,
+  open = function(name) sim.rednetOpen = sim.rednetOpen or {} sim.rednetOpen[name] = true end,
   broadcast = function() end,
   receive = function() return nil end,
 }
@@ -385,6 +397,11 @@ end
 -- Docking bridges the pad's wired network in, so more peripherals become
 -- visible. Named pad_* so they cannot be confused with the craft's own.
 local padPeriphs = {}
+-- RADIO_AT runs get one modem of each kind on the craft
+if os.getenv("RADIO_AT") then
+  add("modem_wired", "modem", { isWireless = function() return false end })
+  add("modem_wireless", "modem", { isWireless = function() return true end })
+end
 for i = 1, 4 do padPeriphs["pad_device_" .. i] = { __type = "modem" } end
 
 _G.peripheral = {
@@ -395,6 +412,11 @@ _G.peripheral = {
     return table.unpack(out)
   end,
   wrap = function(name) return periphs[name] end,
+  call = function(name, method, ...)
+    local p = periphs[name]
+    if not p or type(p[method]) ~= "function" then error("no method " .. tostring(method), 2) end
+    return p[method](...)
+  end,
   getType = function(name) local p = periphs[name] return p and p.__type or nil end,
   isPresent = function(name)
     -- LOSE_THRUSTER=<name> makes that peripheral vanish after 10 s, to

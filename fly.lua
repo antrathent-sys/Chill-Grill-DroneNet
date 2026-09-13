@@ -221,6 +221,14 @@ local CFG = {
   CMD_KEYS = true,                    -- accept single keypresses on the pod itself
   CMD_RADIO = true,                   -- accept the same words over rednet, for a ground station
   CMD_PROTO = "drone-cmd",
+  -- Radio commands from anyone who can reach a modem are a hijack: `land`
+  -- mid-cruise puts the craft down wherever it is, `undock` releases it. The
+  -- listener used to open EVERY modem, wireless included, and take the words
+  -- from any sender on any protocol. Strict opens wired modems only (the
+  -- craft's own cable, and the base's when docked) and ignores anything not on
+  -- CMD_PROTO. It is not authentication - anything on the cable can still send
+  -- a word - that is the signed link in COMMAND.md. false = the old listener.
+  CMD_RADIO_STRICT = true,
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
   TILT_RATE = 60,                     -- deg/s: how fast tilt targets may move
@@ -2498,12 +2506,19 @@ local function cmdLoop()
   if not (CFG.CMD_KEYS or CFG.CMD_RADIO) then while true do sleep(3600) end end
   if CFG.CMD_RADIO and rednet and peripheral.getNames then
     for _, nm in ipairs(peripheral.getNames()) do
-      if peripheral.getType(nm) == "modem" then pcall(rednet.open, nm) end
+      if peripheral.getType(nm) == "modem" then
+        local wired = true
+        if CFG.CMD_RADIO_STRICT then
+          local okw, wl = pcall(peripheral.call, nm, "isWireless")
+          wired = okw and wl == false
+        end
+        if wired then pcall(rednet.open, nm) end
+      end
     end
   end
   local keymap = { l = "land", h = "hold", u = "undock" }
   while true do
-    local ev, a, b = os.pullEvent()
+    local ev, a, b, c = os.pullEvent()
     if ev == "char" and CFG.CMD_KEYS then
       local c = tostring(a):lower()
       if keymap[c] then
@@ -2513,7 +2528,8 @@ local function cmdLoop()
       elseif c == "+" or c == "=" then print(string.format("volume %.1f", chime.volume(math.min(1, chime.volume() + 0.2))))
       elseif c == "-" then print(string.format("volume %.1f", chime.volume(math.max(0, chime.volume() - 0.2))))
       end
-    elseif ev == "rednet_message" and CFG.CMD_RADIO then
+    elseif ev == "rednet_message" and CFG.CMD_RADIO
+           and (not CFG.CMD_RADIO_STRICT or c == CFG.CMD_PROTO) then
       local word = type(b) == "table" and b.cmd or b
       if WORDS[word] then
         cmdReq = word
