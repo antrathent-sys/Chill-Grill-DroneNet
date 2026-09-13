@@ -218,7 +218,10 @@ local CFG = {
   -- ~74 deg only applies at standstill. Allowed lean = LEAN_AT_0 at rest,
   -- rising linearly to CRUISE_DEG at LEAN_FULL_SPD; pulled back by
   -- ALT_PROTECT_GAIN deg per block once more than ALT_PROTECT below goal.
-  CRUISE_DEG = 75,                    -- max lean during cruise, at speed. 70 held 136 b/s with throttle at 0.38 and
+  CRUISE_DEG = 70,                    -- max lean during cruise, at speed. The attitude loop holds ~9 deg MORE than
+                                      -- the cap (75 -> 84-85 true, flightlogs 12dcb8b1, 90790865) and TUMBLE is 85,
+                                      -- so 75 is one wobble from the cutout; 70 lands at ~79 and has flown 175 b/s.
+                                      -- (75 held 157-162 b/s at throttle 0.53.) 70 held 136 b/s with throttle at 0.38 and
                                       -- the lean pinned at the cap 95% of the time: speed is lean-limited. Fit
                                       -- predicts ~157 b/s at 75 (throttle ~0.49), ~174 at 80. Past ~78 the TUMBLE
                                       -- cut (85, raw gimbal angles) needs to judge true lean first.
@@ -254,7 +257,9 @@ local CFG = {
   -- lean 60 -> 79 in the next 0.2 s). Height is then held by lean, which
   -- ALT_LEAN_GAIN already does - leaning further sends thrust forward, not
   -- up. false = the fixed 0.25 floor, exactly as before.
-  ATT_FLOOR_LEAN = true,
+  ATT_FLOOR_LEAN = false,             -- OFF: flightlog 90790865 tumbled with it on - it kept the throttle from
+                                      -- arresting the cruise-entry climb (313 m) and the lean sat 9 deg over the
+                                      -- cap (see CRUISE_DEG). Fix the entry climb and the cap overshoot first.
   ATT_MIN_HIGH = 0.45,                -- floor at ATT_MIN_LEAN_HI and above
   ATT_MIN_LEAN_HI = 70,               -- deg of true lean; ramps from ATT_MIN_POWER at ATT_MIN_TILT
   ALT_LEAN_GAIN = 1.0,                -- deg of lean cap per block above goal (high -> lean more -> less lift)
