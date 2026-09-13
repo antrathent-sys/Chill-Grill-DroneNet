@@ -518,7 +518,9 @@ is flat with orientation at 45°, so `CRUISE_COORD` stays off. **Next:** push
 the lean cap back up from 65 with the stiffer `*_DASH` gains and the
 lean-scheduled yaw clamp, watching `p` vs `tp` above 60 b/s.
 
-**TRIAD heading is mirrored (open, low priority).** Two position-hold
+**TRIAD heading is mirrored (RESOLVED 2026-09-13).** Fitted from flightlog 4c7c472a, which logged all three table angles through two 10,000-block cruises: gimbal signs (+1, -1) and every mount turned 180 deg about y. That is the only one of 64 candidates that keeps north horizontal at lean, points the thrust along the direction of travel on both legs (+4.5 / +3.1 deg) and matches the flight-fitted level heading (-1.2 deg, 0.7 rms). The remaining 35-40 deg thrust-vs-path swing tracks sideways acceleration at -0.9: real weaving caused by aiming the lean with the flat-table heading. Original entry below.
+
+**TRIAD heading is mirrored (was open, low priority).** Two position-hold
 flights fitted with `tools/fit_heading.py` fix the controller's heading at
 `HDG_SIGN = -1, HDG_OFFSET = 269` (the flat table faces down and reads
 mirrored). The TRIAD estimate in `lib/attitude.lua` gives 10.9 on the tail

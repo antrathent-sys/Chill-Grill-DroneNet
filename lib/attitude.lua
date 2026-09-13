@@ -184,11 +184,24 @@ A.presets = {
     -- showed the nose points ~north on the pad, where this preset had said
     -- ~south, so every mount is turned 180 about y (x, z negated) - and the
     -- gimbal's pitch/roll, which are defined on body x/z, flip sign with it.
-    gimbalSigns = { pitch = -1, roll = -1 },
+    --
+    -- Mirror fixed by the 10,000-block flight of 2026-09-13 (flightlog
+    -- 4c7c472a, three table angles logged through two long cruises). Of all
+    -- 64 sign/axis-flip candidates only this one keeps north horizontal at
+    -- every lean AND makes the thrust's lean direction follow the direction
+    -- of travel on both the southbound and northbound legs (+4.5 / +3.1 deg,
+    -- agreeing within 1.4) AND reproduces the flight-fitted level heading
+    -- (-1.2 deg, 0.7 rms). The previous signs kept north horizontal too, but
+    -- solved a mirror image: thrust 180 deg off the path, and sideways lean
+    -- turned the wrong way. What is left of the thrust-vs-path swing
+    -- (35-40 deg rms) tracks sideways acceleration at -0.9: real weaving,
+    -- not sensor error. Relative to before: gimbal pitch sign flipped, and
+    -- every mount turned 180 degrees about y (x and y components negated).
+    gimbalSigns = { pitch = 1, roll = -1 },
     tables = {
-      { name = "navigation_table_4", normal = "-y", forward = "-x" },
-      { name = "navigation_table_5", normal = "+x", forward = "+z" },
-      { name = "navigation_table_7", normal = "-z", forward = "+x" },
+      { name = "navigation_table_4", normal = "+y", forward = "+x" },
+      { name = "navigation_table_5", normal = "-x", forward = "+z" },
+      { name = "navigation_table_7", normal = "-z", forward = "-x" },
       -- { name = "navigation_table_8", normal = "-x", forward = "-z" },
       -- { name = "navigation_table_9", normal = "+z", forward = "-x" },
     },
