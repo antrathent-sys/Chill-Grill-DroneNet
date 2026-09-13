@@ -63,7 +63,7 @@ local CFG = {
   -- cos(GAIN_LEAN_REF) / cos(lean), clamped to 1..GAIN_LEAN_MAX, so the loop
   -- gain at 78 deg is what it is at the reference lean the gains were tuned
   -- at (65 tracked within 2 deg at 81 b/s). false = fixed gains, as before.
-  GAIN_LEAN = true,
+  GAIN_LEAN = false,                  -- OFF: 01921028 rang at the 1.3 s mode above 90 b/s and tumbled (see log msg)
   GAIN_LEAN_REF = 60,                 -- deg: factor 1 here and below
   GAIN_LEAN_MAX = 3.0,                -- cap on the factor (reached at ~80 deg)
   IMAX = 0.6,
@@ -250,7 +250,7 @@ local CFG = {
   -- ~74 deg only applies at standstill. Allowed lean = LEAN_AT_0 at rest,
   -- rising linearly to CRUISE_DEG at LEAN_FULL_SPD; pulled back by
   -- ALT_PROTECT_GAIN deg per block once more than ALT_PROTECT below goal.
-  CRUISE_DEG = 74,                    -- max lean during cruise, at speed. 74 with GAIN_LEAN (2026-09-13): accurate 70
+  CRUISE_DEG = 70,                    -- max lean during cruise, at speed. (74 with GAIN_LEAN tumbled, 01921028.) Accurate 70
                                       -- peaked 140 b/s, fit says 74 -> ~143 steady, 78 -> 155. Next step 78 if clean.
                                       -- (History: the attitude loop held ~9 deg MORE than
                                       -- the cap (75 -> 84-85 true, flightlogs 12dcb8b1, 90790865) and TUMBLE is 85,
