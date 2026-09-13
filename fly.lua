@@ -324,7 +324,11 @@ local CFG = {
   -- blocks high while the lean followed a shrinking speed error.
   CRUISE_MAX = true,
   CRUISE_MAX_TILT_RATE = 40,          -- deg/s lean slew in cruise when CRUISE_MAX
-  CRUISE_MAX_ESCAPE_E = 10,           -- blocks high, or...
+  -- 10 -> 20 after flightlog 7b000455 (200 b/s): every fast cycle went 12-14
+  -- high, the floor let go, throttle fell to 0.30 and 30 b/s went with it,
+  -- then 6 s to get it back. With ALT_LEAN_OVER the lean holds height up
+  -- there; the floor only needs to let go if the sails really run away.
+  CRUISE_MAX_ESCAPE_E = 20,           -- blocks high, or...
   CRUISE_MAX_ESCAPE_V = 8,            -- ...b/s climbing, at which the throttle floor lets go even at full lean
   CRUISE_I_ALONG = true,              -- the cruise speed integrator trims drag ALONG the track only; sideways
                                       -- correction is purely proportional. Its sideways part drove a 6 s hunt
