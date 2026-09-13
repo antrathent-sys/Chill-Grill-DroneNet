@@ -1,3 +1,27 @@
+**Where it stands, night of 2026-09-13.** Cruise: 70 cap / +6 over is this
+airframe's speed - ~195 mean, 210-216 peaks, ~205 into the brake; 74 cap,
+lean-over 10 and the low floor were each neutral or slower (commit log).
+Brake: aimed through the attitude (BRAKE_AIM), along-track only
+(BRAKE_ALONG); from 200 it now takes 6.7-7.0 s, ends at along +6..+9 with a
+15-17 b/s lateral for the hold, stopping distance on the model (749/792 vs
+755/749, flightlog 6327e234). Round trip 2x5400 blocks: 162-167 s.
+
+**Open: the cruise does not hold the start->target line.** The craft weaves
+up to 300 blocks off it (6327e234: +164 then -292 in one 36 s leg) and
+arrives 24 deg off the bearing, so the brake stops ~250 blocks beside the
+target and re-cruises. CRUISE_TRACK (a lateral demand toward the line) gave
+89/26 off in 7a0dad5f and 295/278 in 6327e234 - not reliable. Root cause
+measured with `tools/thrust_azimuth.py` over four flights: the realised
+thrust azimuth follows the commanded cross azimuth with a slope of only
+0.17-0.20 - at 200 b/s the thrust sits within 3 deg of the velocity whatever
+the cross command asks (weathervane and/or the yaw hold resisting the yaw
+part of the rotation). The loop is 5x weaker than designed, hence
+underdamped. The first push off the line is a consistent +11..+15 deg thrust
+azimuth error during the 80-85 deg acceleration phase (t 6-14, both legs,
+same side). Next single change to try: scale the cross component of the
+cruise command x3 (clamped at 30 deg of cross lean) and measure whether the
+slope rises; if not, steer through the yaw hold instead of sideslip.
+
 **The mixer fix is confirmed in flight (2026-09-11).** First flight with lift
 preserved: `athr` equals `pwr` on every single row, saturated or not (zero
 rows differ by more than 0.02, against a mixer that used to pin the mean at
