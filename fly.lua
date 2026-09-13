@@ -344,6 +344,17 @@ local CFG = {
                                       -- so a short leg never leans to the cap (a 125-block re-cruise did, and
                                       -- ping-ponged dash/brake four times, 2026-09-10)
   RECRUISE_DIST = 60,                 -- blocks: a brake that ends further out than this goes back to dash
+  -- Brake trigger. The brake takes about 5 s almost whatever the entry speed,
+  -- so its distance grows LINEARLY with speed: least squares over 47 brakes in
+  -- 9 flightlogs gives 11.7 + 3.37 v blocks (rms 36), where BRAKE_K v^2/10 was
+  -- off by 152 - 380 short from 120 b/s, ~90 past from 31, and 30 of the 47
+  -- brakes ended in a re-cruise. At 1.1x the fit, 42 of 47 end within
+  -- RECRUISE_DIST. false = the BRAKE_K v^2 trigger, exactly as before.
+  BRAKE_LINEAR = true,
+  BRAKE_D0 = 12,                      -- blocks
+  BRAKE_S = 3.37,                     -- blocks per b/s of entry speed
+  BRAKE_MARGIN = 1.1,
+  BRAKE_LIN_MIN_V = 15,               -- b/s: below this the old trigger (no real cruise is this slow)
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
   -- monitoring: accumulator and thruster buffer are polled in their own
@@ -1399,6 +1410,15 @@ function FL.cruiseIntegrate(ix, iz, eWx, eWz, ux, uz, dt, cap)
   return a * ux, a * uz
 end
 
+-- Distance at which to start braking. fs is the speed capped at 150 that the
+-- old trigger used; gs the true ground speed, capped at 200 for the fit.
+function FL.brakeDistance(fs, gs)
+  if CFG.BRAKE_LINEAR and gs >= CFG.BRAKE_LIN_MIN_V then
+    return CFG.BRAKE_MARGIN * (CFG.BRAKE_D0 + CFG.BRAKE_S * math.min(gs, 200))
+  end
+  return CFG.BRAKE_K * fs * fs / 10
+end
+
 -- Brake lean against the world velocity, ramped in over BRAKE_EASE.
 function FL.brakeLean(speed, hdgDeg)
   local k = math.min(1, speed / CFG.BRAKE_EASE)
@@ -1673,7 +1693,7 @@ local function flyLeg()
       -- 40 b/s cap limited the brake point to 160 blocks and an 82 b/s
       -- cruise ran straight through the target (2026-09-10)
       local fs = math.min(math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz), 150)
-      if d < math.max(CFG.ARRIVE, CFG.BRAKE_K * fs * fs / 10) then
+      if d < math.max(CFG.ARRIVE, FL.brakeDistance(fs, math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz))) then
         phase = "brake" brakeStart = t chime.play("brake")
         print(string.format("brake at %.0f blocks, %.1f b/s", d, fs))
       end
