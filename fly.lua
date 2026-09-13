@@ -362,6 +362,20 @@ local CFG = {
   -- stays what the P term asked for and the stretch goes ALONG the track.
   -- false = stretch along the command, as before.
   CRUISE_MAX_ALONG = true,
+  -- Cross-track POSITION term. The cruise steered at the bearing to the
+  -- target with a velocity error only, so nothing ever brought it back onto
+  -- the line: flightlog e7553bc5 arrived at the brake point 200+ blocks off
+  -- the start->target line with the velocity 24 deg off the bearing (a
+  -- pursuit curve; the bearing swings away faster the closer it gets), and
+  -- a clean brake along that velocity stops 260 blocks beside the target -
+  -- every "sideways miss" from 200 b/s was this. CRUISE_TRACK asks for a
+  -- lateral velocity of CRUISE_TRACK_K b/s per block off the line, at most
+  -- CRUISE_TRACK_VMAX, toward the line, on top of the along-track plan.
+  -- The line runs from where this cruise started to its target. false =
+  -- steer at the bearing only, as before.
+  CRUISE_TRACK = true,
+  CRUISE_TRACK_K = 0.1,               -- b/s of lateral demand per block off the line
+  CRUISE_TRACK_VMAX = 25,             -- b/s: at most this much lateral demand (25 deg of cross lean at CKV 1)
   CRUISE_I_ALONG = true,              -- the cruise speed integrator trims drag ALONG the track only; sideways
                                       -- correction is purely proportional. Its sideways part drove a 6 s hunt
                                       -- in flightlog 3bc7dbb4: commanded direction +-17.5 deg against 7 for the
@@ -1541,6 +1555,17 @@ end
 -- Cruise integrator with CRUISE_I_ALONG: keep only the component along the
 -- unit track (ux, uz). Called every cruise iteration, so no sideways part
 -- survives from earlier; the update itself is added along the track too.
+-- CRUISE_TRACK: add a lateral velocity demand toward the line (sx,sz)->(tx,tz)
+-- to the world velocity error (eWx, eWz).
+function FL.trackAdd(eWx, eWz, sx, sz, tx, tz)
+  local lx, lz = tx - sx, tz - sz
+  local ln = math.sqrt(lx * lx + lz * lz)
+  if ln < 1 then return eWx, eWz end
+  local px, pz = -lz / ln, lx / ln                        -- unit perpendicular to the line
+  local off = (pos.x - sx) * px + (pos.z - sz) * pz       -- blocks off the line, along p
+  local vl = -clamp(CFG.CRUISE_TRACK_K * off, CFG.CRUISE_TRACK_VMAX)
+  return eWx + vl * px, eWz + vl * pz
+end
 function FL.alongTrack(ix, iz, ux, uz)
   local a = ix * ux + iz * uz
   return a * ux, a * uz
@@ -1686,6 +1711,7 @@ local function flyLeg()
   local hdgHist = {}                -- heading 2 s ago, for the spin guard
   local dashStart, brakeStart = nil, nil
   local brkWx, brkWz = nil, nil       -- BRAKE_SLEW: the brake's world lean vector on its way
+  local trkX, trkZ = nil, nil         -- CRUISE_TRACK: where this cruise started (the line runs from here)
   local alignStart, captureStart, released = nil, nil, false
   local stillT = 0                     -- seconds the pose has read frozen (see DOCK_STILL_*)
   local alignBad = 0
@@ -1866,7 +1892,7 @@ local function flyLeg()
         entryH = math.min(entryH, h0 + CFG.DASH_ENTRY_FRAC * (goal - h0))
       end
       if h >= entryH then
-        phase = "cruise" dashStart = t enter("cruise")
+        phase = "cruise" dashStart = t trkX, trkZ = pos.x, pos.z enter("cruise")
       end
     elseif phase == "cruise" and mode == "dash" and t - dashStart > dashSecs then
       phase = "brake" brakeStart = t brkWx = nil enter("brake")
@@ -1889,7 +1915,7 @@ local function flyLeg()
         local dLeft = (mode == "go" or mode == "dock") and math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2) or 0
         if dLeft > CFG.RECRUISE_DIST then
           -- stopped short: cruise again rather than crawl in on the hold
-          phase = "cruise" dashStart = t cruiseIx, cruiseIz = 0, 0
+          phase = "cruise" dashStart = t cruiseIx, cruiseIz = 0, 0 trkX, trkZ = pos.x, pos.z
           print(string.format("stopped %.0f blocks short - cruising again", dLeft))
           chime.play("dash")
         else
@@ -2162,6 +2188,9 @@ local function flyLeg()
       -- rotates the lean, it cannot unwind the integrator
       local vCruise = math.min(CFG.CRUISE_SPEED, FL.planSpeed(d))
       local eWx, eWz = vCruise * ux - pos.vx, vCruise * uz - pos.vz
+      if CFG.CRUISE_TRACK and trkX and tgtX then
+        eWx, eWz = FL.trackAdd(eWx, eWz, trkX, trkZ, tgtX, tgtZ)
+      end
       local cWx, cWz = CFG.CKV * eWx + cruiseIx, CFG.CKV * eWz + cruiseIz
       if CFG.CRUISE_NO_BRAKE and speed > 1 then
         -- drop any component of the lean that points against the travel
