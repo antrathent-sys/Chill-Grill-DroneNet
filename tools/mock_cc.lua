@@ -241,6 +241,27 @@ add("gimbal_sensor_0", "gimbal_sensor", {
   end,
 })
 add("navigation_table_0", "navigation_table", { getRelativeAngle = function() return 90 end })
+-- TRIAD=1 fits the airframe's three orthogonal tables (4/5/7), reporting what
+-- a LEVEL craft with its nose at TRIAD_HDG would read for a north target,
+-- through the same mounts and maths fly.lua solves with. Sorted by name they
+-- come after table 0, so the flat-table heading source does not change.
+-- The model never yaws and its tables do not tilt, so only level rows are a
+-- fair check: this proves the plumbing, not the real mounting convention.
+TRIAD_HDG = 30
+if os.getenv("TRIAD") then
+  -- CC's Lua 5.1 has math.atan2; the desktop runtime dropped it, and these
+  -- tables are built at load time, before anything else provides it
+  math.atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+  local okA, A = pcall(dofile, "lib/attitude.lua")
+  if okA and type(A) == "table" then
+    local h = math.rad(TRIAD_HDG)
+    local northBody = A.vec.new(-math.sin(h), 0, -math.cos(h))
+    for _, e in ipairs(A.presets.airframe1.tables) do
+      local ang = A.expectedAngle(A.mountFrom(e), northBody) or 0
+      add(e.name, "navigation_table", { getRelativeAngle = function() return ang end })
+    end
+  end
+end
 add("vector_thruster_0", "vector_thruster", {
   setVector = function(a, b) sim.vx, sim.vy = a, b end,
   setPowerNormalized = function(p) sim.pwr = p end,

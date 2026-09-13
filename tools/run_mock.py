@@ -11,6 +11,7 @@ Environment switches the harness honours:
     DRIFT=1        make station keeping wander instead of parking exactly
     LEGS=x,z;x,z   places to fly to in turn, for a multi-leg mission
     NO_PAD=1       open ground at the target instead of a solid pad
+    TRIAD=1        fit nav tables 4/5/7 reporting a level heading of 30 deg
     NODOCK=1       never let the magnet catch, to exercise the abort path
     START_DOCKED=1 begin the run already docked
     TMAX=<secs>    simulated-time budget
@@ -91,6 +92,9 @@ SELFTEST = [
      ["climb", "cruise", "brake", "hold", "fly",
       "climb", "cruise", "brake", "align", "docked"]),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
+    # three-table heading is logged (not flown with): level rows must read the
+    # heading the mock's tables were built for
+    ("triad log", ["90"], {"TMAX": "30", "TRIAD": "1"}, ["fly"]),
     # the mock never yaws, so this only checks the spin schedule runs
     ("quad spin", ["spin", "80"], {"TMAX": "30", "QUAD": "1"}, ["fly"]),
     # land: descend at a fixed rate, detect the ground, cut thrust
@@ -130,7 +134,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -138,6 +142,24 @@ def run(args, env, logpath):
     entry = L.eval("function(h, s, a) local f = assert(loadfile(h)) return f(s, a) end")
     lua_args = L.eval("{" + ",".join('"%s"' % a for a in args) + "}")
     entry(HARNESS, make_test_copy(), lua_args)
+
+
+TRIAD_HDG = 30.0
+
+
+def triad_check(logpath):
+    """Level rows of a TRIAD=1 run must log trihdg == TRIAD_HDG."""
+    import csv
+    with open(logpath, encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    if not rows or "trihdg" not in rows[0]:
+        return False, "no trihdg column"
+    level = [r for r in rows if abs(float(r["p"])) < 0.5 and abs(float(r["r"])) < 0.5
+             and float(r["trihdg"]) >= 0]
+    if len(level) < 5:
+        return False, "only %d level rows with a solution" % len(level)
+    worst = max(abs((float(r["trihdg"]) - TRIAD_HDG + 180) % 360 - 180) for r in level)
+    return worst < 1.0, "%d level rows, worst heading error %.2f deg" % (len(level), worst)
 
 
 def phases_from(logpath):
@@ -171,10 +193,16 @@ def main(argv=None):
                 failures += 1
                 continue
             ok = got == expect
+            extra = None
+            if env.get("TRIAD"):
+                tok, extra = triad_check(logpath)
+                ok = ok and tok
             failures += 0 if ok else 1
             print("%-5s %-12s %s" % ("ok" if ok else "FAIL", name, " -> ".join(got)))
-            if not ok:
+            if got != expect:
                 print("      expected: %s" % " -> ".join(expect))
+            if extra:
+                print("      triad: %s" % extra)
         print("\n%s" % ("all passed" if not failures else "%d failed" % failures))
         return 1 if failures else 0
 

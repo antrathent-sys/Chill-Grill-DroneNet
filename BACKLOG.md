@@ -525,8 +525,13 @@ mirrored). The TRIAD estimate in `lib/attitude.lua` gives 10.9 on the tail
 pose where the flight-derived value is 349 = -10.9: same mirror. Negating the
 table angle in `expectedAngle` does not re-fit cleanly because the mounts in
 `presets.airframe1` were fitted under the other sign; `tools/fit_mounts.py`
-needs re-running with the angle negated. `fly.lua` does not use the TRIAD
-heading, so this only affects `probe` output.
+needs re-running with the angle negated. `fly.lua` does not steer with the TRIAD
+heading. Since 2026-09-13 it LOGS it (`nav4,nav5,nav7,trihdg,trires`) so the
+convention can be fitted from cruise data: at cruise lean the flat table's
+heading swings ~45 deg with roll (the projected gimbal angles are used as
+Euler angles in `correctedHeading()`), and that wrong heading aims the lean -
+the last ~2,000 blocks of a 10,000-block cruise walked 18-56 deg off the line
+and tumbled (flightlog ca286a24).
 
 **Gimbal convention at large tilt: SOLVED (2026-09-10).** Four stationary
 poses at known attitudes settled it

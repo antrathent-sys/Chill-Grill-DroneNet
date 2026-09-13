@@ -624,6 +624,26 @@ local okA, libA = pcall(dofile, "lib/attitude.lua")
 ATT = okA and type(libA) == "table" and libA or nil
 if not ATT then print("WARNING: lib/attitude.lua missing - attitude errors fall back to raw gimbal angles") end
 
+-- Three-table attitude, LOGGED ONLY (2026-09-13). At cruise lean the flat
+-- nav table's heading swings ~45 deg with roll: correctedHeading() de-rotates
+-- it with the gimbal's projected angles as if they were Euler angles, which
+-- they are not past ~30 deg. lib/attitude.lua solves the whole orientation
+-- from tables 4/5/7 plus gravity (TRIAD, north magnet). Nothing steers with it
+-- yet: its heading is known to come out mirrored against the flight-fitted one
+-- (BACKLOG), so the raw table angles are logged beside it and the convention
+-- is fitted from real cruise data before the cruise is allowed to use it.
+local triPre = ATT and ATT.presets and ATT.presets.airframe1 or nil
+local triTables = {}
+if triPre then
+  for _, e in ipairs(triPre.tables) do
+    local tp = peripheral.wrap(e.name)
+    if tp and tp.getRelativeAngle then
+      triTables[#triTables + 1] = { name = e.name, p = tp, mount = ATT.mountFrom(e) }
+    end
+  end
+end
+local tri = { hdg = -1, res = -1, ang = {} }   -- last solution and raw readings; -1 = none
+
 -- redstone that is not necessarily on this computer's faces (see lib/rs.lua)
 local okR, libR = pcall(dofile, "lib/rs.lua")
 RS = okR and type(libR) == "table" and libR or nil
@@ -1178,7 +1198,7 @@ end
 local log = fs.open("flightlog", "w")
 -- athr/amax are what the thrusters were ACTUALLY given, mean and worst. pwr
 -- is only what the altitude loop asked for; they part company whenever sat=1.
-log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg")
+log.writeLine("t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg,nav4,nav5,nav7,trihdg,trires")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -1319,6 +1339,21 @@ local function flyLeg()
     if iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1 then rawH = rawHeading() end
     a = gim.getAngles()
     local hdgNow = heading(a[1], a[2], rawH)
+    -- three-table heading for the log, on the same cadence as the nav read
+    if #triTables > 0 and (iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1) then
+      local readings = {}
+      for _, tt in ipairs(triTables) do
+        local ok, ang = pcall(tt.p.getRelativeAngle)
+        tri.ang[tt.name] = (ok and type(ang) == "number") and ang or nil
+        if tri.ang[tt.name] then readings[#readings + 1] = { mount = tt.mount, angle = ang } end
+      end
+      tri.hdg, tri.res = -1, -1
+      if #readings >= 2 then
+        local ok, q, diag = pcall(ATT.estimate, readings,
+          { pitch = a[1], roll = a[2], signs = triPre.gimbalSigns }, ATT.vec.new(0, 0, -1))
+        if ok and q then tri.hdg, tri.res = ATT.heading(q), (diag and diag.residual) or -1 end
+      end
+    end
     -- cruise heading: complementary filter. Sable's yaw rate is integrated
     -- every iteration (no lag when the craft really yaws), and the result is
     -- pulled slowly toward the nav heading (no drift). A plain slow filter
@@ -1973,11 +2008,13 @@ local function flyLeg()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d",
+    log.writeLine(string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
       yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0, dock.npers,
-      dock.charging and 1 or 0))
+      dock.charging and 1 or 0,
+      tri.ang.navigation_table_4 or -1, tri.ang.navigation_table_5 or -1, tri.ang.navigation_table_7 or -1,
+      tri.hdg, tri.res))
     if phase == "touchdown" then
       -- Thrust is already zero (see the power section). Keep flying the loop
       -- for a few more seconds purely to log: at the instant it fires, a
