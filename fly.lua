@@ -1605,6 +1605,14 @@ local function flyLeg()
       local ae = math.abs(e)
       local vMag = math.min(CFG.AKP / CFG.AKD * ae, math.sqrt(2 * CFG.DECEL * ae), CFG.CLIMB_RATE)
       local vWant = (e >= 0) and vMag or -vMag
+      -- A mission's hover leg coming down to its drop height falls on the
+      -- landing profile: as fast as the height left can arrest, then a short
+      -- proportional tail (LAND_APPROACH_K, tau 0.7 s). The hold taper above
+      -- has AKP/AKD = 0.5, a 2 s tail, and spent 7 s on the last 27 blocks
+      -- of every drop. No creep floor here - this stops AT the height.
+      if legKind == "hover" and phase == "fly" and e < 0 then
+        vWant = -math.min(CFG.LAND_MAX_RATE, math.sqrt(2 * CFG.LAND_DECEL * ae), CFG.LAND_APPROACH_K * ae)
+      end
       if phase == "land" or phase == "descend" then
         -- descend (docking) uses the same profile, with the park height as
         -- its ground; align has already done the settling for it
