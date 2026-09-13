@@ -61,6 +61,19 @@ local CFG = {
   MIX_MODE = "both",                  -- 2026-09-10 A/B at 0.25 s/iter: diff = steady +-10 deg wobble,
                                       -- vector = divergent, tumbled at 14 s (stronger torque, same delay).
                                       -- Thruster writes are now batched into one tick; flying "both".
+  -- A nozzle's torque is deflection x thrust, so the attitude loop's gain
+  -- through the vector path changes 3x as cruise throttle steps between the
+  -- 0.25 floor and the 0.6-0.8 floor-on band. Lean error followed throttle by
+  -- 0.4-1.8 s (corr +0.56..+0.76) on every 75-cap flight and on this build at
+  -- 70: +-7-9 deg of wobble where the original at a steady throttle held
+  -- +-1.5 (flightlogs fff745c8, 60dc4ef0, 12dcb8b1 vs b8c769e1). In cruise
+  -- the vector command is divided by throttle / VEC_NORM_REF, clamped, so the
+  -- torque per degree of error is the same at any throttle. The differential
+  -- path is untouched: its torque does not scale with mean thrust.
+  -- false = no scaling, exactly as before.
+  VEC_NORM = true,
+  VEC_NORM_REF = 0.4,                 -- throttle at which the factor is 1 (the original cruised here)
+  VEC_NORM_LO = 0.5, VEC_NORM_HI = 1.5,
   MIX_GAIN = 1.0,                     -- PID output (nozzle units) -> differential demand, before PITCH_AUTH.
                                       -- 1.0: steady +-10 deg / 2.5 s pitch wobble; 0.5: growing +-22 deg / 6 s.
                                       -- Lower stiffness made it WORSE, so the fix is in KI/KD, not here.
@@ -598,7 +611,13 @@ end
 -- is asked for. Never diagnose from the demand alone again.
 local mixSat = false
 local mixThr, mixMax = 0, 0        -- mean and worst actual thrust, 0..1
-local function drive(p, up, ur, yaw)
+local function drive(p, up, ur, yaw, normVec)
+  if normVec and CFG.VEC_NORM and mixer then
+    -- see VEC_NORM: keep vectoring torque per unit error constant over throttle
+    local k = CFG.VEC_NORM_REF / math.max(0.05, math.min(1, p))
+    k = math.max(CFG.VEC_NORM_LO, math.min(CFG.VEC_NORM_HI, k))
+    up, ur = up * k, ur * k
+  end
   local cp, cr = CFG.P_SIGN * up, CFG.R_SIGN * ur
   local vx = clamp(CFG.P_AXIS == "x" and cp or cr, CFG.VEC_MAX)
   local vy = clamp(CFG.P_AXIS == "x" and cr or cp, CFG.VEC_MAX)
@@ -612,9 +631,17 @@ local function drive(p, up, ur, yaw)
   local d = { lift = math.max(0, math.min(1, p)), yawRate = yaw or 0 }
   if CFG.MIX_MODE ~= "vector" then
     -- mixer pitch +1 raises gimbal pitch (that is how mixcal defines the
-    -- signs), so a positive pitch error wants a negative demand
-    d.pitch = clamp(-CFG.MIX_P_SIGN * CFG.MIX_GAIN * up, 1)
-    d.roll  = clamp(-CFG.MIX_R_SIGN * CFG.MIX_GAIN * ur, 1)
+    -- signs), so a positive pitch error wants a negative demand.
+    -- The differential gets the UNscaled PID output (VEC_NORM applies to
+    -- the vector path only).
+    local upD, urD = up, ur
+    if normVec and CFG.VEC_NORM and mixer then
+      local k = CFG.VEC_NORM_REF / math.max(0.05, math.min(1, p))
+      k = math.max(CFG.VEC_NORM_LO, math.min(CFG.VEC_NORM_HI, k))
+      upD, urD = up / k, ur / k
+    end
+    d.pitch = clamp(-CFG.MIX_P_SIGN * CFG.MIX_GAIN * upD, 1)
+    d.roll  = clamp(-CFG.MIX_R_SIGN * CFG.MIX_GAIN * urD, 1)
   end
   if CFG.MIX_MODE ~= "diff" then d.lat, d.fwd = vx, vy end   -- VEC_X_IS lat, VEC_Y_IS fwd
   local thrusts, _, sat = mixer.write(d)
@@ -2184,7 +2211,7 @@ local function flyLeg()
       yawWarned = FL.spinGuard(hdgHist, iter, hdgNow, yawWarned)
     end
 
-    local vx, vy = drive(pwr, KP * ep + ip + KD * dp, KP * er + ir + KD * dr, yawDem)
+    local vx, vy = drive(pwr, KP * ep + ip + KD * dp, KP * er + ir + KD * dr, yawDem, phase == "cruise")
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
