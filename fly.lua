@@ -312,7 +312,13 @@ local CFG = {
   -- acceleration without incident, so +6 over a 70 cap stays inside proven
   -- territory. Only while high (e < 0); false = the cap is the cap.
   ALT_LEAN_OVER_ON = true,
-  ALT_LEAN_OVER = 6,                  -- deg
+  -- 6 -> 10 after flightlog 01499762: at 196 b/s the sails still floated the
+  -- craft 22 high with the lean at 76, the floor let go at 20 and 13 b/s went
+  -- with the throttle. 80 while high uses the high angle only where the sails
+  -- have surplus lift, which is where it is sustainable (at 80 while LOW the
+  -- craft sank, 0fa26a7c). Worst case ~82 true against TUMBLE 85; back to 6
+  -- if true lean tops 83.
+  ALT_LEAN_OVER = 10,                 -- deg
   -- Below cruise height at speed, ALT_LEAN_GAIN may not pull the cap more
   -- than ALT_LEAN_LOW_DROP under CRUISE_DEG. Flightlogs 0fa26a7c / 663ac06a:
   -- every height cycle dragged the cap to 50-60 deg to climb 14 blocks and
