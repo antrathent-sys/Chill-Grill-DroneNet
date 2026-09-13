@@ -518,6 +518,8 @@ is flat with orientation at 45°, so `CRUISE_COORD` stays off. **Next:** push
 the lean cap back up from 65 with the stiffer `*_DASH` gains and the
 lean-scheduled yaw clamp, watching `p` vs `tp` above 60 b/s.
 
+**Cruise aims through the three-table attitude (2026-09-13, CRUISE_AIM = "attitude").** Lean sized as a true world lean, pointed with `attitude.leanTarget()`; the old flat-heading split is the fallback and `"heading"` restores it. Rows show which path flew as `aimq`. Next to confirm in flight: the thrust-vs-path weave (35-40 deg rms before) and the end-of-cruise upsets. Still on the old heading: the brake.
+
 **TRIAD heading is mirrored (RESOLVED 2026-09-13).** Fitted from flightlog 4c7c472a, which logged all three table angles through two 10,000-block cruises: gimbal signs (+1, -1) and every mount turned 180 deg about y. That is the only one of 64 candidates that keeps north horizontal at lean, points the thrust along the direction of travel on both legs (+4.5 / +3.1 deg) and matches the flight-fitted level heading (-1.2 deg, 0.7 rms). The remaining 35-40 deg thrust-vs-path swing tracks sideways acceleration at -0.9: real weaving caused by aiming the lean with the flat-table heading. Original entry below.
 
 **TRIAD heading is mirrored (was open, low priority).** Two position-hold

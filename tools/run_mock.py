@@ -96,6 +96,10 @@ SELFTEST = [
     # three-table heading is logged (not flown with): level rows must read the
     # heading the mock's tables were built for
     ("triad log", ["90"], {"TMAX": "30", "TRIAD": "1"}, ["fly"]),
+    # the cruise aims its lean through that attitude: normal phases, and the
+    # log must show the attitude path actually flying most cruise rows
+    ("triad cruise", ["go", "100", "50", "90"], {"TMAX": "90", "TRIAD": "1"},
+     ["climb", "cruise", "brake", "hold"]),
     # a full disk must never end a flight: with little space the log thins to
     # phase changes and still records every phase...
     ("tiny disk", ["go", "100", "50", "90"], {"TMAX": "90", "DISK_KB": "40"},
@@ -169,7 +173,15 @@ def triad_check(logpath):
     if len(level) < 5:
         return False, "only %d level rows with a solution" % len(level)
     worst = max(abs((float(r["trihdg"]) - TRIAD_HDG + 180) % 360 - 180) for r in level)
-    return worst < 1.0, "%d level rows, worst heading error %.2f deg" % (len(level), worst)
+    ok, msg = worst < 1.0, "%d level rows, worst heading error %.2f deg" % (len(level), worst)
+    cruise = [r for r in rows if r["phase"] == "cruise"]
+    if cruise:
+        if "aimq" not in rows[0]:
+            return False, msg + "; no aimq column"
+        share = sum(1 for r in cruise if r["aimq"] == "1") / len(cruise)
+        ok = ok and share >= 0.8
+        msg += "; %.0f%% of %d cruise rows aimed by attitude" % (100 * share, len(cruise))
+    return ok, msg
 
 
 def phases_from(logpath):

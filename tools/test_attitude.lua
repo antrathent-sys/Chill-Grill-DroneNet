@@ -117,6 +117,54 @@ local qOver = qaxis(V.new(1, 0, 0), 90)
 local tw = A.thrustWorld(qOver)
 check("pitched 90: thrust is horizontal", math.abs(tw.y) < 1e-9, tw.y)
 
+print("lean target: aim the thrust in world")
+local function rawOf(g, signs) local P, R = A.gimbalFromGravity(g) return P * signs.pitch, R * signs.roll end
+local function az(tw) return math.deg(math.atan2(tw.x, -tw.z)) % 360 end
+for _, signs in ipairs({ { pitch = 1, roll = 1 }, { pitch = 1, roll = -1 } }) do
+  -- aiming at the thrust direction the craft already has returns its reading
+  math.randomseed(11)
+  local worstRT = 0
+  for i = 1, 200 do
+    local axr = V.norm(V.new(math.random() - .5, math.random() - .5, math.random() - .5))
+    local q = qaxis(axr, math.random() * 80)          -- up to 80 deg of lean, any direction
+    local gB = A.rotate(A.conj(q), DOWN_W)
+    local pr, rr = rawOf(gB, signs)
+    local tw = A.thrustWorld(q)
+    local lean = math.deg(math.acos(math.max(-1, math.min(1, tw.y))))
+    local tp, tr = A.leanTarget(q, pr, rr, az(tw), lean, signs)
+    worstRT = math.max(worstRT, math.abs(tp - pr), math.abs(tr - rr))
+  end
+  check(string.format("signs %+d/%+d: round trip on 200 attitudes", signs.pitch, signs.roll), worstRT < 1e-6,
+    string.format("worst %.2e deg", worstRT))
+end
+-- Signs. Tilting the thrust toward east swings body +x (starboard) downward,
+-- so gravity seen in the body gains +x; the gimbal reports roll as
+-- atan2(-g.x, -g.y), which is then NEGATIVE. Likewise tilting toward the nose
+-- (-z) swings body +z up, gravity gains -z, and pitch = atan2(g.z, -g.y) is
+-- negative. That matches fly.lua's flight-proven PITCH_DIR = -1 (forward lean
+-- is negative pitch) and, with the airframe's roll sign -1, ROLL_DIR = +1.
+local S = { pitch = 1, roll = 1 }
+local tp, tr = A.leanTarget(q0, 0, 0, 90, 10, S)
+check("level, nose north: lean 10 east is roll only (-10)", math.abs(tp) < 1e-6 and math.abs(tr + 10) < 1e-6,
+  string.format("tp %.3f tr %.3f", tp, tr))
+tp, tr = A.leanTarget(q0, 0, 0, 0, 10, S)
+check("level, nose north: lean 10 north is pitch only (-10)", math.abs(tp + 10) < 1e-6 and math.abs(tr) < 1e-6,
+  string.format("tp %.3f tr %.3f", tp, tr))
+local qE = qaxis(V.new(0, 1, 0), -90)
+check("test setup: that yaw puts the nose east", math.abs(A.heading(qE) - 90) < 1e-6, A.heading(qE))
+tp, tr = A.leanTarget(qE, 0, 0, 90, 10, S)
+check("level, nose east: lean 10 east (toward the nose) is pitch only (-10)", math.abs(tp + 10) < 1e-6 and math.abs(tr) < 1e-6,
+  string.format("tp %.3f tr %.3f", tp, tr))
+tp, tr = A.leanTarget(q0, 0, 0, 90, 10, { pitch = 1, roll = -1 })
+check("roll sign -1 flips the raw roll (+10)", math.abs(tp) < 1e-6 and math.abs(tr - 10) < 1e-6,
+  string.format("tp %.3f tr %.3f", tp, tr))
+local qT = qaxis(V.norm(V.new(1, 0, 1)), 35)
+local gT0 = A.rotate(A.conj(qT), DOWN_W)
+local p0, r0 = rawOf(gT0, S)
+tp, tr = A.leanTarget(qT, p0, r0, 123, 0, S)
+check("lean 0 from a 35 deg tilt targets level", math.abs(tp) < 1e-6 and math.abs(tr) < 1e-6,
+  string.format("tp %.3f tr %.3f", tp, tr))
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("attitude tests failed", 0) end

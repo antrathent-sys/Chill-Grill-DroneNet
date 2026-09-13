@@ -320,4 +320,33 @@ end
 -- steers. Well behaved at every attitude, including through the transition.
 function A.thrustWorld(q) return A.rotate(q, A.THRUST) end
 
+--- Raw gimbal angles (as the sensor reports them) that aim the thrust axis at
+-- world compass azimuth azDeg (0 north, 90 east) and leanDeg from vertical,
+-- given the current attitude q and the gimbal reading it was solved with.
+-- The target is the smallest rotation of the body that carries the thrust
+-- axis there, so yaw about the thrust axis is left where it is. Feed the
+-- result to an attitude loop that compares raw-angle gravity vectors: at the
+-- current thrust direction it returns the current reading exactly.
+function A.leanTarget(q, pitchDeg, rollDeg, azDeg, leanDeg, signs)
+  signs = signs or {}
+  local L, az = math.rad(leanDeg), math.rad(azDeg)
+  local tw = v(math.sin(L) * math.sin(az), math.cos(L), -math.sin(L) * math.cos(az))
+  local tb = norm(A.rotate(A.conj(q), tw))
+  local gCur = A.gravityFromGimbal(pitchDeg, rollDeg, signs)
+  local axis = v(tb.z, 0, -tb.x)                  -- body thrust (y) cross tb
+  local s = len(axis)
+  local gT
+  if s < 1e-9 then
+    -- already along the thrust axis, or exactly opposite (180 about body x)
+    gT = (tb.y > 0) and gCur or v(gCur.x, -gCur.y, -gCur.z)
+  else
+    axis = scale(axis, 1 / s)
+    local half = -math.atan2(s, tb.y) / 2          -- the inverse rotation
+    local sh = math.sin(half)
+    gT = A.rotate({ x = axis.x * sh, y = axis.y * sh, z = axis.z * sh, w = math.cos(half) }, gCur)
+  end
+  local P, R = A.gimbalFromGravity(gT)
+  return P * (signs.pitch or 1), R * (signs.roll or 1)
+end
+
 return A

@@ -256,8 +256,10 @@ add("navigation_table_0", "navigation_table", { getRelativeAngle = function() re
 -- a LEVEL craft with its nose at TRIAD_HDG would read for a north target,
 -- through the same mounts and maths fly.lua solves with. Sorted by name they
 -- come after table 0, so the flat-table heading source does not change.
--- The model never yaws and its tables do not tilt, so only level rows are a
--- fair check: this proves the plumbing, not the real mounting convention.
+-- The tables follow the model's gimbal: each call solves the attitude that
+-- reading implies with the nose held at TRIAD_HDG, and reports north through
+-- it, so the solution stays consistent at any lean. The model never yaws.
+-- This proves the plumbing and the aim path, not the real mounting.
 TRIAD_HDG = 30
 if os.getenv("TRIAD") then
   -- CC's Lua 5.1 has math.atan2; the desktop runtime dropped it, and these
@@ -266,10 +268,17 @@ if os.getenv("TRIAD") then
   local okA, A = pcall(dofile, "lib/attitude.lua")
   if okA and type(A) == "table" then
     local h = math.rad(TRIAD_HDG)
-    local northBody = A.vec.new(-math.sin(h), 0, -math.cos(h))
+    local noseW = A.vec.new(math.sin(h), 0, -math.cos(h))
+    local signs = A.presets.airframe1.gimbalSigns
     for _, e in ipairs(A.presets.airframe1.tables) do
-      local ang = A.expectedAngle(A.mountFrom(e), northBody) or 0
-      add(e.name, "navigation_table", { getRelativeAngle = function() return ang end })
+      local mount = A.mountFrom(e)
+      add(e.name, "navigation_table", { getRelativeAngle = function()
+        local ga = periphs["gimbal_sensor_0"].getAngles()
+        local gBody = A.gravityFromGimbal(ga[1], ga[2], signs)
+        local q = A.triad(gBody, A.NOSE, A.vec.new(0, -1, 0), noseW)
+        if not q then return 0 end
+        return A.expectedAngle(mount, A.rotate(A.conj(q), A.vec.new(0, 0, -1))) or 0
+      end })
     end
   end
 end

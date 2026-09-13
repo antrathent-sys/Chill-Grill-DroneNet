@@ -264,6 +264,11 @@ local CFG = {
   CRUISE_MAX_TILT_RATE = 40,          -- deg/s lean slew in cruise when CRUISE_MAX
   CRUISE_MAX_ESCAPE_E = 10,           -- blocks high, or...
   CRUISE_MAX_ESCAPE_V = 8,            -- ...b/s climbing, at which the throttle floor lets go even at full lean
+  CRUISE_AIM = "attitude",            -- "attitude": aim the cruise lean through the three-table attitude
+                                      -- (nav tables 4/5/7 + gimbal, lib/attitude.lua). "heading": the old
+                                      -- split by the flat-table heading, which swings ~56 deg with roll at
+                                      -- cruise lean and weaved the lean +-35 deg around the path (flightlog
+                                      -- 4c7c472a). Falls back to "heading" whenever there is no fresh solution.
   CRUISE_NO_BRAKE = true,             -- never lean against the direction of travel in cruise: coast, don't fight
   -- Coordinated cruise: the sails are symmetric about one body plane and
   -- want a single angle of attack, not a compound one. With CRUISE_COORD the
@@ -645,6 +650,7 @@ if triPre then
   end
 end
 local tri = { hdg = -1, res = -1, ang = {} }   -- last solution and raw readings; -1 = none
+local aimQ = false                             -- this row's cruise lean was aimed by the attitude
 
 -- redstone that is not necessarily on this computer's faces (see lib/rs.lua)
 local okR, libR = pcall(dofile, "lib/rs.lua")
@@ -1229,7 +1235,7 @@ local function logRow(ph, s)
 end
 -- athr/amax are what the thrusters were ACTUALLY given, mean and worst. pwr
 -- is only what the altitude loop asked for; they part company whenever sat=1.
-pcall(log.writeLine, "t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg,nav4,nav5,nav7,trihdg,trires")
+pcall(log.writeLine, "t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg,nav4,nav5,nav7,trihdg,trires,aimq")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -1370,19 +1376,22 @@ local function flyLeg()
     if iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1 then rawH = rawHeading() end
     a = gim.getAngles()
     local hdgNow = heading(a[1], a[2], rawH)
-    -- three-table heading for the log, on the same cadence as the nav read
-    if #triTables > 0 and (iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1) then
+    aimQ = false
+    -- three-table attitude: for the log on the nav cadence, and every
+    -- iteration in cruise when the cruise aims its lean with it
+    if #triTables > 0 and (iter % CFG.HDG_EVERY == 1 or CFG.HDG_EVERY <= 1
+                           or (CFG.CRUISE_AIM == "attitude" and phase == "cruise")) then
       local readings = {}
       for _, tt in ipairs(triTables) do
         local ok, ang = pcall(tt.p.getRelativeAngle)
         tri.ang[tt.name] = (ok and type(ang) == "number") and ang or nil
         if tri.ang[tt.name] then readings[#readings + 1] = { mount = tt.mount, angle = ang } end
       end
-      tri.hdg, tri.res = -1, -1
+      tri.hdg, tri.res, tri.q = -1, -1, nil
       if #readings >= 2 then
         local ok, q, diag = pcall(ATT.estimate, readings,
           { pitch = a[1], roll = a[2], signs = triPre.gimbalSigns }, ATT.vec.new(0, 0, -1))
-        if ok and q then tri.hdg, tri.res = ATT.heading(q), (diag and diag.residual) or -1 end
+        if ok and q then tri.hdg, tri.res, tri.q, tri.qt = ATT.heading(q), (diag and diag.residual) or -1, q, t end
       end
     end
     -- cruise heading: complementary filter. Sable's yaw rate is integrated
@@ -1841,6 +1850,9 @@ local function flyLeg()
       end
       tp = CFG.PITCH_DIR * cF
       tr = CFG.ROLL_DIR * cL
+      -- aim through the attitude only with a solution from this very iteration
+      local useQ = CFG.CRUISE_AIM == "attitude" and tri.q ~= nil and tri.qt == t
+                   and ATT ~= nil and ATT.leanTarget ~= nil
       -- lean cap: speed-scheduled, altitude-protected
       local cap = math.min(dashDeg, CFG.LEAN_AT_0 + (dashDeg - CFG.LEAN_AT_0) * math.min(1, speed / CFG.LEAN_FULL_SPD))
       -- (CRUISE_MAX: not while already rising at the planned rate - being low
@@ -1851,21 +1863,36 @@ local function flyLeg()
       -- altitude by lean: above the goal (e < 0) lean more, below it lean less
       cap = clamp(cap - CFG.ALT_LEAN_GAIN * e, dashDeg)
       cap = math.max(30, cap)
-      local mag = math.sqrt(tp * tp + tr * tr)
+      -- Aimed by the attitude, the lean is sized and capped as the world
+      -- command itself - a true lean - and pointed afterwards; otherwise as
+      -- before, on the heading-split pitch and roll.
+      local mag = useQ and math.sqrt(cWx * cWx + cWz * cWz) or math.sqrt(tp * tp + tr * tr)
       -- CRUISE_MAX: below the planned speed, lean to the cap rather than in
       -- proportion to the error; the planned speed still tapers with distance,
       -- so a short re-cruise does not ping-pong with the brake
       if CFG.CRUISE_MAX and speed < vCruise and mag > 1e-6 and mag < cap then
-        tp, tr = tp * cap / mag, tr * cap / mag
+        if useQ then cWx, cWz = cWx * cap / mag, cWz * cap / mag else tp, tr = tp * cap / mag, tr * cap / mag end
         mag = cap
       end
       leanAtCap = cap >= dashDeg - 0.5 and mag > cap
       if mag > cap then
-        tp, tr = tp * cap / mag, tr * cap / mag
+        if useQ then cWx, cWz = cWx * cap / mag, cWz * cap / mag else tp, tr = tp * cap / mag, tr * cap / mag end
       else
         -- integrate only while unsaturated (anti-windup)
         cruiseIx = clamp(cruiseIx + CFG.CKI * eWx * dt, cap)
         cruiseIz = clamp(cruiseIz + CFG.CKI * eWz * dt, cap)
+      end
+      if useQ and mag > 1e-6 then
+        local okL, ntp, ntr = pcall(ATT.leanTarget, tri.q, a[1], a[2],
+          math.deg(math.atan2(cWx, -cWz)), math.min(mag, cap), triPre.gimbalSigns)
+        if okL and type(ntp) == "number" and ntp == ntp and type(ntr) == "number" and ntr == ntr then
+          tp, tr, aimQ = ntp, ntr, true
+        end
+      end
+      if useQ and not aimQ then
+        -- no usable solution after all: the heading split, capped as before
+        local m2 = math.sqrt(tp * tp + tr * tr)
+        if m2 > cap then tp, tr = tp * cap / m2, tr * cap / m2 end
       end
     elseif phase == "cruise" then
       tp = CFG.DASH_DIR * dashDeg
@@ -2039,13 +2066,13 @@ local function flyLeg()
 
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    logRow(phase, string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f",
+    logRow(phase, string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%d",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
       yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0, dock.npers,
       dock.charging and 1 or 0,
       tri.ang.navigation_table_4 or -1, tri.ang.navigation_table_5 or -1, tri.ang.navigation_table_7 or -1,
-      tri.hdg, tri.res))
+      tri.hdg, tri.res, aimQ and 1 or 0))
     if phase == "touchdown" then
       -- Thrust is already zero (see the power section). Keep flying the loop
       -- for a few more seconds purely to log: at the instant it fires, a
