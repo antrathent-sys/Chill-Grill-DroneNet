@@ -255,6 +255,15 @@ local CFG = {
   DASH_ENTRY_FRAC = 0.6,              -- go/dock: start the cruise lean once this fraction of the climb is done;
                                       -- the altitude cascade finishes the climb underneath (feed-forward covers the lean)
   CRUISE_TILT_RATE = 20,              -- deg/s: lean target slew in cruise (TILT_RATE elsewhere); no twitching
+  -- CRUISE_MAX: fly the cruise for speed. false = the previous law, exactly.
+  -- 2026-09-13 log: 8 of 11 cruise seconds barely pushed - the lean cap
+  -- held 30 deg while coasting up with 30 b/s to spare, the lean crept in
+  -- at 20 deg/s, then the throttle sat at 0.25 because the craft was a few
+  -- blocks high while the lean followed a shrinking speed error.
+  CRUISE_MAX = true,
+  CRUISE_MAX_TILT_RATE = 40,          -- deg/s lean slew in cruise when CRUISE_MAX
+  CRUISE_MAX_ESCAPE_E = 10,           -- blocks high, or...
+  CRUISE_MAX_ESCAPE_V = 8,            -- ...b/s climbing, at which the throttle floor lets go even at full lean
   CRUISE_NO_BRAKE = true,             -- never lean against the direction of travel in cruise: coast, don't fight
   -- Coordinated cruise: the sails are symmetric about one body plane and
   -- want a single angle of attack, not a compound one. With CRUISE_COORD the
@@ -1669,8 +1678,19 @@ local function flyLeg()
           -- Let go AT the goal, not past it. At -5 blocks / 10 b/s the floor held 0.60 through 250 m
           -- and handed over a 12-15 b/s climb that 0.25 throttle at 55 b/s could not stop - the sails
           -- carry it: 339 m on 2026-09-13, 89 over.
-          if floorOn and (e < 0 or v > 4 or (leanAtCap and e < -2)) then floorOn = false
-          elseif not floorOn and e > 2 and v < 2 then floorOn = true end
+          -- CRUISE_MAX: past the lean at which CRUISE_MIN_POWER just holds the
+          -- craft up, the floor cannot climb it, so it stays on and pushes
+          -- forward - unless the sails have still carried it well high.
+          local holdDeg, leanTrue = 90, 0
+          if CFG.CRUISE_MAX then
+            holdDeg = math.deg(math.acos(math.min(1, CFG.HOVER / CFG.CRUISE_MIN_POWER)))
+            local gB = ATT and ATT.gravityFromGimbal(a[1], a[2])
+            leanTrue = gB and math.deg(math.acos(math.max(-1, math.min(1, -gB.y))))
+                       or math.sqrt(a[1] * a[1] + a[2] * a[2])
+          end
+          local pastHold = leanTrue >= holdDeg and e > -CFG.CRUISE_MAX_ESCAPE_E and v < CFG.CRUISE_MAX_ESCAPE_V
+          if floorOn and (e < 0 or v > 4 or (leanAtCap and e < -2)) and not pastHold then floorOn = false
+          elseif not floorOn and ((e > 2 and v < 2) or pastHold) then floorOn = true end
           -- ramp the floor in (0.3/s) so engaging it is not a step the
           -- attitude loop has to absorb; out at 1.0/s, because the slow
           -- release kept pushing for 1.5 s after it had let go
@@ -1757,11 +1777,22 @@ local function flyLeg()
       tr = CFG.ROLL_DIR * cL
       -- lean cap: speed-scheduled, altitude-protected
       local cap = math.min(dashDeg, CFG.LEAN_AT_0 + (dashDeg - CFG.LEAN_AT_0) * math.min(1, speed / CFG.LEAN_FULL_SPD))
-      if e > CFG.ALT_PROTECT then cap = math.max(30, cap - CFG.ALT_PROTECT_GAIN * (e - CFG.ALT_PROTECT)) end
+      -- (CRUISE_MAX: not while already rising at the planned rate - being low
+      -- with vertical speed to spare is a coast, not a sink)
+      if e > CFG.ALT_PROTECT and not (CFG.CRUISE_MAX and v >= vWantS) then
+        cap = math.max(30, cap - CFG.ALT_PROTECT_GAIN * (e - CFG.ALT_PROTECT))
+      end
       -- altitude by lean: above the goal (e < 0) lean more, below it lean less
       cap = clamp(cap - CFG.ALT_LEAN_GAIN * e, dashDeg)
       cap = math.max(30, cap)
       local mag = math.sqrt(tp * tp + tr * tr)
+      -- CRUISE_MAX: below the planned speed, lean to the cap rather than in
+      -- proportion to the error; the planned speed still tapers with distance,
+      -- so a short re-cruise does not ping-pong with the brake
+      if CFG.CRUISE_MAX and speed < vCruise and mag > 1e-6 and mag < cap then
+        tp, tr = tp * cap / mag, tr * cap / mag
+        mag = cap
+      end
       leanAtCap = cap >= dashDeg - 0.5 and mag > cap
       if mag > cap then
         tp, tr = tp * cap / mag, tr * cap / mag
@@ -1809,7 +1840,8 @@ local function flyLeg()
     if phase ~= "cruise" and phase ~= "brake" then tp, tr = tp + trimP, tr + trimR end
 
     -- rate-limit tilt targets so phase changes are smooth, not steps
-    local maxStep = ((phase == "cruise" and mode ~= "dash") and CFG.CRUISE_TILT_RATE or CFG.TILT_RATE) * dt
+    local cruiseRate = CFG.CRUISE_MAX and CFG.CRUISE_MAX_TILT_RATE or CFG.CRUISE_TILT_RATE
+    local maxStep = ((phase == "cruise" and mode ~= "dash") and cruiseRate or CFG.TILT_RATE) * dt
     tpS = tpS + clamp(tp - tpS, maxStep)
     trS = trS + clamp(tr - trS, maxStep)
     tp, tr = tpS, trS
