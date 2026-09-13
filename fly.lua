@@ -1655,11 +1655,16 @@ local function flyLeg()
         -- put the craft 100 blocks high), with hysteresis so it does not
         -- chatter around the goal.
         if phase == "dash" and mode ~= "dash" then
-          if floorOn and (e < -5 or v > 10 or (leanAtCap and e < -2)) then floorOn = false
-          elseif not floorOn and e > -2 and v < 5 then floorOn = true end
-          -- ramp the floor in and out (0.3/s) so engaging or releasing it
-          -- is not a step the attitude loop has to absorb
-          floorLvl = floorLvl + clamp((floorOn and CFG.CRUISE_MIN_POWER or 0) - floorLvl, 0.3 * dt)
+          -- Let go AT the goal, not past it. At -5 blocks / 10 b/s the floor held 0.60 through 250 m
+          -- and handed over a 12-15 b/s climb that 0.25 throttle at 55 b/s could not stop - the sails
+          -- carry it: 339 m on 2026-09-13, 89 over.
+          if floorOn and (e < 0 or v > 4 or (leanAtCap and e < -2)) then floorOn = false
+          elseif not floorOn and e > 2 and v < 2 then floorOn = true end
+          -- ramp the floor in (0.3/s) so engaging it is not a step the
+          -- attitude loop has to absorb; out at 1.0/s, because the slow
+          -- release kept pushing for 1.5 s after it had let go
+          local target = floorOn and CFG.CRUISE_MIN_POWER or 0
+          floorLvl = floorLvl + clamp(target - floorLvl, (target > floorLvl and 0.3 or 1.0) * dt)
           pwr = math.max(pwr, floorLvl)
         end
         -- and never the whole throttle: the attitude loop needs the headroom
