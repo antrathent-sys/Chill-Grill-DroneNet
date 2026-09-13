@@ -250,11 +250,14 @@ local CFG = {
   -- ~74 deg only applies at standstill. Allowed lean = LEAN_AT_0 at rest,
   -- rising linearly to CRUISE_DEG at LEAN_FULL_SPD; pulled back by
   -- ALT_PROTECT_GAIN deg per block once more than ALT_PROTECT below goal.
-  CRUISE_DEG = 74,                    -- max lean during cruise, at speed. 70 -> 74 after flightlog 663ac06a: 216 peak,
-                                      -- 194 mean, true lean at most cap+2 (78.5), yaw/attitude fine. With ALT_LEAN_OVER 6
-                                      -- the cap reaches 80, so expect ~82 true worst case against TUMBLE 85; back to 70
-                                      -- if true lean tops 82. (74 with GAIN_LEAN tumbled, 01921028 - that was the gain
-                                      -- factor, not the angle.)
+  CRUISE_DEG = 70,                    -- max lean during cruise, at speed. 70 gave 216 peak / 194 mean (663ac06a).
+                                      -- 74 (80 with the lean-over) was SLOWER: 199 / 183, flightlog 0fa26a7c. At 80
+                                      -- true the craft sinks 7 b/s at full throttle until the sails' lift catches up
+                                      -- near 190 b/s, so the height loop cycles it: low -> ALT_LEAN_GAIN pulls the
+                                      -- cap to 50-60 and 0.80 throttle climbs it 14 high -> throttle 0.25 and the
+                                      -- cap back to 80 -> sinks again. 9 s period, speed 155 <-> 197 with it, true
+                                      -- lean 82.2 against TUMBLE 85. More lean needs more vertical thrust or lift
+                                      -- first, not a bigger number here. (74 with GAIN_LEAN tumbled, 01921028.)
                                       -- (History: the attitude loop held ~9 deg MORE than
                                       -- the cap (75 -> 84-85 true, flightlogs 12dcb8b1, 90790865) and TUMBLE is 85,
                                       -- so 75 is one wobble from the cutout; 70 lands at ~79 and has flown 175 b/s.
