@@ -247,6 +247,16 @@ local CFG = {
   -- enough thrust to steer whenever leaning; altitude can give, control not.
   ATT_MIN_POWER = 0.25,               -- throttle floor whenever lean exceeds ATT_MIN_TILT
   ATT_MIN_TILT = 15,                  -- deg
+  -- In cruise the floor rises with TRUE lean. 0.25 keeps the attitude loop
+  -- alive at 20 deg; at 75 deg it is nothing, and the altitude loop cutting
+  -- throttle to it was the last step in three of four tumbles (2026-09-13,
+  -- flightlogs c525c577, 1b1b51bb, 38314998: throttle 0.80 -> 0.25 in 0.4 s,
+  -- lean 60 -> 79 in the next 0.2 s). Height is then held by lean, which
+  -- ALT_LEAN_GAIN already does - leaning further sends thrust forward, not
+  -- up. false = the fixed 0.25 floor, exactly as before.
+  ATT_FLOOR_LEAN = true,
+  ATT_MIN_HIGH = 0.45,                -- floor at ATT_MIN_LEAN_HI and above
+  ATT_MIN_LEAN_HI = 70,               -- deg of true lean; ramps from ATT_MIN_POWER at ATT_MIN_TILT
   ALT_LEAN_GAIN = 1.0,                -- deg of lean cap per block above goal (high -> lean more -> less lift)
   -- Velocity loop runs in the WORLD frame (Sable velocity needs no heading);
   -- heading only splits the final lean into pitch and roll. 1290-block flight
@@ -1422,6 +1432,20 @@ function FL.brakeDistance(fs, gs)
   return CFG.BRAKE_K * fs * fs / 10
 end
 
+-- Cruise throttle floor by true lean: ATT_MIN_POWER at ATT_MIN_TILT rising
+-- to ATT_MIN_HIGH at ATT_MIN_LEAN_HI (see CFG).
+function FL.leanFloor(pitch, roll)
+  local lean
+  if ATT then
+    local g = ATT.gravityFromGimbal(pitch, roll)
+    lean = math.deg(math.acos(math.max(-1, math.min(1, -g.y))))
+  else
+    lean = math.sqrt(pitch * pitch + roll * roll)
+  end
+  local k = math.max(0, math.min(1, (lean - CFG.ATT_MIN_TILT) / (CFG.ATT_MIN_LEAN_HI - CFG.ATT_MIN_TILT)))
+  return CFG.ATT_MIN_POWER + k * (CFG.ATT_MIN_HIGH - CFG.ATT_MIN_POWER)
+end
+
 -- Brake lean against the world velocity, ramped in over BRAKE_EASE.
 function FL.brakeLean(speed, hdgDeg)
   local k = math.min(1, speed / CFG.BRAKE_EASE)
@@ -1938,6 +1962,7 @@ local function flyLeg()
         -- enough to fall.
         local floor = (phase == "land") and CFG.ATT_MIN_LAND or CFG.ATT_MIN_POWER
         if tiltA > CFG.ATT_MIN_TILT then pwr = math.max(pwr, floor) end
+        if CFG.ATT_FLOOR_LEAN and phase == "cruise" then pwr = math.max(pwr, FL.leanFloor(a[1], a[2])) end
         -- Falling, the floor is not tilt-gated. The dock descent of 2026-09-11
         -- spent its first four seconds at zero throttle - and zero thrust is
         -- zero differential, so the attitude loop had nothing to work with:
