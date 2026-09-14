@@ -18,7 +18,23 @@
 
 local SEC = dofile("lib/seclink.lua")
 local args = { ... }
-local FLEET, DRONE, FLOPPY = ".fleetkeys", ".dronekey", "disk/.dronekey"
+local FLEET, DRONE, KEYNAME = ".fleetkeys", ".dronekey", ".dronekey"
+
+-- Mount paths of every disk drive with a floppy in it, attached directly or
+-- over a wired network (a docked drone sees the base's drives through the
+-- pad cable). The first is "disk", then "disk2", ... - so never assume "disk".
+local function floppies()
+  local out = {}
+  for _, n in ipairs(peripheral.getNames()) do
+    if peripheral.getType(n) == "drive" then
+      local okD, has = pcall(peripheral.call, n, "hasData")
+      local okM, mount = pcall(peripheral.call, n, "getMountPath")
+      if okD and has and okM and type(mount) == "string" then out[#out + 1] = mount end
+    end
+  end
+  table.sort(out)
+  return out
+end
 
 local function readText(p)
   if not fs.exists(p) then return nil end
@@ -73,12 +89,17 @@ if cmd == "new" then
   saveFleet(keys)
   local hex = SEC.keyHex(key)
   print("key for " .. id .. " saved in " .. FLEET)
-  if fs.exists("disk") and fs.isDir("disk") then
-    writeText(FLOPPY, hex .. "\n")
-    print("also written to the floppy: on the drone, run  seckey set disk")
+  local disks = floppies()
+  if #disks > 0 then
+    writeText(disks[1] .. "/" .. KEYNAME, hex .. "\n")
+    print("written to the floppy in " .. disks[1] .. ".")
+    print("Move it to a drive the drone can see (or leave it here while the")
+    print("drone is docked) and on the drone run:  seckey set disk")
+  else
+    print("no floppy found - put one in a disk drive and run seckey show " .. id)
+    print("or type it on the drone (spaces are fine):")
+    print("seckey set " .. hex:sub(1, 16) .. " " .. hex:sub(17, 32) .. " " .. hex:sub(33, 48) .. " " .. hex:sub(49, 64))
   end
-  print("on the drone (label " .. id .. "), run:")
-  print("seckey set " .. hex)
 
 elseif cmd == "list" then
   local keys = loadFleet()
@@ -92,7 +113,14 @@ elseif cmd == "show" then
   local keys = loadFleet()
   local key = args[2] and keys[args[2]]
   if not key then print("no key for " .. tostring(args[2])) return end
-  print("seckey set " .. SEC.keyHex(key))
+  local hex = SEC.keyHex(key)
+  local disks = floppies()
+  if #disks > 0 then
+    writeText(disks[1] .. "/" .. KEYNAME, hex .. "\n")
+    print("written to the floppy in " .. disks[1] .. " - on the drone: seckey set disk")
+  else
+    print("seckey set " .. hex:sub(1, 16) .. " " .. hex:sub(17, 32) .. " " .. hex:sub(33, 48) .. " " .. hex:sub(49, 64))
+  end
 
 elseif cmd == "drop" then
   local keys = loadFleet()
@@ -102,10 +130,13 @@ elseif cmd == "drop" then
   print("forgot " .. args[2] .. " - its telemetry will now be refused")
 
 elseif cmd == "set" then
-  local src
+  local src, fromFile
   if args[2] == "disk" then
-    src = readText(FLOPPY)
-    if not src then print("no " .. FLOPPY .. " - insert the floppy from seckey new") return end
+    for _, mount in ipairs(floppies()) do
+      local p = mount .. "/" .. KEYNAME
+      if fs.exists(p) then src, fromFile = readText(p), p break end
+    end
+    if not src then print("no key on any floppy this computer can see - insert the one from seckey new") return end
   else
     src = table.concat(args, "", 2)
   end
@@ -113,9 +144,9 @@ elseif cmd == "set" then
   if not key then print("not a key: " .. tostring(why)) return end
   writeText(DRONE, SEC.keyHex(key) .. "\n")
   print("key saved in " .. DRONE .. " (" .. SEC.keyHex(key):sub(1, 4) .. "...)")
-  if args[2] == "disk" then
-    fs.delete(FLOPPY)
-    print("removed it from the floppy")
+  if fromFile then
+    fs.delete(fromFile)
+    print("wiped it from the floppy (" .. fromFile .. ")")
   end
   if not os.getComputerLabel() then
     print("WARNING: no label. The base knows this key by id - run  label set <id>")
