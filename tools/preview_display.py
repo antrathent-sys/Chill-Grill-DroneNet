@@ -59,7 +59,7 @@ PAGE = """<!doctype html>
 const W = __W__, H = __H__, S = __S__;
 const PAL = __PAL__;
 const FRAMES = __FRAMES__;
-const GLYPH = { 16: "\\u25BA", 17: "\\u25C4", 30: "\\u25B2", 31: "\\u25BC" };
+const GLYPH = { 4: "\\u2666", 16:"\\u25BA", 17: "\\u25C4", 30: "\\u25B2", 31: "\\u25BC" };
 const cv = document.getElementById("wall");
 const CW = 6 * S, CH = 9 * S;
 cv.width = W * CW; cv.height = H * CH;

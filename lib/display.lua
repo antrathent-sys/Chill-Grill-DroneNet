@@ -40,8 +40,8 @@ D.C = {
 -- Themes: what the 16 colour slots look like, the words on the wall, and a few
 -- drawing choices. The roles in D.C never change - a theme only restyles them.
 --   silo      phosphor green, amber and red; hazard stripes
---   imperial  black and gunmetal, white and steel, imperial red and orange;
---             segmented rules, lettered sector grid, targeting brackets
+--   imperial  monotone grey, red only for alarms; its own "command" layout
+--             (no boxes, edge rulers, ATC data blocks, a mission timeline)
 D.THEMES = {
   silo = {
     palette = {
@@ -66,16 +66,13 @@ D.THEMES = {
   },
   imperial = {
     palette = {
-      f = 0x040507, ["7"] = 0x161b22, ["8"] = 0x5d6775, d = 0xc7cfd9, ["5"] = 0xffffff,
-      ["0"] = 0xedf1f5, ["1"] = 0xff7a1a, c = 0x5a2b08, e = 0xe3201b, a = 0x480b0a,
-      ["9"] = 0x8fd8ff, ["3"] = 0x1c4a5f, ["4"] = 0xffc83a, b = 0x040507,
-      ["2"] = 0x7a2cff, ["6"] = 0xff66cc,
+      f = 0x050607, ["7"] = 0x2a2e33, ["8"] = 0x6f757d, d = 0xb3b9c0, ["5"] = 0xffffff,
+      ["0"] = 0xdde1e5, ["1"] = 0xd3d7db, c = 0x4a4f56, e = 0xe8342a, a = 0x5c1a14,
+      ["9"] = 0xffffff, ["3"] = 0x3a3f46, ["4"] = 0xf0f2f4, b = 0x050607,
+      ["2"] = 0x8a9098, ["6"] = 0x9ba1a9,
     },
-    titleFg = "0", titleBg = "e", boardFg = "0", boardBg = "e",
-    -- clean: hairlines, no fills, no grid, plain words; red only for accents
-    stripe = "line", sectors = false, reticle = true, emblem = false,
-    grid = "none", rings = 2, ringsSolid = true, titleStyle = "rule",
-    panelFill = false, bars = "thin", chain = "plain", badge = "text",
+    layout = "command", chain = "plain", grid = "none", reticle = false,
+    titleFg = "0", titleBg = "e", boardFg = "0", boardBg = "e", stripe = "line", sectors = false,
     text = {
       title = "IMPERIAL FLIGHT COMMAND", subtitle = "DRONENET",
       banner = "", status = "CONDITION",
@@ -443,6 +440,16 @@ end
 
 function D.layout(w, h)
   if w < 60 or h < 30 then return { tiny = true } end
+  if D.theme.layout == "command" then
+    local right = max(30, floor(w * 0.31))
+    local boardH = max(9, floor(h * 0.16))
+    local midH = h - 2 - boardH
+    return {
+      map = { x = 1, y = 3, w = w - right, h = midH },
+      side = { x = w - right + 1, y = 3, w = right, h = midH },
+      board = { x = 1, y = h - boardH + 1, w = w, h = boardH },
+    }
+  end
   local right = max(32, floor(w * 0.34))
   local boardH = max(10, floor(h * 0.22))
   local midH = h - 3 - boardH
@@ -959,6 +966,424 @@ local function drawBoard(c, m, R, now)
   end
 end
 
+-- ----------------------------------------------------------- command layout
+--
+-- The imperial wall. After BLIND's Rogue One / Andor screens ("how little can
+-- we put on the screen") and ATC scopes: one grey ramp, red only for an alarm,
+-- no boxes. Corner marks and edge rulers frame the map; hairlines divide the
+-- rest. Units carry ATC data blocks on leader lines; the mission is a straight
+-- timeline with a marker riding it.
+
+local function trim(s)
+  return (tostring(s):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function clipText(c, x0, y0, x1, y1, x, y, s, fg, bg)
+  if y < y0 or y > y1 then return end
+  if x < x0 then s = s:sub(x0 - x + 1) x = x0 end
+  if x + #s - 1 > x1 then s = s:sub(1, max(0, x1 - x + 1)) end
+  if #s > 0 then c:text(x, y, s, fg, bg) end
+end
+
+-- hairline through the middle of a text row, cells x0..x1
+local function hline(c, x0, x1, row, col)
+  local py = (row - 1) * 3 + 2
+  for px = (x0 - 1) * 2 + 1, x1 * 2 do c:pix(px, py, col) end
+end
+
+-- hairline down the left edge of a cell column, rows y0..y1
+local function vline(c, x, y0, y1, col)
+  local px = (x - 1) * 2 + 1
+  for py = (y0 - 1) * 3 + 1, y1 * 3 do c:pix(px, py, col) end
+end
+
+local function cmdHeader(c, m, now)
+  local C, w, T = D.C, c.w, D.theme.text
+  c:text(2, 1, T.title, C.bright)
+  local leftEnd = 2 + #T.title + 3
+  local clock = "T+" .. D.fmtClock(now)
+  c:text(w - #clock, 1, clock, C.white)
+  local live = 0
+  for _, id in ipairs(m.order) do
+    if D.droneState(m.drones[id], now) == "LIVE" then live = live + 1 end
+  end
+  local right = w - #clock - 4
+  if m.link then
+    local rej = m.rejected or 0
+    local tag = m.link .. (rej > 0 and ("  REJ " .. rej) or "")
+    if right - #tag > leftEnd + 2 then
+      c:text(right - #tag + 1, 1, tag, (m.link:find("^SEALED") and rej == 0) and C.dim or C.red)
+      right = right - #tag - 4
+    end
+  end
+  local info = string.format("%s %d/%d   %s %d", T.drones, live, #m.order, T.trips, #(m.scheduled or {}))
+  if right - #info > leftEnd + 2 then
+    c:text(right - #info + 1, 1, info, C.dim)
+    right = right - #info - 4
+  end
+  if right - #T.subtitle > leftEnd - 2 then c:text(leftEnd, 1, T.subtitle, C.dim) end
+  hline(c, 1, w, 2, C.grid)
+end
+
+local function cmdMap(c, m, R, now)
+  local C, T = D.C, D.theme.text
+  local ix0, iy0 = R.x * 2 + 1, R.y * 3 + 1
+  local ix1, iy1 = (R.x + R.w - 2) * 2, (R.y + R.h - 2) * 3
+  local cxMin, cxMax, cyMin, cyMax = R.x + 1, R.x + R.w - 2, R.y + 1, R.y + R.h - 2
+  local function mtext(x, y, s, fg, bg) clipText(c, cxMin, cyMin, cxMax, cyMax, x, y, s, fg, bg) end
+  local function cellOf(px, py) return floor((px - 1) / 2) + 1, floor((py - 1) / 3) + 1 end
+
+  -- corner marks, no frame
+  for _, k in ipairs({ { ix0 - 1, iy0 - 1, 1, 1 }, { ix1 + 1, iy0 - 1, -1, 1 },
+                       { ix0 - 1, iy1 + 1, 1, -1 }, { ix1 + 1, iy1 + 1, -1, -1 } }) do
+    c:line(k[1], k[2], k[1] + 5 * k[3], k[2], C.dim)
+    c:line(k[1], k[2], k[1], k[2] + 5 * k[4], C.dim)
+  end
+  c:text(R.x + 4, R.y, trim(T.map), C.dim)
+
+  local cx, cz, span = D.mapBounds(m)
+  local pw, ph = ix1 - ix0, iy1 - iy0
+  local scale = min(pw, ph) / span
+  local mx, my = (ix0 + ix1) / 2, (iy0 + iy1) / 2
+  local function P(x, z) return mx + (x - cx) * scale, my + (z - cz) * scale end
+  local step = niceStep(span / 6)
+
+  -- edge rulers: a short tick every grid step on all four sides
+  local g = math.ceil((cx - (pw / 2) / scale) / step) * step
+  for _ = 1, 60 do
+    local px = P(g, cz)
+    if px > ix1 then break end
+    if px > ix0 + 6 and px < ix1 - 6 then
+      c:line(px, iy0 - 1, px, iy0 + 1, C.dim)
+      c:line(px, iy1 - 1, px, iy1 + 1, C.dim)
+    end
+    g = g + step
+  end
+  g = math.ceil((cz - (ph / 2) / scale) / step) * step
+  for _ = 1, 60 do
+    local _, py = P(cx, g)
+    if py > iy1 then break end
+    if py > iy0 + 6 and py < iy1 - 6 then
+      c:line(ix0 - 1, py, ix0 + 1, py, C.dim)
+      c:line(ix1 - 1, py, ix1 + 1, py, C.dim)
+    end
+    g = g + step
+  end
+
+  c.clip = { ix0, iy0, ix1, iy1 }
+  -- scheduled trips: sparse dots out from home, a small plus at the end
+  for _, s in ipairs(m.scheduled or {}) do
+    local ax, az = m.home and m.home.x or 0, m.home and m.home.z or 0
+    for _, pt in ipairs(s.pts or {}) do
+      local x0, y0 = P(ax, az)
+      local x1, y1 = P(pt.x, pt.z)
+      c:line(x0, y0, x1, y1, C.grid, 1, 3)
+      ax, az = pt.x, pt.z
+    end
+    local ex, ey = P(ax, az)
+    for o = -1, 1 do c:pix(ex + o, ey, C.dim) c:pix(ex, ey + o, C.dim) end
+  end
+  -- routes: flown solid, active leg marching from the drone, future dotted
+  local phase = -floor(now * 8)
+  local marks = {}
+  for _, id in ipairs(m.order) do
+    local d = m.drones[id]
+    local p = d.pkt or {}
+    local lost = D.droneState(d, now) == "LOST"
+    for _, t in ipairs(d.trail) do
+      local tx, ty = P(t.x, t.z)
+      c:pix(tx, ty, lost and C.redDim or C.grid)
+    end
+    local pts = d.plan and d.plan.pts or {}
+    if #pts == 0 and p.tx then pts = { { kind = p.legKind or p.mode or "go", x = p.tx, z = p.tz } } end
+    local ax = d.plan and (d.plan.hx or d.plan.sx)
+    local az = d.plan and (d.plan.hz or d.plan.sz)
+    if not ax and d.trail[1] then ax, az = d.trail[1].x, d.trail[1].z end
+    local cur = d.plan and (p.leg or 0) or 1
+    for i, pt in ipairs(pts) do
+      if pt.x then
+        if ax then
+          local x0, y0 = P(ax, az)
+          local x1, y1 = P(pt.x, pt.z)
+          if i < cur then
+            c:line(x0, y0, x1, y1, C.dim)
+          elseif i == cur and type(p.x) == "number" and not lost then
+            local dx, dy = P(p.x, p.z)
+            c:line(x0, y0, dx, dy, C.dim)
+            c:line(dx, dy, x1, y1, C.bright, 2, 4, phase)
+          else
+            c:line(x0, y0, x1, y1, lost and C.redDim or C.dim, 1, 3)
+          end
+        end
+        marks[#marks + 1] = { pt.x, pt.z, i == cur and not lost }
+        ax, az = pt.x, pt.z
+      end
+    end
+  end
+  -- waypoints: a plus, the current target's larger and bright (a teletext
+  -- cell has one ink, so marks stay thin to keep clear of the route lines)
+  for _, k in ipairs(marks) do
+    local px, py = P(k[1], k[2])
+    local r, col = k[3] and 2 or 1, k[3] and C.bright or C.dim
+    for o = -r, r do c:pix(px + o, py, col) c:pix(px, py + o, col) end
+  end
+  c.clip = nil
+
+  for _, s in ipairs(m.scheduled or {}) do
+    local last = s.pts and s.pts[#s.pts]
+    if last then
+      local kx, ky = cellOf(P(last.x, last.z))
+      local tag = tostring(s.id):upper()
+      if kx + #tag + 2 > cxMax then mtext(kx - #tag - 1, ky, tag, C.dim) else mtext(kx + 2, ky, tag, C.dim) end
+    end
+  end
+  -- home: a diamond glyph (a unit sitting on it covers it)
+  if m.home then
+    local kx, ky = cellOf(P(m.home.x, m.home.z))
+    mtext(kx, ky, string.char(4), C.white)
+    mtext(kx - #T.home - 1, ky, T.home, C.dim)
+  end
+
+  -- units: icon, leader line, two-line data block (id / speed and altitude)
+  for pass = 1, 2 do
+    for _, id in ipairs(m.order) do
+      local d = m.drones[id]
+      local p = d.pkt or {}
+      if (pass == 2) == (id == m.selected) and type(p.x) == "number" and type(p.z) == "number" then
+        local st = D.droneState(d, now)
+        local px, py = P(p.x, p.z)
+        local kx, ky = cellOf(px, py)
+        local ink = (st == "LOST" and C.red) or (st == "STALE" and C.dim) or C.bright
+        local l1 = id:upper()
+        local l2 = st == "LOST" and "LOST" or string.format("%d %s", int(p.spd) or 0, D.fmtInt(p.y))
+        local bw = max(#l1, #l2)
+        local bx, by = kx + 3, ky - 2
+        if bx + bw - 1 > cxMax then bx = kx - 2 - bw end
+        if by < cyMin then by = ky + 1 end
+        c.clip = { ix0, iy0, ix1, iy1 }
+        c:line(px, py, bx > kx and (bx - 1) * 2 or (bx + bw - 1) * 2 + 1, by * 3, C.grid)
+        c.clip = nil
+        if id == m.selected then mtext(bx, by, l1, C.bg, ink) else mtext(bx, by, l1, ink) end
+        mtext(bx, by + 1, l2, st == "LOST" and C.red or C.green)
+        mtext(kx, ky, st == "LOST" and "?" or arrowFor(p.vx, p.vz), ink)
+      end
+    end
+  end
+
+  mtext(cxMax - 1, cyMin, string.char(30) .. "N", C.dim)
+  local barPx = step * scale
+  if barPx >= 6 and barPx < pw - 8 then
+    local by = iy1 - 4
+    c:line(ix0 + 3, by, ix0 + 3 + barPx, by, C.dim)
+    c:line(ix0 + 3, by - 1, ix0 + 3, by + 1, C.dim)
+    c:line(ix0 + 3 + barPx, by - 1, ix0 + 3 + barPx, by + 1, C.dim)
+    local kx, ky = cellOf(ix0 + 3 + barPx + 3, by)
+    mtext(kx, ky, D.fmtInt(step) .. " B", C.dim)
+  end
+end
+
+local function cmdSide(c, m, R, now)
+  local C, T = D.C, D.theme.text
+  local yEnd = R.y + R.h - 1
+  vline(c, R.x, R.y, yEnd, C.grid)
+  local x, w = R.x + 2, R.w - 3
+  local y = R.y
+  local function put(s, fg, bg, xx)
+    if y <= yEnd then c:text(xx or x, y, s, fg, bg) end
+  end
+  local function kv(k, v, vc)
+    v = tostring(v)
+    if y <= yEnd then
+      c:text(x, y, k, C.dim)
+      c:text(x + w - #v, y, v, vc or C.bright)
+    end
+    y = y + 1
+  end
+  -- label, value, and a hairline gauge in the gap between them
+  local function gauge(k, v)
+    local ok = type(v) == "number" and v >= 0
+    local vc = (ok and v < 25) and C.red or C.bright
+    local row = y
+    kv(k, ok and (floor(v + 0.5) .. "%") or "--", vc)
+    if row <= yEnd then
+      local a, b = (x + 6 - 1) * 2 + 1, (x + w - 6) * 2
+      local to = ok and (a + floor(min(1, v / 100) * (b - a) + 0.5)) or (a - 1)
+      local py = (row - 1) * 3 + 2
+      for px = a, b do c:pix(px, py, px <= to and vc or C.grid) end
+    end
+  end
+
+  put(trim(T.side), C.dim)
+  y = y + 2
+  local d = m.selected and m.drones[m.selected]
+  if not d or not d.pkt then
+    put(T.noContact, blink(now) and C.bright or C.dim) y = y + 1
+    put(T.awaiting, C.dim) y = y + 1
+    put("CHANNEL 7212", C.dim) y = y + 1
+  else
+    local p = d.pkt
+    local st = D.droneState(d, now)
+    put(p.id:upper(), C.bright)
+    put(st, st == "LOST" and C.red or (st == "LIVE" and C.white or C.dim), nil, x + w - #st)
+    y = y + 2
+    local spd = tostring(int(p.spd) or 0)
+    c.clip = { (x - 1) * 2 + 1, (y - 1) * 3 + 1, (R.x + R.w - 1) * 2, yEnd * 3 }
+    c:bigText((x - 1) * 2 + 1, (y - 1) * 3 + 1, spd, st == "LIVE" and C.bright or C.dim, 3)
+    c.clip = nil
+    y = y + 4
+    put("B/S", C.dim, nil, x + #spd * 6)
+    y = y + 2
+    kv("ALT", D.fmtInt(p.y))
+    kv("V/S", type(p.vv) == "number" and string.format("%+.1f", p.vv) or "--")
+    kv("HDG", int(p.hdg) and string.format("%03d", int(p.hdg)) or "--")
+    kv("TILT", int(p.tilt) or "--")
+    y = y + 1
+    kv("DIST", D.fmtInt(p.dist))
+    kv("ETA", D.fmtEta(p.eta))
+    kv("OFF LINE", signed(p.off))
+    kv("LEG", (int(p.leg) or 0) .. "/" .. (int(p.legs) or 0))
+    y = y + 1
+    kv("PHASE", tostring(p.phase or "?"):upper())
+    kv("MODE", tostring(p.mode or "-"):upper())
+    y = y + 1
+    gauge("POWER", p.energy)
+    gauge("FE", p.fe)
+    kv("DRAIN", type(p.drain) == "number" and string.format("%+.2f %%/MIN", p.drain) or "--")
+    kv("DOCK", p.dock == 1 and "LATCHED" or "------", p.dock == 1 and C.bright or C.dim)
+  end
+
+  -- squadron, pinned to the bottom when there is room; the selected row inverted
+  y = max(y + 2, yEnd - #m.order - 1)
+  put(trim(T.fleet), C.dim)
+  y = y + 1
+  for _, id in ipairs(m.order) do
+    if y > yEnd then break end
+    local dd = m.drones[id]
+    local pp = dd.pkt or {}
+    local st = D.droneState(dd, now)
+    local sel = id == m.selected
+    local ph = st == "LIVE" and tostring(pp.phase or "-"):upper() or st
+    local row = string.format("%-8s %-7s %3s %4s", id:upper():sub(1, 8), ph:sub(1, 7), int(pp.spd) or "--",
+      int(pp.energy) and (int(pp.energy) .. "%") or "--")
+    local ink = (st == "LOST" and C.red) or (st == "STALE" and C.dim) or C.white
+    if sel then
+      c:text(x - 1, y, pad(" " .. row, w + 1), C.bg, ink)
+    else
+      c:text(x - 1, y, pad(" " .. row, w + 1), ink, C.bg)
+    end
+    c.hits[y] = { x0 = R.x, x1 = R.x + R.w - 1, id = id }
+    y = y + 1
+  end
+end
+
+local function cmdBoard(c, m, R, now)
+  local C, T = D.C, D.theme.text
+  local yTop, yFoot = R.y, R.y + R.h - 1
+  local split = floor(R.w * 0.62)
+  hline(c, 1, R.w, yTop, C.grid)
+  hline(c, 1, R.w, yFoot - 1, C.grid)
+  vline(c, split, yTop + 1, yFoot - 2, C.grid)
+  local x0, x1 = 3, split - 3
+  local function put(x, y, s, fg, bg) clipText(c, x0, yTop + 1, x1, yFoot - 2, x, y, s, fg, bg) end
+
+  -- left: the selected unit's mission as a timeline
+  local board = trim(T.board)
+  put(x0, yTop + 1, board, C.dim)
+  local d = m.selected and m.drones[m.selected]
+  if not d or not d.pkt then
+    put(x0, yTop + 3, T.noMission, C.dim)
+  else
+    local p, pl = d.pkt, d.plan
+    put(x0 + #board + 3, yTop + 1, p.id:upper() .. "  " .. tostring(p.mode or "?"):upper(), C.bright)
+    local pts = pl and pl.pts or {}
+    if #pts == 0 and p.tx then pts = { { kind = p.legKind or p.mode or "go", x = p.tx, z = p.tz } } end
+    local n = max(1, #pts)
+    local cur = (pl and int(p.leg)) or 1
+    local sx, sz = pl and (pl.hx or pl.sx), pl and (pl.hz or pl.sz)
+    for i = 1, min(cur - 1, #pts) do
+      if pts[i].x then sx, sz = pts[i].x, pts[i].z end
+    end
+    local frac
+    if sx and type(p.tx) == "number" and type(p.dist) == "number" then
+      local len = sqrt((p.tx - sx) ^ 2 + (p.tz - sz) ^ 2)
+      if len > 1 then frac = max(0, min(1, 1 - p.dist / len)) end
+    end
+    local function nodeX(i) return x0 + 1 + floor(i * (x1 - x0 - 6) / n) end
+    local function nodePx(i) return (nodeX(i) - 1) * 2 + 1 end
+    local py = (yTop + 3 - 1) * 3 + 2
+    for i = 1, n do
+      local a, b = nodePx(i - 1), nodePx(i)
+      for px = a, b do
+        local lit
+        if i < cur then lit = C.dim
+        elseif i == cur then lit = (px - a <= (frac or 0) * (b - a)) and C.bright or ((px % 2 == 0) and C.dim or nil)
+        else lit = (px % 2 == 0) and C.grid or nil end
+        if lit then c:pix(px, py, lit) end
+      end
+    end
+    for py2 = py - 1, py + 1 do c:pix(nodePx(0), py2, C.dim) end
+    local lastEnd = 0
+    for i = 1, #pts do
+      local nx = nodeX(i)
+      local done, now_ = i < cur, i == cur
+      local col = (done and C.dim) or (now_ and C.bright) or C.grid
+      for py2 = py - 1, py + 1 do c:pix((nx - 1) * 2 + 1, py2, col) c:pix((nx - 1) * 2 + 2, py2, col) end
+      local lab = D.legLabel(pts[i].kind)
+      local lx = max(x0, min(x1 - #lab + 1, nx - floor(#lab / 2)))
+      if lx > lastEnd then
+        put(lx, yTop + 4, lab, (done and C.dim) or (now_ and C.bright) or C.green)
+        lastEnd = lx + #lab
+      end
+    end
+    local mpx = cur > n and nodePx(n) or (nodePx(max(0, cur - 1)) + (frac or 0) * (nodePx(min(n, max(1, cur))) - nodePx(max(0, cur - 1))))
+    put(floor((mpx - 1) / 2) + 1, yTop + 2, string.char(31), C.bright)
+    local xx, sy = x0, yTop + 6
+    for _, kvp in ipairs({ { T.progress, frac and (floor(frac * 100 + 0.5) .. "%") or "--" }, { "DIST", D.fmtInt(p.dist) },
+                           { "ETA", D.fmtEta(p.eta) }, { "OFF LINE", signed(p.off) } }) do
+      if xx + #kvp[1] + #kvp[2] <= x1 then
+        put(xx, sy, kvp[1], C.dim)
+        put(xx + #kvp[1] + 1, sy, kvp[2], C.bright)
+      end
+      xx = xx + #kvp[1] + #kvp[2] + 5
+    end
+  end
+
+  -- right: deployment orders, soonest first
+  local rx, rw = split + 2, R.w - split - 2
+  local function rput(y, s, fg) clipText(c, rx, yTop + 1, R.w - 1, yFoot - 2, rx, y, s, fg) end
+  rput(yTop + 1, trim(T.sched), C.dim)
+  local list = {}
+  for _, s in ipairs(m.scheduled or {}) do list[#list + 1] = s end
+  table.sort(list, function(a, b) return (a.at or 1e18) < (b.at or 1e18) end)
+  local yy = yTop + 3
+  if #list == 0 then rput(yy, T.noSched, C.dim) end
+  for i, s in ipairs(list) do
+    if yy > yFoot - 2 then break end
+    local dt = s.at and (s.at - now)
+    local tm = (not dt and "HOLD") or (dt <= 0 and "DUE") or ("T-" .. D.fmtClock(dt))
+    rput(yy, string.format("%-10s  %-7s %-8s %s", tm, tostring(s.id):upper(), tostring(s.drone or "-"):upper(),
+      tostring(s.kind or ""):upper()), i == 1 and C.bright or C.green)
+    local dst = s.pts and s.pts[#s.pts]
+    if dst then rput(yy + 1, string.rep(" ", 12) .. "TO " .. D.fmtInt(dst.x) .. ", " .. D.fmtInt(dst.z), C.dim) end
+    yy = yy + 2
+  end
+  if rw < 1 then return end
+
+  -- footer: condition, then alerts; red only when something is lost
+  local status = D.status(m, now)
+  local word = (status == "NO CONTACT") and T.noContact or status
+  local head = T.status .. ": " .. word
+  c:text(2, yFoot, head, status == "ALERT" and C.red or (status == "NOMINAL" and C.white or C.bright))
+  local alerts = D.alerts(m, now)
+  local ax = 2 + #head + 4
+  if #alerts > 0 then
+    local col = status == "ALERT" and (blink(now) and C.red or C.redDim) or C.bright
+    c:text(ax, yFoot, pad("! " .. table.concat(alerts, "   ! "), R.w - ax), col)
+  else
+    c:text(ax, yFoot, pad(T.nominal, R.w - ax), C.dim)
+  end
+end
+
 --- Draw the whole wall. Returns the layout used.
 function D.render(c, m, now)
   now = now or m.now or 0
@@ -968,6 +1393,13 @@ function D.render(c, m, now)
     c:text(1, 1, "DRONENET", D.C.green)
     c:text(1, 2, "MONITOR TOO SMALL", D.C.warn)
     c:text(1, 3, c.w .. "X" .. c.h .. " < 60X30", D.C.dim)
+    return L
+  end
+  if D.theme.layout == "command" then
+    cmdHeader(c, m, now)
+    cmdMap(c, m, L.map, now)
+    cmdSide(c, m, L.side, now)
+    cmdBoard(c, m, L.board, now)
     return L
   end
   drawHeader(c, m, now)

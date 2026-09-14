@@ -28,6 +28,16 @@ local function screenHas(t, needle)
   return nil
 end
 
+-- An ATC data block inside the map: `name` with `second` on the row below.
+local function dataBlock(t, L, name, second)
+  for y = L.map.y + 1, L.map.y + L.map.h - 3 do
+    local row = t.grid[y].s
+    local i = row:sub(1, L.map.x + L.map.w - 1):find(name, 1, true)
+    if i and t.grid[y + 1].s:sub(i, i + #second + 2):find(second, 1, true) then return true end
+  end
+  return false
+end
+
 local function renderTo(w, h, m, now)
   local c = D.canvas(w, h)
   local t = fakeTerm(w, h)
@@ -130,11 +140,17 @@ for _, themeName in ipairs({ "imperial", "silo" }) do
   local _, t = renderTo(100, 66, D.demoModel(NOW), NOW)
   local L0 = D.layout(100, 66)
   check("header title", screenHas(t, T.title) == 1)
-  check("condition is ALERT with a lost drone", screenHas(t, T.status .. ": ALERT") == 2)
+  local command = D.theme.layout == "command"
+  check("condition is ALERT with a lost drone", screenHas(t, T.status .. ": ALERT") ~= nil)
   check("map title", screenHas(t, (T.map:gsub("^%s+", ""):gsub("%s+$", ""))) ~= nil)
   check("telemetry panel", screenHas(t, T.side:sub(2)) ~= nil and screenHas(t, "B/S") ~= nil)
-  check("selected unit tagged on the map with speed", screenHas(t, "DRONE-1 196B/S") ~= nil)
-  check("lost unit tagged", screenHas(t, "DRONE-3 LOST") ~= nil)
+  if command then
+    check("selected unit has a data block with speed", dataBlock(t, L0, "DRONE-1", "196"))
+    check("lost unit's data block says so", dataBlock(t, L0, "DRONE-3", "LOST"))
+  else
+    check("selected unit tagged on the map with speed", screenHas(t, "DRONE-1 196B/S") ~= nil)
+    check("lost unit tagged", screenHas(t, "DRONE-3 LOST") ~= nil)
+  end
   check("fleet lists all three", screenHas(t, "DRONE-2") and screenHas(t, "DRONE-3") and screenHas(t, T.fleet:sub(2)))
   check("home marker", screenHas(t, T.home) ~= nil)
   check("mission chain", screenHas(t, D.legLabel("cruise")) ~= nil and screenHas(t, D.legLabel("dock")) ~= nil
@@ -165,7 +181,8 @@ for _, themeName in ipairs({ "imperial", "silo" }) do
       if t.grid[y].s:find("[" .. string.char(a) .. "]", 1, true) then bracketed = true end
     end
   end
-  check(D.theme.reticle and "selected unit is in targeting brackets" or "no targeting brackets", bracketed == D.theme.reticle)
+  check(D.theme.reticle and "selected unit is in targeting brackets" or "no targeting brackets",
+    bracketed == (D.theme.reticle or false))
 
   local mapRows = function(tt)
     local out = {}
@@ -192,7 +209,7 @@ for _, themeName in ipairs({ "imperial", "silo" }) do
   check("touch selects drone-2", rowOf2 and D.touch(ct, mt, L.side.x + 3, rowOf2) == "drone-2" and mt.selected == "drone-2")
   check("touch outside the list does nothing", D.touch(ct, mt, 1, 1) == nil)
   local _, t2 = renderTo(100, 66, mt, NOW)
-  check("telemetry follows the selection", screenHas(t2, "DOCK  LATCHED") ~= nil)
+  check("telemetry follows the selection", screenHas(t2, command and "LATCHED" or "DOCK  LATCHED") ~= nil)
 
   local _, te = renderTo(100, 66, D.newModel(), NOW)
   check("no units: no signal", screenHas(te, T.noContact) ~= nil and screenHas(te, T.awaiting) ~= nil)
