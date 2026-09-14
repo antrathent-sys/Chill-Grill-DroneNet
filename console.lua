@@ -14,6 +14,10 @@
 -- The look is a theme: imperial (default) or silo. Switch it on this computer
 -- with  set dronenet.theme silo  (or imperial) and restart the console.
 --
+-- The wall redraws every 0.1 s; only rows that changed go to the monitor, and
+-- drones glide along their last velocity between their 1 Hz packets. A busy
+-- server can slow it with  set dronenet.frame 0.25 .
+--
 -- Touch a drone in the FLEET list to select it. Scheduled trips come from an
 -- optional schedule.lua returning a list of
 --   { id = "M-0043", drone = "drone-2", kind = "courier", at = <console seconds>,
@@ -117,6 +121,9 @@ local function receive()
   end
 end
 
+local FRAME = tonumber(settings and settings.get("dronenet.frame")) or 0.1
+if FRAME < 0.05 then FRAME = 0.05 end
+
 local shown = model
 local function draw()
   while true do
@@ -124,7 +131,7 @@ local function draw()
     shown = demo and D.demoModel(now, model) or model
     D.render(canvas, shown, now)
     canvas:flush(mon)
-    sleep(0.5)
+    sleep(FRAME)
   end
 end
 

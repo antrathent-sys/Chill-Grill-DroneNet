@@ -407,6 +407,19 @@ function D.droneState(d, now)
   return "LIVE", D.C.green
 end
 
+--- Where a unit is at console time `now`: its last fix carried forward along
+-- its velocity for up to D.COAST seconds, so the icon glides between 1 Hz
+-- packets instead of jumping. Older than that (STALE, LOST) it stays where it
+-- was last heard. nil, nil without a fix.
+D.COAST = 1.5
+function D.posOf(d, now)
+  local p = d and d.pkt or {}
+  if type(p.x) ~= "number" or type(p.z) ~= "number" then return nil, nil end
+  local age = (now or 0) - (d.got or now or 0)
+  if age <= 0 or age > D.COAST or type(p.vx) ~= "number" or type(p.vz) ~= "number" then return p.x, p.z end
+  return p.x + p.vx * age, p.z + p.vz * age
+end
+
 function D.alerts(m, now)
   local out = {}
   for _, id in ipairs(m.order) do
@@ -685,7 +698,7 @@ local function drawMap(c, m, R, now)
           if i < cur then
             c:line(x0, y0, x1, y1, C.dim)
           elseif i == cur and type(p.x) == "number" and st ~= "LOST" then
-            local dx, dy = P(p.x, p.z)
+            local dx, dy = P(D.posOf(d, now))
             c:line(x0, y0, dx, dy, C.dim)
             c:line(dx, dy, x1, y1, C.bright, 2, 4, phase)
           else
@@ -740,7 +753,7 @@ local function drawMap(c, m, R, now)
         local p = d.pkt or {}
         if type(p.x) == "number" and type(p.z) == "number" then
           local st = D.droneState(d, now)
-          local kx, ky = cellOf(P(p.x, p.z))
+          local kx, ky = cellOf(P(D.posOf(d, now)))
           local fg = C.cyan
           if st == "LOST" then fg = C.red
           elseif st == "STALE" then fg = C.warn
@@ -1108,7 +1121,7 @@ local function cmdMap(c, m, R, now)
           if i < cur then
             c:line(x0, y0, x1, y1, C.dim)
           elseif i == cur and type(p.x) == "number" and not lost then
-            local dx, dy = P(p.x, p.z)
+            local dx, dy = P(D.posOf(d, now))
             c:line(x0, y0, dx, dy, C.dim)
             c:line(dx, dy, x1, y1, C.bright, 2, 4, phase)
           else
@@ -1151,7 +1164,7 @@ local function cmdMap(c, m, R, now)
       local p = d.pkt or {}
       if (pass == 2) == (id == m.selected) and type(p.x) == "number" and type(p.z) == "number" then
         local st = D.droneState(d, now)
-        local px, py = P(p.x, p.z)
+        local px, py = P(D.posOf(d, now))
         local kx, ky = cellOf(px, py)
         local ink = (st == "LOST" and C.red) or (st == "STALE" and C.dim) or C.bright
         local l1 = id:upper()

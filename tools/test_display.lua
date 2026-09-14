@@ -100,6 +100,13 @@ D.ingestPlan(m, { id = "drone-1", leg = 1, n = 2, route = "cruise:100:100|dock:0
 check("plan sets home", m.home and m.home.x == 0)
 check("state LIVE / STALE / LOST", D.droneState(m.drones["drone-1"], 4) == "LIVE"
   and D.droneState(m.drones["drone-1"], 12) == "STALE" and D.droneState(m.drones["drone-1"], 40) == "LOST")
+local mc = D.newModel()
+D.ingest(mc, { id = "u", x = 100, z = 0, vx = 50, vz = -20 }, 10)
+local cx1, cz1 = D.posOf(mc.drones.u, 11)
+local cx2 = D.posOf(mc.drones.u, 10 + D.COAST + 1)
+check("a live unit coasts along its velocity between packets", cx1 == 150 and cz1 == -20, tostring(cx1) .. "," .. tostring(cz1))
+check("it stops coasting once the packet is old", cx2 == 100, cx2)
+check("no fix, no position", D.posOf({ pkt = {} }, 1) == nil)
 
 print("themes")
 check("imperial is the default", D.theme == D.THEMES.imperial)
