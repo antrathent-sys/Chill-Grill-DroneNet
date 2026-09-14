@@ -126,8 +126,11 @@ SELFTEST = [
      ["climb", "cruise"]),
     ("radio ignores other protocol", ["go", "1000", "1000", "300"], {"TMAX": "90", "RADIO_AT": "20:hold:drone-rs:wired"},
      ["climb", "cruise"]),
-    # telemetry: ~1 Hz send-only packets on the ender modem (telem_check)
-    ("telemetry", ["go", "1000", "1000", "300"], {"TMAX": "60", "TELEM": "1"},
+    # telemetry: ~1 Hz sealed send-only packets on the ender modem (telem_check)
+    ("telemetry", ["go", "1000", "1000", "300"], {"TMAX": "60", "TELEM": "1", "TELEM_KEY": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"},
+     ["climb", "cruise"]),
+    # no key: nothing at all goes out - never a plaintext fallback
+    ("telemetry, no key", ["go", "1000", "1000", "300"], {"TMAX": "60", "TELEM": "1"},
      ["climb", "cruise"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
@@ -159,7 +162,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -196,10 +199,11 @@ def triad_check(logpath):
     return ok, msg
 
 
-def telem_check(logpath):
-    """TELEM=1 runs: ~1 Hz telemetry packets on channel 7212 with consecutive
-    seq, the fields the base needs and distance closing in cruise; at least one
-    plan packet carrying the route; and the modem never opened (send-only)."""
+def telem_check(logpath, env):
+    """TELEM=1 runs. With TELEM_KEY: every packet sealed (only sl,id,d,n,c,g on
+    the air) and, opened, ~1 Hz telemetry on channel 7212 with consecutive seq,
+    the fields the base needs, distance closing in cruise and route packets.
+    Without a key: nothing sent at all. Always: the modem never opened."""
     path = logpath + ".telem"
     if not os.path.exists(path):
         return False, "no telemetry file"
@@ -213,6 +217,11 @@ def telem_check(logpath):
         pk.append((float(T), int(ch), dict(kv.split("=", 1) for kv in body.split(";") if kv)))
     if opens:
         return False, "telemetry modem opened channel(s) %s - it must be send-only" % opens
+    if not env.get("TELEM_KEY"):
+        return len(pk) == 0, "%d packets sent without a key (must be none)" % len(pk)
+    unsealed = [d for _, _, d in pk if d.get("sealed") != "1" or d.get("raw") != "c,d,g,id,n,sl"]
+    if unsealed:
+        return False, "%d of %d packets not sealed or leaking fields, e.g. %s" % (len(unsealed), len(pk), unsealed[0])
     tlm = [x for x in pk if x[2].get("type") != "plan"]
     plans = [x[2] for x in pk if x[2].get("type") == "plan"]
     if len(tlm) < 10:
@@ -220,7 +229,7 @@ def telem_check(logpath):
     span = tlm[-1][0] - tlm[0][0]
     rate = (len(tlm) - 1) / span if span > 0 else 0
     seqs = [int(d["seq"]) for _, _, d in tlm]
-    need = ("v", "type", "id", "seq", "t", "phase", "x", "y", "z", "spd", "energy", "dock", "leg")
+    need = ("v", "type", "id", "seq", "t", "ts", "phase", "x", "y", "z", "spd", "energy", "dock", "leg")
     missing = [f for f in need if f not in tlm[-1][2]]
     chans = sorted(set(c for _, c, _ in pk))
     phases = []
@@ -234,7 +243,7 @@ def telem_check(logpath):
           and not missing and chans == [7212] and "cruise" in phases and closing
           and tlm[-1][2].get("id") == "drone-7"
           and len(plans) >= 2 and route.startswith("go:1000.5:1000.5"))
-    return ok, "%d packets at %.2f Hz on %s, phases %s, missing %s, closing %s, id %s, %d plans, route %s" % (
+    return ok, "%d sealed packets at %.2f Hz on %s, phases %s, missing %s, closing %s, id %s, %d plans, route %s" % (
         len(tlm), rate, chans, "->".join(phases), missing, closing, tlm[-1][2].get("id"), len(plans), route)
 
 
@@ -287,7 +296,7 @@ def main(argv=None):
                 tok, extra = triad_check(logpath)
                 ok = ok and tok
             if env.get("TELEM"):
-                tok, extra = telem_check(logpath)
+                tok, extra = telem_check(logpath, env)
                 ok = ok and tok
             failures += 0 if ok else 1
             print("%-5s %-12s %s" % ("ok" if ok else "FAIL", name, " -> ".join(got)))

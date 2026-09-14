@@ -58,13 +58,23 @@ terminal, like the other `lib/` modules.
 new destination by radio can be sent anywhere by anyone who copies the packet.
 Over the cable an attacker has to be on the base network already.
 
-In-flight commands stay off until `lib/link.lua` signs them (ccryptolib
-ChaCha20-Poly1305, pre-shared key kept out of the repo, persisted counter
-against replay, verify before parsing).
+**Sealed link (built 2026-09-14, `lib/seclink.lua`).** Every radio packet is
+encrypted and authenticated with ChaCha20-Poly1305 (vendored ccryptolib) under
+that drone's own 32-byte key. Only `sl, id, d, n` and the ciphertext and tag
+travel; id, direction and counter are bound into the tag. Counters persist in
+reserved blocks so a nonce never repeats across reboots; the receiver accepts
+each counter once and increasing, and checks the timestamp, all after the tag
+verifies. A drone with no key sends nothing. Keys: `seckey new <id>` on the
+base, `seckey set <hex>` (or a floppy) on the drone; label the drone with the
+same id.
 
-**Telemetry is a privacy leak, not a hijack.** A broadcast position tells any
-listener where the drone is going and where home is. Send it unencrypted while
-testing; encrypt it with the same link once that exists.
+Mid-flight commands (reroute, hold, recall) will ride the same link base to
+drone (direction 2) - Alex wants reroute over radio (2026-09-14), which revises
+"cable only" below once the command path and its vetting exist.
+
+**Telemetry is sealed.** Before the link, a broadcast position told any
+listener where the drone was going and where home was. Now a listener sees an
+id and a counter, nothing else.
 
 **Fitted:** the drone carries an ender modem (confirmed 2026-09-14). Telemetry
 is **send-only** on it: raw `modem.transmit`, never `rednet.open` or

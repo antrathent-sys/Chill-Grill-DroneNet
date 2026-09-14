@@ -1,13 +1,15 @@
 -- console: the DroneNet flight operations wall, on the base computer.
 --
---   console          listen for drone telemetry and draw it
+--   console          listen for sealed drone telemetry and draw it
 --   console demo     draw the built-in demo fleet (no radio needed)
+--   console insecure also accept PLAINTEXT packets (bench testing only)
 --
 -- Needs an advanced monitor (the biggest one attached is used; a 5x5 at text
 -- scale 0.5 is 100x66) and, for live data, a wireless or ender modem. The
 -- console only LISTENS on the telemetry channel. It sends nothing and obeys
--- nothing, so there is nothing here to hijack - but until the link is signed
--- anyone could transmit a fake drone onto the wall (MISSIONCONTROL.md).
+-- nothing. Packets are opened with the drone's key from .fleetkeys (seckey new
+-- <id>); a packet that fails its tag, replays an old one, or is plaintext is
+-- dropped and counted as REJ on the wall.
 --
 -- Touch a drone in the FLEET list to select it. Scheduled trips come from an
 -- optional schedule.lua returning a list of
@@ -17,7 +19,15 @@
 
 local link = dofile("lib/link.lua")
 local D = dofile("lib/display.lua")
-local demo = (... == "demo")
+local args = { ... }
+local demo, insecure = args[1] == "demo", args[1] == "insecure"
+local okS, SEC = pcall(dofile, "lib/seclink.lua")
+if not okS or type(SEC) ~= "table" then
+  print("console: lib/seclink.lua would not load: " .. tostring(SEC))
+  SEC = nil
+end
+local fleet, nKeys = {}, 0
+if SEC then fleet, nKeys = SEC.readFleetKeys(".fleetkeys") end
 
 local function biggestMonitor()
   local best, area
@@ -43,7 +53,11 @@ mon.clear()
 
 local canvas = D.canvas(mon.getSize())
 local model = D.newModel()
+model.link = insecure and "INSECURE" or ((SEC and nKeys > 0) and ("SEALED " .. nKeys .. " KEY" .. (nKeys == 1 and "" or "S")) or "NO KEYS")
 local t0 = os.clock()
+if not demo and not insecure and nKeys == 0 then
+  print("console: no .fleetkeys - every packet will be refused. On this computer: seckey new <drone id>")
+end
 
 if fs.exists("schedule.lua") then
   local ok, s = pcall(dofile, "schedule.lua")
@@ -52,6 +66,7 @@ end
 
 print(string.format("console: %s %dx%d%s", monName, canvas.w, canvas.h, demo and " (demo)" or ""))
 
+local rejected = 0
 local function receive()
   if demo then while true do sleep(3600) end end
   local radio = link.findRadio(peripheral)
@@ -60,16 +75,35 @@ local function receive()
     while true do sleep(3600) end
   end
   peripheral.call(radio, "open", link.CHANNEL)
-  print("console: listening on " .. radio .. " channel " .. link.CHANNEL)
+  local rx = SEC and SEC.receiver()
+  print("console: listening on " .. radio .. " channel " .. link.CHANNEL .. " - " .. model.link)
   while true do
     local _, _, ch, _, msg = os.pullEvent("modem_message")
     if ch == link.CHANNEL and type(msg) == "table" then
       local now = os.clock() - t0
-      if msg.type == "plan" and type(msg.id) == "string" then
-        D.ingestPlan(model, msg, now)
-      elseif link.check(msg) then
-        D.ingest(model, msg, now)
+      local body
+      if msg.sl then
+        -- sealed: only a drone holding its key can have made this, and only
+        -- once; anything else is dropped before a single field is read
+        if rx then
+          local ok, b = pcall(rx.open, msg, function(id) return fleet[id] end, SEC.DIR.DRONE_TO_BASE, 120000)
+          if ok and b then body = b else rejected = rejected + 1 end
+        else
+          rejected = rejected + 1
+        end
+      elseif insecure then
+        body = msg
+      else
+        rejected = rejected + 1
       end
+      if body then
+        if body.type == "plan" and type(body.id) == "string" then
+          D.ingestPlan(model, body, now)
+        elseif link.check(body) then
+          D.ingest(model, body, now)
+        end
+      end
+      model.rejected = rejected
     end
   end
 end

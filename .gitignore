@@ -7,6 +7,11 @@ __pycache__/
 # GitHub token for private-repo fetches lives only on the CC computer
 .ghtoken
 
+# Sealed-link keys live only on the CC computers (seckey.lua), never here
+.dronekey
+.dronekey.ctr
+.fleetkeys
+
 # Flight logs pulled off the CC computer (analyse locally, don't commit)
 flightlog
 flightlog.*

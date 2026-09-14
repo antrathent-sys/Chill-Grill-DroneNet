@@ -238,6 +238,10 @@ local CFG = {
   TELEM_PERIOD = 1.0,                 -- s between packets
   TELEM_CHANNEL = 7212,
   TELEM_PLAN_EVERY = 10,              -- route packet on every leg change and every this many packets
+  -- Seal every packet (lib/seclink.lua): encrypted and authenticated with this
+  -- drone's key in .dronekey (seckey set). No key = no telemetry at all, never
+  -- a plaintext fallback. false = plaintext, for bench tests only.
+  TELEM_SEAL = true,
   TELEM_ID = nil,                     -- nil = computer label, else "drone-<id>"
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
@@ -2571,20 +2575,37 @@ local function linkLoop()
   end
   local id = CFG.TELEM_ID or (os.getComputerLabel and os.getComputerLabel())
              or ("drone-" .. tostring(os.getComputerID and os.getComputerID() or "?"))
-  print("telemetry: " .. id .. " on " .. radio .. " channel " .. CFG.TELEM_CHANNEL .. " (send only)")
+  local sealer = nil
+  if CFG.TELEM_SEAL then
+    local okS, SEC = pcall(dofile, "lib/seclink.lua")
+    local key = okS and type(SEC) == "table" and SEC.readKeyFile(".dronekey")
+    if not key then
+      print("telemetry: no key - NOT sending (seckey set <key> on this drone)")
+      while true do sleep(3600) end
+    end
+    sealer = SEC.sender(key, id, SEC.DIR.DRONE_TO_BASE, ".dronekey.ctr")
+  end
+  print("telemetry: " .. id .. " on " .. radio .. " channel " .. CFG.TELEM_CHANNEL ..
+        (sealer and " (send only, sealed)" or " (send only, PLAINTEXT)"))
+  local function send(pkt)
+    if sealer then
+      local ok, env = pcall(sealer.seal, pkt)
+      if not (ok and env) then return end
+      pkt = env
+    end
+    pcall(peripheral.call, radio, "transmit", CFG.TELEM_CHANNEL, CFG.TELEM_CHANNEL, pkt)
+  end
   local seq, planLeg, planAge = 0, -1, 0
   while true do
     sleep(CFG.TELEM_PERIOD)
     if TLM.t then
       seq = seq + 1
-      pcall(peripheral.call, radio, "transmit", CFG.TELEM_CHANNEL, CFG.TELEM_CHANNEL,
-        LINK.packet(id, seq, TLM, mon, fuel, dock, legs and #legs or 0, legIdx, legKind, mode))
+      send(LINK.packet(id, seq, TLM, mon, fuel, dock, legs and #legs or 0, legIdx, legKind, mode))
       -- the whole route for the console map, on leg changes and now and then
       planAge = planAge + 1
       if legIdx ~= planLeg or planAge >= CFG.TELEM_PLAN_EVERY then
         planLeg, planAge = legIdx, 0
-        pcall(peripheral.call, radio, "transmit", CFG.TELEM_CHANNEL, CFG.TELEM_CHANNEL,
-          LINK.planPacket(id, seq, legs, legIdx, home, mode, TLM))
+        send(LINK.planPacket(id, seq, legs, legIdx, home, mode, TLM))
       end
     end
   end

@@ -201,8 +201,32 @@ local logLines = {}
 -- has filled the disk.
 local diskUsed = 0
 local diskLimit = os.getenv("DISK_KB") and tonumber(os.getenv("DISK_KB")) * 1024 or nil
+-- TELEM_KEY runs keep the drone key and its counter in memory files; every
+-- other path still goes to the flightlog writer as before
+local memFiles = {}
+if os.getenv("TELEM_KEY") then memFiles[".dronekey"] = os.getenv("TELEM_KEY") end
+local function memHandle(path, mode)
+  if mode == "w" then memFiles[path] = "" end
+  local data, pos = memFiles[path] or "", 1
+  return {
+    readAll = function() local s = data:sub(pos) pos = #data + 1 return s end,
+    readLine = function()
+      if pos > #data then return nil end
+      local e = data:find("\n", pos, true)
+      local line = e and data:sub(pos, e - 1) or data:sub(pos)
+      pos = e and e + 1 or #data + 1
+      return line
+    end,
+    write = function(s) memFiles[path] = (memFiles[path] or "") .. s end,
+    writeLine = function(s) memFiles[path] = (memFiles[path] or "") .. s .. "\n" end,
+    close = function() end,
+  }
+end
 _G.fs = {
-  open = function()
+  open = function(path, mode)
+    if memFiles[path] ~= nil or (type(path) == "string" and path:match("%.ctr$")) then
+      return memHandle(path, mode)
+    end
     return {
       writeLine = function(s)
         if diskLimit and diskUsed + #s + 1 > diskLimit then error("Out of space", 0) end
@@ -236,6 +260,7 @@ _G.fs = {
     return 1e9
   end,
   exists = function(p)
+    if memFiles[p] ~= nil then return true end
     -- UPLOAD_BOOM makes upload.lua present but explosive, to prove a failed
     -- auto-upload cannot take the flight down with it.
     if p == "upload.lua" then return os.getenv("UPLOAD_BOOM") ~= nil end
@@ -398,6 +423,14 @@ end
 -- Docking bridges the pad's wired network in, so more peripherals become
 -- visible. Named pad_* so they cannot be confused with the craft's own.
 local padPeriphs = {}
+-- TELEM_KEY runs open sealed transmissions with the same key to check them
+local mockSec, mockKey, mockRx
+if os.getenv("TELEM_KEY") then
+  dofile("tools/cc_shim.lua")
+  mockSec = dofile("lib/seclink.lua")
+  mockKey = mockSec.parseKey(os.getenv("TELEM_KEY"))
+  mockRx = mockSec.receiver()
+end
 -- TELEM runs get an ender modem that records what is transmitted, and any
 -- channel opened on it (which must be none: telemetry is send-only)
 if os.getenv("TELEM") then
@@ -406,7 +439,21 @@ if os.getenv("TELEM") then
     transmit = function(ch, rch, msg)
       sim.telem = sim.telem or {}
       local copy = {}
-      for k, v in pairs(msg) do copy[k] = v end
+      if msg.sl and mockSec then
+        local raw = {}
+        for k in pairs(msg) do raw[#raw + 1] = k end
+        table.sort(raw)
+        local body = mockRx.open(msg, function() return mockKey end, mockSec.DIR.DRONE_TO_BASE)
+        if body then
+          for k, v in pairs(body) do copy[k] = v end
+          copy.sealed = 1
+        else
+          copy.sealfail = 1
+        end
+        copy.raw = table.concat(raw, ",")
+      else
+        for k, v in pairs(msg) do copy[k] = v end
+      end
       sim.telem[#sim.telem + 1] = { T = T, ch = ch, msg = copy }
     end,
     open = function(ch) sim.telemOpen = sim.telemOpen or {} sim.telemOpen[#sim.telemOpen + 1] = ch end,

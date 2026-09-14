@@ -449,8 +449,13 @@ local function drawHeader(c, m, now)
   for _, id in ipairs(m.order) do
     if D.droneState(m.drones[id], now) == "LIVE" then live = live + 1 end
   end
-  c:text(21, 2, string.format("DRONES %d/%d LIVE   TRIPS %d   CH 7212", live, #m.order, #(m.scheduled or {})),
-    C.dim, C.panel)
+  local info = string.format("DRONES %d/%d LIVE   TRIPS %d   CH 7212", live, #m.order, #(m.scheduled or {}))
+  local room = w - #clock - 2 - 21
+  c:text(21, 2, pad(info, room), C.dim, C.panel)
+  if m.link and #info + 2 < room then
+    local tag = m.link .. ((m.rejected or 0) > 0 and ("  REJ " .. m.rejected) or "")
+    c:text(21 + #info + 2, 2, pad(tag, room - #info - 2), m.link:find("^SEALED") and C.green or C.warn, C.panel)
+  end
   for px = 1, c.pw do
     for py = 7, 9 do
       if ((px + py) % 6) < 3 then c:pix(px, py, C.amberDim) end
@@ -822,6 +827,7 @@ function D.demoModel(now, keep)
   m.now = now
   local home = { x = 0.5, z = 0.5 }
   m.home = home
+  m.link = "SEALED 3 KEYS"
   local tgt = { x = 2000.5, z = 5000.5 }
   local s = (now % 80) / 80
   local out = s < 0.5

@@ -8,7 +8,12 @@ local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua"
                  "rsio.lua", "chimes.lua", "docktest.lua",
                  "lib/chime.lua", "lib/db.lua", "lib/mission.lua", "lib/rs.lua",
                  "lib/mixer.lua", "lib/attitude.lua", "lib/link.lua",
-                 "lib/display.lua", "console.lua" }
+                 "lib/display.lua", "console.lua",
+                 "lib/seclink.lua", "seckey.lua",
+                 "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
+                 "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
+                 "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua",
+                 "ccryptolib/internal/hw.lua" }
 
 -- Private repo? Put a GitHub token (fine-grained, read-only Contents scope on
 -- this repo only) in a file called .ghtoken on THIS computer. It is read here
