@@ -10,10 +10,22 @@
 --   stickers test <name>     extend it, read isAttachedToBlock for 3 s, retract it
 --   stickers extend <name>   extend it and leave it extended
 --   stickers retract <name>  retract it
+--   stickers hold <name> [secs]
+--                            extend it and keep it extended for secs (default
+--                            10), extending it again whenever it is found
+--                            retracted, and count how often. 0 = extend()
+--                            latches by itself; more = something pulls it back
+--   stickers pulse <side | relay:side> [ticks] [sticker]
+--                            a redstone pulse (default 10 ticks) on a side of
+--                            this computer, or on a Redstone Relay; name the
+--                            sticker to see whether it flipped
 --
 -- Create 6 gives the Sticker a peripheral of type "Create_Sticker":
 -- isExtended(), isAttachedToBlock(), extend(), retract(), toggle(). The last
--- three return true only when the state actually changed. No events.
+-- three return true only when the state actually changed. No events. They set
+-- the EXTENDED block state directly, so they latch: nothing in Create undoes
+-- them. Redstone is different: the sticker flips on every rising edge
+-- (StickerBlock.neighborChanged), and holding or cutting power does nothing.
 --
 -- What an extended sticker DOES on a drone comes from Sable, not Create:
 -- pressed flush (1/16 block, within 30 deg) against another physics object it
@@ -201,6 +213,67 @@ elseif cmd == "extend" or cmd == "retract" then
   sleep(0.25)
   print("now extended " .. yn(call(target, "isExtended")) .. ", attached " .. yn(call(target, "isAttachedToBlock")))
 
+elseif cmd == "hold" then
+  need(target)
+  local secs = tonumber(args[3]) or 10
+  print(WARN)
+  if not confirm(string.format("extend %s and keep it extended for %g s?", target, secs)) then
+    print("nothing changed")
+    return
+  end
+  local steps = math.floor(secs / 0.05 + 0.5)
+  local again, last = 0, nil
+  for i = 0, steps do
+    if call(target, "isExtended") ~= true then
+      if i > 0 then
+        again = again + 1
+        print(string.format("  %.2f s  found retracted - extending again", i * 0.05))
+      end
+      call(target, "extend")
+    end
+    local s = "extended " .. yn(call(target, "isExtended")) .. ", attached " .. yn(call(target, "isAttachedToBlock"))
+    if s ~= last then
+      print(string.format("  %.2f s  %s", i * 0.05, s))
+      last = s
+    end
+    if i < steps then sleep(0.05) end
+  end
+  if again == 0 then
+    print(string.format("stayed extended for %g s by itself: extend() latches. Left extended.", secs))
+  else
+    print(string.format("found retracted %d times: something pulls it back in (redstone next", again))
+    print("to a sticker flips it on every rising edge). Left extended.")
+  end
+
+elseif cmd == "pulse" then
+  local spec, ticks, watched = args[2], tonumber(args[3]) or 10, args[4]
+  if not spec then error("usage: stickers pulse <side | relay:side> [ticks] [sticker]", 0) end
+  local relay, side = spec:match("^(.+):(%a+)$")
+  if not relay then side = spec end
+  if not SIDES[side] then error(tostring(side) .. " is not a side (top bottom left right front back)", 0) end
+  if relay and not peripheral.isPresent(relay) then error(relay .. " is not on this computer", 0) end
+  if watched then need(watched) end
+  local function output(on)
+    if relay then peripheral.call(relay, "setOutput", side, on) else redstone.setOutput(side, on) end
+  end
+  print("A redstone pulse flips every sticker it reaches, whatever state each is in.")
+  if not confirm(string.format("pulse %s for %d ticks?", spec, ticks)) then
+    print("nothing changed")
+    return
+  end
+  local before = watched and call(watched, "isExtended")
+  output(true)
+  sleep(ticks / 20)
+  output(false)
+  sleep(0.25)
+  print(string.format("pulsed %s for %d ticks (%.2f s)", spec, ticks, ticks / 20))
+  if watched then
+    local after = call(watched, "isExtended")
+    print(string.format("%s: extended %s -> %s  (%s)", watched, yn(before), yn(after),
+      before ~= after and "flipped" or "no change"))
+  end
+
 else
-  print("usage: stickers [all | watch | save | test <name> | extend <name> | retract <name>]")
+  print("usage: stickers [all | watch | save | test <name> | extend <name> | retract <name>")
+  print("                 | hold <name> [secs] | pulse <side | relay:side> [ticks] [sticker]]")
 end

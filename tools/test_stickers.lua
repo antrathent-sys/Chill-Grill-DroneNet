@@ -1,5 +1,6 @@
 -- Desktop tests for stickers.lua: finding Create Stickers among other
--- peripherals, never moving one unasked, and the test / extend / retract paths.
+-- peripherals, never moving one unasked, the test / extend / retract / hold
+-- paths, and redstone pulses.
 local DIR = ...
 local pass, fail = 0, 0
 local function check(n, c, d)
@@ -10,11 +11,14 @@ end
 local SRC = DIR .. "/../stickers.lua"
 local STICKER_METHODS = { "toggle", "retract", "isExtended", "extend", "isAttachedToBlock" }
 
--- a computer: stickers (name -> { ext, flush }), other peripherals
--- (name -> { types, methods }), typed answers, optional http/upload
+-- a computer: stickers (name -> { ext, flush, fights }), other peripherals
+-- (name -> { types, methods }), typed answers, optional http/upload, and
+-- opts.wire = { side, sticker }: redstone on that side reaches that sticker,
+-- which flips on each rising edge as Create's does. A sticker with `fights`
+-- is pulled back in 0.1 s after it is extended.
 local function computer(opts)
   local w = { stickers = opts.stickers or {}, others = opts.others or {}, answers = opts.answers or {},
-              printed = {}, calls = {}, files = {}, runs = {} }
+              printed = {}, calls = {}, files = {}, runs = {}, rs = {}, clock = 0, level = {} }
   local env = setmetatable({}, { __index = _G })
   local function out(s) w.printed[#w.printed + 1] = s end
   env.print = function(...)
@@ -24,7 +28,7 @@ local function computer(opts)
   end
   env.write = function(s) out(tostring(s)) end
   env.read = function() return table.remove(w.answers, 1) end
-  env.sleep = function() end
+  env.sleep = function(s) w.clock = w.clock + (s or 0) end
   env.term = { clear = function() end, setCursorPos = function() end }
   env.http = opts.http
   env.fs = {
@@ -35,6 +39,17 @@ local function computer(opts)
     end,
   }
   env.shell = { run = function(...) w.runs[#w.runs + 1] = table.concat({ ... }, " ") return true end }
+  local function signal(where, side, on)
+    w.rs[#w.rs + 1] = string.format("%s%s=%s@%.2f", where, side, tostring(on), w.clock)
+    local key = where .. side
+    local rising = on and not w.level[key]
+    w.level[key] = on
+    if rising and opts.wire and opts.wire.side == where .. side then
+      local s = w.stickers[opts.wire.sticker]
+      s.ext = not s.ext
+    end
+  end
+  env.redstone = { setOutput = function(side, on) signal("", side, on) end }
   env.peripheral = {
     getNames = function()
       local t = {}
@@ -57,13 +72,15 @@ local function computer(opts)
       end
       return w.others[n] and w.others[n].methods or nil
     end,
-    call = function(n, m)
+    call = function(n, m, a, b)
       w.calls[#w.calls + 1] = n .. "." .. m
+      if w.others[n] and m == "setOutput" then return signal(n .. ":", a, b) end
       local s = w.stickers[n]
       if not s then error("no peripheral " .. n, 0) end
+      if s.fights and s.ext and w.clock - (s.extAt or 0) >= 0.1 then s.ext = false end
       if m == "isExtended" then return s.ext end
       if m == "isAttachedToBlock" then return s.ext and s.flush or false end
-      if m == "extend" then if s.ext then return false end s.ext = true return true end
+      if m == "extend" then if s.ext then return false end s.ext, s.extAt = true, w.clock return true end
       if m == "retract" then if not s.ext then return false end s.ext = false return true end
       if m == "toggle" then s.ext = not s.ext return true end
       error("no such method " .. m, 0)
@@ -91,11 +108,16 @@ local function run(w, ...)
 end
 
 local function has(w, s) return w.text:find(s, 1, true) ~= nil end
+local function count(w, name)
+  local n = 0
+  for _, c in ipairs(w.calls) do if c == name then n = n + 1 end end
+  return n
+end
 local function moved(w)
   for _, c in ipairs(w.calls) do
     if c:match("%.extend$") or c:match("%.retract$") or c:match("%.toggle$") then return true end
   end
-  return false
+  return #w.rs > 0
 end
 local function callIndex(w, name)
   for i, c in ipairs(w.calls) do if c == name then return i end end
@@ -108,6 +130,7 @@ local function bay()
     others = {
       docking_connector_0 = { types = { "docking_connector" }, methods = { "getConnectedName", "isExtended" } },
       back = { types = { "modem", "peripheral_hub" }, methods = { "isWireless", "getNamesRemote" } },
+      redstone_relay_0 = { types = { "redstone_relay" }, methods = { "setOutput", "getInput" } },
     },
   }
 end
@@ -184,6 +207,58 @@ cfg = bay()
 cfg.answers = { "no" }
 w = run(computer(cfg), "retract", "Create_Sticker_0")
 check("retract no: still extended", w.stickers.Create_Sticker_0.ext == true and not moved(w))
+
+print("hold")
+cfg = bay()
+cfg.answers = { "y" }
+w = run(computer(cfg), "hold", "top", "1")
+check("a latching sticker is extended once and stays out", count(w, "top.extend") == 1 and w.stickers.top.ext == true,
+  count(w, "top.extend"))
+check("hold says extend() latches", has(w, "extend() latches"), w.text)
+check("hold runs for the time asked", math.abs(w.clock - 1) < 1e-6, w.clock)
+
+cfg = bay()
+cfg.stickers.top.fights = true
+cfg.answers = { "y" }
+w = run(computer(cfg), "hold", "top", "1")
+check("a sticker pulled back in is extended again and counted", count(w, "top.extend") > 1
+  and has(w, "found retracted") and has(w, "something pulls it back"), w.text)
+
+cfg = bay()
+cfg.answers = { "n" }
+w = run(computer(cfg), "hold", "top")
+check("hold n: nothing moves", not moved(w) and w.clock == 0)
+
+print("pulse")
+cfg = bay()
+cfg.wire = { side = "back", sticker = "top" }
+cfg.answers = { "y" }
+w = run(computer(cfg), "pulse", "back", "10", "top")
+check("a 10 tick pulse is on for 0.5 s", w.rs[1] == "back=true@0.00" and w.rs[2] == "back=false@0.50", table.concat(w.rs, " "))
+check("the wired sticker flipped and it says so", w.stickers.top.ext == true and has(w, "extended no -> yes  (flipped)"), w.text)
+
+cfg = bay()
+cfg.wire = { side = "back", sticker = "top" }
+cfg.stickers.top.ext = true
+cfg.answers = { "y" }
+w = run(computer(cfg), "pulse", "back", "4", "top")
+check("the same pulse on an extended sticker retracts it", w.stickers.top.ext == false
+  and w.rs[2] == "back=false@0.20" and has(w, "(flipped)"), table.concat(w.rs, " "))
+
+cfg = bay()
+cfg.answers = { "y" }
+w = run(computer(cfg), "pulse", "redstone_relay_0:left")
+check("relay:side pulses through the relay", w.rs[1] == "redstone_relay_0:left=true@0.00"
+  and w.rs[2] == "redstone_relay_0:left=false@0.50", table.concat(w.rs, " "))
+
+w = run(computer(bay()), "pulse", "sideways")
+check("not a side: refused", w.err and w.err:find("is not a side", 1, true) and #w.rs == 0, w.err)
+w = run(computer(bay()), "pulse", "missing_relay:top")
+check("unknown relay: refused", w.err and w.err:find("not on this computer", 1, true) and #w.rs == 0, w.err)
+cfg = bay()
+cfg.answers = { "n" }
+w = run(computer(cfg), "pulse", "back")
+check("pulse n: no redstone", #w.rs == 0 and has(w, "nothing changed"))
 
 print("save")
 cfg = bay()
