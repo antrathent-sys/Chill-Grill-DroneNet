@@ -73,7 +73,7 @@ function link.packet(id, seq, s, mon, fuel, dock, nLegs, legIdx, legKind, mode)
   local tilt
   if s.p and s.r then tilt = math.sqrt(s.p * s.p + s.r * s.r) end
   return {
-    v = link.VERSION, id = id, seq = seq, t = round(s.t, 1),
+    v = link.VERSION, type = "tlm", id = id, seq = seq, t = round(s.t, 1),
     mode = mode, phase = s.phase,
     leg = legIdx or 0, legs = nLegs or 0, legKind = legKind,
     x = round(s.x, 1), y = round(s.h, 1), z = round(s.z, 1),
@@ -85,6 +85,33 @@ function link.packet(id, seq, s, mon, fuel, dock, nLegs, legIdx, legKind, mode)
     off = round(link.offLine(s.x, s.z, s.sx, s.sz, s.tx, s.tz), 0),
     energy = round(mon.energy, 1), drain = round(mon.rate, 2), fe = round(fuel.pct, 1),
     dock = dock.connected and 1 or 0, sat = s.sat and 1 or 0,
+  }
+end
+
+--- The drone's whole route, for the console map. Sent on every leg change and
+-- every TELEM_PLAN_EVERY packets, so a console that starts mid-flight still
+-- draws the mission. route is "kind:x:z" per leg joined by "|"; legs without a
+-- position (the drop action) are just their name. With no leg list (a plain
+-- `fly go`), the route is the current target.
+function link.planPacket(id, seq, legs, legIdx, home, mode, s)
+  s = s or {}
+  local parts = {}
+  if legs then
+    for _, L in ipairs(legs) do
+      if type(L.x) == "number" and type(L.z) == "number" then
+        parts[#parts + 1] = string.format("%s:%.1f:%.1f", tostring(L.leg), L.x, L.z)
+      else
+        parts[#parts + 1] = tostring(L.what or L.leg)
+      end
+    end
+  elseif type(s.tx) == "number" and type(s.tz) == "number" then
+    parts[1] = string.format("%s:%.1f:%.1f", tostring(mode or "go"), s.tx, s.tz)
+  end
+  return {
+    v = link.VERSION, type = "plan", id = id, seq = seq, mode = mode,
+    leg = legIdx or 0, n = legs and #legs or 0, route = table.concat(parts, "|"),
+    hx = home and round(home.x, 1) or nil, hz = home and round(home.z, 1) or nil,
+    sx = round(s.sx, 1), sz = round(s.sz, 1),
   }
 end
 

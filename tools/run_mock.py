@@ -197,9 +197,9 @@ def triad_check(logpath):
 
 
 def telem_check(logpath):
-    """TELEM=1 runs: ~1 Hz packets on channel 7212, consecutive seq, the
-    fields the base needs, distance closing in cruise, and the modem never
-    opened (send-only)."""
+    """TELEM=1 runs: ~1 Hz telemetry packets on channel 7212 with consecutive
+    seq, the fields the base needs and distance closing in cruise; at least one
+    plan packet carrying the route; and the modem never opened (send-only)."""
     path = logpath + ".telem"
     if not os.path.exists(path):
         return False, "no telemetry file"
@@ -213,25 +213,29 @@ def telem_check(logpath):
         pk.append((float(T), int(ch), dict(kv.split("=", 1) for kv in body.split(";") if kv)))
     if opens:
         return False, "telemetry modem opened channel(s) %s - it must be send-only" % opens
-    if len(pk) < 10:
-        return False, "only %d packets" % len(pk)
-    span = pk[-1][0] - pk[0][0]
-    rate = (len(pk) - 1) / span if span > 0 else 0
-    seqs = [int(d["seq"]) for _, _, d in pk]
-    need = ("v", "id", "seq", "t", "phase", "x", "y", "z", "spd", "energy", "dock", "leg")
-    missing = [f for f in need if f not in pk[-1][2]]
+    tlm = [x for x in pk if x[2].get("type") != "plan"]
+    plans = [x[2] for x in pk if x[2].get("type") == "plan"]
+    if len(tlm) < 10:
+        return False, "only %d telemetry packets" % len(tlm)
+    span = tlm[-1][0] - tlm[0][0]
+    rate = (len(tlm) - 1) / span if span > 0 else 0
+    seqs = [int(d["seq"]) for _, _, d in tlm]
+    need = ("v", "type", "id", "seq", "t", "phase", "x", "y", "z", "spd", "energy", "dock", "leg")
+    missing = [f for f in need if f not in tlm[-1][2]]
     chans = sorted(set(c for _, c, _ in pk))
     phases = []
-    for _, _, d in pk:
+    for _, _, d in tlm:
         if not phases or phases[-1] != d["phase"]:
             phases.append(d["phase"])
-    cruise = [d for _, _, d in pk if d["phase"] == "cruise" and "dist" in d]
+    cruise = [d for _, _, d in tlm if d["phase"] == "cruise" and "dist" in d]
     closing = len(cruise) >= 2 and float(cruise[-1]["dist"]) < float(cruise[0]["dist"])
+    route = plans[0].get("route", "") if plans else ""
     ok = (0.8 <= rate <= 1.2 and seqs == list(range(seqs[0], seqs[0] + len(seqs)))
           and not missing and chans == [7212] and "cruise" in phases and closing
-          and pk[-1][2].get("id") == "drone-7")
-    return ok, "%d packets at %.2f Hz on %s, phases %s, missing %s, closing %s, id %s" % (
-        len(pk), rate, chans, "->".join(phases), missing, closing, pk[-1][2].get("id"))
+          and tlm[-1][2].get("id") == "drone-7"
+          and len(plans) >= 2 and route.startswith("go:1000.5:1000.5"))
+    return ok, "%d packets at %.2f Hz on %s, phases %s, missing %s, closing %s, id %s, %d plans, route %s" % (
+        len(tlm), rate, chans, "->".join(phases), missing, closing, tlm[-1][2].get("id"), len(plans), route)
 
 
 def phases_from(logpath):

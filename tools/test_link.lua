@@ -77,6 +77,26 @@ ok, why = link.check({ v = link.VERSION, id = "x", seq = 1, phase = "a", t = 0, 
 check("missing y rejected", ok == false and why == "no y", why)
 check("non-table rejected", link.check("land") == false)
 
+print("planPacket")
+check("telemetry packets say what they are", p.type == "tlm")
+local legs = {
+  { leg = "cruise", x = 2000.5, z = 5000.5, y = 250, undock = true },
+  { leg = "hover",  x = 2000.5, z = 5000.5, y = 120 },
+  { leg = "action", what = "drop" },
+  { leg = "dock",   x = 0.5, z = 0.5, padY = 63, y = 250 },
+}
+local pp = link.planPacket("drone-7", 9, legs, 2, { x = 0.5, z = 0.5, padY = 63 }, "deliver", s)
+check("plan type, id, leg bookkeeping", pp.type == "plan" and pp.id == "drone-7" and pp.leg == 2 and pp.n == 4)
+check("route lists every leg, drop by name",
+  pp.route == "cruise:2000.5:5000.5|hover:2000.5:5000.5|drop|dock:0.5:0.5", pp.route)
+check("home and leg start", pp.hx == 0.5 and pp.hz == 0.5 and pp.sx == 0.5 and pp.sz == 0.5)
+local pg = link.planPacket("d", 1, nil, 0, nil, "go", { tx = 1000.5, tz = 1000.5 })
+check("no leg list: route is the target", pg.route == "go:1000.5:1000.5" and pg.n == 0 and pg.hx == nil, pg.route)
+check("nothing to plan: empty route", link.planPacket("d", 1, nil, 0, nil, "hold", {}).route == "")
+local flatP = true
+for _, v in pairs(pp) do if type(v) == "table" then flatP = false end end
+check("plan packet is flat", flatP)
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("link tests failed", 0) end

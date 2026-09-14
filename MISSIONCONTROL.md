@@ -174,9 +174,16 @@ Each step is usable on its own and testable without the others.
    channel `TELEM_CHANNEL` 7212, id = computer label. Mock harness: the fake modem records
    transmissions; a case asserts ~1 Hz packets with sane fields, and switch
    off reproduces the previous flight logs exactly.
-2. **`lib/display.lua` Overview + Map**, rendered from a recorded packet stream
-   onto a fake terminal in a desktop test. Then on a real monitor with the
-   drone docked, over the cable.
+2. **`lib/display.lua` + `console.lua`** - BUILT 2026-09-14 as one wall screen
+   rather than separate pages: tactical map, flight data, fleet, mission
+   control board, scheduled trips, alert ticker (phosphor green / amber / red
+   palette). The drone also sends a route packet (`planPacket`) on every leg
+   change and every `TELEM_PLAN_EVERY` packets so the map can draw the whole
+   mission. Tested on a fake terminal at 100x66, 164x80, 71x38 and 60x30;
+   `tools/preview_display.py` renders an animated HTML preview of the demo
+   fleet. **The console only listens**: until the link is signed, anyone could
+   transmit a fake drone onto the wall, but nothing on the wall can command a
+   drone.
 3. **`ops.lua` mission records**: telemetry drives the state machine, the
    flightlog summary comes back over the cable on docking. Missions still
    launched by typing `fly deliver` on the drone.

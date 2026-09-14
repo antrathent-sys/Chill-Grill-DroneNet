@@ -237,6 +237,7 @@ local CFG = {
   TELEM_ON = true,
   TELEM_PERIOD = 1.0,                 -- s between packets
   TELEM_CHANNEL = 7212,
+  TELEM_PLAN_EVERY = 10,              -- route packet on every leg change and every this many packets
   TELEM_ID = nil,                     -- nil = computer label, else "drone-<id>"
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
@@ -2571,13 +2572,20 @@ local function linkLoop()
   local id = CFG.TELEM_ID or (os.getComputerLabel and os.getComputerLabel())
              or ("drone-" .. tostring(os.getComputerID and os.getComputerID() or "?"))
   print("telemetry: " .. id .. " on " .. radio .. " channel " .. CFG.TELEM_CHANNEL .. " (send only)")
-  local seq = 0
+  local seq, planLeg, planAge = 0, -1, 0
   while true do
     sleep(CFG.TELEM_PERIOD)
     if TLM.t then
       seq = seq + 1
       pcall(peripheral.call, radio, "transmit", CFG.TELEM_CHANNEL, CFG.TELEM_CHANNEL,
         LINK.packet(id, seq, TLM, mon, fuel, dock, legs and #legs or 0, legIdx, legKind, mode))
+      -- the whole route for the console map, on leg changes and now and then
+      planAge = planAge + 1
+      if legIdx ~= planLeg or planAge >= CFG.TELEM_PLAN_EVERY then
+        planLeg, planAge = legIdx, 0
+        pcall(peripheral.call, radio, "transmit", CFG.TELEM_CHANNEL, CFG.TELEM_CHANNEL,
+          LINK.planPacket(id, seq, legs, legIdx, home, mode, TLM))
+      end
     end
   end
 end
