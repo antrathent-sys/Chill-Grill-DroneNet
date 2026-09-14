@@ -128,15 +128,27 @@ for _, themeName in ipairs({ "imperial", "silo" }) do
     check(string.format("demo renders at %dx%d", w, h), ok, err)
   end
   local _, t = renderTo(100, 66, D.demoModel(NOW), NOW)
+  local L0 = D.layout(100, 66)
   check("header title", screenHas(t, T.title) == 1)
   check("condition is ALERT with a lost drone", screenHas(t, T.status .. ": ALERT") == 2)
-  check("map title", screenHas(t, D.pad(T.map, #T.map)) ~= nil)
+  check("map title", screenHas(t, (T.map:gsub("^%s+", ""):gsub("%s+$", ""))) ~= nil)
   check("telemetry panel", screenHas(t, T.side:sub(2)) ~= nil and screenHas(t, "B/S") ~= nil)
   check("selected unit tagged on the map with speed", screenHas(t, "DRONE-1 196B/S") ~= nil)
   check("lost unit tagged", screenHas(t, "DRONE-3 LOST") ~= nil)
   check("fleet lists all three", screenHas(t, "DRONE-2") and screenHas(t, "DRONE-3") and screenHas(t, T.fleet:sub(2)))
   check("home marker", screenHas(t, T.home) ~= nil)
-  check("mission chain", screenHas(t, "[CRUISE]") ~= nil and screenHas(t, "[DOCK]") ~= nil and screenHas(t, "[DROP]") ~= nil)
+  check("mission chain", screenHas(t, D.legLabel("cruise")) ~= nil and screenHas(t, D.legLabel("dock")) ~= nil
+    and screenHas(t, D.legLabel("drop")) ~= nil)
+  local gridDots = 0
+  for y = L0.map.y + 2, L0.map.y + L0.map.h - 3 do
+    local row = t.grid[y].s
+    for x = L0.map.x + 2, L0.map.x + L0.map.w - 3 do
+      if row:byte(x) >= 128 then gridDots = gridDots + 1 end
+    end
+  end
+  if D.theme.grid == "none" then
+    check("clean map: far fewer pixel cells than the gridded theme", gridDots < 700, gridDots)
+  end
   check("leg progress", screenHas(t, T.progress) ~= nil)
   check("scheduled trips with countdown", screenHas(t, "M-0043") ~= nil and screenHas(t, "T-00:18:20") ~= nil)
   check("alert ticker names the lost unit", screenHas(t, "! " .. T.lost .. " DRONE-3") ~= nil)

@@ -66,16 +66,19 @@ D.THEMES = {
   },
   imperial = {
     palette = {
-      f = 0x040507, ["7"] = 0x151a21, ["8"] = 0x5d6775, d = 0xc7cfd9, ["5"] = 0xffffff,
+      f = 0x040507, ["7"] = 0x161b22, ["8"] = 0x5d6775, d = 0xc7cfd9, ["5"] = 0xffffff,
       ["0"] = 0xedf1f5, ["1"] = 0xff7a1a, c = 0x5a2b08, e = 0xe3201b, a = 0x480b0a,
-      ["9"] = 0x8fd8ff, ["3"] = 0x1c4a5f, ["4"] = 0xffc83a, b = 0x0b0e12,
+      ["9"] = 0x8fd8ff, ["3"] = 0x1c4a5f, ["4"] = 0xffc83a, b = 0x040507,
       ["2"] = 0x7a2cff, ["6"] = 0xff66cc,
     },
     titleFg = "0", titleBg = "e", boardFg = "0", boardBg = "e",
-    stripe = "segments", sectors = true, reticle = true,
+    -- clean: hairlines, no fills, no grid, plain words; red only for accents
+    stripe = "line", sectors = false, reticle = true, emblem = false,
+    grid = "none", rings = 2, ringsSolid = true, titleStyle = "rule",
+    panelFill = false, bars = "thin", chain = "plain", badge = "text",
     text = {
       title = "IMPERIAL FLIGHT COMMAND", subtitle = "DRONENET",
-      banner = " CLASSIFIED // IMPERIAL CLEARANCE REQUIRED ", status = "CONDITION",
+      banner = "", status = "CONDITION",
       map = " SECTOR SCAN ", side = " UNIT TELEMETRY", fleet = " SQUADRON",
       board = " OPERATION ", sched = " DEPLOYMENT ORDERS ",
       nominal = "ALL SYSTEMS OPERATIONAL", home = "BASE",
@@ -88,6 +91,13 @@ D.THEMES = {
 }
 D.theme = D.THEMES.imperial
 D.PALETTE = D.theme.palette
+
+--- A leg as the mission board names it: [CRUISE] or, in a plain theme, CRUISE.
+function D.legLabel(kind)
+  local s = tostring(kind):upper()
+  if D.theme.chain == "plain" then return s end
+  return "[" .. s .. "]"
+end
 
 --- Pick a theme by name. Returns false for an unknown name (nothing changes).
 function D.setTheme(name)
@@ -494,7 +504,9 @@ local function band(c, x0, x1, row)
   local C = D.C
   local p0, p1 = (x0 - 1) * 2 + 1, x1 * 2
   local top = (row - 1) * 3
-  if D.theme.stripe == "segments" then
+  if D.theme.stripe == "line" then
+    for px = p0, p1 do c:pix(px, top + 2, C.dim) end
+  elseif D.theme.stripe == "segments" then
     for px = p0, p1 do
       if (px - p0) % 14 < 11 then c:pix(px, top + 2, C.dim) end
     end
@@ -509,14 +521,27 @@ local function band(c, x0, x1, row)
   end
 end
 
+-- A hairline title: a thin red tick, the label, then a rule to the panel edge
+-- (w = 0: no rule, when a frame line already runs there).
+local function rule(c, x, y, w, s)
+  local C = D.C
+  local label = s:gsub("^%s+", ""):gsub("%s+$", "")
+  c:text(x, y, label, C.bright)
+  local mid = (y - 1) * 3 + 2
+  if x > 1 then
+    for py = mid - 1, mid + 1 do c:pix((x - 1) * 2, py, C.red) end
+  end
+  for px = (x + #label) * 2 + 2, (x + w - 1) * 2 do c:pix(px, mid, C.dim) end
+end
+
 local EMBLEM = { { 1, 0 }, { 2, 0 }, { 3, 0 }, { 0, 1 }, { 4, 1 }, { 0, 2 }, { 2, 2 }, { 4, 2 },
                  { 0, 3 }, { 4, 3 }, { 1, 4 }, { 2, 4 }, { 3, 4 } }
 
 local function drawHeader(c, m, now)
   local C, w, T = D.C, c.w, D.theme.text
-  c:fill(1, 1, w, 2, C.panel)
+  if D.theme.panelFill ~= false then c:fill(1, 1, w, 2, C.panel) end
   local tx = 2
-  if D.theme.reticle then
+  if D.theme.emblem then
     for _, pt in ipairs(EMBLEM) do c:pix(3 + pt[1], 2 + pt[2], C.red) end
     tx = 5
   end
@@ -529,7 +554,12 @@ local function drawHeader(c, m, now)
   local word = (status == "NO CONTACT") and T.noContact or status
   local flash = status ~= "NOMINAL" and status ~= "NO CONTACT" and not blink(now)
   local badge = " " .. T.status .. ": " .. word .. " "
-  c:text(tx, 2, badge, C.bg, flash and C.panel or sc)
+  if D.theme.badge == "text" then
+    badge = T.status .. ": " .. word
+    c:text(tx, 2, badge, flash and C.dim or sc, C.panel)
+  else
+    c:text(tx, 2, badge, C.bg, flash and C.panel or sc)
+  end
   local live = 0
   for _, id in ipairs(m.order) do
     if D.droneState(m.drones[id], now) == "LIVE" then live = live + 1 end
@@ -544,8 +574,8 @@ local function drawHeader(c, m, now)
   end
   band(c, 1, w, 3)
   local msg = T.banner
-  if w > #msg + 4 then
-    c:text(floor((w - #msg) / 2) + 1, 3, msg, D.theme.stripe == "segments" and C.red or C.amber, C.bg)
+  if #msg > 0 and w > #msg + 4 then
+    c:text(floor((w - #msg) / 2) + 1, 3, msg, D.theme.stripe ~= "hazard" and C.red or C.amber, C.bg)
   end
 end
 
@@ -558,7 +588,11 @@ local function drawMap(c, m, R, now)
   c:line(ix0 - 1, iy1 + 1, ix1 + 1, iy1 + 1, C.dim)
   c:line(ix0 - 1, iy0 - 1, ix0 - 1, iy1 + 1, C.dim)
   c:line(ix1 + 1, iy0 - 1, ix1 + 1, iy1 + 1, C.dim)
-  c:text(R.x + 2, R.y, D.theme.text.map, D.theme.titleFg, D.theme.titleBg)
+  if D.theme.titleStyle == "rule" then
+    rule(c, R.x + 2, R.y, 0, " " .. D.theme.text.map .. " ")
+  else
+    c:text(R.x + 2, R.y, D.theme.text.map, D.theme.titleFg, D.theme.titleBg)
+  end
 
   local cx, cz, span = D.mapBounds(m)
   local pw, ph = ix1 - ix0, iy1 - iy0
@@ -584,7 +618,7 @@ local function drawMap(c, m, R, now)
   for _ = 1, 60 do
     if gx > wx1 then break end
     local px = P(gx, cz)
-    c:line(px, iy0, px, iy1, gx == 0 and C.dim or C.grid, 1, 3)
+    if D.theme.grid ~= "none" then c:line(px, iy0, px, iy1, gx == 0 and C.dim or C.grid, 1, 3) end
     cols[#cols + 1] = px
     gx = gx + step
   end
@@ -592,7 +626,7 @@ local function drawMap(c, m, R, now)
   for _ = 1, 60 do
     if gz > wz1 then break end
     local _, py = P(cx, gz)
-    c:line(ix0, py, ix1, py, gz == 0 and C.dim or C.grid, 1, 3)
+    if D.theme.grid ~= "none" then c:line(ix0, py, ix1, py, gz == 0 and C.dim or C.grid, 1, 3) end
     rows[#rows + 1] = py
     gz = gz + step
   end
@@ -600,7 +634,10 @@ local function drawMap(c, m, R, now)
   if m.home then
     local hx, hy = P(m.home.x, m.home.z)
     local ring = niceStep(span / 4)
-    for k = 1, 3 do c:circle(hx, hy, k * ring * scale, C.dim, 1, 4) end
+    for k = 1, D.theme.rings or 3 do
+      if D.theme.ringsSolid then c:circle(hx, hy, k * ring * scale, C.grid)
+      else c:circle(hx, hy, k * ring * scale, C.dim, 1, 4) end
+    end
   end
   -- scheduled trips: amber dotted routes out from home
   for _, s in ipairs(m.scheduled or {}) do
@@ -732,7 +769,7 @@ end
 
 local function drawSide(c, m, R, now)
   local C = D.C
-  c:fill(R.x, R.y, R.w, R.h, C.panel)
+  if D.theme.panelFill ~= false then c:fill(R.x, R.y, R.w, R.h, C.panel) end
   local x, w = R.x + 1, R.w - 2
   local yEnd = R.y + R.h - 1
   local y = R.y + 1
@@ -747,11 +784,20 @@ local function drawSide(c, m, R, now)
     local ok = type(v) == "number" and v >= 0
     local fill = ok and floor(min(1, v / 100) * bw + 0.5) or 0
     local col = (ok and v < 25) and C.red or ((ok and v < 50) and C.warn or C.green)
-    for i = 0, bw - 1 do c:text(x + 4 + i, y, " ", C.white, i < fill and col or C.grid) end
+    if D.theme.bars == "thin" then
+      local py = (y - 1) * 3 + 2
+      for i = 0, bw * 2 - 1 do c:pix((x + 3) * 2 + 1 + i, py, i < fill * 2 and col or C.grid) end
+    else
+      for i = 0, bw - 1 do c:text(x + 4 + i, y, " ", C.white, i < fill and col or C.grid) end
+    end
     c:text(x + 4 + bw, y, ok and string.format("%4d%%", floor(v + 0.5)) or "   --", C.white, C.panel)
     y = y + 1
   end
-  c:text(R.x, R.y, pad(D.theme.text.side, R.w), D.theme.titleFg, D.theme.titleBg)
+  if D.theme.titleStyle == "rule" then
+    rule(c, R.x + 2, R.y, R.w - 2, D.theme.text.side)
+  else
+    c:text(R.x, R.y, pad(D.theme.text.side, R.w), D.theme.titleFg, D.theme.titleBg)
+  end
 
   local d = m.selected and m.drones[m.selected]
   if not d or not d.pkt then
@@ -783,7 +829,13 @@ local function drawSide(c, m, R, now)
   end
 
   y = y + 1
-  if y <= yEnd then c:text(R.x, y, pad(D.theme.text.fleet, R.w), D.theme.titleFg, D.theme.titleBg) end
+  if y <= yEnd then
+    if D.theme.titleStyle == "rule" then
+      rule(c, R.x + 2, y, R.w - 2, D.theme.text.fleet)
+    else
+      c:text(R.x, y, pad(D.theme.text.fleet, R.w), D.theme.titleFg, D.theme.titleBg)
+    end
+  end
   y = y + 1
   for _, id in ipairs(m.order) do
     if y > yEnd then break end
@@ -805,13 +857,19 @@ local function drawBoard(c, m, R, now)
   local C = D.C
   local yTop, yAlert = R.y, R.y + R.h - 1
   local T = D.theme.text
-  band(c, R.x, R.x + R.w - 1, yTop)
-  c:text(R.x + 2, yTop, T.board, D.theme.boardFg, D.theme.boardBg)
   local split = floor(R.w * 0.56)
-  c:text(R.x + split + 1, yTop, T.sched, D.theme.boardFg, D.theme.boardBg)
-  local sepCol = D.theme.stripe == "segments" and C.dim or C.amberDim
+  if D.theme.titleStyle == "rule" then
+    rule(c, R.x + 2, yTop, split - 3, T.board)
+    rule(c, R.x + split + 2, yTop, R.w - split - 2, T.sched)
+  else
+    band(c, R.x, R.x + R.w - 1, yTop)
+    c:text(R.x + 2, yTop, T.board, D.theme.boardFg, D.theme.boardBg)
+    c:text(R.x + split + 1, yTop, T.sched, D.theme.boardFg, D.theme.boardBg)
+  end
+  local hazard = D.theme.stripe == "hazard"
+  local sepCol = hazard and C.amberDim or C.grid
   for py = yTop * 3 + 1, (yAlert - 1) * 3 do
-    if py % 3 ~= 0 then c:pix((R.x + split - 1) * 2, py, sepCol) end
+    if not hazard or py % 3 ~= 0 then c:pix((R.x + split - 1) * 2, py, sepCol) end
   end
   local function put(x, y, s, fg, bg)
     if y > yTop and y < yAlert then c:text(x, y, s, fg, bg) end
@@ -833,15 +891,18 @@ local function drawBoard(c, m, R, now)
     local cur = (pl and int(p.leg)) or 1
     local xx = R.x + 2
     for i, it in ipairs(pts) do
-      local label = "[" .. tostring(it.kind):upper() .. "]"
-      if xx + #label + 3 > R.x + left then y = y + 1 xx = R.x + 2 end
+      local label = D.legLabel(it.kind)
+      local plain = D.theme.chain == "plain"
+      local sep = plain and "  -  " or " > "
+      if xx + #label + #sep > R.x + left then y = y + 1 xx = R.x + 2 end
       local fg, bg = C.green, nil
       if i < cur then fg = C.dim
-      elseif i == cur then fg, bg = C.bg, blink(now) and C.bright or C.green
+      elseif i == cur then
+        if plain then fg = C.bright else fg, bg = C.bg, blink(now) and C.bright or C.green end
       elseif not it.x then fg = C.amber end
       put(xx, y, label, fg, bg)
       xx = xx + #label
-      if i < #pts then put(xx, y, " > ", C.dim) xx = xx + 3 end
+      if i < #pts then put(xx, y, sep, C.dim) xx = xx + #sep end
     end
     y = y + 2
     -- progress along the current leg
@@ -857,7 +918,12 @@ local function drawBoard(c, m, R, now)
     local bw = max(4, left - 22)
     put(R.x + 2, y, T.progress, C.dim)
     local fill = frac and floor(frac * bw + 0.5) or 0
-    for i = 0, bw - 1 do put(R.x + 15 + i, y, " ", C.white, i < fill and C.green or C.grid) end
+    if D.theme.bars == "thin" then
+      local py = (y - 1) * 3 + 2
+      for i = 0, bw * 2 - 1 do c:pix((R.x + 14) * 2 + 1 + i, py, i < fill * 2 and C.green or C.grid) end
+    else
+      for i = 0, bw - 1 do put(R.x + 15 + i, y, " ", C.white, i < fill and C.green or C.grid) end
+    end
     put(R.x + 16 + bw, y, frac and string.format("%3d%%", floor(frac * 100 + 0.5)) or " --", C.white)
     y = y + 1
     put(R.x + 2, y, pad(string.format("DIST %s   ETA %s   OFF LINE %s", D.fmtInt(p.dist), D.fmtEta(p.eta), signed(p.off)), left), C.green)
