@@ -37,13 +37,65 @@ D.C = {
   warn = "4", panel = "b",
 }
 
--- phosphor green, amber and red on near black
-D.PALETTE = {
-  f = 0x030604, ["7"] = 0x0c2a15, ["8"] = 0x22703a, d = 0x36e063, ["5"] = 0xb0ffc6,
-  ["0"] = 0xe8fff0, ["1"] = 0xffae00, c = 0x6e4a00, e = 0xff2b2b, a = 0x4d0d0d,
-  ["9"] = 0x3ad8ff, ["3"] = 0x114f63, ["4"] = 0xffe066, b = 0x07140c,
-  ["2"] = 0x7a2cff, ["6"] = 0xff66cc,
+-- Themes: what the 16 colour slots look like, the words on the wall, and a few
+-- drawing choices. The roles in D.C never change - a theme only restyles them.
+--   silo      phosphor green, amber and red; hazard stripes
+--   imperial  black and gunmetal, white and steel, imperial red and orange;
+--             segmented rules, lettered sector grid, targeting brackets
+D.THEMES = {
+  silo = {
+    palette = {
+      f = 0x030604, ["7"] = 0x0c2a15, ["8"] = 0x22703a, d = 0x36e063, ["5"] = 0xb0ffc6,
+      ["0"] = 0xe8fff0, ["1"] = 0xffae00, c = 0x6e4a00, e = 0xff2b2b, a = 0x4d0d0d,
+      ["9"] = 0x3ad8ff, ["3"] = 0x114f63, ["4"] = 0xffe066, b = 0x07140c,
+      ["2"] = 0x7a2cff, ["6"] = 0xff66cc,
+    },
+    titleFg = "f", titleBg = "d", boardFg = "f", boardBg = "1",
+    stripe = "hazard", sectors = false, reticle = false,
+    text = {
+      title = "CHILL & GRILL // DRONENET", subtitle = "FLIGHT OPERATIONS",
+      banner = " RESTRICTED AREA // AUTHORISED FLIGHT CREW ONLY ", status = "STATUS",
+      map = " TACTICAL MAP ", side = " FLIGHT DATA", fleet = " FLEET",
+      board = " MISSION CONTROL ", sched = " SCHEDULED TRIPS ",
+      nominal = "ALL SYSTEMS NOMINAL // NO ALERTS", home = "HOME",
+      noContact = "NO CONTACT", awaiting = "AWAITING TELEMETRY", noMission = "NO ACTIVE MISSION",
+      noSched = "NONE SCHEDULED", progress = "LEG PROGRESS",
+      lost = "LINK LOST", stale = "LINK STALE", lowPower = "LOW POWER",
+      drones = "DRONES", trips = "TRIPS",
+    },
+  },
+  imperial = {
+    palette = {
+      f = 0x040507, ["7"] = 0x151a21, ["8"] = 0x5d6775, d = 0xc7cfd9, ["5"] = 0xffffff,
+      ["0"] = 0xedf1f5, ["1"] = 0xff7a1a, c = 0x5a2b08, e = 0xe3201b, a = 0x480b0a,
+      ["9"] = 0x8fd8ff, ["3"] = 0x1c4a5f, ["4"] = 0xffc83a, b = 0x0b0e12,
+      ["2"] = 0x7a2cff, ["6"] = 0xff66cc,
+    },
+    titleFg = "0", titleBg = "e", boardFg = "0", boardBg = "e",
+    stripe = "segments", sectors = true, reticle = true,
+    text = {
+      title = "IMPERIAL FLIGHT COMMAND", subtitle = "DRONENET",
+      banner = " CLASSIFIED // IMPERIAL CLEARANCE REQUIRED ", status = "CONDITION",
+      map = " SECTOR SCAN ", side = " UNIT TELEMETRY", fleet = " SQUADRON",
+      board = " OPERATION ", sched = " DEPLOYMENT ORDERS ",
+      nominal = "ALL SYSTEMS OPERATIONAL", home = "BASE",
+      noContact = "NO SIGNAL", awaiting = "AWAITING TRANSMISSION", noMission = "NO ACTIVE OPERATION",
+      noSched = "NO ORDERS", progress = "VECTOR",
+      lost = "SIGNAL LOST", stale = "SIGNAL WEAK", lowPower = "POWER CRITICAL",
+      drones = "UNITS", trips = "ORDERS",
+    },
+  },
 }
+D.theme = D.THEMES.imperial
+D.PALETTE = D.theme.palette
+
+--- Pick a theme by name. Returns false for an unknown name (nothing changes).
+function D.setTheme(name)
+  local th = D.THEMES[name]
+  if not th then return false end
+  D.theme, D.PALETTE = th, th.palette
+  return true
+end
 
 local HEX_COLOUR = {
   ["0"] = 1, ["1"] = 2, ["2"] = 4, ["3"] = 8, ["4"] = 16, ["5"] = 32, ["6"] = 64, ["7"] = 128,
@@ -354,10 +406,11 @@ function D.alerts(m, now)
     local d = m.drones[id]
     local st = D.droneState(d, now)
     local p = d.pkt or {}
-    if st == "LOST" then out[#out + 1] = "LINK LOST " .. id:upper()
-    elseif st == "STALE" then out[#out + 1] = "LINK STALE " .. id:upper() end
+    local T = D.theme.text
+    if st == "LOST" then out[#out + 1] = T.lost .. " " .. id:upper()
+    elseif st == "STALE" then out[#out + 1] = T.stale .. " " .. id:upper() end
     if type(p.energy) == "number" and p.energy >= 0 and p.energy < 25 then
-      out[#out + 1] = "LOW POWER " .. id:upper()
+      out[#out + 1] = T.lowPower .. " " .. id:upper()
     end
   end
   return out
@@ -435,34 +488,65 @@ end
 
 -- ------------------------------------------------------------------ screens
 
+-- A band of pixels across one text row: the silo's diagonal hazard stripe, or
+-- the imperial segmented rule with red end caps.
+local function band(c, x0, x1, row)
+  local C = D.C
+  local p0, p1 = (x0 - 1) * 2 + 1, x1 * 2
+  local top = (row - 1) * 3
+  if D.theme.stripe == "segments" then
+    for px = p0, p1 do
+      if (px - p0) % 14 < 11 then c:pix(px, top + 2, C.dim) end
+    end
+    for px = p0, min(p1, p0 + 5) do c:pix(px, top + 1, C.red) c:pix(px, top + 3, C.red) end
+    for px = max(p0, p1 - 5), p1 do c:pix(px, top + 1, C.red) c:pix(px, top + 3, C.red) end
+  else
+    for px = p0, p1 do
+      for py = top + 1, top + 3 do
+        if ((px + py) % 6) < 3 then c:pix(px, py, C.amberDim) end
+      end
+    end
+  end
+end
+
+local EMBLEM = { { 1, 0 }, { 2, 0 }, { 3, 0 }, { 0, 1 }, { 4, 1 }, { 0, 2 }, { 2, 2 }, { 4, 2 },
+                 { 0, 3 }, { 4, 3 }, { 1, 4 }, { 2, 4 }, { 3, 4 } }
+
 local function drawHeader(c, m, now)
-  local C, w = D.C, c.w
+  local C, w, T = D.C, c.w, D.theme.text
   c:fill(1, 1, w, 2, C.panel)
-  c:text(2, 1, "CHILL & GRILL // DRONENET", C.bright, C.panel)
-  if w >= 64 then c:text(29, 1, "FLIGHT OPERATIONS", C.dim, C.panel) end
+  local tx = 2
+  if D.theme.reticle then
+    for _, pt in ipairs(EMBLEM) do c:pix(3 + pt[1], 2 + pt[2], C.red) end
+    tx = 5
+  end
+  c:text(tx, 1, T.title, C.bright, C.panel)
   local clock = "T+" .. D.fmtClock(now)
+  local subX = tx + #T.title + 3
+  if subX + #T.subtitle < w - #clock - 2 then c:text(subX, 1, T.subtitle, C.dim, C.panel) end
   c:text(w - #clock, 1, clock, C.white, C.panel)
   local status, sc = D.status(m, now)
+  local word = (status == "NO CONTACT") and T.noContact or status
   local flash = status ~= "NOMINAL" and status ~= "NO CONTACT" and not blink(now)
-  c:text(2, 2, " STATUS: " .. status .. " ", C.bg, flash and C.panel or sc)
+  local badge = " " .. T.status .. ": " .. word .. " "
+  c:text(tx, 2, badge, C.bg, flash and C.panel or sc)
   local live = 0
   for _, id in ipairs(m.order) do
     if D.droneState(m.drones[id], now) == "LIVE" then live = live + 1 end
   end
-  local info = string.format("DRONES %d/%d LIVE   TRIPS %d   CH 7212", live, #m.order, #(m.scheduled or {}))
-  local room = w - #clock - 2 - 21
-  c:text(21, 2, pad(info, room), C.dim, C.panel)
+  local ix = max(21, tx + #badge + 2)
+  local info = string.format("%s %d/%d LIVE   %s %d   CH 7212", T.drones, live, #m.order, T.trips, #(m.scheduled or {}))
+  local room = w - #clock - 2 - ix
+  c:text(ix, 2, pad(info, room), C.dim, C.panel)
   if m.link and #info + 2 < room then
     local tag = m.link .. ((m.rejected or 0) > 0 and ("  REJ " .. m.rejected) or "")
-    c:text(21 + #info + 2, 2, pad(tag, room - #info - 2), m.link:find("^SEALED") and C.green or C.warn, C.panel)
+    c:text(ix + #info + 2, 2, pad(tag, room - #info - 2), m.link:find("^SEALED") and C.green or C.warn, C.panel)
   end
-  for px = 1, c.pw do
-    for py = 7, 9 do
-      if ((px + py) % 6) < 3 then c:pix(px, py, C.amberDim) end
-    end
+  band(c, 1, w, 3)
+  local msg = T.banner
+  if w > #msg + 4 then
+    c:text(floor((w - #msg) / 2) + 1, 3, msg, D.theme.stripe == "segments" and C.red or C.amber, C.bg)
   end
-  local msg = " RESTRICTED AREA // AUTHORISED FLIGHT CREW ONLY "
-  if w > #msg + 4 then c:text(floor((w - #msg) / 2) + 1, 3, msg, C.amber, C.bg) end
 end
 
 local function drawMap(c, m, R, now)
@@ -474,7 +558,7 @@ local function drawMap(c, m, R, now)
   c:line(ix0 - 1, iy1 + 1, ix1 + 1, iy1 + 1, C.dim)
   c:line(ix0 - 1, iy0 - 1, ix0 - 1, iy1 + 1, C.dim)
   c:line(ix1 + 1, iy0 - 1, ix1 + 1, iy1 + 1, C.dim)
-  c:text(R.x + 2, R.y, " TACTICAL MAP ", C.bg, C.green)
+  c:text(R.x + 2, R.y, D.theme.text.map, D.theme.titleFg, D.theme.titleBg)
 
   local cx, cz, span = D.mapBounds(m)
   local pw, ph = ix1 - ix0, iy1 - iy0
@@ -492,6 +576,7 @@ local function drawMap(c, m, R, now)
 
   c.clip = { ix0, iy0, ix1, iy1 }
   -- grid
+  local cols, rows = {}, {}
   local step = niceStep(span / 6)
   local wx0, wx1 = cx - (pw / 2) / scale, cx + (pw / 2) / scale
   local wz0, wz1 = cz - (ph / 2) / scale, cz + (ph / 2) / scale
@@ -500,6 +585,7 @@ local function drawMap(c, m, R, now)
     if gx > wx1 then break end
     local px = P(gx, cz)
     c:line(px, iy0, px, iy1, gx == 0 and C.dim or C.grid, 1, 3)
+    cols[#cols + 1] = px
     gx = gx + step
   end
   local gz = math.ceil(wz0 / step) * step
@@ -507,6 +593,7 @@ local function drawMap(c, m, R, now)
     if gz > wz1 then break end
     local _, py = P(cx, gz)
     c:line(ix0, py, ix1, py, gz == 0 and C.dim or C.grid, 1, 3)
+    rows[#rows + 1] = py
     gz = gz + step
   end
   -- range rings round home
@@ -570,6 +657,18 @@ local function drawMap(c, m, R, now)
   end
   c.clip = nil
 
+  -- sector letters along the top, numbers down the side
+  if D.theme.sectors then
+    for i, px in ipairs(cols) do
+      local kx = cellOf(px, iy0)
+      mtext(kx + 1, cyMin, string.char(64 + (i - 1) % 26 + 1), C.dim)
+    end
+    for i, py in ipairs(rows) do
+      local _, ky = cellOf(ix0, py)
+      mtext(cxMin, ky - 1, tostring(i), C.dim)
+    end
+  end
+
   -- markers on top: scheduled destinations, route points, home, then drones
   for _, s in ipairs(m.scheduled or {}) do
     local last = s.pts and s.pts[#s.pts]
@@ -587,7 +686,7 @@ local function drawMap(c, m, R, now)
   if m.home then
     local kx, ky = cellOf(P(m.home.x, m.home.z))
     mtext(kx, ky, "H", C.bg, C.green)
-    mtext(kx - 1, ky + 1, "HOME", C.dim)
+    mtext(kx - floor(#D.theme.text.home / 2), ky + 1, D.theme.text.home, C.dim)
   end
   local selected = m.selected
   for pass = 1, 2 do
@@ -603,9 +702,16 @@ local function drawMap(c, m, R, now)
           elseif st == "STALE" then fg = C.warn
           elseif id == selected and not blink(now, 4) then fg = C.white end
           local icon = st == "LOST" and "?" or arrowFor(p.vx, p.vz)
+          local gap = 2
+          if D.theme.reticle and id == selected then
+            -- targeting brackets on the selected unit
+            mtext(kx - 1, ky, "[", C.red)
+            mtext(kx + 1, ky, "]", C.red)
+            gap = 3
+          end
           mtext(kx, ky, icon, fg)
           local tag = id:upper() .. (st == "LOST" and " LOST" or (" " .. (int(p.spd) or 0) .. "B/S"))
-          if kx + #tag + 2 > cxMax then mtext(kx - #tag - 1, ky, tag, fg) else mtext(kx + 2, ky, tag, fg) end
+          if kx + #tag + gap > cxMax then mtext(kx - #tag - gap + 1, ky, tag, fg) else mtext(kx + gap, ky, tag, fg) end
         end
       end
     end
@@ -645,13 +751,13 @@ local function drawSide(c, m, R, now)
     c:text(x + 4 + bw, y, ok and string.format("%4d%%", floor(v + 0.5)) or "   --", C.white, C.panel)
     y = y + 1
   end
-  c:text(R.x, R.y, pad(" FLIGHT DATA", R.w), C.bg, C.green)
+  c:text(R.x, R.y, pad(D.theme.text.side, R.w), D.theme.titleFg, D.theme.titleBg)
 
   local d = m.selected and m.drones[m.selected]
   if not d or not d.pkt then
     line("")
-    line(blink(now) and "  NO CONTACT" or "", C.warn)
-    line("  AWAITING TELEMETRY", C.dim)
+    line(blink(now) and ("  " .. D.theme.text.noContact) or "", C.warn)
+    line("  " .. D.theme.text.awaiting, C.dim)
     line("  ON CHANNEL 7212", C.dim)
     y = y + 1
   else
@@ -677,7 +783,7 @@ local function drawSide(c, m, R, now)
   end
 
   y = y + 1
-  if y <= yEnd then c:text(R.x, y, pad(" FLEET", R.w), C.bg, C.green) end
+  if y <= yEnd then c:text(R.x, y, pad(D.theme.text.fleet, R.w), D.theme.titleFg, D.theme.titleBg) end
   y = y + 1
   for _, id in ipairs(m.order) do
     if y > yEnd then break end
@@ -698,16 +804,14 @@ end
 local function drawBoard(c, m, R, now)
   local C = D.C
   local yTop, yAlert = R.y, R.y + R.h - 1
-  for px = (R.x - 1) * 2 + 1, (R.x + R.w - 1) * 2 do
-    for py = (yTop - 1) * 3 + 1, (yTop - 1) * 3 + 3 do
-      if ((px + py) % 6) < 3 then c:pix(px, py, C.amberDim) end
-    end
-  end
-  c:text(R.x + 2, yTop, " MISSION CONTROL ", C.bg, C.amber)
+  local T = D.theme.text
+  band(c, R.x, R.x + R.w - 1, yTop)
+  c:text(R.x + 2, yTop, T.board, D.theme.boardFg, D.theme.boardBg)
   local split = floor(R.w * 0.56)
-  c:text(R.x + split + 1, yTop, " SCHEDULED TRIPS ", C.bg, C.amber)
+  c:text(R.x + split + 1, yTop, T.sched, D.theme.boardFg, D.theme.boardBg)
+  local sepCol = D.theme.stripe == "segments" and C.dim or C.amberDim
   for py = yTop * 3 + 1, (yAlert - 1) * 3 do
-    if py % 3 ~= 0 then c:pix((R.x + split - 1) * 2, py, C.amberDim) end
+    if py % 3 ~= 0 then c:pix((R.x + split - 1) * 2, py, sepCol) end
   end
   local function put(x, y, s, fg, bg)
     if y > yTop and y < yAlert then c:text(x, y, s, fg, bg) end
@@ -718,7 +822,7 @@ local function drawBoard(c, m, R, now)
   local d = m.selected and m.drones[m.selected]
   local y = yTop + 2
   if not d or not d.pkt then
-    put(R.x + 2, y, "NO ACTIVE MISSION", C.dim)
+    put(R.x + 2, y, T.noMission, C.dim)
   else
     local p, pl = d.pkt, d.plan
     put(R.x + 2, y, pad(string.format("%s  %s  LEG %d/%d  %s", p.id:upper(), tostring(p.mode or "?"):upper(),
@@ -751,7 +855,7 @@ local function drawBoard(c, m, R, now)
       if len > 1 then frac = max(0, min(1, 1 - p.dist / len)) end
     end
     local bw = max(4, left - 22)
-    put(R.x + 2, y, "LEG PROGRESS", C.dim)
+    put(R.x + 2, y, T.progress, C.dim)
     local fill = frac and floor(frac * bw + 0.5) or 0
     for i = 0, bw - 1 do put(R.x + 15 + i, y, " ", C.white, i < fill and C.green or C.grid) end
     put(R.x + 16 + bw, y, frac and string.format("%3d%%", floor(frac * 100 + 0.5)) or " --", C.white)
@@ -765,7 +869,7 @@ local function drawBoard(c, m, R, now)
   for _, s in ipairs(m.scheduled or {}) do list[#list + 1] = s end
   table.sort(list, function(a, b) return (a.at or 1e18) < (b.at or 1e18) end)
   local yy = yTop + 2
-  if #list == 0 then put(sx0, yy, "NONE SCHEDULED", C.amberDim) end
+  if #list == 0 then put(sx0, yy, T.noSched, C.amberDim) end
   for i, s in ipairs(list) do
     if yy >= yAlert then break end
     local dt = s.at and (s.at - now)
@@ -785,7 +889,7 @@ local function drawBoard(c, m, R, now)
   if #alerts > 0 then
     c:text(R.x + 1, yAlert, pad("! " .. table.concat(alerts, "   ! "), R.w - 2), blink(now) and C.red or C.redDim, C.bg)
   else
-    c:text(R.x + 1, yAlert, pad("ALL SYSTEMS NOMINAL // NO ALERTS", R.w - 2), C.dim, C.bg)
+    c:text(R.x + 1, yAlert, pad(T.nominal, R.w - 2), C.dim, C.bg)
   end
 end
 

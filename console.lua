@@ -11,6 +11,9 @@
 -- <id>); a packet that fails its tag, replays an old one, or is plaintext is
 -- dropped and counted as REJ on the wall.
 --
+-- The look is a theme: imperial (default) or silo. Switch it on this computer
+-- with  set dronenet.theme silo  (or imperial) and restart the console.
+--
 -- Touch a drone in the FLEET list to select it. Scheduled trips come from an
 -- optional schedule.lua returning a list of
 --   { id = "M-0043", drone = "drone-2", kind = "courier", at = <console seconds>,
@@ -47,6 +50,12 @@ if not monName then error("console: no monitor attached", 0) end
 local mon = peripheral.wrap(monName)
 mon.setTextScale(0.5)
 if mon.isColour and not mon.isColour() then error("console: " .. monName .. " is not an advanced monitor", 0) end
+local themeName = (settings and settings.get("dronenet.theme")) or "imperial"
+if not D.setTheme(themeName) then
+  print("console: unknown theme " .. tostring(themeName) .. " - using imperial")
+  themeName = "imperial"
+  D.setTheme(themeName)
+end
 D.applyPalette(mon)
 mon.setBackgroundColour(colours.black)
 mon.clear()
@@ -64,7 +73,7 @@ if fs.exists("schedule.lua") then
   if ok and type(s) == "table" then model.scheduled = s else print("schedule.lua ignored: " .. tostring(s)) end
 end
 
-print(string.format("console: %s %dx%d%s", monName, canvas.w, canvas.h, demo and " (demo)" or ""))
+print(string.format("console: %s %dx%d, %s theme%s", monName, canvas.w, canvas.h, themeName, demo and " (demo)" or ""))
 
 local rejected = 0
 local function receive()

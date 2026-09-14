@@ -43,9 +43,7 @@ for pat = 0, 63 do
   local k = 0
   for sy = 1, 3 do
     for sx = 1, 2 do
-      local bit = 2 ^ k
-      if floor == nil then end
-      if math.floor(pat / bit) % 2 == 1 then c:pix(sx, sy, "d") end
+      if math.floor(pat / 2 ^ k) % 2 == 1 then c:pix(sx, sy, "d") end
       k = k + 1
     end
   end
@@ -93,85 +91,104 @@ check("plan sets home", m.home and m.home.x == 0)
 check("state LIVE / STALE / LOST", D.droneState(m.drones["drone-1"], 4) == "LIVE"
   and D.droneState(m.drones["drone-1"], 12) == "STALE" and D.droneState(m.drones["drone-1"], 40) == "LOST")
 
-print("palette")
-local pt = fakeTerm(10, 10)
-check("applyPalette redefines 16 slots", D.applyPalette(pt) and pt.pcalls == 16, pt.pcalls)
-local pow2 = true
-for col in pairs(pt.palette) do if math.floor(math.log(col) / math.log(2) + 0.5) ~= math.log(col) / math.log(2) then pow2 = false end end
-check("palette slots are CC colour values", pow2)
-check("no palette on a plain term is fine", D.applyPalette({}) == false)
+print("themes")
+check("imperial is the default", D.theme == D.THEMES.imperial)
+check("unknown theme refused, nothing changes", D.setTheme("rebel") == false and D.theme == D.THEMES.imperial)
+local keys = { "title", "subtitle", "banner", "status", "map", "side", "fleet", "board", "sched", "nominal", "home",
+               "noContact", "awaiting", "noMission", "noSched", "progress", "lost", "stale", "lowPower", "drones", "trips" }
+for name, th in pairs(D.THEMES) do
+  local complete = true
+  for _, k in ipairs(keys) do if type(th.text[k]) ~= "string" then complete = false print("    " .. name .. " lacks " .. k) end end
+  local slots = 0
+  for _ in pairs(th.palette) do slots = slots + 1 end
+  check(name .. ": every word and all 16 colours", complete and slots == 16, slots)
+end
 
-print("render")
 local NOW = 100.0   -- blink phases on
-for _, size in ipairs({ { 100, 66 }, { 164, 80 }, { 71, 38 }, { 60, 30 } }) do
-  local w, h = size[1], size[2]
-  local ok, err = pcall(function()
-    local c, t = renderTo(w, h, D.demoModel(NOW), NOW)
-    local good = true
-    for y = 1, h do
-      local r = t.grid[y]
-      if not r or #r.s ~= w or not r.f:match("^[0-9a-f]+$") or not r.b:match("^[0-9a-f]+$") then good = false end
+for _, themeName in ipairs({ "imperial", "silo" }) do
+  D.setTheme(themeName)
+  local T = D.theme.text
+  print("render: " .. themeName)
+
+  local pt = fakeTerm(10, 10)
+  check("applyPalette redefines 16 slots", D.applyPalette(pt) and pt.pcalls == 16, pt.pcalls)
+  check("palette is this theme's", pt.palette[32768] == D.theme.palette.f)
+
+  for _, size in ipairs({ { 100, 66 }, { 164, 80 }, { 71, 38 }, { 60, 30 } }) do
+    local w, h = size[1], size[2]
+    local ok, err = pcall(function()
+      local _, t = renderTo(w, h, D.demoModel(NOW), NOW)
+      local good = true
+      for y = 1, h do
+        local r = t.grid[y]
+        if not r or #r.s ~= w or not r.f:match("^[0-9a-f]+$") or not r.b:match("^[0-9a-f]+$") then good = false end
+      end
+      assert(good, "a row is missing, the wrong width, or has a bad colour")
+    end)
+    check(string.format("demo renders at %dx%d", w, h), ok, err)
+  end
+  local _, t = renderTo(100, 66, D.demoModel(NOW), NOW)
+  check("header title", screenHas(t, T.title) == 1)
+  check("condition is ALERT with a lost drone", screenHas(t, T.status .. ": ALERT") == 2)
+  check("map title", screenHas(t, D.pad(T.map, #T.map)) ~= nil)
+  check("telemetry panel", screenHas(t, T.side:sub(2)) ~= nil and screenHas(t, "B/S") ~= nil)
+  check("selected unit tagged on the map with speed", screenHas(t, "DRONE-1 196B/S") ~= nil)
+  check("lost unit tagged", screenHas(t, "DRONE-3 LOST") ~= nil)
+  check("fleet lists all three", screenHas(t, "DRONE-2") and screenHas(t, "DRONE-3") and screenHas(t, T.fleet:sub(2)))
+  check("home marker", screenHas(t, T.home) ~= nil)
+  check("mission chain", screenHas(t, "[CRUISE]") ~= nil and screenHas(t, "[DOCK]") ~= nil and screenHas(t, "[DROP]") ~= nil)
+  check("leg progress", screenHas(t, T.progress) ~= nil)
+  check("scheduled trips with countdown", screenHas(t, "M-0043") ~= nil and screenHas(t, "T-00:18:20") ~= nil)
+  check("alert ticker names the lost unit", screenHas(t, "! " .. T.lost .. " DRONE-3") ~= nil)
+  local L = D.layout(100, 66)
+  local arrows = 0
+  for y = L.map.y + 1, L.map.y + L.map.h - 2 do
+    local s = t.grid[y].s:sub(L.map.x + 1, L.map.x + L.map.w - 2)
+    for _, a in ipairs({ 30, 16, 31, 17 }) do if s:find(string.char(a), 1, true) then arrows = arrows + 1 end end
+  end
+  check("a unit arrow is inside the map", arrows >= 1, arrows)
+  local bracketed = false
+  for y = L.map.y + 1, L.map.y + L.map.h - 2 do
+    for _, a in ipairs({ 30, 16, 31, 17 }) do
+      if t.grid[y].s:find("[" .. string.char(a) .. "]", 1, true) then bracketed = true end
     end
-    assert(good, "a row is missing, the wrong width, or has a bad colour")
-  end)
-  check(string.format("demo renders at %dx%d", w, h), ok, err)
-end
-local c, t = renderTo(100, 66, D.demoModel(NOW), NOW)
-check("header title", screenHas(t, "DRONENET") == 1)
-check("status is ALERT with a lost drone", screenHas(t, "STATUS: ALERT") == 2)
-check("tactical map title", screenHas(t, "TACTICAL MAP") ~= nil)
-check("flight data panel", screenHas(t, "FLIGHT DATA") ~= nil and screenHas(t, "B/S") ~= nil)
-check("selected drone tagged on the map with speed", screenHas(t, "DRONE-1 196B/S") ~= nil)
-check("lost drone tagged", screenHas(t, "DRONE-3 LOST") ~= nil)
-check("fleet lists all three", screenHas(t, "DRONE-2") and screenHas(t, "DRONE-3") and screenHas(t, "FLEET"))
-check("home marker", screenHas(t, "HOME") ~= nil)
-check("mission chain", screenHas(t, "[CRUISE]") ~= nil and screenHas(t, "[DOCK]") ~= nil and screenHas(t, "[DROP]") ~= nil)
-check("leg progress", screenHas(t, "LEG PROGRESS") ~= nil)
-check("scheduled trips with countdown", screenHas(t, "M-0043") ~= nil and screenHas(t, "T-00:18:20") ~= nil)
-check("alert ticker names the lost drone", screenHas(t, "! LINK LOST DRONE-3") ~= nil)
-local arrows = 0
-local L = D.layout(100, 66)
-for y = L.map.y + 1, L.map.y + L.map.h - 2 do
-  local s = t.grid[y].s:sub(L.map.x + 1, L.map.x + L.map.w - 2)
-  for _, a in ipairs({ 30, 16, 31, 17 }) do if s:find(string.char(a), 1, true) then arrows = arrows + 1 end end
-end
-check("a drone arrow is inside the map", arrows >= 1, arrows)
+  end
+  check(D.theme.reticle and "selected unit is in targeting brackets" or "no targeting brackets", bracketed == D.theme.reticle)
 
-print("animation and flush")
-local mapRows = function(tt)
-  local out = {}
-  for y = L.map.y + 1, L.map.y + L.map.h - 2 do out[#out + 1] = tt.grid[y].s:sub(1, L.map.w) end
-  return table.concat(out, "\n")
+  local mapRows = function(tt)
+    local out = {}
+    for y = L.map.y + 1, L.map.y + L.map.h - 2 do out[#out + 1] = tt.grid[y].s:sub(1, L.map.w) end
+    return table.concat(out, "\n")
+  end
+  local _, tA = renderTo(100, 66, D.demoModel(NOW), NOW)
+  local _, tB = renderTo(100, 66, D.demoModel(NOW), NOW + 0.125)
+  check("the active leg's dots march between frames", mapRows(tA) ~= mapRows(tB))
+  local cf = D.canvas(100, 66)
+  local tf = fakeTerm(100, 66)
+  local mm = D.demoModel(NOW)
+  D.render(cf, mm, NOW) local first = cf:flush(tf)
+  D.render(cf, mm, NOW) local again = cf:flush(tf)
+  check("first flush writes every row", first == 66, first)
+  check("an unchanged frame writes nothing", again == 0, again)
+
+  local ct = D.canvas(100, 66)
+  local mt = D.demoModel(NOW)
+  D.render(ct, mt, NOW)
+  local rowOf2
+  for y, hh in pairs(ct.hits) do if hh.id == "drone-2" then rowOf2 = y end end
+  check("fleet rows are touchable", rowOf2 ~= nil)
+  check("touch selects drone-2", rowOf2 and D.touch(ct, mt, L.side.x + 3, rowOf2) == "drone-2" and mt.selected == "drone-2")
+  check("touch outside the list does nothing", D.touch(ct, mt, 1, 1) == nil)
+  local _, t2 = renderTo(100, 66, mt, NOW)
+  check("telemetry follows the selection", screenHas(t2, "DOCK  LATCHED") ~= nil)
+
+  local _, te = renderTo(100, 66, D.newModel(), NOW)
+  check("no units: no signal", screenHas(te, T.noContact) ~= nil and screenHas(te, T.awaiting) ~= nil)
+  check("no units: no mission", screenHas(te, T.noMission) ~= nil)
+  local _, ts = renderTo(40, 12, D.demoModel(NOW), NOW)
+  check("too small says so", screenHas(ts, "MONITOR TOO SMALL") ~= nil)
 end
-local _, tA = renderTo(100, 66, D.demoModel(NOW), NOW)
-local _, tB = renderTo(100, 66, D.demoModel(NOW), NOW + 0.125)
-check("the active leg's dots march between frames", mapRows(tA) ~= mapRows(tB))
-local cf = D.canvas(100, 66)
-local tf = fakeTerm(100, 66)
-local mm = D.demoModel(NOW)
-D.render(cf, mm, NOW) local first = cf:flush(tf)
-D.render(cf, mm, NOW) local again = cf:flush(tf)
-check("first flush writes every row", first == 66, first)
-check("an unchanged frame writes nothing", again == 0, again)
-
-print("touch")
-local ct = D.canvas(100, 66)
-local mt = D.demoModel(NOW)
-D.render(ct, mt, NOW)
-local rowOf2
-for y, h in pairs(ct.hits) do if h.id == "drone-2" then rowOf2 = y end end
-check("fleet rows are touchable", rowOf2 ~= nil)
-check("touch selects drone-2", rowOf2 and D.touch(ct, mt, L.side.x + 3, rowOf2) == "drone-2" and mt.selected == "drone-2")
-check("touch outside the list does nothing", D.touch(ct, mt, 1, 1) == nil)
-local _, t2 = renderTo(100, 66, mt, NOW)
-check("flight data follows the selection", screenHas(t2, "DOCK  LATCHED") ~= nil)
-
-print("empty and tiny")
-local _, te = renderTo(100, 66, D.newModel(), NOW)
-check("no drones: NO CONTACT", screenHas(te, "NO CONTACT") ~= nil and screenHas(te, "AWAITING TELEMETRY") ~= nil)
-check("no drones: no mission", screenHas(te, "NO ACTIVE MISSION") ~= nil)
-local _, ts = renderTo(40, 12, D.demoModel(NOW), NOW)
-check("too small says so", screenHas(ts, "MONITOR TOO SMALL") ~= nil)
+D.setTheme("imperial")
 
 print("")
 print(string.format("%d passed, %d failed", pass, fail))

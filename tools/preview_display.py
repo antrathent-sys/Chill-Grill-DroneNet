@@ -19,7 +19,8 @@ except ImportError:
     sys.exit(2)
 
 RENDER = b"""
-function(D, w, h, now)
+function(D, w, h, now, theme)
+  D.setTheme(theme)
   local c = D.canvas(w, h)
   local m = D.demoModel(now)
   D.render(c, m, now)
@@ -33,7 +34,8 @@ end
 """
 
 PALETTE = b"""
-function(D)
+function(D, theme)
+  D.setTheme(theme)
   local t = {}
   for k, v in pairs(D.PALETTE) do t[#t + 1] = k .. "=" .. string.format("%06x", v) end
   return table.concat(t, ",")
@@ -98,6 +100,7 @@ def main():
     ap.add_argument("--frames", type=int, default=24)
     ap.add_argument("--start", type=float, default=118.0)
     ap.add_argument("--scale", type=int, default=2)
+    ap.add_argument("--theme", default="imperial")
     a = ap.parse_args()
     w, h = (int(v) for v in a.size.lower().split("x"))
 
@@ -106,22 +109,22 @@ def main():
     render, palette = L.eval(RENDER), L.eval(PALETTE)
 
     pal = {}
-    for kv in palette(D).decode().split(","):
+    for kv in palette(D, a.theme.encode()).decode().split(","):
         k, v = kv.split("=")
         pal[k] = "#" + v
 
     frames = []
     for n in range(a.frames):
         now = a.start + n * 0.25
-        rows = render(D, w, h, now).split(b"\n")
+        rows = render(D, w, h, now, a.theme.encode()).split(b"\n")
         frame = []
         for row in rows:
             s, f, b = row.split(b"\0")
             frame.append([list(s), f.decode(), b.decode()])
         frames.append(frame)
 
-    caption = ("DroneNet flight operations wall - %dx%d characters (a 5x5 advanced monitor at text scale 0.5 "
-               "is 100x66), demo fleet from lib/display.lua, %d frames at 4 fps" % (w, h, a.frames))
+    caption = ("DroneNet flight operations wall, %s theme - %dx%d characters (a 5x5 advanced monitor at text "
+               "scale 0.5 is 100x66), demo fleet from lib/display.lua, %d frames at 4 fps" % (a.theme, w, h, a.frames))
     html = (PAGE.replace("__W__", str(w)).replace("__H__", str(h)).replace("__S__", str(a.scale))
             .replace("__PAL__", json.dumps(pal)).replace("__FRAMES__", json.dumps(frames, separators=(",", ":")))
             .replace("__CAPTION__", caption))
