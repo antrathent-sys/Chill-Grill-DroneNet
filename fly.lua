@@ -243,6 +243,14 @@ local CFG = {
   -- a plaintext fallback. false = plaintext, for bench tests only.
   TELEM_SEAL = true,
   TELEM_ID = nil,                     -- nil = computer label, else "drone-<id>"
+  -- Docked at the end of a flight, stay on the air instead of going silent
+  -- (the base marked a drone sitting on its own pad LOST). By then the
+  -- thrusters and pump are off and the log is closed and uploaded; only the
+  -- monitor and the link run, so the base sees charge, FE and the latch.
+  -- Q or Ctrl+T returns to the shell. Needs the radio and, sealed, a key -
+  -- without them fly exits as before. false = always exit.
+  TELEM_DOCKED = true,
+  TELEM_DOCKED_PERIOD = 2.0,          -- s between packets while parked
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
   TILT_RATE = 60,                     -- deg/s: how fast tilt targets may move
@@ -2639,5 +2647,25 @@ if CFG.AUTO_UPLOAD and http and fs.exists("upload.lua") then
     return os.run({}, "upload.lua")
   end)
   if not sent then print("auto-upload failed: " .. tostring(why)) end
+end
+-- Parked (TELEM_DOCKED). Still one sender at a time: the flight's linkLoop is
+-- gone, and the new one's sealer reserves a fresh counter block from
+-- .dronekey.ctr before its first packet.
+if ok and dock.connected and CFG.TELEM_ON and CFG.TELEM_DOCKED and LINK and LINK.findRadio(peripheral)
+   and (not CFG.TELEM_SEAL or fs.exists(".dronekey")) then
+  legs, legIdx, legKind = nil, 0, nil
+  TLM.t = TLM.t or 0
+  TLM.phase, TLM.vx, TLM.vz, TLM.vv = "docked", 0, 0, 0
+  TLM.tx, TLM.tz, TLM.sx, TLM.sz, TLM.p, TLM.r = nil, nil, nil, nil, 0, 0
+  CFG.TELEM_PERIOD = CFG.TELEM_DOCKED_PERIOD
+  print(string.format("parked: telemetry every %.0f s - Q returns to the shell", CFG.TELEM_PERIOD))
+  local function parkedQuit()
+    while true do
+      local ev, ch = os.pullEvent("char")
+      if ev == "char" and (ch == "q" or ch == "Q") then return end
+    end
+  end
+  pcall(parallel.waitForAny, monLoop, linkLoop, parkedQuit)
+  print("telemetry off")
 end
 if not ok and not tostring(err):find("Terminated") then print(err) end

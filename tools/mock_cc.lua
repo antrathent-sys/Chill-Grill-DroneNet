@@ -160,9 +160,13 @@ os.pullEvent = function()
   if cmdAt then
     local at, key = cmdAt:match("^([%d%.]+):(%a)$")
     at = tonumber(at)
-    cmdAt = nil
     if at and T < at then coroutine.yield(at - T) end
-    if key then return "char", key end
+    -- Used up only when delivered: a coroutine abandoned while it waits (the
+    -- flight ending under cmdLoop) leaves the key for whoever reads next.
+    if cmdAt then
+      cmdAt = nil
+      if key then return "char", key end
+    end
   end
   coroutine.yield(3600)
   return "timer", 0

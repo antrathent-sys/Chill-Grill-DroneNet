@@ -132,6 +132,11 @@ SELFTEST = [
     # no key: nothing at all goes out - never a plaintext fallback
     ("telemetry, no key", ["go", "1000", "1000", "300"], {"TMAX": "60", "TELEM": "1"},
      ["climb", "cruise"]),
+    # docked after a flight, with a radio and a key: stays on the air
+    # (TELEM_DOCKED) every 2 s, thrusters already off, until Q at T=70
+    ("telemetry, parked", ["dock", "100", "70", "50", "120"],
+     {"TMAX": "150", "TELEM": "1", "TELEM_KEY": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "CMD_AT": "70:q", "PARKED": "1"},
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's
@@ -162,7 +167,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -222,6 +227,8 @@ def telem_check(logpath, env):
     unsealed = [d for _, _, d in pk if d.get("sealed") != "1" or d.get("raw") != "c,d,g,id,n,sl"]
     if unsealed:
         return False, "%d of %d packets not sealed or leaking fields, e.g. %s" % (len(unsealed), len(pk), unsealed[0])
+    if env.get("PARKED"):
+        return parked_check(pk)
     tlm = [x for x in pk if x[2].get("type") != "plan"]
     plans = [x[2] for x in pk if x[2].get("type") == "plan"]
     if len(tlm) < 10:
@@ -245,6 +252,32 @@ def telem_check(logpath, env):
           and len(plans) >= 2 and route.startswith("go:1000.5:1000.5"))
     return ok, "%d sealed packets at %.2f Hz on %s, phases %s, missing %s, closing %s, id %s, %d plans, route %s" % (
         len(tlm), rate, chans, "->".join(phases), missing, closing, tlm[-1][2].get("id"), len(plans), route)
+
+
+def parked_check(pk):
+    """PARKED=1 runs (TELEM_DOCKED): the flight reports as usual, then once
+    docked the drone keeps sending every ~2 s - phase docked, latched, no speed,
+    no target, an empty route - until Q (CMD_AT 70) stops it. Every packet
+    opened with one receiver, so a second sender reusing a counter would have
+    failed as a replay before this is reached."""
+    tlm = [x for x in pk if x[2].get("type") != "plan"]
+    tail = []
+    for x in reversed(tlm):
+        if x[2].get("phase") != "docked" or x[2].get("dock") != "1":
+            break
+        tail.insert(0, x)
+    last = tail[-10:]
+    gaps = [b[0] - a[0] for a, b in zip(last, last[1:])]
+    steady = len(last) == 10 and all(1.8 <= g <= 2.2 for g in gaps)
+    still = all(float(d.get("spd", "0")) == 0 and "dist" not in d for _, _, d in last)
+    t0 = last[0][0] if last else 1e9
+    routes = [x[2].get("route", "") for x in pk if x[2].get("type") == "plan" and x[0] >= t0]
+    flown = len(tlm) - len(tail)
+    stopped = bool(tail) and 66 <= tail[-1][0] <= 71.5
+    ok = steady and still and stopped and flown >= 10 and bool(routes) and all(r == "" for r in routes)
+    return ok, "%d flight + %d docked packets, last gaps %s, still %s, stopped at T=%s, %d plans after, routes empty %s" % (
+        flown, len(tail), sorted(set(round(g, 1) for g in gaps)), still,
+        tail[-1][0] if tail else "-", len(routes), all(r == "" for r in routes))
 
 
 def phases_from(logpath):
