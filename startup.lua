@@ -1,6 +1,16 @@
--- startup: pull the latest controller files from GitHub on boot.
+-- startup: pull the latest controller files from GitHub on boot, then run
+-- this computer's autorun command, if it has one.
 -- Fetches each file below from the repo's raw URL, writes it to the root of
 -- this computer, and prints what changed. Needs http enabled in the CC config.
+--
+--   startup autorun console     base computer: bring the wall back after every reboot
+--   startup autorun rsio        redstone slave on a drone
+--   startup autorun off         stop autorunning
+--
+-- The autorun command is kept in .autorun on this computer. It waits 3 s
+-- (press any key to get the shell instead) and restarts the command if it
+-- crashes or ends. `fly` is refused: a drone must never take off by itself
+-- because a chunk reloaded.
 local REPO   = "antrathent-sys/Chill-Grill-DroneNet"
 local BRANCH = "main"
 local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua", "preflight.lua",
@@ -15,6 +25,31 @@ local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua"
                  "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua",
                  "ccryptolib/internal/hw.lua" }
 
+local AUTORUN_FILE = ".autorun"
+
+local function isFlight(cmd)
+  return cmd == "fly" or cmd:match("^fly%s") ~= nil
+end
+
+-- ---------------------------------------------------------- startup autorun
+local args = { ... }
+if args[1] == "autorun" then
+  local cmd = table.concat(args, " ", 2)
+  if cmd == "" or cmd == "off" then
+    if fs.exists(AUTORUN_FILE) then fs.delete(AUTORUN_FILE) end
+    print("autorun off")
+  elseif isFlight(cmd) then
+    print("refusing: a drone must never take off by itself on boot")
+  else
+    local f = fs.open(AUTORUN_FILE, "w")
+    f.write(cmd)
+    f.close()
+    print("every boot, after updating, this computer runs: " .. cmd)
+    print("(startup autorun off to stop)")
+  end
+  return
+end
+
 -- Private repo? Put a GitHub token (fine-grained, read-only Contents scope on
 -- this repo only) in a file called .ghtoken on THIS computer. It is read here
 -- and sent as an Authorization header; it never lives in the repo.
@@ -25,6 +60,14 @@ if fs.exists(TOKEN_FILE) then
   local tok = (f.readAll() or ""):gsub("%s+", "")
   f.close()
   if #tok > 0 then HEADERS = { Authorization = "token " .. tok } end
+end
+
+local function readLocal(name)
+  if not fs.exists(name) then return nil end
+  local f = fs.open(name, "r")
+  local s = f.readAll()
+  f.close()
+  return s
 end
 
 -- raw.githubusercontent.com caches a branch path for 5 minutes and ignores
@@ -45,34 +88,13 @@ local function latestSha()
   return nil
 end
 
-local REF = latestSha()
-if REF then
-  print("pulling commit " .. REF:sub(1, 7))
-else
-  REF = BRANCH
-  print("WARNING: could not resolve latest commit, pulling '" .. BRANCH .. "' (may be up to 5 min stale)")
-end
-
-local function fetch(name)
-  local url = string.format("https://raw.githubusercontent.com/%s/%s/%s", REPO, REF, name)
+local function fetch(ref, name)
+  local url = string.format("https://raw.githubusercontent.com/%s/%s/%s", REPO, ref, name)
   local res, err = http.get(url, HEADERS)
   if not res then return nil, err end
   local body = res.readAll()
   res.close()
   return body
-end
-
-local function readLocal(name)
-  if not fs.exists(name) then return nil end
-  local f = fs.open(name, "r")
-  local s = f.readAll()
-  f.close()
-  return s
-end
-
-if not http then
-  print("startup: http API disabled - skipping update")
-  return
 end
 
 -- Space. A flight writes ~230 bytes a row at 10 Hz, so a three minute flight
@@ -98,7 +120,22 @@ local function reclaim(needed)
   return freeSpace()
 end
 
-do
+local function update()
+  -- checked before anything touches http: with the API disabled this used to
+  -- crash on the commit lookup, and then nothing after it (autorun) ran
+  if not http then
+    print("startup: http API disabled - skipping update")
+    return
+  end
+
+  local ref = latestSha()
+  if ref then
+    print("pulling commit " .. ref:sub(1, 7))
+  else
+    ref = BRANCH
+    print("WARNING: could not resolve latest commit, pulling '" .. BRANCH .. "' (may be up to 5 min stale)")
+  end
+
   local free = freeSpace()
   if free ~= math.huge then
     print(string.format("space: %.0fKB free", free / 1024))
@@ -108,39 +145,67 @@ do
       print(string.format("space: %.0fKB free after tidying", free / 1024))
     end
   end
-end
 
-local updated, unchanged, failed = {}, {}, {}
-for _, name in ipairs(FILES) do
-  local body, err = fetch(name)
-  if not body or #body == 0 then
-    failed[#failed + 1] = name .. " (" .. tostring(err or "empty") .. ")"
-  elseif body == readLocal(name) then
-    unchanged[#unchanged + 1] = name
-  else
-    -- files under lib/ need their directory to exist first
-    local dir = name:match("^(.*)/[^/]+$")
-    if dir and not fs.exists(dir) then fs.makeDir(dir) end
-    -- Delete first: writing over a file that is still taking up room can run
-    -- the disk out on the very file we are replacing. And say which file it
-    -- was, rather than dying on an anonymous line number.
-    if fs.exists(name) then fs.delete(name) end
-    if freeSpace() < #body then reclaim(#body + 8192) end
-    local ok, err = pcall(function()
-      local f = fs.open(name, "w")
-      f.write(body)
-      f.close()
-    end)
-    if ok then
-      updated[#updated + 1] = name
+  local updated, unchanged, failed = {}, {}, {}
+  for _, name in ipairs(FILES) do
+    local body, err = fetch(ref, name)
+    if not body or #body == 0 then
+      failed[#failed + 1] = name .. " (" .. tostring(err or "empty") .. ")"
+    elseif body == readLocal(name) then
+      unchanged[#unchanged + 1] = name
     else
-      failed[#failed + 1] = string.format("%s (%s, %.0fKB free, needs %.0fKB)",
-        name, tostring(err), freeSpace() / 1024, #body / 1024)
+      -- files under lib/ need their directory to exist first
+      local dir = name:match("^(.*)/[^/]+$")
+      if dir and not fs.exists(dir) then fs.makeDir(dir) end
+      -- Delete first: writing over a file that is still taking up room can run
+      -- the disk out on the very file we are replacing. And say which file it
+      -- was, rather than dying on an anonymous line number.
+      if fs.exists(name) then fs.delete(name) end
+      if freeSpace() < #body then reclaim(#body + 8192) end
+      local ok, werr = pcall(function()
+        local f = fs.open(name, "w")
+        f.write(body)
+        f.close()
+      end)
+      if ok then
+        updated[#updated + 1] = name
+      else
+        failed[#failed + 1] = string.format("%s (%s, %.0fKB free, needs %.0fKB)",
+          name, tostring(werr), freeSpace() / 1024, #body / 1024)
+      end
     end
   end
+
+  if #updated > 0   then print("updated:   " .. table.concat(updated, ", ")) end
+  if #unchanged > 0 then print("unchanged: " .. table.concat(unchanged, ", ")) end
+  if #failed > 0    then print("FAILED:    " .. table.concat(failed, ", ")) end
+  if #updated == 0 and #failed == 0 then print("startup: all files current") end
 end
 
-if #updated > 0   then print("updated:   " .. table.concat(updated, ", ")) end
-if #unchanged > 0 then print("unchanged: " .. table.concat(unchanged, ", ")) end
-if #failed > 0    then print("FAILED:    " .. table.concat(failed, ", ")) end
-if #updated == 0 and #failed == 0 then print("startup: all files current") end
+-- An update that throws must not stop the autorun: a base wall that stays
+-- dark because GitHub hiccuped is worse than one running yesterday's code.
+local okU, errU = pcall(update)
+if not okU then print("startup: update failed - " .. tostring(errU)) end
+
+-- ---------------------------------------------------------------- autorun
+local cmd = readLocal(AUTORUN_FILE)
+cmd = cmd and cmd:gsub("^%s+", ""):gsub("%s+$", "") or ""
+if cmd == "" then return end
+if isFlight(cmd) then
+  print("autorun: refusing '" .. cmd .. "' - flights are never started on boot")
+  return
+end
+
+while true do
+  print("autorun: " .. cmd .. " in 3 s - press any key for the shell")
+  local skipped = false
+  parallel.waitForAny(
+    function() sleep(3) end,
+    function() os.pullEvent("key") skipped = true end)
+  if skipped then
+    print("autorun: skipped - run 'startup' to try again")
+    return
+  end
+  local ok = shell.run(cmd)
+  print("autorun: " .. cmd .. (ok and " ended" or " stopped with an error") .. " - restarting")
+end

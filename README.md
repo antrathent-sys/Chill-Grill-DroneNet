@@ -8,7 +8,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 |---|---|
 | `fly.lua` | The controller. Four modes, see below. |
 | `kill.lua` | Panic stop: thruster power to 0, nozzle vector zeroed, all redstone outputs off, any electric motor stopped. |
-| `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed. |
+| `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed, then runs this computer's autorun command: `startup autorun console` on the base brings the wall back after every reboot (3 s to press a key for the shell, restarts it if it stops); `startup autorun off` clears it. Never autoruns `fly`. Tested by `tools/run_startup_test.py`. |
 | `BACKLOG.md` | Wanted but not built, plus known issues and what each is blocked on. |
 | `ARCHITECTURE.md` | The layer stack for the autonomous controller: control, leg, mission, link. Decided before the code. |
 | `COMMAND.md` | The ground side: order intake, package assembly, fleet dispatch, and the rednet protocol between depot and drone. |
