@@ -15,7 +15,7 @@ local REPO   = "antrathent-sys/Chill-Grill-DroneNet"
 local BRANCH = "main"
 local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua", "preflight.lua",
                  "mixcal.lua",
-                 "rsio.lua", "chimes.lua", "docktest.lua",
+                 "rsio.lua", "chimes.lua", "docktest.lua", "stickers.lua",
                  "lib/chime.lua", "lib/db.lua", "lib/mission.lua", "lib/rs.lua",
                  "lib/mixer.lua", "lib/attitude.lua", "lib/link.lua",
                  "lib/display.lua", "console.lua",
@@ -102,7 +102,7 @@ end
 -- with the default 1 MB that is survivable; on a server that has turned the
 -- limit down it is not, and the failure looks like "Out of space" halfway
 -- through an update with the tree left half old and half new.
-local DISPOSABLE = { "flightlog", "probe.txt", "preflight.txt", "mixmap.csv", "probelog.csv" }
+local DISPOSABLE = { "flightlog", "probe.txt", "preflight.txt", "mixmap.csv", "probelog.csv", "stickers.txt" }
 
 local function freeSpace() return (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge end
 

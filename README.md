@@ -28,6 +28,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `mixcal.lua` | Works out which thruster sits in which corner by pulsing each one and watching the airframe lean. **Fires thrusters** - ground only. `mixcal dry` rehearses it safely. |
 | `preflight.lua` | Read-only ground check: full device inventory, sensor names and axes, position, energy, docking wiring, files. `preflight save` writes and pushes the result. Run it before flying. |
 | `upload.lua` | Pushes the last `flightlog` straight to this repo over the GitHub API, so logs can be read without touching the save. |
+| `stickers.lua` | Finds every Create Sticker the computer can reach (on a side or over cable) and shows its state and CC methods; `all` lists every other peripheral too, `save` pushes the listing to `data/stickers.txt`. `test <name>` extends one, reads `isAttachedToBlock` for 3 s and retracts it; `extend` / `retract` move one. Nothing moves without a name and a typed y: under Sable an extended sticker flush against a block welds the craft to it. Tested by `tools/run_stickers_test.py`. |
 | `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
 
