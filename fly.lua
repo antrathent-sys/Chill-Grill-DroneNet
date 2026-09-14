@@ -229,6 +229,15 @@ local CFG = {
   -- CMD_PROTO. It is not authentication - anything on the cable can still send
   -- a word - that is the signed link in COMMAND.md. false = the old listener.
   CMD_RADIO_STRICT = true,
+  -- Telemetry (lib/link.lua, MISSIONCONTROL.md): a small status packet about
+  -- once a second on the first wireless modem (the ender modem). SEND-ONLY:
+  -- raw modem.transmit, never rednet.open or modem.open on that modem, so no
+  -- radio command can come back in through it. No wireless modem = silent.
+  -- false = the loop is not started at all.
+  TELEM_ON = true,
+  TELEM_PERIOD = 1.0,                 -- s between packets
+  TELEM_CHANNEL = 7212,
+  TELEM_ID = nil,                     -- nil = computer label, else "drone-<id>"
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
   TILT_RATE = 60,                     -- deg/s: how fast tilt targets may move
@@ -863,6 +872,11 @@ end
 
 -- Chimes. Optional, silent without a speaker, and every call returns instantly
 -- so nothing here can stall the control loop.
+-- telemetry packet format; nil = no telemetry
+local okL, LINK = pcall(dofile, "lib/link.lua")
+if not okL or type(LINK) ~= "table" then LINK = nil end
+-- what the leg machine publishes for linkLoop, filled next to the log row
+local TLM = {}
 local chime = { play = function() end, loop = function() while true do sleep(1) end end }
 if CFG.CHIME and fs.exists("lib/chime.lua") then
   local ok, lib = pcall(dofile, "lib/chime.lua")
@@ -2445,6 +2459,10 @@ local function flyLeg()
 
     local vx, vy = drive(pwr, KP * ep + ip + KD * dp, KP * er + ir + KD * dr, yawDem, phase == "cruise")
 
+    -- publish for the telemetry loop: field writes only, no locals, no yields
+    TLM.t, TLM.phase, TLM.h, TLM.e, TLM.x, TLM.z, TLM.vx, TLM.vz, TLM.vv = t - t0, phase, h, e, pos.x, pos.z, pos.vx, pos.vz, v
+    TLM.hdg, TLM.p, TLM.r, TLM.tx, TLM.tz, TLM.sx, TLM.sz, TLM.sat =
+      (tri.hdg >= 0) and tri.hdg or hdg, a[1], a[2], goalX, goalZ, st.trkX, st.trkZ, mixSat
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
     logRow(phase, string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%d",
@@ -2541,7 +2559,32 @@ end
 
 if CFG.CMD_KEYS then print("in flight: L land, H hold, U undock, M music, +/- volume") end
 
-local ok, err = pcall(parallel.waitForAny, controlLoop, posLoop, monLoop, chime.loop, cmdLoop)
+-- ---------- telemetry out ----------
+-- Reads the shared tables and sends; never reads a peripheral itself, never
+-- listens. Its one yield is the sleep, so it cannot stall the control loop.
+local function linkLoop()
+  local radio = LINK.findRadio(peripheral)
+  if not radio then
+    print("telemetry: no wireless modem - not sending")
+    while true do sleep(3600) end
+  end
+  local id = CFG.TELEM_ID or (os.getComputerLabel and os.getComputerLabel())
+             or ("drone-" .. tostring(os.getComputerID and os.getComputerID() or "?"))
+  print("telemetry: " .. id .. " on " .. radio .. " channel " .. CFG.TELEM_CHANNEL .. " (send only)")
+  local seq = 0
+  while true do
+    sleep(CFG.TELEM_PERIOD)
+    if TLM.t then
+      seq = seq + 1
+      pcall(peripheral.call, radio, "transmit", CFG.TELEM_CHANNEL, CFG.TELEM_CHANNEL,
+        LINK.packet(id, seq, TLM, mon, fuel, dock, legs and #legs or 0, legIdx, legKind, mode))
+    end
+  end
+end
+
+local loops = { controlLoop, posLoop, monLoop, chime.loop, cmdLoop }
+if CFG.TELEM_ON and LINK then loops[#loops + 1] = linkLoop end
+local ok, err = pcall(parallel.waitForAny, unpack_(loops))
 allStop() pump(false) pcall(log.close)
 print("thrusters off, pump off - flightlog saved")
 -- Sounded here, not in the loop: the control loop returns the instant it docks,

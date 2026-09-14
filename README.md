@@ -18,6 +18,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `lib/mixer.lua` | Four-thruster allocation: lift, pitch, roll from differential thrust; horizontal force and yaw rate from nozzle vectoring. |
 | `lib/chime.lua` | Speaker tones on flight events. Silent without a speaker, and queued so it can never stall the control loop. |
 | `lib/mission.lua` | Mission planning: places, leg queues, energy budgets, point of no return, and calibration from a flightlog. |
+| `lib/link.lua` | Telemetry packet between drone and base: send-only on the ender modem, ~1 Hz, flat table. Tested by `tools/run_link_test.py`. See MISSIONCONTROL.md. |
 | `FRAMES.md` | **Read this first.** The one agreed coordinate frame for world, body and attitude. Every value in the project is expressed in one of these. |
 | `mixcal.lua` | Works out which thruster sits in which corner by pulsing each one and watching the airframe lean. **Fires thrusters** - ground only. `mixcal dry` rehearses it safely. |
 | `preflight.lua` | Read-only ground check: full device inventory, sensor names and axes, position, energy, docking wiring, files. `preflight save` writes and pushes the result. Run it before flying. |

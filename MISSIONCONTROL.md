@@ -66,8 +66,11 @@ against replay, verify before parsing).
 listener where the drone is going and where home is. Send it unencrypted while
 testing; encrypt it with the same link once that exists.
 
-**Hardware to confirm:** the drone needs an ender modem for in-flight
-telemetry. A normal wireless modem reaches a few hundred blocks at best.
+**Fitted:** the drone carries an ender modem (confirmed 2026-09-14). Telemetry
+is **send-only** on it: raw `modem.transmit`, never `rednet.open` or
+`modem.open`. Opening it for rednet would let `drone-cmd` words arrive over
+radio again and undo `CMD_RADIO_STRICT`, because a `rednet_message` event does
+not say which modem it came in on.
 
 ## Telemetry packet
 
@@ -133,9 +136,14 @@ handshake, never by a timer guessing.
 
 ## Display
 
-CC:Tweaked advanced monitors, touch enabled. An 8x6 wall at text scale 0.5 is
-roughly 164x81 characters; teletext drawing characters give 2x3 sub-pixels per
-cell, so about 328x243 for the map. 16 colours, redefinable.
+CC:Tweaked advanced monitors, touch enabled: a **5x5 wall on the pad's wired
+network** (planned 2026-09-14), so the base computer reaches the wall and the
+docked drone over the same cable. Screen size is read with `getSize()` at start
+and every layout is computed from it, never hardcoded. Teletext drawing
+characters give 2x3 sub-pixels per cell for the map. 16 colours, redefinable.
+
+**Built for a fleet from the start:** every screen is keyed by drone id, the
+Overview is a list, and nothing assumes there is only one drone.
 
 | Screen | Shows | Touch |
 |---|---|---|
@@ -161,8 +169,9 @@ Optional, later: a Create display board in the hangar fed through CC:C Bridge
 
 Each step is usable on its own and testable without the others.
 
-1. **`lib/link.lua` packet + `linkLoop` on the drone**, over whatever modem is
-   fitted, unsigned, behind a switch. Mock harness: the fake modem records
+1. **`lib/link.lua` packet + `linkLoop` on the drone** - BUILT 2026-09-14
+   (`TELEM_ON`): send-only on the first wireless/ender modem, unsigned,
+   channel `TELEM_CHANNEL` 7212, id = computer label. Mock harness: the fake modem records
    transmissions; a case asserts ~1 Hz packets with sane fields, and switch
    off reproduces the previous flight logs exactly.
 2. **`lib/display.lua` Overview + Map**, rendered from a recorded packet stream
@@ -176,12 +185,13 @@ Each step is usable on its own and testable without the others.
 5. **Signed link** (`recall`, `hold`, encrypted telemetry).
 6. **Courier fields**: vault id, Delivery Required request, drop confirmation.
 
-## Open questions
+## Decided (2026-09-14)
 
-- Is an ender modem fitted to the drone? In-flight telemetry needs one.
-- Monitor wall size, and where it sits relative to the pad's wired network.
-- One drone for now, or an Overview designed for a fleet from the start? (The
-  packet carries `id` either way.)
+- Ender modem fitted on the drone.
+- 5x5 monitor wall, on the pad's wired network.
+- Fleet from the start: drone ids everywhere, one home pad per drone in its
+  own CFG. **Label every drone computer** (`label set drone-1`): the label is
+  the telemetry id.
 
 ## Out of date elsewhere
 

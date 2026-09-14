@@ -126,6 +126,9 @@ SELFTEST = [
      ["climb", "cruise"]),
     ("radio ignores other protocol", ["go", "1000", "1000", "300"], {"TMAX": "90", "RADIO_AT": "20:hold:drone-rs:wired"},
      ["climb", "cruise"]),
+    # telemetry: ~1 Hz send-only packets on the ender modem (telem_check)
+    ("telemetry", ["go", "1000", "1000", "300"], {"TMAX": "60", "TELEM": "1"},
+     ["climb", "cruise"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's
@@ -156,7 +159,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -191,6 +194,44 @@ def triad_check(logpath):
         ok = ok and share >= 0.8
         msg += "; %.0f%% of %d cruise rows aimed by attitude" % (100 * share, len(cruise))
     return ok, msg
+
+
+def telem_check(logpath):
+    """TELEM=1 runs: ~1 Hz packets on channel 7212, consecutive seq, the
+    fields the base needs, distance closing in cruise, and the modem never
+    opened (send-only)."""
+    path = logpath + ".telem"
+    if not os.path.exists(path):
+        return False, "no telemetry file"
+    opens, pk = [], []
+    for line in open(path, encoding="utf-8"):
+        line = line.rstrip("\n")
+        if line.startswith("OPEN "):
+            opens.append(line[5:])
+            continue
+        T, ch, body = line.split("|", 2)
+        pk.append((float(T), int(ch), dict(kv.split("=", 1) for kv in body.split(";") if kv)))
+    if opens:
+        return False, "telemetry modem opened channel(s) %s - it must be send-only" % opens
+    if len(pk) < 10:
+        return False, "only %d packets" % len(pk)
+    span = pk[-1][0] - pk[0][0]
+    rate = (len(pk) - 1) / span if span > 0 else 0
+    seqs = [int(d["seq"]) for _, _, d in pk]
+    need = ("v", "id", "seq", "t", "phase", "x", "y", "z", "spd", "energy", "dock", "leg")
+    missing = [f for f in need if f not in pk[-1][2]]
+    chans = sorted(set(c for _, c, _ in pk))
+    phases = []
+    for _, _, d in pk:
+        if not phases or phases[-1] != d["phase"]:
+            phases.append(d["phase"])
+    cruise = [d for _, _, d in pk if d["phase"] == "cruise" and "dist" in d]
+    closing = len(cruise) >= 2 and float(cruise[-1]["dist"]) < float(cruise[0]["dist"])
+    ok = (0.8 <= rate <= 1.2 and seqs == list(range(seqs[0], seqs[0] + len(seqs)))
+          and not missing and chans == [7212] and "cruise" in phases and closing
+          and pk[-1][2].get("id") == "drone-7")
+    return ok, "%d packets at %.2f Hz on %s, phases %s, missing %s, closing %s, id %s" % (
+        len(pk), rate, chans, "->".join(phases), missing, closing, pk[-1][2].get("id"))
 
 
 def phases_from(logpath):
@@ -240,6 +281,9 @@ def main(argv=None):
                 ok = got == expect
             if env.get("TRIAD"):
                 tok, extra = triad_check(logpath)
+                ok = ok and tok
+            if env.get("TELEM"):
+                tok, extra = telem_check(logpath)
                 ok = ok and tok
             failures += 0 if ok else 1
             print("%-5s %-12s %s" % ("ok" if ok else "FAIL", name, " -> ".join(got)))

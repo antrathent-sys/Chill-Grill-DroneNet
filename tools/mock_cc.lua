@@ -170,6 +170,7 @@ end
 _G.os = _G.os or {}
 os.clock = function() return T end
 os.epoch = function() return math.floor(T * 1000) end
+os.getComputerID = function() return 7 end
 
 -- rednet is only exercised by lib/rs.lua when a remote redstone target is
 -- configured; the harness configures none, so this just has to exist.
@@ -397,6 +398,20 @@ end
 -- Docking bridges the pad's wired network in, so more peripherals become
 -- visible. Named pad_* so they cannot be confused with the craft's own.
 local padPeriphs = {}
+-- TELEM runs get an ender modem that records what is transmitted, and any
+-- channel opened on it (which must be none: telemetry is send-only)
+if os.getenv("TELEM") then
+  add("modem_ender", "modem", {
+    isWireless = function() return true end,
+    transmit = function(ch, rch, msg)
+      sim.telem = sim.telem or {}
+      local copy = {}
+      for k, v in pairs(msg) do copy[k] = v end
+      sim.telem[#sim.telem + 1] = { T = T, ch = ch, msg = copy }
+    end,
+    open = function(ch) sim.telemOpen = sim.telemOpen or {} sim.telemOpen[#sim.telemOpen + 1] = ch end,
+  })
+end
 -- RADIO_AT runs get one modem of each kind on the craft
 if os.getenv("RADIO_AT") then
   add("modem_wired", "modem", { isWireless = function() return false end })
@@ -541,6 +556,20 @@ end
 local out = io.open(os.getenv("HARNESS_LOG") or "harness_flightlog", "w")
 for _, l in ipairs(logLines) do out:write(l, "\n") end
 out:close()
+
+-- telemetry the ender modem saw: "OPEN ch" lines, then "T|channel|k=v;k=v"
+if os.getenv("TELEM") and os.getenv("HARNESS_LOG") then
+  local tf = io.open(os.getenv("HARNESS_LOG") .. ".telem", "w")
+  for _, o in ipairs(sim.telemOpen or {}) do tf:write("OPEN ", tostring(o), "\n") end
+  for _, rec in ipairs(sim.telem or {}) do
+    local keys, parts = {}, {}
+    for k in pairs(rec.msg) do keys[#keys + 1] = k end
+    table.sort(keys)
+    for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. tostring(rec.msg[k]) end
+    tf:write(string.format("%.2f|%d|%s\n", rec.T, rec.ch, table.concat(parts, ";")))
+  end
+  tf:close()
+end
 
 -- phase order actually visited
 local seen, order = {}, {}
