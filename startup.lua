@@ -17,7 +17,7 @@ local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua"
                  "mixcal.lua",
                  "rsio.lua", "chimes.lua", "docktest.lua", "stickers.lua",
                  "lib/chime.lua", "lib/db.lua", "lib/mission.lua", "lib/rs.lua",
-                 "lib/mixer.lua", "lib/attitude.lua", "lib/link.lua",
+                 "lib/mixer.lua", "lib/attitude.lua", "lib/link.lua", "lib/pads.lua",
                  "lib/display.lua", "console.lua",
                  "lib/seclink.lua", "seckey.lua",
                  "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",

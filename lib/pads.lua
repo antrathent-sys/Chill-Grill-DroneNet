@@ -1,0 +1,178 @@
+--- pads: named dock points - the home pad and every depot the fleet uses.
+--
+-- A pad is somewhere the craft can dock: block coordinates as F3 shows them,
+-- the PAD altitude (the block the connector stands on - the same y `fly dock`
+-- takes), and optional per-pad trims for a connector that is not directly
+-- under the centre of mass.
+--
+-- The list lives in a file on the computer (fly.lua CFG.PADS_FILE, "pads.lua")
+-- and NOT in the repo: pads are per world, and startup would overwrite them.
+-- `fly pad add <name>` writes it from where the craft is standing, so pad
+-- coordinates are never typed by hand.
+--
+--   local pads = dofile("lib/pads.lua")
+--   local list, bad = pads.load("pads.lua", fs)
+--   local depot = pads.get(list, "depot")
+--
+-- Pure: every function takes what it needs, and file access goes through the
+-- fs table passed in (fly.lua passes CC's), so it all tests on the desktop.
+
+local pads = {}
+pads.VERSION = 1
+
+local function num(v)
+  if type(v) ~= "number" or v ~= v then return nil end
+  return v
+end
+
+--- Check one entry. Returns a clean pad, or nil and why not.
+function pads.check(e)
+  if type(e) ~= "table" then return nil, "not a table" end
+  local name = type(e.name) == "string" and (e.name:lower():gsub("%s+", "")) or ""
+  if name == "" then return nil, "no name" end
+  if not name:match("^[%w_%-]+$") then
+    return nil, "name " .. name .. " is not plain (letters, digits, - and _)"
+  end
+  local x, y, z = num(e.x), num(e.y), num(e.z)
+  if not (x and y and z) then return nil, name .. " needs x, y and z numbers" end
+  return { name = name, x = x, y = y, z = z,
+           trimX = num(e.trimX) or 0, trimZ = num(e.trimZ) or 0,
+           cruiseY = num(e.cruiseY),
+           note = type(e.note) == "string" and e.note or nil }
+end
+
+--- A list of entries -> the pads that check out, in order, plus complaints
+-- about the ones that did not. One bad line never loses the rest.
+function pads.parse(t)
+  local list, bad = {}, {}
+  if type(t) ~= "table" then return list, { "the pads file did not return a table" } end
+  local seen = {}
+  for i, e in ipairs(t) do
+    local p, why = pads.check(e)
+    if not p then
+      bad[#bad + 1] = string.format("entry %d: %s", i, why)
+    elseif seen[p.name] then
+      bad[#bad + 1] = p.name .. " is listed twice - keeping the first"
+    else
+      seen[p.name] = true
+      list[#list + 1] = p
+    end
+  end
+  return list, bad
+end
+
+--- Look a pad up by name, any case. nil if there is no such pad.
+function pads.get(list, name)
+  if type(name) ~= "string" then return nil end
+  name = name:lower()
+  for _, p in ipairs(list or {}) do
+    if p.name == name then return p end
+  end
+  return nil
+end
+
+function pads.names(list)
+  local t = {}
+  for _, p in ipairs(list or {}) do t[#t + 1] = p.name end
+  return t
+end
+
+function pads.dist(p, x, z)
+  local dx, dz = (p.x or 0) - (x or 0), (p.z or 0) - (z or 0)
+  return math.sqrt(dx * dx + dz * dz)
+end
+
+function pads.nearest(list, x, z)
+  local best, bd
+  for _, p in ipairs(list or {}) do
+    local d = pads.dist(p, x, z)
+    if not bd or d < bd then best, bd = p, d end
+  end
+  return best, bd
+end
+
+--- The file text for a list: plain Lua, meant to be readable and editable.
+function pads.serialise(list)
+  local out = {
+    "-- DroneNet pads: the dock points this fleet knows, one per line.",
+    "-- x, y, z are F3 block coordinates and y is the PAD block, the same",
+    "-- number `fly dock <x> <y> <z>` takes. trimX/trimZ shift the park point",
+    "-- for a pad whose connector is not under the centre of mass; cruiseY is",
+    "-- the altitude to travel there at.",
+    "-- Written by `fly pad add <name>`, and safe to edit by hand.",
+    "return {",
+  }
+  for _, p in ipairs(list or {}) do
+    local parts = { string.format("name = %q, x = %g, y = %g, z = %g", p.name, p.x, p.y, p.z) }
+    if (p.trimX or 0) ~= 0 then parts[#parts + 1] = string.format("trimX = %g", p.trimX) end
+    if (p.trimZ or 0) ~= 0 then parts[#parts + 1] = string.format("trimZ = %g", p.trimZ) end
+    if p.cruiseY then parts[#parts + 1] = string.format("cruiseY = %g", p.cruiseY) end
+    if p.note then parts[#parts + 1] = string.format("note = %q", p.note) end
+    out[#out + 1] = "  { " .. table.concat(parts, ", ") .. " },"
+  end
+  out[#out + 1] = "}"
+  return table.concat(out, "\n") .. "\n"
+end
+
+--- Read the file. Returns the list and any complaints; a file that is not
+-- there is not a complaint, it is an empty list. The chunk runs with no
+-- environment at all, so a pads file can only describe pads.
+function pads.load(path, fsys)
+  fsys = fsys or fs
+  if not (fsys and fsys.exists and fsys.exists(path)) then return {}, {} end
+  local f = fsys.open(path, "r")
+  if not f then return {}, { "could not open " .. path } end
+  local text = f.readAll() or ""
+  f.close()
+  local chunk, err
+  if setfenv then
+    chunk, err = (loadstring or load)(text, "pads")
+    if chunk then setfenv(chunk, {}) end
+  else
+    chunk, err = load(text, "pads", "t", {})
+  end
+  if not chunk then return {}, { path .. ": " .. tostring(err) } end
+  local ok, t = pcall(chunk)
+  if not ok then return {}, { path .. ": " .. tostring(t) } end
+  return pads.parse(t)
+end
+
+--- Write the list back. Returns true, or false and why not.
+function pads.save(path, list, fsys)
+  fsys = fsys or fs
+  local f = fsys.open(path, "w")
+  if not f then return false, "could not write " .. path end
+  f.write(pads.serialise(list))
+  f.close()
+  return true
+end
+
+--- Add a pad, or replace the one with that name. Returns the list and the
+-- pad, or nil and why not.
+function pads.put(list, entry)
+  local p, why = pads.check(entry)
+  if not p then return nil, why end
+  for i, old in ipairs(list) do
+    if old.name == p.name then
+      list[i] = p
+      return list, p
+    end
+  end
+  list[#list + 1] = p
+  return list, p
+end
+
+--- Drop a pad by name. Returns the pad that went, or nil.
+function pads.remove(list, name)
+  if type(name) ~= "string" then return nil end
+  name = name:lower()
+  for i, p in ipairs(list) do
+    if p.name == name then
+      table.remove(list, i)
+      return p
+    end
+  end
+  return nil
+end
+
+return pads

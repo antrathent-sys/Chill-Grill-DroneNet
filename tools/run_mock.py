@@ -13,6 +13,7 @@ Environment switches the harness honours:
     NO_PAD=1       open ground at the target instead of a solid pad
     TRIAD=1        fit nav tables 4/5/7 reporting a level heading of 30 deg
     DISK_KB=<kb>   a disk that small; DISK_LIE=1 also hides it from getFreeSpace
+    PADS=n:x,y,z;.. write a pads.lua with those named dock points
     NODOCK=1       never let the magnet catch, to exercise the abort path
     START_DOCKED=1 begin the run already docked
     TMAX=<secs>    simulated-time budget
@@ -137,6 +138,12 @@ SELFTEST = [
     ("telemetry, parked", ["dock", "100", "70", "50", "120"],
      {"TMAX": "150", "TELEM": "1", "TELEM_KEY": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "CMD_AT": "70:q", "PARKED": "1"},
      ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
+    # a named dock point from pads.lua flies the same path as typed coordinates
+    ("dock at a named pad", ["dock", "depot", "90"], {"TMAX": "150", "PADS": "depot:100,70,50"},
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
+    # ferry: one dock leg that undocks first, so the craft moves pad to pad
+    ("ferry to a pad", ["ferry", "depot", "90"], {"TMAX": "150", "START_DOCKED": "1", "PADS": "depot:100,70,50"},
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's
@@ -167,7 +174,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

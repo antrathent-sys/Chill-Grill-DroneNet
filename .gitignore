@@ -8,6 +8,7 @@ __pycache__/
 .ghtoken
 
 # Sealed-link keys live only on the CC computers (seckey.lua), never here
+/pads.lua
 .dronekey
 .dronekey.ctr
 .fleetkeys

@@ -6,6 +6,13 @@
 --                                (the fast sideways phase of every flight logs as "cruise";
 --                                 before 2026-09-13 it logged as "dash")
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
+-- fly pads                    -> list the named dock points in pads.lua, with distances
+-- fly pad add <name>          -> record where the craft is standing as a pad (do it DOCKED)
+-- fly pad del <name>          -> forget a pad
+-- fly dock <pad>              -> dock at a named pad; `fly dock` alone is the home pad
+-- fly ferry <pad> [cruiseY]   -> undock, cruise to that pad and dock there. The craft stays
+--                                docked (telemetry keeps running), so load or unload there and
+--                                `fly ferry home` brings it back.
 -- fly deliver <x> <y> <z>     -> the round trip, starting docked: undock, fly to x z, hover at y,
 --                                release (nothing to release yet), fly home, dock. Home is the pad
 --                                in CFG.HOME_X/Y/Z. `fly dock` with no coordinates goes there too.
@@ -617,6 +624,10 @@ local CFG = {
   -- The home pad, in F3 block coordinates and pad Y. Fixed here, not taken
   -- from wherever the craft happened to be when a command was typed.
   HOME_X = 0, HOME_Y = 63, HOME_Z = 0,
+  -- Named dock points (lib/pads.lua): the home pad plus every depot. Kept on
+  -- the computer, never in the repo - startup would overwrite it and pads are
+  -- per world. A pad called "home" wins over HOME_X/Y/Z above. nil = no pads.
+  PADS_FILE = "pads.lua",
   DOCK_GAP = 7.5,                     -- blocks the altimeter reads above padY when latched: measured 70.5
                                       -- over a pad at 63, twice. (Briefly 5.5 on the theory that flights
                                       -- starting at 68.5 were latched; they had started on the ground.)
@@ -1319,7 +1330,7 @@ end
 
 
 -- ---------- modes ----------
-local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ
+local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ, padName
 local padY, dockAlt, cruiseY, undockFirst, spinDeg
 local landGround = CFG.LAND_GROUND   -- ground altitude for the descent profile
 -- A mission is a list of legs run back to back. Each leg sets up the ordinary
@@ -1331,6 +1342,35 @@ local landAtEnd = false              -- a "go" that finishes by landing rather t
 -- count against the main chunk's locals, which CC caps at 200 counting every
 -- declaration (tools/check_locals.py). Results still land in the outer
 -- variables it assigns.
+-- Named dock points. No file means no pads, and every command behaves exactly
+-- as it did when the only pad was CFG.HOME_*.
+local PADLIB, PADS = nil, {}
+do
+  local okp, P = pcall(dofile, "lib/pads.lua")
+  if okp and type(P) == "table" then
+    PADLIB = P
+    local bad
+    PADS, bad = P.load(CFG.PADS_FILE or "pads.lua", fs)
+    for _, why in ipairs(bad) do print("pads: " .. why) end
+  end
+end
+
+local function padNamed(name)
+  local p = PADLIB and PADLIB.get(PADS, name)
+  if p then return p end
+  local known = PADLIB and table.concat(PADLIB.names(PADS), ", ") or ""
+  error(string.format("no pad called '%s' (known: %s). `fly pads` lists them, `fly pad add <name>` records one.",
+    tostring(name), known ~= "" and known or "none"), 0)
+end
+
+-- The home pad: a pad called "home" if there is one, else CFG.
+local function homePad()
+  local p = PADLIB and PADLIB.get(PADS, "home")
+  if p then return p end
+  return { name = "home", x = CFG.HOME_X, y = CFG.HOME_Y, z = CFG.HOME_Z,
+           trimX = CFG.DOCK_TRIM_X, trimZ = CFG.DOCK_TRIM_Z }
+end
+
 do (function()
 if arg[1] == "find" then
   mode = "find" findP = tonumber(arg[2]) or CFG.HOVER
@@ -1363,11 +1403,22 @@ else
     mode = "dock"
     if not CFG.DOCK_SIDE then error("dock needs CFG.DOCK_SIDE set") end
     -- <x> <y> <z>: the same order as fly land, y being the pad altitude.
-    -- No coordinates means the home pad in CFG.
-    tgtX = blockCentre(tonumber(arg[2]) or CFG.HOME_X) + CFG.DOCK_TRIM_X
-    padY = tonumber(arg[3]) or CFG.HOME_Y
-    tgtZ = blockCentre(tonumber(arg[4]) or CFG.HOME_Z) + CFG.DOCK_TRIM_Z
-    goal = tonumber(arg[5]) or CFG.CRUISE_Y
+    -- A NAME instead is a pad from pads.lua; nothing at all is the home pad.
+    local pad = nil
+    if arg[2] and not tonumber(arg[2]) then pad = padNamed(arg[2])
+    elseif not arg[2] then pad = homePad() end
+    if pad then
+      padName = pad.name
+      tgtX = blockCentre(pad.x) + (pad.trimX or CFG.DOCK_TRIM_X)
+      padY = pad.y
+      tgtZ = blockCentre(pad.z) + (pad.trimZ or CFG.DOCK_TRIM_Z)
+      goal = tonumber(arg[3]) or pad.cruiseY or CFG.CRUISE_Y
+    else
+      tgtX = blockCentre(tonumber(arg[2])) + CFG.DOCK_TRIM_X
+      padY = tonumber(arg[3]) or CFG.HOME_Y
+      tgtZ = blockCentre(tonumber(arg[4])) + CFG.DOCK_TRIM_Z
+      goal = tonumber(arg[5]) or CFG.CRUISE_Y
+    end
     dockAlt = padY + CFG.DOCK_GAP
     dashDeg = CFG.CRUISE_DEG
     dock.armed = true
@@ -1399,17 +1450,44 @@ else
       mode = "land"
       goal = alt.getHeight()
     end
+  elseif arg[1] == "ferry" then
+    -- Dock to dock. One leg: the dock leg undocks, climbs, cruises, brakes and
+    -- lands on the far pad, which is the path with the flight hours behind it.
+    -- It stays docked there, so loading happens at the depot.
+    if not CFG.DOCK_SIDE then error("ferry needs CFG.DOCK_SIDE set") end
+    if not arg[2] or tonumber(arg[2]) then error("ferry takes a pad name: fly ferry <pad>   (fly pads lists them)", 0) end
+    local pad = padNamed(arg[2])
+    padName = pad.name
+    goal = tonumber(arg[3]) or pad.cruiseY or CFG.CRUISE_Y
+    legs = {
+      { leg = "dock", x = blockCentre(pad.x), z = blockCentre(pad.z), padY = pad.y, y = goal,
+        trimX = pad.trimX, trimZ = pad.trimZ, undock = true },
+    }
+    mode = "ferry"
+  elseif arg[1] == "pads" or arg[1] == "pad" then
+    -- Not a flight: listed and edited after the arguments are read, then fly
+    -- returns to the shell without ever touching a thruster.
+    mode = "pads"
   elseif arg[1] == "deliver" then
     -- The whole round trip in one command, which is the point: a dynamics
     -- change is worth judging over undock, cruise, descent, hover, cruise
     -- back and dock, not over whichever single leg happened to be flown.
-    local dx = tonumber(arg[2]) or error("deliver needs <x> <y> <z>", 0)
-    local dy = tonumber(arg[3]) or error("deliver needs <x> <y> <z>", 0)
-    local dz = tonumber(arg[4]) or error("deliver needs <x> <y> <z>", 0)
-    goal = tonumber(arg[5]) or CFG.CRUISE_Y
-    -- Home is the pad in CFG, not wherever the craft is standing: a mission
+    local dx, dy, dz
+    if arg[2] and not tonumber(arg[2]) then
+      -- a pad name: drop over that pad rather than at typed coordinates
+      local pad = padNamed(arg[2])
+      dx, dy, dz = pad.x, pad.y, pad.z
+      goal = tonumber(arg[3]) or pad.cruiseY or CFG.CRUISE_Y
+    else
+      dx = tonumber(arg[2]) or error("deliver needs <x> <y> <z> or a pad name", 0)
+      dy = tonumber(arg[3]) or error("deliver needs <x> <y> <z> or a pad name", 0)
+      dz = tonumber(arg[4]) or error("deliver needs <x> <y> <z> or a pad name", 0)
+      goal = tonumber(arg[5]) or CFG.CRUISE_Y
+    end
+    -- Home is the home PAD, not wherever the craft is standing: a mission
     -- launched from the wrong place still comes back to the right one.
-    home = { x = blockCentre(CFG.HOME_X), z = blockCentre(CFG.HOME_Z), padY = CFG.HOME_Y }
+    local hp = homePad()
+    home = { x = blockCentre(hp.x), z = blockCentre(hp.z), padY = hp.y }
     legs = {
       { leg = "cruise", x = blockCentre(dx), z = blockCentre(dz), y = goal, undock = true },
       { leg = "hover",  x = blockCentre(dx), z = blockCentre(dz), y = dy },
@@ -1417,7 +1495,8 @@ else
       -- no cruise leg home: the dock leg climbs, cruises and brakes on its
       -- own, which is the same path `fly dock` flies and the one with hours
       -- of logs behind it.
-      { leg = "dock",   x = home.x, z = home.z, padY = home.padY, y = goal },
+      { leg = "dock",   x = home.x, z = home.z, padY = home.padY, y = goal,
+        trimX = hp.trimX, trimZ = hp.trimZ },
     }
     mode = "deliver"
   elseif arg[1] == "spin" then
@@ -1435,6 +1514,51 @@ else
   cruiseY = goal
 end
 end)() end
+
+-- `fly pads` / `fly pad ...`: printed and saved here, then straight back to
+-- the shell. Nothing below this line runs, so no log, no pump, no thrust.
+if mode == "pads" then
+  local file = CFG.PADS_FILE or "pads.lua"
+  if not PADLIB then error("lib/pads.lua is missing - run `startup` to update", 0) end
+  local sub = (arg[1] == "pad") and arg[2] or nil
+  if sub == "add" then
+    local name = arg[3] or error("usage: fly pad add <name>   (while docked on the pad)", 0)
+    -- Recorded from where the craft is standing, so nothing is typed: undo the
+    -- dock trims to get the pad block, and the dock gap to get the pad height.
+    local entry = { name = name,
+      x = math.floor(pos.x - CFG.DOCK_TRIM_X), z = math.floor(pos.z - CFG.DOCK_TRIM_Z),
+      y = math.floor(alt.getHeight() - CFG.DOCK_GAP + 0.5),
+      trimX = CFG.DOCK_TRIM_X ~= 0 and CFG.DOCK_TRIM_X or nil,
+      trimZ = CFG.DOCK_TRIM_Z ~= 0 and CFG.DOCK_TRIM_Z or nil,
+      note = arg[4] and table.concat(arg, " ", 4) or nil }
+    local okp, why = PADLIB.put(PADS, entry)
+    if not okp then error("pad add: " .. tostring(why), 0) end
+    local saved, serr = PADLIB.save(file, PADS, fs)
+    if not saved then error("pad add: " .. tostring(serr), 0) end
+    local p = PADLIB.get(PADS, name)
+    print(string.format("pad '%s' recorded at %d %d %d (%s)", p.name, p.x, p.y, p.z, file))
+    print("that height is the altimeter minus the dock gap - record it DOCKED, or fix y by hand")
+  elseif sub == "del" or sub == "rm" or sub == "remove" then
+    local gone = PADLIB.remove(PADS, arg[3] or "")
+    if not gone then error("no pad called '" .. tostring(arg[3]) .. "'", 0) end
+    local saved, serr = PADLIB.save(file, PADS, fs)
+    if not saved then error("pad del: " .. tostring(serr), 0) end
+    print(string.format("pad '%s' forgotten (%d left)", gone.name, #PADS))
+  elseif sub then
+    error("usage: fly pads | fly pad add <name> [note] | fly pad del <name>", 0)
+  else
+    print(string.format("pads in %s:", file))
+    if #PADS == 0 then print("  none yet - dock on a pad and run: fly pad add <name>") end
+    for _, p in ipairs(PADS) do
+      print(string.format("  %-10s %6d %4d %6d  %5.0f away%s", p.name, p.x, p.y, p.z,
+        PADLIB.dist(p, pos.x, pos.z), p.note and ("  " .. p.note) or ""))
+    end
+    local hp = homePad()
+    print(string.format("home: %d %d %d%s", hp.x, hp.y, hp.z,
+      PADLIB.get(PADS, "home") and "" or "  (from CFG - `fly pad add home` while docked to fix it here)"))
+  end
+  do return end
+end
 
 local log = fs.open("flightlog", "w")
 -- A full disk must never end a flight. fs throws "Out of space" from inside
@@ -1475,6 +1599,8 @@ print(mode == "find" and ("find: holding " .. findP)
    or (mode == "go" and not landAtEnd) and string.format("go: to %.0f,%.0f via Y %.0f", tgtX, tgtZ, goal)
    or mode == "dock" and string.format("dock: pad %.0f,%.0f Y %.0f, park at %.1f via Y %.0f",
       tgtX, tgtZ, padY, dockAlt, goal)
+   or mode == "ferry" and string.format("ferry: to pad %s at %.0f,%.0f Y %.0f, via Y %.0f",
+      tostring(padName), legs[1].x, legs[1].z, legs[1].padY, goal)
    or mode == "deliver" and string.format("deliver: %.0f,%.0f drop at Y %.0f, home %.0f,%.0f pad %.0f, via Y %.0f",
       legs[1].x, legs[1].z, legs[2].y, home.x, home.z, home.padY, goal)
    or undockFirst and string.format("undock: release then hold Y %.1f", goal)
@@ -1526,7 +1652,7 @@ local function nextLeg()
     goal = L.y
   elseif L.leg == "dock" then
     mode = "dock"
-    tgtX, tgtZ = L.x + CFG.DOCK_TRIM_X, L.z + CFG.DOCK_TRIM_Z
+    tgtX, tgtZ = L.x + (L.trimX or CFG.DOCK_TRIM_X), L.z + (L.trimZ or CFG.DOCK_TRIM_Z)
     goalX, goalZ = tgtX, tgtZ
     padY = L.padY
     dockAlt = padY + CFG.DOCK_GAP
