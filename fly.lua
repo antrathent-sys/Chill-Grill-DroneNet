@@ -856,8 +856,10 @@ end
 -- maths back to raw gimbal angles.
 --
 -- attitude maths (gravity vector from the gimbal's projected angles)
-local okA, libA = pcall(dofile, "lib/attitude.lua")
-ATT = okA and type(libA) == "table" and libA or nil
+do
+  local okA, libA = pcall(dofile, "lib/attitude.lua")
+  ATT = okA and type(libA) == "table" and libA or nil
+end
 if not ATT then print("WARNING: lib/attitude.lua missing - attitude errors fall back to raw gimbal angles") end
 
 -- Three-table attitude, LOGGED ONLY (2026-09-13). At cruise lean the flat
@@ -882,8 +884,10 @@ local tri = { hdg = -1, res = -1, ang = {} }   -- last solution and raw readings
 local aimQ = false                             -- this row's cruise lean was aimed by the attitude
 
 -- redstone that is not necessarily on this computer's faces (see lib/rs.lua)
-local okR, libR = pcall(dofile, "lib/rs.lua")
-RS = okR and type(libR) == "table" and libR or nil
+do
+  local okR, libR = pcall(dofile, "lib/rs.lua")
+  RS = okR and type(libR) == "table" and libR or nil
+end
 if not RS then
   RS = { set = function(t, on) if type(t) == "string" then redstone.setOutput(t, on) return true end
                                return false, "lib/rs.lua missing, cannot drive " .. tostring(t) end,
@@ -897,8 +901,11 @@ end
 -- Chimes. Optional, silent without a speaker, and every call returns instantly
 -- so nothing here can stall the control loop.
 -- telemetry packet format; nil = no telemetry
-local okL, LINK = pcall(dofile, "lib/link.lua")
-if not okL or type(LINK) ~= "table" then LINK = nil end
+local LINK
+do
+  local okL, L = pcall(dofile, "lib/link.lua")
+  LINK = (okL and type(L) == "table") and L or nil
+end
 -- what the leg machine publishes for linkLoop, filled next to the log row
 local TLM = {}
 local chime = { play = function() end, loop = function() while true do sleep(1) end end }
@@ -1122,45 +1129,50 @@ local function monLoop()
 end
 
 -- pump: hold a redstone side and/or spin a CC&A electric motor for the flight
-local pumpMotor = CFG.PUMP_MOTOR and peripheral.wrap(CFG.PUMP_MOTOR) or nil
-if CFG.PUMP_MOTOR and not pumpMotor then print("WARNING: pump motor " .. CFG.PUMP_MOTOR .. " not found") end
-local function pump(on)
-  if CFG.PUMP_SIDE then
-    local ok, err = RS.set(CFG.PUMP_SIDE, on)
-    if not ok then print("PUMP REDSTONE FAILED: " .. tostring(err)) end
-  end
-  if pumpMotor then
-    if on then pumpMotor.setSpeed(CFG.PUMP_RPM) else pumpMotor.stop() end
+local pump
+do
+  local pumpMotor = CFG.PUMP_MOTOR and peripheral.wrap(CFG.PUMP_MOTOR) or nil
+  if CFG.PUMP_MOTOR and not pumpMotor then print("WARNING: pump motor " .. CFG.PUMP_MOTOR .. " not found") end
+  function pump(on)
+    if CFG.PUMP_SIDE then
+      local ok, err = RS.set(CFG.PUMP_SIDE, on)
+      if not ok then print("PUMP REDSTONE FAILED: " .. tostring(err)) end
+    end
+    if pumpMotor then
+      if on then pumpMotor.setSpeed(CFG.PUMP_RPM) else pumpMotor.stop() end
+    end
   end
 end
 -- forward (nose-axis) speed from the velocity sensor, positive = moving forward
 local pos = { x = 0, z = 0, vx = 0, vz = 0, vy = nil, t = 0, rej = 0, wy = 0 }   -- vy: Sable vertical speed; wy: world yaw rate, deg/s
 
 -- raw sensor reads, in the AIRFRAME's own (tilted) frame
-local sFwd = peripheral.wrap(CFG.FWD_NAME)
-local sLat = CFG.LAT_NAME and peripheral.wrap(CFG.LAT_NAME) or nil
-local sVrt = CFG.VRT_NAME and peripheral.wrap(CFG.VRT_NAME) or nil
+local SENS = {
+  fwd = peripheral.wrap(CFG.FWD_NAME),
+  lat = CFG.LAT_NAME and peripheral.wrap(CFG.LAT_NAME) or nil,
+  vrt = CFG.VRT_NAME and peripheral.wrap(CFG.VRT_NAME) or nil,
+}
 -- Velocity sensors are optional since the move to CC:Sable. Without them,
 -- body-frame speed is world velocity from the pose loop rotated by heading,
 -- which costs no peripheral calls at all.
-local haveVelSensors = sFwd ~= nil
+local haveVelSensors = SENS.fwd ~= nil
 if not haveVelSensors then
   print("no velocity sensors - body speed derived from Sable velocity + heading")
 else
-  if not sLat then print("WARNING: no lateral velocity sensor") end
-  if not sVrt then print("WARNING: no vertical sensor - tilt correction off") end
+  if not SENS.lat then print("WARNING: no lateral velocity sensor") end
+  if not SENS.vrt then print("WARNING: no vertical sensor - tilt correction off") end
 end
 
-local function rawFwd() return sFwd and CFG.FWD_SIGN2 * sFwd.getVelocity() or 0 end
-local function rawLat() return sLat and CFG.LAT_SIGN * sLat.getVelocity() or 0 end
-local function rawVrt() return sVrt and CFG.VRT_SIGN * sVrt.getVelocity() or 0 end
+local function rawFwd() return SENS.fwd and CFG.FWD_SIGN2 * SENS.fwd.getVelocity() or 0 end
+local function rawLat() return SENS.lat and CFG.LAT_SIGN * SENS.lat.getVelocity() or 0 end
+local function rawVrt() return SENS.vrt and CFG.VRT_SIGN * SENS.vrt.getVelocity() or 0 end
 
 -- Sensors are bolted to the airframe and tilt with it. With the vertical axis
 -- measured we can rotate the body vector back to level, so "forward" means
 -- horizontal-forward even at 70 degrees of lean.
 local function bodyVel(p, r)
   local f, l, u = rawFwd(), rawLat(), rawVrt()
-  if not sVrt then return f, l end
+  if not SENS.vrt then return f, l end
   local cp, sp = math.cos(math.rad(p)), math.sin(math.rad(p))
   local cr, sr = math.cos(math.rad(r)), math.sin(math.rad(r))
   return f * cp + u * sp, l * cr + u * sr
@@ -1189,16 +1201,16 @@ local function correctedHeading(p, r, rawH)
   return math.deg(math.atan2(x2, y2)) % 360
 end
 
-local hs, hc = 0, 1
+local HS = { s = 0, c = 1 }   -- smoothed heading, as sin and cos
 do local a0 = gim.getAngles() local r0 = math.rad(correctedHeading(a0[1], a0[2]))
-   hs, hc = math.sin(r0), math.cos(r0) end
+   HS.s, HS.c = math.sin(r0), math.cos(r0) end
 -- Takes the gimbal angles and raw nav angle the caller already has, so this
 -- adds NO peripheral calls to the loop.
 local function navHeading(p, r0deg, rawH)
   local r = math.rad(correctedHeading(p, r0deg, rawH))
-  hs = hs + CFG.HDG_ALPHA * (math.sin(r) - hs)
-  hc = hc + CFG.HDG_ALPHA * (math.cos(r) - hc)
-  return math.deg(math.atan2(hs, hc)) % 360
+  HS.s = HS.s + CFG.HDG_ALPHA * (math.sin(r) - HS.s)
+  HS.c = HS.c + CFG.HDG_ALPHA * (math.cos(r) - HS.c)
+  return math.deg(math.atan2(HS.s, HS.c)) % 360
 end
 
 -- heading derived from velocity: the angle between world motion (gps) and
@@ -1330,7 +1342,7 @@ end
 
 
 -- ---------- modes ----------
-local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ, padName
+local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ
 local padY, dockAlt, cruiseY, undockFirst, spinDeg
 local landGround = CFG.LAND_GROUND   -- ground altitude for the descent profile
 -- A mission is a list of legs run back to back. Each leg sets up the ordinary
@@ -1344,28 +1356,29 @@ local landAtEnd = false              -- a "go" that finishes by landing rather t
 -- variables it assigns.
 -- Named dock points. No file means no pads, and every command behaves exactly
 -- as it did when the only pad was CFG.HOME_*.
-local PADLIB, PADS = nil, {}
+-- one table, not four locals: see the note on locals above flyLeg
+local PAD = { lib = nil, list = {}, name = nil }
 do
   local okp, P = pcall(dofile, "lib/pads.lua")
   if okp and type(P) == "table" then
-    PADLIB = P
+    PAD.lib = P
     local bad
-    PADS, bad = P.load(CFG.PADS_FILE or "pads.lua", fs)
+    PAD.list, bad = P.load(CFG.PADS_FILE or "pads.lua", fs)
     for _, why in ipairs(bad) do print("pads: " .. why) end
   end
 end
 
-local function padNamed(name)
-  local p = PADLIB and PADLIB.get(PADS, name)
+function PAD.named(name)
+  local p = PAD.lib and PAD.lib.get(PAD.list, name)
   if p then return p end
-  local known = PADLIB and table.concat(PADLIB.names(PADS), ", ") or ""
+  local known = PAD.lib and table.concat(PAD.lib.names(PAD.list), ", ") or ""
   error(string.format("no pad called '%s' (known: %s). `fly pads` lists them, `fly pad add <name>` records one.",
     tostring(name), known ~= "" and known or "none"), 0)
 end
 
 -- The home pad: a pad called "home" if there is one, else CFG.
-local function homePad()
-  local p = PADLIB and PADLIB.get(PADS, "home")
+function PAD.home()
+  local p = PAD.lib and PAD.lib.get(PAD.list, "home")
   if p then return p end
   return { name = "home", x = CFG.HOME_X, y = CFG.HOME_Y, z = CFG.HOME_Z,
            trimX = CFG.DOCK_TRIM_X, trimZ = CFG.DOCK_TRIM_Z }
@@ -1405,10 +1418,10 @@ else
     -- <x> <y> <z>: the same order as fly land, y being the pad altitude.
     -- A NAME instead is a pad from pads.lua; nothing at all is the home pad.
     local pad = nil
-    if arg[2] and not tonumber(arg[2]) then pad = padNamed(arg[2])
-    elseif not arg[2] then pad = homePad() end
+    if arg[2] and not tonumber(arg[2]) then pad = PAD.named(arg[2])
+    elseif not arg[2] then pad = PAD.home() end
     if pad then
-      padName = pad.name
+      PAD.name = pad.name
       tgtX = blockCentre(pad.x) + (pad.trimX or CFG.DOCK_TRIM_X)
       padY = pad.y
       tgtZ = blockCentre(pad.z) + (pad.trimZ or CFG.DOCK_TRIM_Z)
@@ -1456,8 +1469,8 @@ else
     -- It stays docked there, so loading happens at the depot.
     if not CFG.DOCK_SIDE then error("ferry needs CFG.DOCK_SIDE set") end
     if not arg[2] or tonumber(arg[2]) then error("ferry takes a pad name: fly ferry <pad>   (fly pads lists them)", 0) end
-    local pad = padNamed(arg[2])
-    padName = pad.name
+    local pad = PAD.named(arg[2])
+    PAD.name = pad.name
     goal = tonumber(arg[3]) or pad.cruiseY or CFG.CRUISE_Y
     legs = {
       { leg = "dock", x = blockCentre(pad.x), z = blockCentre(pad.z), padY = pad.y, y = goal,
@@ -1475,7 +1488,7 @@ else
     local dx, dy, dz
     if arg[2] and not tonumber(arg[2]) then
       -- a pad name: drop over that pad rather than at typed coordinates
-      local pad = padNamed(arg[2])
+      local pad = PAD.named(arg[2])
       dx, dy, dz = pad.x, pad.y, pad.z
       goal = tonumber(arg[3]) or pad.cruiseY or CFG.CRUISE_Y
     else
@@ -1486,7 +1499,7 @@ else
     end
     -- Home is the home PAD, not wherever the craft is standing: a mission
     -- launched from the wrong place still comes back to the right one.
-    local hp = homePad()
+    local hp = PAD.home()
     home = { x = blockCentre(hp.x), z = blockCentre(hp.z), padY = hp.y }
     legs = {
       { leg = "cruise", x = blockCentre(dx), z = blockCentre(dz), y = goal, undock = true },
@@ -1519,7 +1532,7 @@ end)() end
 -- the shell. Nothing below this line runs, so no log, no pump, no thrust.
 if mode == "pads" then
   local file = CFG.PADS_FILE or "pads.lua"
-  if not PADLIB then error("lib/pads.lua is missing - run `startup` to update", 0) end
+  if not PAD.lib then error("lib/pads.lua is missing - run `startup` to update", 0) end
   local sub = (arg[1] == "pad") and arg[2] or nil
   if sub == "add" then
     local name = arg[3] or error("usage: fly pad add <name>   (while docked on the pad)", 0)
@@ -1531,31 +1544,31 @@ if mode == "pads" then
       trimX = CFG.DOCK_TRIM_X ~= 0 and CFG.DOCK_TRIM_X or nil,
       trimZ = CFG.DOCK_TRIM_Z ~= 0 and CFG.DOCK_TRIM_Z or nil,
       note = arg[4] and table.concat(arg, " ", 4) or nil }
-    local okp, why = PADLIB.put(PADS, entry)
+    local okp, why = PAD.lib.put(PAD.list, entry)
     if not okp then error("pad add: " .. tostring(why), 0) end
-    local saved, serr = PADLIB.save(file, PADS, fs)
+    local saved, serr = PAD.lib.save(file, PAD.list, fs)
     if not saved then error("pad add: " .. tostring(serr), 0) end
-    local p = PADLIB.get(PADS, name)
+    local p = PAD.lib.get(PAD.list, name)
     print(string.format("pad '%s' recorded at %d %d %d (%s)", p.name, p.x, p.y, p.z, file))
     print("that height is the altimeter minus the dock gap - record it DOCKED, or fix y by hand")
   elseif sub == "del" or sub == "rm" or sub == "remove" then
-    local gone = PADLIB.remove(PADS, arg[3] or "")
+    local gone = PAD.lib.remove(PAD.list, arg[3] or "")
     if not gone then error("no pad called '" .. tostring(arg[3]) .. "'", 0) end
-    local saved, serr = PADLIB.save(file, PADS, fs)
+    local saved, serr = PAD.lib.save(file, PAD.list, fs)
     if not saved then error("pad del: " .. tostring(serr), 0) end
-    print(string.format("pad '%s' forgotten (%d left)", gone.name, #PADS))
+    print(string.format("pad '%s' forgotten (%d left)", gone.name, #PAD.list))
   elseif sub then
     error("usage: fly pads | fly pad add <name> [note] | fly pad del <name>", 0)
   else
     print(string.format("pads in %s:", file))
-    if #PADS == 0 then print("  none yet - dock on a pad and run: fly pad add <name>") end
-    for _, p in ipairs(PADS) do
+    if #PAD.list == 0 then print("  none yet - dock on a pad and run: fly pad add <name>") end
+    for _, p in ipairs(PAD.list) do
       print(string.format("  %-10s %6d %4d %6d  %5.0f away%s", p.name, p.x, p.y, p.z,
-        PADLIB.dist(p, pos.x, pos.z), p.note and ("  " .. p.note) or ""))
+        PAD.lib.dist(p, pos.x, pos.z), p.note and ("  " .. p.note) or ""))
     end
-    local hp = homePad()
+    local hp = PAD.home()
     print(string.format("home: %d %d %d%s", hp.x, hp.y, hp.z,
-      PADLIB.get(PADS, "home") and "" or "  (from CFG - `fly pad add home` while docked to fix it here)"))
+      PAD.lib.get(PAD.list, "home") and "" or "  (from CFG - `fly pad add home` while docked to fix it here)"))
   end
   do return end
 end
@@ -1568,25 +1581,25 @@ local log = fs.open("flightlog", "w")
 -- Rows are budgeted against the free space at takeoff: every row for the
 -- first half of the budget, then every 2nd, then every 4th, then only phase
 -- changes. A write that fails anyway stops logging, never the flight.
-local logFree = (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge
-local logBudget = logFree - CFG.LOG_RESERVE_KB * 1024
-local logBytes, logOn, logN, logPhase = 0, true, 0, nil
+local LG = { free = (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge }
+LG.budget = LG.free - CFG.LOG_RESERVE_KB * 1024
+LG.bytes, LG.on, LG.n, LG.phase = 0, true, 0, nil
 local function logRow(ph, s)
-  if not logOn then return end
-  logN = logN + 1
-  local changed = ph ~= logPhase
-  if logBytes >= logBudget and not changed then return end
-  local every = (logBytes < logBudget * 0.5) and 1 or ((logBytes < logBudget * 0.8) and 2 or 4)
-  if not changed and logN % every ~= 0 then return end
-  if logBytes + #s + 1 > logFree - CFG.LOG_HARD_KB * 1024 then
-    logOn = false
+  if not LG.on then return end
+  LG.n = LG.n + 1
+  local changed = ph ~= LG.phase
+  if LG.bytes >= LG.budget and not changed then return end
+  local every = (LG.bytes < LG.budget * 0.5) and 1 or ((LG.bytes < LG.budget * 0.8) and 2 or 4)
+  if not changed and LG.n % every ~= 0 then return end
+  if LG.bytes + #s + 1 > LG.free - CFG.LOG_HARD_KB * 1024 then
+    LG.on = false
     print("flightlog: disk nearly full - logging stopped, flight continues")
     return
   end
   if pcall(log.writeLine, s) then
-    logBytes, logPhase = logBytes + #s + 1, ph
+    LG.bytes, LG.phase = LG.bytes + #s + 1, ph
   else
-    logOn = false
+    LG.on = false
     print("flightlog: write failed (disk full?) - logging stopped, flight continues")
   end
 end
@@ -1600,7 +1613,7 @@ print(mode == "find" and ("find: holding " .. findP)
    or mode == "dock" and string.format("dock: pad %.0f,%.0f Y %.0f, park at %.1f via Y %.0f",
       tgtX, tgtZ, padY, dockAlt, goal)
    or mode == "ferry" and string.format("ferry: to pad %s at %.0f,%.0f Y %.0f, via Y %.0f",
-      tostring(padName), legs[1].x, legs[1].z, legs[1].padY, goal)
+      tostring(PAD.name), legs[1].x, legs[1].z, legs[1].padY, goal)
    or mode == "deliver" and string.format("deliver: %.0f,%.0f drop at Y %.0f, home %.0f,%.0f pad %.0f, via Y %.0f",
       legs[1].x, legs[1].z, legs[2].y, home.x, home.z, home.padY, goal)
    or undockFirst and string.format("undock: release then hold Y %.1f", goal)
@@ -1669,10 +1682,14 @@ local function nextLeg()
   return true
 end
 
--- flyLeg sits near the Lua limit on locals: CC counts every local DECLARED in
--- a function, loop internals included, and refuses past 200 ("function at
--- line 1313 has more than 200 local variables", 2026-09-13, a file every
--- desktop Lua compiled). tools/check_locals.py guards it. So self-contained
+-- flyLeg sits near CC's limit on locals. CC's compiler (Cobalt) counts every
+-- local IN SCOPE - for-loop slots included - across the function being
+-- compiled AND every function enclosing it, so each top-level local declared
+-- above flyLeg in this file counts against flyLeg too. It refuses past 200
+-- ("function at line 1857 has more than 200 local variables", 2026-09-17,
+-- after the pads feature added five top-level locals; the same message on
+-- 2026-09-13). tools/check_locals.py models it; keep new top-level state in
+-- tables or do blocks. So self-contained
 -- pieces of the loop live here, as fields of one table: a field costs the
 -- main chunk nothing, where a local function would cost it one.
 local FL = {}
