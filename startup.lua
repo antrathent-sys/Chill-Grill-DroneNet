@@ -6,6 +6,9 @@
 --   startup autorun console     base computer: bring the wall back after every reboot
 --   startup autorun rsio        redstone slave on a drone
 --   startup autorun off         stop autorunning
+--   startup role                which kind of computer this is
+--   startup role <name>         drone, base, pocket, rs, or all: pull only that
+--                               role's files (manifest.lua) from now on
 --
 -- The autorun command is kept in .autorun on this computer. It waits 3 s
 -- (press any key to get the shell instead) and restarts the command if it
@@ -25,7 +28,12 @@ local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua"
                  "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua",
                  "ccryptolib/internal/hw.lua" }
 
+-- FILES is only the fallback for a computer with no role when manifest.lua
+-- cannot be read. Normally the manifest in the repo decides what to pull.
 local AUTORUN_FILE = ".autorun"
+local ROLE_FILE = ".role"            -- this computer's role, one word
+local INSTALLED_FILE = ".installed"  -- the files startup put here, one per line
+local MANIFEST = "manifest.lua"
 
 local function isFlight(cmd)
   return cmd == "fly" or cmd:match("^fly%s") ~= nil
@@ -48,6 +56,22 @@ if args[1] == "autorun" then
     print("(startup autorun off to stop)")
   end
   return
+end
+
+local roleRequest = nil
+if args[1] == "role" then
+  if not args[2] then
+    local role = ""
+    if fs.exists(ROLE_FILE) then
+      local f = fs.open(ROLE_FILE, "r")
+      role = (f.readAll() or ""):gsub("%s+", "")
+      f.close()
+    end
+    print("role: " .. (role ~= "" and role or "none - this computer pulls every file"))
+    print("startup role <drone|base|pocket|rs|all> to change it")
+    return
+  end
+  roleRequest = args[2]:lower()
 end
 
 -- Private repo? Put a GitHub token (fine-grained, read-only Contents scope on
@@ -120,11 +144,71 @@ local function reclaim(needed)
   return freeSpace()
 end
 
-local function update()
+-- The manifest runs with no environment at all: it can only list files.
+local function parseManifest(text)
+  if type(text) ~= "string" or text == "" then return nil end
+  local chunk
+  if setfenv then
+    chunk = (loadstring or load)(text, "manifest")
+    if chunk then setfenv(chunk, {}) end
+  else
+    chunk = load(text, "manifest", "t", {})
+  end
+  if not chunk then return nil end
+  local ok, t = pcall(chunk)
+  if not ok or type(t) ~= "table" or type(t.common) ~= "table" then return nil end
+  for k, list in pairs(t) do
+    if type(k) ~= "string" or type(list) ~= "table" then return nil end
+    for _, name in ipairs(list) do
+      if type(name) ~= "string" or name:sub(1, 1) == "." or name:find("..", 1, true) then return nil end
+    end
+  end
+  return t
+end
+
+local function rolesOf(man)
+  local keys = {}
+  for k in pairs(man) do
+    if k ~= "common" then keys[#keys + 1] = k end
+  end
+  table.sort(keys)
+  return keys
+end
+
+-- common, then the named roles' files (every role when roles is nil), once each
+local function filesFor(man, roles)
+  local out, seen = {}, {}
+  local function add(list)
+    for _, name in ipairs(list or {}) do
+      if not seen[name] then seen[name], out[#out + 1] = true, name end
+    end
+  end
+  add(man.common)
+  for _, k in ipairs(roles or rolesOf(man)) do add(man[k]) end
+  return out
+end
+
+local function readList(name)
+  local s = readLocal(name)
+  if not s then return nil end
+  local t = {}
+  for line in s:gmatch("[^\r\n]+") do t[#t + 1] = line end
+  return t
+end
+
+local function writeText(name, text)
+  if fs.exists(name) then fs.delete(name) end
+  local f = fs.open(name, "w")
+  f.write(text)
+  f.close()
+end
+
+local function update(roleRequest)
   -- checked before anything touches http: with the API disabled this used to
   -- crash on the commit lookup, and then nothing after it (autorun) ran
   if not http then
     print("startup: http API disabled - skipping update")
+    if roleRequest then print("startup: role not changed - it needs http to fetch its file list") end
     return
   end
 
@@ -135,6 +219,39 @@ local function update()
     ref = BRANCH
     print("WARNING: could not resolve latest commit, pulling '" .. BRANCH .. "' (may be up to 5 min stale)")
   end
+
+  -- Which files: the manifest decides, by this computer's role.
+  local man = parseManifest((fetch(ref, MANIFEST)))
+  local role = roleRequest or (readLocal(ROLE_FILE) or ""):gsub("%s+", "")
+  local wanted
+  if man then
+    if role == "" or role == "all" then
+      wanted = filesFor(man)
+    elseif role ~= "common" and man[role] then
+      wanted = filesFor(man, { role })
+    else
+      print(string.format("startup: no role '%s' (roles: %s, all)", role, table.concat(rolesOf(man), ", ")))
+      return
+    end
+  elseif roleRequest then
+    print("startup: role not changed - could not read " .. MANIFEST .. " from the repo")
+    return
+  elseif role ~= "" and role ~= "all" then
+    -- a role but no manifest: refresh what is already here, remove nothing
+    print("WARNING: could not read " .. MANIFEST .. " - updating only the files already installed")
+    wanted = readList(INSTALLED_FILE)
+    if not wanted then return end
+  else
+    wanted = FILES
+  end
+  if roleRequest then
+    if roleRequest == "all" then
+      if fs.exists(ROLE_FILE) then fs.delete(ROLE_FILE) end
+    else
+      writeText(ROLE_FILE, roleRequest)
+    end
+  end
+  print(string.format("role: %s - %d files", (role == "" or role == "all") and "all" or role, #wanted))
 
   local free = freeSpace()
   if free ~= math.huge then
@@ -147,7 +264,7 @@ local function update()
   end
 
   local updated, unchanged, failed = {}, {}, {}
-  for _, name in ipairs(FILES) do
+  for _, name in ipairs(wanted) do
     local body, err = fetch(ref, name)
     if not body or #body == 0 then
       failed[#failed + 1] = name .. " (" .. tostring(err or "empty") .. ")"
@@ -180,12 +297,34 @@ local function update()
   if #unchanged > 0 then print("unchanged: " .. table.concat(unchanged, ", ")) end
   if #failed > 0    then print("FAILED:    " .. table.concat(failed, ", ")) end
   if #updated == 0 and #failed == 0 then print("startup: all files current") end
+
+  -- Remove only what startup installed and this role no longer wants. A
+  -- computer that has never recorded what it installed may lose any file the
+  -- manifest names - never keys, logs, pads.lua or anything else of its own.
+  if man then
+    local keep = {}
+    for _, name in ipairs(wanted) do keep[name] = true end
+    local removed = {}
+    for _, name in ipairs(readList(INSTALLED_FILE) or filesFor(man)) do
+      if not keep[name] and name ~= "startup.lua" and name:sub(1, 1) ~= "." and fs.exists(name) then
+        fs.delete(name)
+        removed[#removed + 1] = name
+      end
+    end
+    if #removed > 0 then print("removed:   " .. table.concat(removed, ", ")) end
+    local have = {}
+    for _, name in ipairs(wanted) do
+      if fs.exists(name) then have[#have + 1] = name end
+    end
+    writeText(INSTALLED_FILE, table.concat(have, "\n") .. "\n")
+  end
 end
 
 -- An update that throws must not stop the autorun: a base wall that stays
 -- dark because GitHub hiccuped is worse than one running yesterday's code.
-local okU, errU = pcall(update)
+local okU, errU = pcall(update, roleRequest)
 if not okU then print("startup: update failed - " .. tostring(errU)) end
+if roleRequest then return end
 
 -- ---------------------------------------------------------------- autorun
 local cmd = readLocal(AUTORUN_FILE)

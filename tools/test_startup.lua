@@ -45,6 +45,12 @@ local function world(opts)
       end
       local name = url:match("/" .. string.rep("a", 40) .. "/(.+)$")
       if not name then return nil, "bad url " .. url end
+      w.fetched = w.fetched or {}
+      w.fetched[#w.fetched + 1] = name
+      if name == "manifest.lua" then
+        if not opts.manifest then return nil, "404" end
+        return { readAll = function() return opts.manifest end, close = function() end }
+      end
       return { readAll = function() return "-- " .. name end, close = function() end }
     end }
   end
@@ -130,6 +136,147 @@ check("a fly command already in .autorun is refused at boot", #b6.runs == 0 and 
 local b7 = world({})
 local ok7 = run(b7)
 check("no .autorun: update only, nothing run", ok7 and #b7.runs == 0 and b7.waits == 0)
+
+print("roles")
+local MAN = [[return {
+  common = { "startup.lua", "lib/link.lua" },
+  drone = { "fly.lua", "lib/db.lua" },
+  base = { "control.lua", "lib/display.lua", "lib/db.lua" },
+  pocket = {},
+}]]
+local function lines(s)
+  local t = {}
+  for l in (s or ""):gmatch("[^\n]+") do t[#t + 1] = l end
+  return t
+end
+
+local r1 = world({ manifest = MAN, files = { [".autorun"] = "control" } })
+local okR1, errR1 = run(r1, "role", "base")
+check("role base: pulls common and base only", okR1 and r1.files["control.lua"] and r1.files["lib/display.lua"]
+  and r1.files["startup.lua"] and r1.files["lib/link.lua"] and r1.files["lib/db.lua"] and not r1.files["fly.lua"], errR1)
+check("role base: saved", r1.files[".role"] == "base")
+check("role base: records what it installed", #lines(r1.files[".installed"]) == 5, r1.files[".installed"])
+check("setting a role does not start the autorun", #r1.runs == 0)
+
+-- a computer that used to pull everything: the old files go, its own files stay
+local full = { ["fly.lua"] = "old", ["control.lua"] = "old", ["console.lua"] = "old", ["lib/display.lua"] = "old",
+               [".dronekey"] = "key", ["pads.lua"] = "pads", ["flightlog"] = "log", ["myprog.lua"] = "mine" }
+local r2 = world({ manifest = MAN, files = full })
+run(r2, "role", "pocket")
+check("first role on a full install removes other roles' files", not r2.files["fly.lua"] and not r2.files["control.lua"]
+  and not r2.files["lib/display.lua"])
+check("but keeps keys, pads, logs and files the manifest never named", r2.files[".dronekey"] and r2.files["pads.lua"]
+  and r2.files["flightlog"] and r2.files["myprog.lua"] and r2.files["console.lua"] == "old")
+check("pocket gets just the common files", r2.files["startup.lua"] and r2.files["lib/link.lua"]
+  and #lines(r2.files[".installed"]) == 2, r2.files[".installed"])
+
+local r3 = world({ manifest = MAN, files = {} })
+run(r3, "role", "base")
+run(r3, "role", "drone")
+check("switching base -> drone removes base files and keeps shared ones", r3.files["fly.lua"] and not r3.files["control.lua"]
+  and not r3.files["lib/display.lua"] and r3.files["lib/db.lua"] and r3.files["lib/link.lua"])
+check("the role is now drone", r3.files[".role"] == "drone")
+
+local r4 = world({ manifest = MAN, files = { [".role"] = "drone\n", [".autorun"] = "rsio" } })
+local okR4 = run(r4)
+check("boot reads the role and pulls only its files", okR4 and r4.files["fly.lua"] and not r4.files["control.lua"])
+check("boot with a role still autoruns", r4.runs[1] == "rsio")
+check("a role never fetches another role's files", (function()
+  for _, n in ipairs(r4.fetched) do if n == "control.lua" or n == "lib/display.lua" then return false end end
+  return true
+end)())
+
+local r5 = world({ manifest = MAN, files = { ["fly.lua"] = "old" } })
+run(r5, "role", "toaster")
+check("an unknown role is refused and nothing changes", r5.files[".role"] == nil and r5.files["fly.lua"] == "old"
+  and printedHas(r5, "no role 'toaster'") and printedHas(r5, "base, drone, pocket"))
+
+local r6 = world({ manifest = MAN, files = { [".role"] = "base" } })
+run(r6, "role", "all")
+check("role all clears the role and pulls everything", r6.files[".role"] == nil and r6.files["fly.lua"]
+  and r6.files["control.lua"])
+
+local r7 = world({ files = { [".role"] = "base", [".installed"] = "startup.lua\ncontrol.lua\n", ["control.lua"] = "old",
+                             ["fly.lua"] = "left alone" } })
+local okR7 = run(r7)
+check("manifest unreadable: refresh installed files only, remove nothing", okR7 and r7.files["control.lua"] == "-- control.lua"
+  and r7.files["fly.lua"] == "left alone" and printedHas(r7, "could not read manifest.lua"))
+local r8 = world({ files = {} })
+run(r8, "role", "base")
+check("manifest unreadable: a new role is not saved", r8.files[".role"] == nil and printedHas(r8, "role not changed"))
+local r9 = world({ manifest = "os.shutdown() return {}", files = {} })
+run(r9)
+check("a manifest that is not a file list is ignored (everything, as before)", r9.files["fly.lua"] == "-- fly.lua")
+local r10 = world({ manifest = [[return { common = { "../../evil.lua" }, drone = {} }]], files = { [".role"] = "drone" } })
+run(r10)
+check("a manifest naming paths outside the computer is rejected", r10.files["../../evil.lua"] == nil)
+
+local r11 = world({ manifest = MAN, files = { [".role"] = "base" } })
+run(r11, "role")
+check("startup role on its own just reports", printedHas(r11, "role: base") and r11.fetched == nil)
+local r12 = world({ manifest = MAN, http = "missing", files = {} })
+run(r12, "role", "base")
+check("no http: role not changed, says why", r12.files[".role"] == nil and printedHas(r12, "needs http"))
+
+print("the real manifest")
+local function readFile(p)
+  local f = io.open(p, "r")
+  if not f then return nil end
+  local s = f:read("*a")
+  f:close()
+  return s
+end
+local ROOT = DIR .. "/../"
+local realMan = assert(loadstring(assert(readFile(ROOT .. "manifest.lua"), "manifest.lua missing")))()
+local all, missing = {}, {}
+for role, list in pairs(realMan) do
+  for _, name in ipairs(list) do
+    all[name] = true
+    if not readFile(ROOT .. name) then missing[#missing + 1] = role .. ":" .. name end
+  end
+end
+check("every file the manifest names exists", #missing == 0, table.concat(missing, ", "))
+local startupSrc = readFile(ROOT .. "startup.lua")
+local block = startupSrc:match("local FILES%s*=%s*(%b{})")
+local uncovered = {}
+for name in block:gmatch('"([^"]+)"') do
+  if not all[name] then uncovered[#uncovered + 1] = name end
+end
+check("the manifest covers startup's fallback list", #uncovered == 0, table.concat(uncovered, ", "))
+local notInFallback = {}
+for name in pairs(all) do
+  if not block:find('"' .. name .. '"', 1, true) then notInFallback[#notInFallback + 1] = name end
+end
+check("and the fallback list covers the manifest", #notInFallback == 0, table.concat(notInFallback, ", "))
+
+-- every dofile / shell.run inside a role's programs is carried by that role (or common)
+local gaps = {}
+for role, list in pairs(realMan) do
+  if role ~= "common" then
+    local has = {}
+    for _, n in ipairs(realMan.common) do has[n] = true end
+    for _, n in ipairs(list) do has[n] = true end
+    for _, n in ipairs(list) do
+      local src = readFile(ROOT .. n) or ""
+      for dep in src:gmatch('dofile%s*,?%s*%(?%s*"([%w_/%.%-]+%.lua)"') do
+        if all[dep] and not has[dep] then gaps[#gaps + 1] = role .. ":" .. n .. " needs " .. dep end
+      end
+      for prog in src:gmatch('shell%.run%(%s*"([%w_%-]+)"') do
+        local dep = prog .. ".lua"
+        if all[dep] and not has[dep] then gaps[#gaps + 1] = role .. ":" .. n .. " runs " .. dep end
+      end
+    end
+  end
+end
+for _, n in ipairs(realMan.common) do
+  local src = readFile(ROOT .. n) or ""
+  for dep in src:gmatch('dofile%s*,?%s*%(?%s*"([%w_/%.%-]+%.lua)"') do
+    local inCommon = false
+    for _, c in ipairs(realMan.common) do if c == dep then inCommon = true end end
+    if all[dep] and not inCommon then gaps[#gaps + 1] = "common:" .. n .. " needs " .. dep end
+  end
+end
+check("every role carries what its programs load", #gaps == 0, table.concat(gaps, "; "))
 
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
