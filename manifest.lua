@@ -39,6 +39,7 @@ return {
     "control.lua", "console.lua",
     "lib/display.lua", "lib/state.lua", "lib/screens.lua",
     "lib/db.lua", "stickers.lua",
+    "lib/devices.lua", "basectl.lua", "devices.example.lua",
   },
 
   -- the portable terminal (an advanced ender pocket computer); its program lands here

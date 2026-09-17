@@ -9,6 +9,8 @@ __pycache__/
 
 # Sealed-link keys live only on the CC computers (seckey.lua), never here
 /pads.lua
+/devices.lua
+.devstate
 .dronekey
 .dronekey.ctr
 .fleetkeys
