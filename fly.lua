@@ -167,7 +167,7 @@ local CFG = {
   -- the first quad frame (tables 4/5/7), airframe2 the hand-built frame of
   -- 2026-09-18 (tables 0/1/2). With no match the cruise flies on the flat
   -- table alone, which is only good to ~30 deg of lean.
-  ATT_PRESET = "airframe2",
+  ATT_PRESET = "airframe1",          -- airframe2 flew 97 deg off on 2026-09-18 (a mirror image: rest heading 78 vs 282) - off until resolved
   CAL_DEG = 10,                       -- fly cal: tilt of each pulse
   CAL_T = 2.0,                        -- s each pulse lasts; the counter-pulse is the same
   CAL_SETTLE = 4.0,                   -- s level before the first pulse and between them
