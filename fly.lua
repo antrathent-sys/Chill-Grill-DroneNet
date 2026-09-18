@@ -498,7 +498,7 @@ local CFG = {
   -- 740 blocks off the line. The old airframe was covered by the three-table
   -- solve; this one's tables are not fitted yet. Gyro drift over a cruise is
   -- a degree or two. 0 = always blend (the old behaviour).
-  HDG_TRUST_LEAN = 35,
+  HDG_TRUST_LEAN = 0,                 -- 35 flew WORSE on 2026-09-18 (Alex) - off until the tables are fitted
   HDG_CRUISE_ALPHA = 0.01,            -- per-iteration blend of the cruise heading (tau ~10 s at 10 Hz):
                                       -- the flat table's reading wanders with tilt, the craft's yaw does not
 
