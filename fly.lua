@@ -748,6 +748,15 @@ if #thrs > 1 then (function()
     local n = peripheral.getName(t)
     if not byName[n] then error("thruster " .. n .. " is not in the mixer map - run mixcal") end
   end
+  -- thrust on both sides of both axes, or the mixer cannot hold it level: a
+  -- two-thruster map (two of four off the network) tipped the new airframe
+  -- over in its first second, 2026-09-18
+  local side = {}
+  for _, m in ipairs(map) do side["p" .. m.pitch], side["r" .. m.roll] = true, true end
+  if not (side["p1"] and side["p-1"] and side["r1"] and side["r-1"]) then
+    error("the thruster map has nothing on one side of the pitch or roll axis - it would tip over. "
+      .. #thrs .. " thruster(s) on the network: check every one has its wired modem on, then run mixcal", 0)
+  end
   for _, m in ipairs(map) do mixNames[#mixNames + 1] = m.name end
   local n, missing = mixer.configure({ thrusters = map, VEC_MAX = CFG.VEC_MAX })
   if #missing > 0 then error("mixer map names thrusters that are not fitted: " .. table.concat(missing, " ")) end

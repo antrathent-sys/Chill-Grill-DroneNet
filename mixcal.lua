@@ -196,6 +196,22 @@ else
   end
 end
 
+-- A mixer can only balance a craft with thrust on both sides of both axes.
+-- On 2026-09-18 the new airframe's computer saw two of its four thrusters
+-- (the other two were not on its network), both on one side: the map was
+-- written, and the craft tipped over on its first second of flight.
+local side = {}
+for _, r in ipairs(results) do side[r.corner:sub(1, 1)] = true side[r.corner:sub(2, 2)] = true end
+if not (side.A and side.B and side["1"] and side["2"]) then
+  print("")
+  print("NOT WRITTEN: " .. #results .. " thruster(s) found and none on the other side of the")
+  print((side.A and side.B) and "roll axis." or "pitch axis.")
+  print("The mixer cannot balance that - the craft would tip over. Every thruster")
+  print("needs a wired modem switched on (red ring) and cabled to this computer.")
+  print("Fix the wiring, check mixcal lists them all, and run it again.")
+  return
+end
+
 -- ---------- save ----------
 local lines = { "thruster,dpitch,droll,corner,thrust" }
 for _, r in ipairs(results) do
