@@ -65,6 +65,8 @@ check("a cruise leg is CRUISE", S.stateWord({ phase = "cruise", legKind = "cruis
 check("heading for a pad is INBOUND", S.stateWord({ phase = "cruise", legKind = "dock" }, "LIVE") == "INBOUND"
   and S.stateWord({ phase = "descend" }, "LIVE") == "INBOUND")
 check("hovering is HOLD", S.stateWord({ phase = "hold", legKind = "hover" }, "LIVE") == "HOLD")
+check("the beacon on the ground, not docked, is STANDBY", S.stateWord({ phase = "idle", dock = 0 }, "LIVE") == "STANDBY")
+check("the beacon docked is CRADLED", S.stateWord({ phase = "docked", dock = 1 }, "LIVE") == "CRADLED")
 
 print("a job followed from telemetry (mock loop)")
 local sim = S.mock(D)

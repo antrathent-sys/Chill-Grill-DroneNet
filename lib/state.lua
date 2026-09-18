@@ -48,6 +48,7 @@ function S.stateWord(p, link)
     return "INBOUND"
   end
   if ph == "climb" or ph == "cruise" or ph == "brake" then return "CRUISE" end
+  if ph == "idle" then return "STANDBY" end            -- beacon: on, not flying, not docked
   return "HOLD"
 end
 
