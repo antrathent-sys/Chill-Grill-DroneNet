@@ -166,6 +166,11 @@ def make_test_copy():
     out, nsub = re.subn(r'HOME_X = -?\d+, HOME_Y = -?\d+, HOME_Z = -?\d+,', 'HOME_X = 0, HOME_Y = 70, HOME_Z = 0,', out, count=1)
     if nsub != 1:
         raise SystemExit("run_mock: could not find HOME_X/Y/Z in fly.lua to rewrite")
+    # the mock's nav table reads as the first quad frame's did, so the heading
+    # calibration under test is that frame's (the real craft has its own)
+    out, nsub = re.subn(r'HDG_OFFSET = -?\d+,', 'HDG_OFFSET = 269,', out, count=1)
+    if nsub != 1:
+        raise SystemExit("run_mock: could not find HDG_OFFSET in fly.lua to rewrite")
     open(TEST_COPY, "w", encoding="utf-8", newline="\n").write(out)
     return TEST_COPY
 

@@ -125,8 +125,15 @@ local CFG = {
   -- velocity response to pitch and roll, tools/fit_heading.py): the flat nav
   -- table faces DOWN, so it reads mirrored (HDG_SIGN -1). Both flights give
   -- the same offset, 269, and PITCH_DIR/ROLL_DIR stay as on the old frame.
+  -- NEW AIRFRAME 2026-09-18: the first hover (pastebin 2MPeM8B9) ran away
+  -- 150-180 deg from its hold point with the tilt tracking its demand - the
+  -- heading was wrong, not the attitude loop. tools/fit_heading.py on it:
+  -- pitch+ travels toward 294, controller heading 114 while the log said
+  -- ~278, so OFFSET 269 -> 105. One flight cannot separate the mirror
+  -- (HDG_SIGN): if the next hover still drifts at some other angle, flip
+  -- the sign and refit from both logs.
   HDG_SIGN = -1,
-  HDG_OFFSET = 269,
+  HDG_OFFSET = 105,
   HDG_ALPHA = 0.15,
   -- Velocity sensors, addressed BY NAME so peripheral.find ordering can't
   -- shuffle them. Identified in freefall: velocity_sensor_3 read -24 b/s while
