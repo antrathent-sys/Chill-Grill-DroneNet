@@ -206,21 +206,27 @@ A.presets = {
       -- { name = "navigation_table_9", normal = "+z", forward = "-x" },
     },
   },
-  -- The hand-built airframe of 2026-09-18 (home pad 1892 91 365). Fitted
-  -- by tools/fit_mounts.py from the 300-block test flight (paste.rs 5T2eB):
-  -- three tables agree to 0.03 deg and north stays horizontal to 0.01 over
-  -- 95 tilted samples. The fit's own answer put the nose south (heading 180
-  -- at rest, where the controller and the flight say 0), so, as with
-  -- airframe1, every mount is turned 180 about y and the gimbal signs go
-  -- with it. Checked over the same log: through the outbound cruise the
-  -- solved heading stays within 10 deg of the flown 0 from level to 75 deg
-  -- of roll lean and back through -55, where the flat table alone drifts.
+  -- The hand-built airframe of 2026-09-18 (home pad 1892 91 365).
+  -- tools/fit_mounts.py on the 300-block test flight (paste.rs 5T2eB) gave
+  -- nav1 (-y,+x) nav0 (+z,-x) nav2 (+x,+z), gimbal (+1,+1): tables agreeing
+  -- to 0.03 deg, north horizontal to 0.01. That fit is blind to reflections,
+  -- and its first version turned 180 about y flew 97 deg off (paste.rs
+  -- 883Jh): a mirror image. The mirror only shows at a rest heading away
+  -- from 0, so it was resolved on three flights with rest headings 0, 282
+  -- and 61 (5T2eB, 883Jh, 22xuh) by searching every reflection of the fit
+  -- with every gimbal sign pair: exactly one has the solved heading match
+  -- the flat table's at rest in all three (0.1 deg), the thrust lean within
+  -- 3-12 deg of the direction of travel in all three cruises, and north
+  -- horizontal to 0.007. It is the fit reflected through the horizontal
+  -- plane and through z - the flat table's normal is +y, not -y - with
+  -- gimbal signs (+1, -1). The old airframe1 got the same lesson from its
+  -- 10,000-block flight.
   airframe2 = {
-    gimbalSigns = { pitch = -1, roll = -1 },
+    gimbalSigns = { pitch = 1, roll = -1 },
     tables = {
-      { name = "navigation_table_1", normal = "-y", forward = "-x" },   -- the flat one
-      { name = "navigation_table_0", normal = "-z", forward = "+x" },
-      { name = "navigation_table_2", normal = "-x", forward = "-z" },
+      { name = "navigation_table_1", normal = "+y", forward = "+x" },   -- the flat one
+      { name = "navigation_table_0", normal = "-z", forward = "-x" },
+      { name = "navigation_table_2", normal = "+x", forward = "-z" },
     },
   },
 }
