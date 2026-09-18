@@ -200,9 +200,7 @@ local function thinLog(src, dst)
   if fs.exists(dst) then fs.delete(dst) end
   local w = fs.open(dst, "w")
   if not w then return false end
-  w.write(table.concat(out, "
-") .. "
-")
+  w.write(table.concat(out, "\n") .. "\n")
   w.close()
   return true
 end

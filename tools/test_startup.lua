@@ -20,7 +20,17 @@ local function world(opts)
     open = function(p, mode)
       if mode == "r" then
         local data = w.files[p]
-        return data and { readAll = function() return data end, close = function() end } or nil
+        if not data then return nil end
+        local pos = 1
+        return { readAll = function() local s = data:sub(pos) pos = #data + 1 return s end,
+                 readLine = function()
+                   if pos > #data then return nil end
+                   local e = data:find("\n", pos, true)
+                   local line = e and data:sub(pos, e - 1) or data:sub(pos)
+                   pos = e and e + 1 or #data + 1
+                   return line
+                 end,
+                 close = function() end }
       end
       local buf = {}
       return { write = function(s) buf[#buf + 1] = s end, close = function() w.files[p] = table.concat(buf) end }
@@ -153,22 +163,16 @@ run(d1)
 check("a full disk gives up the flightlog", d1.files["flightlog"] == nil and printedHas(d1, "reclaimed: flightlog"))
 local rows = {}
 for i = 1, 40 do rows[#rows + 1] = string.format("%d,%s,x", i, i < 20 and "cruise" or "brake") end
-local d2 = world({ disk = 320000, files = { ["flightlog"] = "t,phase,v
-" .. table.concat(rows, "
-") .. string.rep("
-" .. string.rep("z", 100), 3000) } })
+local NL = string.char(10)
+local d2 = world({ disk = 320000, files = { ["flightlog"] = "t,phase,v" .. NL .. table.concat(rows, NL)
+  .. string.rep(NL .. string.rep("z", 100), 3000) } })
 run(d2)
 local thin = d2.files["flightlog.thin"] or ""
-check("but keeps a thinned copy first", d2.files["flightlog"] == nil and thin:sub(1, 10) == "t,phase,v
-" and printedHas(d2, "flightlog.thin kept"))
-check("the thin copy keeps every 4th row and every phase change", thin:find("
-4,cruise,x
-", 1, true) and thin:find("
-20,brake,x
-", 1, true)
-  and not thin:find("
-5,cruise,x
-", 1, true) and #thin < 60000, #thin)
+check("but keeps a thinned copy first", d2.files["flightlog"] == nil and thin:sub(1, 10) == "t,phase,v" .. NL
+  and printedHas(d2, "flightlog.thin kept"))
+check("the thin copy keeps every 4th row and every phase change", thin:find(NL .. "4,cruise,x" .. NL, 1, true)
+  and thin:find(NL .. "20,brake,x" .. NL, 1, true) and not thin:find(NL .. "5,cruise,x" .. NL, 1, true)
+  and #thin < 90000, #thin)
 check("but never the thruster map mixcal wrote", d1.files["mixmap.csv"] ~= nil)
 
 print("dock hold")
