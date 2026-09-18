@@ -582,7 +582,16 @@ local CFG = {
   BRAKE_LINEAR = true,
   BRAKE_D0 = 12,                      -- blocks
   BRAKE_S = 3.37,                     -- blocks per b/s of entry speed
-  BRAKE_MARGIN = 1.75,               -- 1.1 fitted the first quad frame. This frame: 53 b/s needed 250 blocks (5T2eB), 89 b/s needed 550 (TdE5A, 128 over at 1.35)
+  BRAKE_MARGIN = 1.5,
+  -- The speed at the trigger is not the speed the brake has to kill: this
+  -- frame keeps accelerating for the ~3 s the lean takes to reverse from 84
+  -- deg forward to 45 back, and every logged brake peaked 30-35 b/s above
+  -- its trigger speed (5T2eB, TdE5A, rd5Ww: 53->63, 89->107, 71->106,
+  -- 75->106). Predicting on the trigger speed alone overshot 110-170 blocks
+  -- however the margin was raised (1.1, 1.35, 1.75). The trigger now
+  -- predicts the reversal peak, trigger + BRAKE_LEAD_V, and the margin goes
+  -- back near the fitted one. 0 = the old behaviour.
+  BRAKE_LEAD_V = 30,
   BRAKE_LIN_MIN_V = 15,               -- b/s: below this the old trigger (no real cruise is this slow)
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
@@ -2073,7 +2082,7 @@ end
 -- old trigger used; gs the true ground speed, capped at 200 for the fit.
 function FL.brakeDistance(fs, gs)
   if CFG.BRAKE_LINEAR and gs >= CFG.BRAKE_LIN_MIN_V then
-    return CFG.BRAKE_MARGIN * (CFG.BRAKE_D0 + CFG.BRAKE_S * math.min(gs, 200))
+    return CFG.BRAKE_MARGIN * (CFG.BRAKE_D0 + CFG.BRAKE_S * math.min(gs + CFG.BRAKE_LEAD_V, 200))
   end
   return CFG.BRAKE_K * fs * fs / 10
 end
@@ -2097,7 +2106,7 @@ end
 function FL.planSpeed(d)
   if CFG.CRUISE_TAPER == "brake" then
     if CFG.BRAKE_LINEAR then
-      return math.max(CFG.BRAKE_LIN_MIN_V, (d / CFG.BRAKE_MARGIN - CFG.BRAKE_D0) / CFG.BRAKE_S)
+      return math.max(CFG.BRAKE_LIN_MIN_V, (d / CFG.BRAKE_MARGIN - CFG.BRAKE_D0) / CFG.BRAKE_S - CFG.BRAKE_LEAD_V)
     end
     return math.sqrt(10 * d / CFG.BRAKE_K)
   end
