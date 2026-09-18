@@ -163,6 +163,11 @@ local CFG = {
                                       -- (reads a constant 0 or 180 when level) and the heading was
                                       -- garbage for two flights. fly cal picks the flat one and
                                       -- writes cal.lua, which overrides this.
+  -- Which table mounting in lib/attitude.lua this craft has. airframe1 is
+  -- the first quad frame (tables 4/5/7), airframe2 the hand-built frame of
+  -- 2026-09-18 (tables 0/1/2). With no match the cruise flies on the flat
+  -- table alone, which is only good to ~30 deg of lean.
+  ATT_PRESET = "airframe2",
   CAL_DEG = 10,                       -- fly cal: tilt of each pulse
   CAL_T = 2.0,                        -- s each pulse lasts; the counter-pulse is the same
   CAL_SETTLE = 4.0,                   -- s level before the first pulse and between them
@@ -961,7 +966,8 @@ if not ATT then print("WARNING: lib/attitude.lua missing - attitude errors fall 
 -- yet: its heading is known to come out mirrored against the flight-fitted one
 -- (BACKLOG), so the raw table angles are logged beside it and the convention
 -- is fitted from real cruise data before the cruise is allowed to use it.
-local triPre = ATT and ATT.presets and ATT.presets.airframe1 or nil
+local triPre = ATT and ATT.presets and ATT.presets[CFG.ATT_PRESET] or nil
+if ATT and not triPre then print("WARNING: no attitude preset called " .. tostring(CFG.ATT_PRESET)) end
 local triTables = {}
 if triPre then
   for _, e in ipairs(triPre.tables) do

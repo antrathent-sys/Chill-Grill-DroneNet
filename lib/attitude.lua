@@ -206,6 +206,23 @@ A.presets = {
       -- { name = "navigation_table_9", normal = "+z", forward = "-x" },
     },
   },
+  -- The hand-built airframe of 2026-09-18 (home pad 1892 91 365). Fitted
+  -- by tools/fit_mounts.py from the 300-block test flight (paste.rs 5T2eB):
+  -- three tables agree to 0.03 deg and north stays horizontal to 0.01 over
+  -- 95 tilted samples. The fit's own answer put the nose south (heading 180
+  -- at rest, where the controller and the flight say 0), so, as with
+  -- airframe1, every mount is turned 180 about y and the gimbal signs go
+  -- with it. Checked over the same log: through the outbound cruise the
+  -- solved heading stays within 10 deg of the flown 0 from level to 75 deg
+  -- of roll lean and back through -55, where the flat table alone drifts.
+  airframe2 = {
+    gimbalSigns = { pitch = -1, roll = -1 },
+    tables = {
+      { name = "navigation_table_1", normal = "-y", forward = "-x" },   -- the flat one
+      { name = "navigation_table_0", normal = "-z", forward = "+x" },
+      { name = "navigation_table_2", normal = "-x", forward = "-z" },
+    },
+  },
 }
 local AXIS = { ["+x"] = v(1,0,0), ["-x"] = v(-1,0,0), ["+y"] = v(0,1,0),
                ["-y"] = v(0,-1,0), ["+z"] = v(0,0,1), ["-z"] = v(0,0,-1) }
