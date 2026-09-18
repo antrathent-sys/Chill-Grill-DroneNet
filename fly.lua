@@ -623,7 +623,7 @@ local CFG = {
   -- reading where it stops, minus the pad Y.
   -- The home pad, in F3 block coordinates and pad Y. Fixed here, not taken
   -- from wherever the craft happened to be when a command was typed.
-  HOME_X = 0, HOME_Y = 63, HOME_Z = 0,
+  HOME_X = 1892, HOME_Y = 91, HOME_Z = 365,   -- the base dock, 2026-09-18 (Alex)
   -- Named dock points (lib/pads.lua): the home pad plus every depot. Kept on
   -- the computer, never in the repo - startup would overwrite it and pads are
   -- per world. A pad called "home" wins over HOME_X/Y/Z above. nil = no pads.
