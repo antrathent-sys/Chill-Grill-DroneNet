@@ -582,7 +582,7 @@ local CFG = {
   BRAKE_LINEAR = true,
   BRAKE_D0 = 12,                      -- blocks
   BRAKE_S = 3.37,                     -- blocks per b/s of entry speed
-  BRAKE_MARGIN = 1.35,               -- 1.1 fitted the first quad frame; the 2026-09-18 frame braked at 198 from 53 b/s and stopped at 250 (paste.rs 5T2eB)
+  BRAKE_MARGIN = 1.75,               -- 1.1 fitted the first quad frame. This frame: 53 b/s needed 250 blocks (5T2eB), 89 b/s needed 550 (TdE5A, 128 over at 1.35)
   BRAKE_LIN_MIN_V = 15,               -- b/s: below this the old trigger (no real cruise is this slow)
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
