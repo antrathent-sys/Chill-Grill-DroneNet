@@ -490,6 +490,15 @@ local CFG = {
   CRUISE_LEAN_AXIS = 45,              -- deg clockwise from the nose along which the lean is applied:
                                       -- 0 = pitch (nose leads), 90 = roll (starboard leads), 45 = diagonal
                                       -- (fins on the corners: tools/yaw_sweep.py on the 83 b/s log says ~+45)
+  -- Above this lean the flat table's heading is not believed at all and the
+  -- cruise heading runs on Sable's yaw rate alone. The flat table de-rotated
+  -- by gimbal angles is only good to ~30 deg; on 2026-09-18 (paste.rs imDEz)
+  -- at 75 deg and 186 b/s it jumped 103 -> 49 -> 18 -> 86 -> 353 in three
+  -- seconds, the yaw hold spun the craft at 157 deg/s, and the cruise ended
+  -- 740 blocks off the line. The old airframe was covered by the three-table
+  -- solve; this one's tables are not fitted yet. Gyro drift over a cruise is
+  -- a degree or two. 0 = always blend (the old behaviour).
+  HDG_TRUST_LEAN = 35,
   HDG_CRUISE_ALPHA = 0.01,            -- per-iteration blend of the cruise heading (tau ~10 s at 10 Hz):
                                       -- the flat table's reading wanders with tilt, the craft's yaw does not
 
@@ -962,6 +971,23 @@ if triPre then
     end
   end
 end
+-- No preset tables on this airframe? Read the first three tables present
+-- anyway, LOGGED ONLY (no mount, so no solve): a flight with some lean is
+-- then a tumble log for tools/fit_mounts.py, and the solve can be fitted
+-- for this frame without a bench session.
+local triLog = {}
+if #triTables == 0 then
+  local names = {}
+  for _, nm in ipairs(peripheral.getNames()) do
+    if peripheral.getType(nm) == "navigation_table" then names[#names + 1] = nm end
+  end
+  table.sort(names)
+  for i = 1, math.min(3, #names) do
+    triTables[#triTables + 1] = { name = names[i], p = peripheral.wrap(names[i]), mount = nil }
+  end
+  if #triTables > 0 then print("attitude: no fitted tables - logging " .. #triTables .. " for the mount fit") end
+end
+for i = 1, 3 do triLog[i] = triTables[i] and triTables[i].name or nil end
 local tri = { hdg = -1, res = -1, ang = {} }   -- last solution and raw readings; -1 = none
 local aimQ = false                             -- this row's cruise lean was aimed by the attitude
 
@@ -1762,7 +1788,11 @@ local function logRow(ph, s)
 end
 -- athr/amax are what the thrusters were ACTUALLY given, mean and worst. pwr
 -- is only what the altitude loop asked for; they part company whenever sat=1.
-pcall(log.writeLine, "t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg,nav4,nav5,nav7,trihdg,trires,aimq")
+-- the three table columns are named after the tables actually read
+pcall(log.writeLine, "t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg,"
+  .. (triLog[1] and triLog[1]:gsub("navigation_table_", "nav") or "nav4") .. ","
+  .. (triLog[2] and triLog[2]:gsub("navigation_table_", "nav") or "nav5") .. ","
+  .. (triLog[3] and triLog[3]:gsub("navigation_table_", "nav") or "nav7") .. ",trihdg,trires,aimq")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -1966,7 +1996,7 @@ function FL.triRead(pitch, roll, t)
   for _, tt in ipairs(triTables) do
     local ok, ang = pcall(tt.p.getRelativeAngle)
     tri.ang[tt.name] = (ok and type(ang) == "number") and ang or nil
-    if tri.ang[tt.name] then readings[#readings + 1] = { mount = tt.mount, angle = ang } end
+    if tri.ang[tt.name] and tt.mount then readings[#readings + 1] = { mount = tt.mount, angle = ang } end
   end
   tri.hdg, tri.res, tri.q = -1, -1, nil
   if #readings >= 2 then
@@ -2224,7 +2254,9 @@ local function flyLeg()
       if not cruiseHdg then cruiseHdg = hdgNow end
       cruiseHdg = cruiseHdg + pos.wy * dt
       local dh = ((hdgNow - cruiseHdg + 540) % 360) - 180
-      cruiseHdg = (cruiseHdg + CFG.HDG_CRUISE_ALPHA * dh) % 360
+      local leanNow = math.sqrt(a[1] * a[1] + a[2] * a[2])
+      local alpha = (CFG.HDG_TRUST_LEAN > 0 and leanNow > CFG.HDG_TRUST_LEAN) and 0 or CFG.HDG_CRUISE_ALPHA
+      cruiseHdg = (cruiseHdg + alpha * dh) % 360
     else
       cruiseHdg = hdgNow
     end
@@ -2925,7 +2957,7 @@ local function flyLeg()
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
       yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0, dock.npers,
       dock.charging and 1 or 0,
-      tri.ang.navigation_table_4 or -1, tri.ang.navigation_table_5 or -1, tri.ang.navigation_table_7 or -1,
+      (triLog[1] and tri.ang[triLog[1]]) or -1, (triLog[2] and tri.ang[triLog[2]]) or -1, (triLog[3] and tri.ang[triLog[3]]) or -1,
       tri.hdg, tri.res, aimQ and 1 or 0))
     if phase == "touchdown" then
       -- Thrust is already zero (see the power section). Keep flying the loop

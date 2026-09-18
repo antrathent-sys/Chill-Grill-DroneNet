@@ -43,11 +43,15 @@ def mount(normal, forward):
 
 
 def load(path):
+    """A probe log (gp, gr, navN) or a flightlog (p, r, navN); table columns
+    that never read (-1 throughout) are dropped."""
     rows = list(csv.DictReader(open(path)))
-    navs = [c for c in rows[0].keys() if c.startswith("nav")]
+    navs = [c for c in rows[0].keys() if c.startswith("nav") and c != "nav-"]
+    navs = [n for n in navs if any(float(r[n]) >= 0 for r in rows)]
+    gpk, grk = ("gp", "gr") if "gp" in rows[0] else ("p", "r")
     out = []
     for r in rows:
-        gp, gr = float(r["gp"]), float(r["gr"])
+        gp, gr = float(r[gpk]), float(r[grk])
         tilt = max(abs(gp), abs(gr))
         out.append({"gp": gp, "gr": gr, "tilt": tilt,
                     "nav": {n: float(r[n]) for n in navs}})
@@ -79,14 +83,18 @@ def score(samples, assign, gsign):
 
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "data", "probelog-run8-sixtables-tumble.csv")
+    path = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else os.path.join(ROOT, "data", "probelog-run8-sixtables-tumble.csv")
     samples, navs = load(path)
     tilted = sum(1 for s in samples if s["tilt"] >= 20)
     print("%d samples, %d tilted enough to use, tables: %s" % (len(samples), tilted, " ".join(navs)))
 
-    # nav6 duplicates nav5; drop it. nav4 is the flat one (established).
-    navs = [n for n in navs if n != "nav6"]
-    flat = "nav4"
+    # --flat navN names the flat table (default nav4, the first quad frame's;
+    # nav6 there duplicated nav5 and is dropped). Vertical tables read exactly
+    # 0 or 180 when level, the flat one does not.
+    flat = sys.argv[sys.argv.index("--flat") + 1] if "--flat" in sys.argv else "nav4"
+    navs = [n for n in navs if n != "nav6" or flat != "nav4"]
+    if flat not in navs:
+        sys.exit("no column %s in this log; tables here: %s" % (flat, " ".join(navs)))
     verticals = [n for n in navs if n != flat]
 
     gsigns = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
