@@ -9,6 +9,10 @@
 --   startup role                which kind of computer this is
 --   startup role <name>         drone, base, pocket, rs, or all: pull only that
 --                               role's files (manifest.lua) from now on
+--   startup hold <side>         drone: raise this side first thing at every boot,
+--                               so the docking connector is powered whenever the
+--                               computer is on. Only fly releases it (the undock
+--                               step). startup hold off stops it.
 --
 -- The autorun command is kept in .autorun on this computer. It waits 3 s
 -- (press any key to get the shell instead) and restarts the command if it
@@ -35,6 +39,8 @@ local AUTORUN_FILE = ".autorun"
 local ROLE_FILE = ".role"            -- this computer's role, one word
 local INSTALLED_FILE = ".installed"  -- the files startup put here, one per line
 local MANIFEST = "manifest.lua"
+local HOLD_FILE = ".hold"            -- the side to raise at every boot
+local HOLD_SIDES = { top = true, bottom = true, left = true, right = true, front = true, back = true }
 
 local function isFlight(cmd)
   return cmd == "fly" or cmd:match("^fly%s") ~= nil
@@ -59,6 +65,35 @@ if args[1] == "autorun" then
   return
 end
 
+local function heldSide()
+  if not fs.exists(HOLD_FILE) then return "" end
+  local f = fs.open(HOLD_FILE, "r")
+  local side = (f.readAll() or ""):gsub("%s+", "")
+  f.close()
+  return side
+end
+
+if args[1] == "hold" then
+  local side = args[2] and args[2]:lower()
+  if not side then
+    local cur = heldSide()
+    print("hold: " .. (cur ~= "" and (cur .. " is raised at every boot") or "off"))
+    print("startup hold <side> keeps a docking connector powered; startup hold off stops it")
+  elseif side == "off" then
+    if fs.exists(HOLD_FILE) then fs.delete(HOLD_FILE) end
+    print("hold off - nothing is raised at boot (the output stays as it is now)")
+  elseif not HOLD_SIDES[side] then
+    print("hold: '" .. side .. "' is not a side of this computer (top bottom left right front back)")
+  else
+    local f = fs.open(HOLD_FILE, "w")
+    f.write(side)
+    f.close()
+    redstone.setOutput(side, true)
+    print("hold: " .. side .. " raised now and at every boot - fly undock is what releases it")
+  end
+  return
+end
+
 local roleRequest = nil
 if args[1] == "role" then
   if not args[2] then
@@ -73,6 +108,18 @@ if args[1] == "role" then
     return
   end
   roleRequest = args[2]:lower()
+end
+
+-- The dock hold, first thing on every boot: a reboot drops every output, so
+-- the connector's side goes straight back up before anything slower (the
+-- update) runs. The connector lets go on its power going OFF, and only fly's
+-- undock step does that on purpose.
+if not roleRequest then
+  local side = heldSide()
+  if HOLD_SIDES[side] and redstone then
+    redstone.setOutput(side, true)
+    print("hold: " .. side .. " high - docking connector powered (fly undock releases it)")
+  end
 end
 
 -- Private repo? Put a GitHub token (fine-grained, read-only Contents scope on

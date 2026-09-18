@@ -12,7 +12,7 @@ local SRC = DIR .. "/../startup.lua"
 
 local function world(opts)
   opts = opts or {}
-  local w = { files = opts.files or {}, printed = {}, runs = {}, keys = opts.keys or {}, waits = 0 }
+  local w = { files = opts.files or {}, printed = {}, runs = {}, keys = opts.keys or {}, waits = 0, rs = {} }
   local env = setmetatable({}, { __index = _G })
   env.print = function(s) w.printed[#w.printed + 1] = tostring(s) end
   env.fs = {
@@ -60,6 +60,10 @@ local function world(opts)
     if w.keys[w.waits] then b() else a() end
   end }
   env.sleep = function() end
+  env.redstone = { setOutput = function(side, on)
+    w.rs[side] = on
+    w.firstRs = w.firstRs or (#(w.fetched or {}))
+  end }
   env.os = setmetatable({ pullEvent = function() return "key", 57 end }, { __index = os })
   -- after the scripted runs, a key press stops the loop so the test ends
   env.shell = { run = function(cmd)
@@ -136,6 +140,31 @@ check("a fly command already in .autorun is refused at boot", #b6.runs == 0 and 
 local b7 = world({})
 local ok7 = run(b7)
 check("no .autorun: update only, nothing run", ok7 and #b7.runs == 0 and b7.waits == 0)
+
+print("dock hold")
+local h1 = world()
+run(h1, "hold", "back")
+check("hold back: saved and raised now", h1.files[".hold"] == "back" and h1.rs.back == true)
+check("hold does not update or autorun", h1.fetched == nil and #h1.runs == 0)
+local h2 = world({ files = { [".hold"] = "back", [".autorun"] = "rsio" }, http = "missing" })
+run(h2)
+check("boot raises the held side even with no http", h2.rs.back == true and printedHas(h2, "hold: back high"))
+check("and still autoruns", h2.runs[1] == "rsio")
+local h3 = world({ files = { [".hold"] = "back" } })
+run(h3)
+check("the hold goes up before the update fetches anything", h3.rs.back == true and h3.firstRs == 0, h3.firstRs)
+local h4 = world()
+run(h4, "hold", "sideways")
+check("a bad side is refused", h4.files[".hold"] == nil and next(h4.rs) == nil and printedHas(h4, "not a side"))
+local h5 = world({ files = { [".hold"] = "back" } })
+run(h5, "hold", "off")
+check("hold off forgets it", h5.files[".hold"] == nil and printedHas(h5, "hold off"))
+local h6 = world({ files = {} })
+run(h6)
+check("no hold: nothing raised at boot", next(h6.rs) == nil)
+local h7 = world({ files = { [".hold"] = "back" }, manifest = [[return { common = { "startup.lua" }, base = { "control.lua" } }]] })
+run(h7, "role", "base")
+check("a role change never deletes the hold", h7.files[".hold"] == "back")
 
 print("roles")
 local MAN = [[return {

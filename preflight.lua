@@ -214,8 +214,15 @@ else
     err("DOCK_SIDE '" .. EXPECT.DOCK_SIDE .. "' is not a valid side")
   else
     ok("DOCK_SIDE = " .. EXPECT.DOCK_SIDE)
+    -- powered is the normal state on the ground: startup hold raises it at
+    -- boot and fly leaves it up after docking; only fly undock drops it
     if redstone.getOutput(EXPECT.DOCK_SIDE) then
-      wrn("DOCK_SIDE is already high - connector extended, or a previous flight left it on")
+      ok("DOCK_SIDE is high - connector powered")
+    else
+      wrn("DOCK_SIDE is low - connector unpowered; startup hold " .. EXPECT.DOCK_SIDE .. " keeps it powered")
+    end
+    if not fs.exists(".hold") then
+      wrn("no dock hold: after a reboot the connector stays unpowered - run startup hold " .. EXPECT.DOCK_SIDE)
     end
   end
   if dockP then
