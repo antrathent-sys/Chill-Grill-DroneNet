@@ -212,7 +212,7 @@ local CFG = {
                                       -- all the way down and consistent with LAND_DECEL.
   LAND_CREEP = 2,                     -- b/s final approach
   LAND_GROUND = nil,                  -- ground altitude; nil = wherever the program started
-  CRUISE_Y = 250,                     -- default transit altitude for go, dock and land-at-a-place
+  CRUISE_Y = 350,                     -- default transit altitude for go, dock, deliver and land-at-a-place (Alex, 2026-09-18)
   LAND_CRUISE_UP = 60,                -- minimum clearance above the destination ground, if CRUISE_Y is lower
   ATT_MIN_LAND = 0.12,                -- thrust floor while landing: about half hover, so it can descend
                                       -- while leaning without giving up all attitude authority
