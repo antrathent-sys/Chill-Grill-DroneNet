@@ -153,6 +153,10 @@ SELFTEST = [
     ("dock hop", ["dock", "10", "70", "8", "90"], {"TMAX": "120", "LEGS": "10.5,8.5"},
      ["climb", "align", "descend", "capture", "docked"]),
     ("go hop", ["go", "10", "8", "90"], {"TMAX": "60", "LEGS": "10.5,8.5"}, ["climb", "hold"]),
+    # heading calibration: hover, pulse pitch and roll, write cal.lua, then
+    # hold. The mock has no heading physics, so only the sequence, the file
+    # and its shape are checked (cal_check)
+    ("cal", ["cal", "80"], {"TMAX": "60", "CAL_CHECK": "1"}, ["fly"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's
@@ -188,7 +192,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -301,6 +305,17 @@ def parked_check(pk):
         tail[-1][0] if tail else "-", len(routes), all(r == "" for r in routes))
 
 
+def cal_check(logpath):
+    """CAL_CHECK=1: fly cal wrote cal.lua with the fields fly loads."""
+    path = logpath + ".cal"
+    if not os.path.exists(path):
+        return False, "no cal.lua written"
+    text = open(path, encoding="utf-8").read()
+    need = ["HDG_OFFSET", "HDG_SIGN", "ROLL_DIR", "NAV_NAME", "return {"]
+    missing = [k for k in need if k not in text]
+    return not missing, "cal.lua %d bytes, missing %s" % (len(text), missing)
+
+
 def undock_check(logpath):
     """UNDOCK_CHECK=1: the first second of the log shows the undock step's
     full thrust (pwr near UNDOCK_THRUST 1.0), not a hover pulling on the dock."""
@@ -364,6 +379,9 @@ def main(argv=None):
                 ok = ok and tok
             if env.get("UNDOCK_CHECK"):
                 tok, extra = undock_check(logpath)
+                ok = ok and tok
+            if env.get("CAL_CHECK"):
+                tok, extra = cal_check(logpath)
                 ok = ok and tok
             failures += 0 if ok else 1
             print("%-5s %-12s %s" % ("ok" if ok else "FAIL", name, " -> ".join(got)))

@@ -237,7 +237,7 @@ local function memHandle(path, mode)
 end
 _G.fs = {
   open = function(path, mode)
-    if memFiles[path] ~= nil or (type(path) == "string" and path:match("%.ctr$")) then
+    if memFiles[path] ~= nil or (type(path) == "string" and (path:match("%.ctr$") or path == "cal.lua")) then
       return memHandle(path, mode)
     end
     return {
@@ -616,6 +616,13 @@ end
 local out = io.open(os.getenv("HARNESS_LOG") or "harness_flightlog", "w")
 for _, l in ipairs(logLines) do out:write(l, "\n") end
 out:close()
+
+-- what fly cal wrote, for the harness to check
+if memFiles["cal.lua"] and os.getenv("HARNESS_LOG") then
+  local cf = io.open(os.getenv("HARNESS_LOG") .. ".cal", "w")
+  cf:write(memFiles["cal.lua"])
+  cf:close()
+end
 
 -- telemetry the ender modem saw: "OPEN ch" lines, then "T|channel|k=v;k=v"
 if os.getenv("TELEM") and os.getenv("HARNESS_LOG") then

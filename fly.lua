@@ -6,6 +6,10 @@
 --                                (the fast sideways phase of every flight logs as "cruise";
 --                                 before 2026-09-13 it logged as "dash")
 -- fly spin <y> [deg]          -> climb to Y, hold, yaw clockwise <deg> (90) about the thrust axis, then back
+-- fly cal [y]                 -> heading calibration: hover at y (start + 10), pick the flat nav
+--                                table, pulse pitch then roll, and work out HDG_OFFSET, ROLL_DIR
+--                                and (if it yawed enough) HDG_SIGN. Written to cal.lua, which fly
+--                                loads over CFG from then on; then it holds with them - L lands.
 -- fly pads                    -> list the named dock points in pads.lua, with distances
 -- fly pad add <name>          -> record where the craft is standing as a pad (do it DOCKED)
 -- fly pad del <name>          -> forget a pad
@@ -151,7 +155,14 @@ local CFG = {
   -- Motion heading needed the velocity sensors, which the four-thruster
   -- airframe does not carry, so the nav table is primary now.
   NAV_PRIMARY = true,                 -- nav table is THE heading; motion heading is legacy fallback
-  NAV_NAME = nil,                     -- which navigation_table (the FLAT one); nil = first found
+  NAV_NAME = nil,                     -- which navigation_table (the FLAT one); nil = first found.
+                                      -- 2026-09-18: nil picked a VERTICAL table on the new airframe
+                                      -- (reads a constant 0 or 180 when level) and the heading was
+                                      -- garbage for two flights. fly cal picks the flat one and
+                                      -- writes cal.lua, which overrides this.
+  CAL_DEG = 10,                       -- fly cal: tilt of each pulse
+  CAL_T = 2.0,                        -- s each pulse lasts; the counter-pulse is the same
+  CAL_SETTLE = 4.0,                   -- s level before the first pulse and between them
   NAV_FALLBACK = true,                -- legacy: use nav table when motion heading has no lock
   HDG_EVERY = 4,                      -- read the nav table every N control iterations (each read is a tick;
                                       -- the craft yaws slowly, so heading tolerates being ~0.5 s stale)
@@ -708,6 +719,37 @@ local CFG = {
   LOG_HARD_KB = 8,                    -- never write a row that would leave less than this free
   CHIME = true,                       -- speaker tones on phase changes, if a speaker is attached
 }
+
+-- Calibration written by `fly cal` (cal.lua on this computer, never in the
+-- repo): the flat nav table and the heading numbers measured in the air on
+-- THIS airframe. Loaded over CFG, so a rebuilt craft needs a re-run of
+-- fly cal, not an edit here. Runs with no environment: it can only be data.
+do
+  local okC, text = pcall(function()
+    if not fs.exists("cal.lua") then return nil end
+    local f = fs.open("cal.lua", "r")
+    local s = f.readAll()
+    f.close()
+    return s
+  end)
+  if okC and type(text) == "string" then
+    local chunk = (loadstring or load)(text, "cal")
+    if chunk and setfenv then setfenv(chunk, {}) end
+    local okR, cal = chunk and pcall(chunk)
+    if okR and type(cal) == "table" then
+      local applied = {}
+      for _, k in ipairs({ "NAV_NAME", "HDG_SIGN", "HDG_OFFSET", "PITCH_DIR", "ROLL_DIR" }) do
+        if cal[k] ~= nil and type(cal[k]) == type(CFG[k] == nil and "" or CFG[k]) then
+          CFG[k] = cal[k]
+          applied[#applied + 1] = k .. "=" .. tostring(cal[k])
+        end
+      end
+      if #applied > 0 then print("cal.lua: " .. table.concat(applied, " ")) end
+    else
+      print("WARNING: cal.lua ignored - " .. tostring(cal))
+    end
+  end
+end
 
 local alt = peripheral.find("altitude_sensor")
 local gim = peripheral.find("gimbal_sensor")
@@ -1377,6 +1419,7 @@ end
 
 -- ---------- modes ----------
 local mode, goal, goalX, goalZ, findP, dashDeg, dashSecs, tgtX, tgtZ
+local CAL = nil            -- fly cal: the running calibration, or nil
 local padY, dockAlt, cruiseY, undockFirst, spinDeg
 local landGround = CFG.LAND_GROUND   -- ground altitude for the descent profile
 -- A mission is a list of legs run back to back. Each leg sets up the ordinary
@@ -1511,6 +1554,33 @@ else
         trimX = pad.trimX, trimZ = pad.trimZ, undock = true },
     }
     mode = "ferry"
+  elseif arg[1] == "cal" then
+    -- heading calibration: a hover that pulses pitch, then roll, and reads
+    -- where the craft went. Nothing here depends on the heading being right.
+    mode = "fly"
+    goal = tonumber(arg[2]) or (alt.getHeight() + 10)
+    CAL = { step = "settle", t0 = nil, deg = CFG.CAL_DEG, raw = {}, yawI = 0, yawRaw = nil }
+    -- pick the FLAT table: level, a vertical one reads exactly 0 or 180
+    local flat, tables = nil, {}
+    for _, nm in ipairs(peripheral.getNames()) do
+      if peripheral.getType(nm) == "navigation_table" then
+        local okr, ang = pcall(peripheral.call, nm, "getRelativeAngle")
+        if okr and type(ang) == "number" then
+          tables[#tables + 1] = nm
+          local m = math.abs(((ang % 180) + 90) % 180 - 90)   -- distance from 0/180
+          if m > 2 then flat = flat or nm end
+        end
+      end
+    end
+    if flat then
+      CAL.nav = flat
+      nav = peripheral.wrap(flat)
+      print("cal: flat table " .. flat .. " (" .. #tables .. " found)")
+    else
+      CAL.nav = CFG.NAV_NAME
+      print("cal: could not tell the flat table apart (every one reads 0/180) - keeping " .. tostring(CFG.NAV_NAME or "the first"))
+    end
+    CFG.YAW_HOLD = false          -- no yaw commands from a heading we are about to measure
   elseif arg[1] == "pads" or arg[1] == "pad" then
     -- Not a flight: listed and edited after the arguments are read, then fly
     -- returns to the shell without ever touching a thruster.
@@ -1697,6 +1767,7 @@ print(mode == "find" and ("find: holding " .. findP)
       tostring(PAD.name), legs[1].x, legs[1].z, legs[1].padY, goal)
    or mode == "deliver" and string.format("deliver: %.0f,%.0f drop at Y %.0f, home %.0f,%.0f pad %.0f, via Y %.0f",
       legs[1].x, legs[1].z, legs[2].y, home.x, home.z, home.padY, goal)
+   or CAL and string.format("cal: hover Y %.0f, then pitch and roll pulses of %d deg", goal, CAL.deg)
    or undockFirst and string.format("undock: release then hold Y %.1f", goal)
    or spinDeg and string.format("spin: hold Y %.0f, yaw +%d then back", goal, spinDeg)
    or (mode == "land" or landAtEnd) and string.format("land%s: up to %g b/s, flare %g above %s",
@@ -1763,6 +1834,7 @@ local function nextLeg()
   return true
 end
 
+
 -- flyLeg sits near CC's limit on locals. CC's compiler (Cobalt) counts every
 -- local IN SCOPE - for-loop slots included - across the function being
 -- compiled AND every function enclosing it, so each top-level local declared
@@ -1774,6 +1846,109 @@ end
 -- pieces of the loop live here, as fields of one table: a field costs the
 -- main chunk nothing, where a local function would cost it one.
 local FL = {}
+
+-- ---------- fly cal ----------
+-- The tilt demand for the calibration hover, one step at a time, and the
+-- bookkeeping that turns the two pulses into HDG_OFFSET / ROLL_DIR / HDG_SIGN.
+-- Convention (tools/fit_heading.py): with PITCH_DIR -1 the controller's
+-- heading is the bearing OPPOSITE the pitch+ travel; with ROLL_DIR 1 roll+
+-- travels to starboard of that heading. HDG_SIGN comes from the table
+-- turning with (or against) Sable's yaw rate over the whole run.
+function FL.calStep(c, t, p, raw, wy, dt)
+  c.t0 = c.t0 or t
+  -- mirror evidence: the table's unwrapped change against integrated yaw
+  if c.yawRaw then
+    local dr = ((raw - c.yawRaw + 540) % 360) - 180
+    c.yawI = c.yawI + wy * dt
+    c.rawI = (c.rawI or 0) + dr
+    c.cross = (c.cross or 0) + dr * wy * dt
+  end
+  c.yawRaw = raw
+  local el = t - c.t0
+  local tp, tr = 0, 0
+  local function bearing(vx, vz) return math.deg(math.atan2(vx, -vz)) % 360 end
+  if c.step == "settle" then
+    if el >= CFG.CAL_SETTLE and math.sqrt(p.vx * p.vx + p.vz * p.vz) < 1.5 then
+      c.step, c.t0 = "pitch", t
+      c.v0x, c.v0z, c.rawSum, c.rawN = p.vx, p.vz, 0, 0
+      print("cal: pitch pulse")
+    end
+  elseif c.step == "pitch" or c.step == "roll" then
+    if c.step == "pitch" then tp = c.deg else tr = c.deg end
+    c.rawSum, c.rawN = c.rawSum + raw, c.rawN + 1
+    if el >= CFG.CAL_T then
+      local vx, vz = p.vx - c.v0x, p.vz - c.v0z
+      local sp = math.sqrt(vx * vx + vz * vz)
+      c[c.step] = { brg = bearing(vx, vz), spd = sp, raw = c.rawSum / c.rawN }
+      print(string.format("cal: %s+ moved toward %.0f at %.1f b/s (table %.0f)", c.step, c[c.step].brg, sp, c[c.step].raw))
+      c.step, c.t0 = c.step .. "-back", t
+    end
+  elseif c.step == "pitch-back" or c.step == "roll-back" then
+    if c.step == "pitch-back" then tp = -c.deg else tr = -c.deg end
+    if el >= CFG.CAL_T then c.step, c.t0 = c.step == "pitch-back" and "level" or "done", t end
+  elseif c.step == "level" then
+    if el >= CFG.CAL_SETTLE and math.sqrt(p.vx * p.vx + p.vz * p.vz) < 1.5 then
+      c.step, c.t0 = "roll", t
+      c.v0x, c.v0z, c.rawSum, c.rawN = p.vx, p.vz, 0, 0
+      print("cal: roll pulse")
+    end
+  end
+  return tp, tr
+end
+
+--- The verdict from the two pulses. Returns the table written to cal.lua and
+-- a list of lines for the screen.
+function FL.calResult(c)
+  local out, lines = { NAV_NAME = c.nav, PITCH_DIR = CFG.PITCH_DIR }, {}
+  local weak = (not c.pitch) or c.pitch.spd < 1.0
+  if weak then
+    lines[#lines + 1] = "pitch pulse barely moved the craft - raise CAL_DEG or CAL_T; nothing fitted"
+    return nil, lines
+  end
+  -- mirror: the table turned with Sable (+1) or against it (-1), if it turned enough
+  local sign = CFG.HDG_SIGN
+  if math.abs(c.yawI or 0) >= 8 and c.cross then
+    sign = c.cross > 0 and 1 or -1
+    lines[#lines + 1] = string.format("table turned %+.0f while Sable says %+.0f: HDG_SIGN %d", c.rawI or 0, c.yawI, sign)
+  else
+    lines[#lines + 1] = string.format("only %.0f deg of yaw: HDG_SIGN left at %d (fly cal again after a yaw to check it)",
+      c.yawI or 0, sign)
+  end
+  out.HDG_SIGN = sign
+  local heading = (c.pitch.brg + (CFG.PITCH_DIR < 0 and 180 or 0)) % 360
+  out.HDG_OFFSET = math.floor(((heading - sign * c.pitch.raw) % 360) + 0.5) % 360
+  lines[#lines + 1] = string.format("pitch+ toward %.0f -> heading %.0f -> HDG_OFFSET %d", c.pitch.brg, heading, out.HDG_OFFSET)
+  out.ROLL_DIR = CFG.ROLL_DIR
+  if c.roll and c.roll.spd >= 1.0 then
+    -- starboard of the heading is heading + 90; roll+ should go there with ROLL_DIR 1
+    local rel = ((c.roll.brg - heading + 540) % 360) - 180
+    local starboard = rel > 0
+    out.ROLL_DIR = starboard and 1 or -1
+    lines[#lines + 1] = string.format("roll+ toward %.0f (%+.0f from heading): ROLL_DIR %d%s", c.roll.brg, rel, out.ROLL_DIR,
+      (math.abs(math.abs(rel) - 90) > 35) and "  (odd angle - check the map/mixer)" or "")
+  else
+    lines[#lines + 1] = "roll pulse barely moved the craft - ROLL_DIR left as it was"
+  end
+  out.measured = string.format("pitch %.0f/%.1f roll %s yaw %.0f", c.pitch.brg, c.pitch.spd,
+    c.roll and string.format("%.0f/%.1f", c.roll.brg, c.roll.spd) or "-", c.yawI or 0)
+  return out, lines
+end
+
+function FL.calWrite(out)
+  local keys = { "NAV_NAME", "HDG_SIGN", "HDG_OFFSET", "PITCH_DIR", "ROLL_DIR", "measured" }
+  local parts = { "-- written by fly cal " .. tostring(os.day and os.day() or "") .. "; fly loads this over CFG", "return {" }
+  for _, k in ipairs(keys) do
+    local v = out[k]
+    if v ~= nil then
+      parts[#parts + 1] = string.format("  %s = %s,", k, type(v) == "string" and string.format("%q", v) or tostring(v))
+    end
+  end
+  parts[#parts + 1] = "}"
+  if fs.exists("cal.lua") then fs.delete("cal.lua") end
+  local f = fs.open("cal.lua", "w")
+  f.write(table.concat(parts, "\n") .. "\n")
+  f.close()
+end
 
 -- Read the three nav tables and solve the attitude (into tri).
 function FL.triRead(pitch, roll, t)
@@ -2575,6 +2750,24 @@ local function flyLeg()
            and ATT ~= nil and ATT.leanTarget ~= nil then
           tp, tr, aimQ = FL.aimLean(tp, tr, bWx, bWz, math.sqrt(bWx * bWx + bWz * bWz), CFG.BRAKE_DEG, a[1], a[2])
         end
+      end
+    elseif CAL and phase ~= "climb" and fresh then
+      -- calibration hover: scripted tilt pulses instead of the position hold,
+      -- no trim learning; when the script is done, fit, write, and hand back
+      -- to the hold with the new numbers live (L lands if it runs away)
+      tp, tr = FL.calStep(CAL, t, pos, raw, pos.wy, dt)
+      if CAL.step == "done" then
+        local out, lines = FL.calResult(CAL)
+        for _, l in ipairs(lines) do print("cal: " .. l) end
+        if out then
+          FL.calWrite(out)
+          CFG.HDG_SIGN, CFG.HDG_OFFSET, CFG.ROLL_DIR = out.HDG_SIGN, out.HDG_OFFSET, out.ROLL_DIR
+          print("cal: written to cal.lua - holding position with it now; L lands")
+        else
+          print("cal: nothing written - holding level; L lands")
+        end
+        goalX, goalZ = pos.x, pos.z
+        CAL = nil
       end
     elseif phase ~= "climb" and fresh and speed < CFG.SPEED_GUARD then
       ex, ez = goalX - pos.x, goalZ - pos.z
