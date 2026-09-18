@@ -36,10 +36,13 @@ local EXPECT = {
 
 local pass, warn, bad = 0, 0, 0
 local haveSable = false
+-- every warning and failure is kept, with the section it came from, and
+-- repeated at the very end so none scrolls off the screen unread
+local section, warns, fails = "", {}, {}
 local function ok(m)   pass = pass + 1 print("  ok   " .. m) end
-local function wrn(m)  warn = warn + 1 print("  WARN " .. m) end
-local function err(m)  bad = bad + 1  print("  FAIL " .. m) end
-local function head(m) print("") print(m) end
+local function wrn(m)  warn = warn + 1 warns[#warns + 1] = section .. ": " .. m print("  WARN " .. m) end
+local function err(m)  bad = bad + 1  fails[#fails + 1] = section .. ": " .. m print("  FAIL " .. m) end
+local function head(m) section = m print("") print(m) end
 
 -- ---------- peripherals ----------
 head("peripherals")
@@ -383,6 +386,20 @@ end
 -- ---------- verdict ----------
 print("")
 print(string.format("%d ok, %d warnings, %d failures", pass, warn, bad))
+-- the recap: warnings first, failures last, so the failures sit right above
+-- the verdict at the bottom of the screen
+local function recap(title, list, colour)
+  if #list == 0 then return end
+  print("")
+  print(title)
+  local coloured = term and term.isColour and term.isColour() and colour
+  if coloured then term.setTextColour(colour) end
+  for _, m in ipairs(list) do print("  " .. m) end
+  if coloured then term.setTextColour(colours.white) end
+end
+recap("WARNINGS:", warns, colours and colours.orange)
+recap("FAILURES:", fails, colours and colours.red)
+print("")
 -- Say it out loud too: on the pad you are usually looking at the craft, not
 -- at the screen.
 do
