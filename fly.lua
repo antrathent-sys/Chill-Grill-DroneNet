@@ -656,6 +656,17 @@ local CFG = {
                                       -- minutes of cycling before the craft gave up.
   DOCK_ABORT_DIST = 4,                -- blocks of drift that sends the descent back to align
   DOCK_TRIES = 3,                     -- capture attempts before giving up and just holding
+  -- A flight that starts DOCKED must let go first: with the dock hold (startup
+  -- hold) the connector stays powered, and `fly dock` from the pad pulled
+  -- against the magnet on 2026-09-18. Every mode but undock, deliver and ferry
+  -- used to assume it started free. So before any thrust: if the connector
+  -- names its pad, or the pose is frozen (the latch signature, DOCK_STILL_*)
+  -- while sitting on a known pad (home or pads.lua, within AUTO_UNDOCK_NEAR
+  -- blocks across and of padY + DOCK_GAP), the flight does the undock step
+  -- first. Only then: that step runs full thrust until it lets go, which
+  -- would be a kick from the ground or the air. false = the old behaviour.
+  AUTO_UNDOCK = true,
+  AUTO_UNDOCK_NEAR = 2.5,
   LEG_ARRIVE = 4,                     -- blocks: horizontal tolerance for calling a mission leg done
   LEG_ARRIVE_Y = 4,                   -- blocks: vertical tolerance for the same
   DROP_HOLD = 2.0,                    -- seconds to sit still over the drop point before releasing
@@ -1543,6 +1554,53 @@ else
   cruiseY = goal
 end
 end)() end
+
+-- Starting docked? Checked before the log, the pump or any thrust, and only
+-- for the modes that do not undock by themselves. find is a thrust search on
+-- the spot and is left alone.
+if CFG.AUTO_UNDOCK and CFG.DOCK_SIDE and not undockFirst and not legs and mode ~= "find" and mode ~= "pads" then
+  do
+    local named = false
+    if dockP then
+      local okN, nm = pcall(dockP.getConnectedName)
+      named = okN and type(nm) == "string" and nm ~= ""
+    end
+    -- on a known pad (home or pads.lua): across and in height
+    local onPad = false
+    local h = alt.getHeight()
+    local candidates = { PAD.home() }
+    for _, pp in ipairs(PAD.list) do candidates[#candidates + 1] = pp end
+    for _, pp in ipairs(candidates) do
+      local cx = blockCentre(pp.x) + (pp.trimX or CFG.DOCK_TRIM_X)
+      local cz = blockCentre(pp.z) + (pp.trimZ or CFG.DOCK_TRIM_Z)
+      if (pos.x - cx) ^ 2 + (pos.z - cz) ^ 2 <= CFG.AUTO_UNDOCK_NEAR ^ 2
+         and math.abs(h - (pp.y + CFG.DOCK_GAP)) <= CFG.AUTO_UNDOCK_NEAR then
+        onPad = true
+      end
+    end
+    -- only then the latch signature, sampled twice: exactly still, exactly
+    -- level. Anywhere else a flight starts with no delay at all.
+    local frozen = false
+    if onPad and not named and usingSable then
+      frozen = true
+      for i = 1, 2 do
+        local _, _, vx, vz, vy = readPos()
+        local okA, ga = pcall(gim.getAngles)
+        if not (vx and math.abs(vx) < CFG.DOCK_STILL_V and math.abs(vz) < CFG.DOCK_STILL_V
+                and math.abs(vy or 1) < CFG.DOCK_STILL_V and okA and type(ga) == "table"
+                and math.abs(ga[1] or 1) < CFG.DOCK_STILL_TILT and math.abs(ga[2] or 1) < CFG.DOCK_STILL_TILT) then
+          frozen = false
+        end
+        if i == 1 then sleep(0.2) end
+      end
+    end
+    if named or (frozen and onPad) then
+      undockFirst = true
+      print("starting docked (" .. (named and "connector reports a pad" or "latched on a known pad") ..
+            ") - releasing first")
+    end
+  end
+end
 
 -- `fly pads` / `fly pad ...`: printed and saved here, then straight back to
 -- the shell. Nothing below this line runs, so no log, no pump, no thrust.

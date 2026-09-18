@@ -144,6 +144,10 @@ SELFTEST = [
     # ferry: one dock leg that undocks first, so the craft moves pad to pad
     ("ferry to a pad", ["ferry", "depot", "90"], {"TMAX": "150", "START_DOCKED": "1", "PADS": "depot:100,70,50"},
      ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
+    # starting docked, a plain hover must release first (AUTO_UNDOCK): the
+    # connector names its pad, so the flight opens with the undock step's
+    # full thrust instead of pulling against the magnet at hover power
+    ("hover from the dock releases first", ["80"], {"TMAX": "40", "START_DOCKED": "1", "UNDOCK_CHECK": "1"}, ["fly"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's
@@ -179,7 +183,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -292,6 +296,16 @@ def parked_check(pk):
         tail[-1][0] if tail else "-", len(routes), all(r == "" for r in routes))
 
 
+def undock_check(logpath):
+    """UNDOCK_CHECK=1: the first second of the log shows the undock step's
+    full thrust (pwr near UNDOCK_THRUST 1.0), not a hover pulling on the dock."""
+    import csv
+    with open(logpath, encoding="utf-8") as fh:
+        rows = [r for r in csv.DictReader(fh) if float(r["t"]) <= 1.0]
+    peak = max((float(r["pwr"]) for r in rows), default=0)
+    return peak >= 0.95, "peak power in the first second %.2f (release step wants >= 0.95)" % peak
+
+
 def phases_from(logpath):
     seen, order = None, []
     with open(logpath, encoding="utf-8") as fh:
@@ -342,6 +356,9 @@ def main(argv=None):
                 ok = ok and tok
             if env.get("TELEM"):
                 tok, extra = telem_check(logpath, env)
+                ok = ok and tok
+            if env.get("UNDOCK_CHECK"):
+                tok, extra = undock_check(logpath)
                 ok = ok and tok
             failures += 0 if ok else 1
             print("%-5s %-12s %s" % ("ok" if ok else "FAIL", name, " -> ".join(got)))
