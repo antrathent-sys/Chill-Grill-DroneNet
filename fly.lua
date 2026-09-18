@@ -667,6 +667,13 @@ local CFG = {
   -- would be a kick from the ground or the air. false = the old behaviour.
   AUTO_UNDOCK = true,
   AUTO_UNDOCK_NEAR = 2.5,
+  -- A short hop is not a cruise. go and dock always did climb -> cruise ->
+  -- brake whatever the distance; a 12-block dock on 2026-09-18 leaned to 57
+  -- deg, hit 15 b/s, overshot 50 blocks and flew into something. Closer than
+  -- HOP_DIST at the top of the climb, the cruise and brake are skipped: dock
+  -- goes straight to align and go to hold, and position hold walks it over.
+  -- 0 = never (the old behaviour).
+  HOP_DIST = 30,
   LEG_ARRIVE = 4,                     -- blocks: horizontal tolerance for calling a mission leg done
   LEG_ARRIVE_Y = 4,                   -- blocks: vertical tolerance for the same
   DROP_HOLD = 2.0,                    -- seconds to sit still over the drop point before releasing
@@ -2163,7 +2170,16 @@ local function flyLeg()
         entryH = math.min(entryH, h0 + CFG.DASH_ENTRY_FRAC * (goal - h0))
       end
       if h >= entryH then
-        phase = "cruise" dashStart = t st.trkX, st.trkZ = pos.x, pos.z enter("cruise")
+        local hop = (mode == "go" or mode == "dock") and CFG.HOP_DIST > 0
+                    and (tgtX - pos.x)^2 + (tgtZ - pos.z)^2 < CFG.HOP_DIST^2
+        if hop then
+          phase = (mode == "dock") and "align" or (landAtEnd and "land" or "hold")
+          if phase == "land" then landStart, touchT = t, 0 end
+          print(string.format("%.0f blocks away - a hop, no cruise", math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2)))
+          enter(phase)
+        else
+          phase = "cruise" dashStart = t st.trkX, st.trkZ = pos.x, pos.z enter("cruise")
+        end
       end
     elseif phase == "cruise" and mode == "dash" and t - dashStart > dashSecs then
       phase = "brake" brakeStart = t st.brkWx = nil st.brkUx = nil enter("brake")

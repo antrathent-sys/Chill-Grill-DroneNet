@@ -148,6 +148,11 @@ SELFTEST = [
     # connector names its pad, so the flight opens with the undock step's
     # full thrust instead of pulling against the magnet at hover power
     ("hover from the dock releases first", ["80"], {"TMAX": "40", "START_DOCKED": "1", "UNDOCK_CHECK": "1"}, ["fly"]),
+    # a pad 12 blocks away is a hop (HOP_DIST): climb, then straight to the
+    # align and down - no cruise, no brake, no overshoot
+    ("dock hop", ["dock", "10", "70", "8", "90"], {"TMAX": "120", "LEGS": "10.5,8.5"},
+     ["climb", "align", "descend", "capture", "docked"]),
+    ("go hop", ["go", "10", "8", "90"], {"TMAX": "60", "LEGS": "10.5,8.5"}, ["climb", "hold"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's
