@@ -177,7 +177,7 @@ end
 -- Never calibration: mixmap.csv (the thruster corner map mixcal writes) used
 -- to be on this list, and on a server with a small disk limit every boot
 -- deleted it - the craft cannot fly without it.
-local DISPOSABLE = { "flightlog", "probe.txt", "preflight.txt", "probelog.csv", "stickers.txt" }
+local DISPOSABLE = { "flightlog", "flightlog.thin", "probe.txt", "preflight.txt", "probelog.csv", "stickers.txt" }
 
 local function freeSpace() return (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge end
 

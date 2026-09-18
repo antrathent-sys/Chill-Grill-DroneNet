@@ -4,6 +4,9 @@
 --   upload              downsample and push flightlog
 --   upload full         push every row (big, use sparingly)
 --   upload <file>       push some other file
+--   upload thin [N]     no GitHub: write flightlog.thin with every Nth row (4)
+--                       plus every phase change, small enough for
+--                       `pastebin put flightlog.thin` (pastebin refuses ~500 KB+)
 --
 -- Needs a .ghtoken on this computer with **Contents: write** on the repo.
 -- The read-only token startup.lua uses is not enough.
@@ -15,7 +18,9 @@ local KEEP   = 12                  -- keep every Nth row when downsampling
 
 local args = { ... }
 local full = args[1] == "full"
-local src  = (not full and args[1]) or "flightlog"
+local thin = args[1] == "thin"
+if thin then KEEP = tonumber(args[2]) or 4 end
+local src  = (not full and not thin and args[1]) or "flightlog"
 
 -- ---------- base64, for the GitHub contents API ----------
 local B = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -162,6 +167,16 @@ if args[1] == "sync" then
 end
 
 local content, total, kept = readLog(src)
+if thin then
+  local out = src .. ".thin"
+  if fs.exists(out) then fs.delete(out) end
+  local f = fs.open(out, "w")
+  f.write(content)
+  f.close()
+  print(string.format("%s: %d rows -> %d kept, %d KB -> %s", src, total, kept, math.floor(#content / 1024), out))
+  print("now:  pastebin put " .. out)
+  return
+end
 local name = string.format("%s/%s_%s.csv", DIR, stamp, full and "full" or "sampled")
 
 print(string.format("%s: %d rows -> %d kept, %d bytes", src, total, kept, #content))
