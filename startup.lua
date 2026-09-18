@@ -177,7 +177,35 @@ end
 -- Never calibration: mixmap.csv (the thruster corner map mixcal writes) used
 -- to be on this list, and on a server with a small disk limit every boot
 -- deleted it - the craft cannot fly without it.
-local DISPOSABLE = { "flightlog", "flightlog.thin", "probe.txt", "preflight.txt", "probelog.csv", "stickers.txt" }
+local DISPOSABLE = { "flightlog", "probe.txt", "preflight.txt", "probelog.csv", "stickers.txt" }
+
+-- A flightlog is evidence, and a 4,000-block flight's is 700 KB: short of
+-- space it is THINNED to flightlog.thin (every 4th row plus every phase
+-- change, ~50 KB, what upload thin makes) and only then removed. Alex lost
+-- two logs to the plain delete on 2026-09-18.
+local function thinLog(src, dst)
+  local h = fs.open(src, "r")
+  if not h then return false end
+  local out, lastPhase, i = { h.readLine() }, nil, 0
+  if not out[1] then h.close() return false end
+  while true do
+    local line = h.readLine()
+    if not line then break end
+    i = i + 1
+    local phase = line:match("^[^,]*,([^,]*)")
+    if i % 4 == 0 or phase ~= lastPhase then out[#out + 1] = line end
+    lastPhase = phase
+  end
+  h.close()
+  if fs.exists(dst) then fs.delete(dst) end
+  local w = fs.open(dst, "w")
+  if not w then return false end
+  w.write(table.concat(out, "
+") .. "
+")
+  w.close()
+  return true
+end
 
 local function freeSpace() return (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge end
 
@@ -187,8 +215,10 @@ local function reclaim(needed)
     if freeSpace() >= needed then break end
     if fs.exists(name) then
       local sz = fs.getSize(name)
+      local kept = ""
+      if name == "flightlog" and thinLog(name, "flightlog.thin") then kept = " -> flightlog.thin kept" end
       fs.delete(name)
-      freed[#freed + 1] = string.format("%s (%.0fKB)", name, sz / 1024)
+      freed[#freed + 1] = string.format("%s (%.0fKB)%s", name, sz / 1024, kept)
     end
   end
   if #freed > 0 then print("reclaimed: " .. table.concat(freed, ", ")) end
