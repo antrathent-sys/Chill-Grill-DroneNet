@@ -157,6 +157,14 @@ SELFTEST = [
     # hold. The mock has no heading physics, so only the sequence, the file
     # and its shape are checked (cal_check)
     ("cal", ["cal", "80"], {"TMAX": "60", "CAL_CHECK": "1"}, ["fly"]),
+    # the ground typed 14 too LOW (terrain is at 64): the craft meets the
+    # ground above the typed height and must still call touchdown, not sit
+    # there unloaded and then hover
+    ("land, ground typed too low", ["land", "100", "50", "50"], {"TMAX": "200", "NO_PAD": "1"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
+    # the ground typed 16 too HIGH: flare at 82, then creep down to 64
+    ("land, ground typed too high", ["land", "100", "80", "50"], {"TMAX": "200", "NO_PAD": "1"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's

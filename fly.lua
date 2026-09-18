@@ -242,6 +242,9 @@ local CFG = {
   LAND_TILT_BURN = 3,                 -- deg once inside the flare, where thrust is high
   TOUCH_PWR = 0.9,                    -- fraction of HOVER: below this, the ground is taking the weight
   TOUCH_T = 0.6,                      -- seconds all three must hold
+  TOUCH_T_FAR = 2.0,                  -- seconds they must hold when still above the given ground + TOUCH_NEAR:
+                                      -- the ground was higher than typed (2026-09-18, Alex: come down to the
+                                      -- height, and if not landed keep going - and if landed, know it)
   LAND_MAX_T = 90,                    -- give up and hover rather than descend forever
 
   -- In-flight commands. Keys are read from an event coroutine, so they cost
@@ -2330,17 +2333,23 @@ local function flyLeg()
       -- If the ground altitude was given, believe it: no amount of hovering
       -- counts as a landing while still well above it.
       local nearGround = (not landGround) or (h - landGround < CFG.TOUCH_NEAR)
-      if stuck and unloaded and nearGround and vWantS < -0.5 then
+      if stuck and unloaded and vWantS < -0.5 then
         touchT = touchT + dt
       else
         touchT = 0
       end
-      if touchT >= CFG.TOUCH_T then
+      -- Above the typed ground the same evidence has to hold longer: the
+      -- ground was higher than typed, and the craft is sitting on it.
+      if touchT >= (nearGround and CFG.TOUCH_T or CFG.TOUCH_T_FAR) then
         phase = "touchdown" enter("touchdown")
-        print(string.format("down at %.1f,%.1f after %.0fs", pos.x, pos.z, t - landStart))
-      elseif t - landStart > CFG.LAND_MAX_T then
+        print(string.format("down at %.1f,%.1f after %.0fs%s", pos.x, pos.z, t - landStart,
+          nearGround and "" or string.format(" (ground %.0f higher than typed)", h - landGround)))
+      elseif t - landStart > CFG.LAND_MAX_T and not nearGround then
+        -- still well above where the ground was said to be: something is
+        -- holding it up, hover rather than descend forever. At or below the
+        -- typed height it keeps creeping down until it meets the ground.
         phase = "hold" goal = h goalX, goalZ = pos.x, pos.z
-        print("land: no touchdown in " .. CFG.LAND_MAX_T .. "s - holding instead")
+        print("land: no touchdown in " .. CFG.LAND_MAX_T .. "s, still above the typed ground - holding instead")
         chime.play("warn", true)
       end
     elseif phase == "climb" then
