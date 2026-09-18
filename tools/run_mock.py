@@ -102,8 +102,9 @@ SELFTEST = [
     ("triad cruise", ["go", "100", "50", "90"], {"TMAX": "90", "TRIAD": "1"},
      ["climb", "cruise", "brake", "hold"]),
     # a full disk must never end a flight: with little space the log thins to
-    # phase changes and still records every phase...
-    ("tiny disk", ["go", "100", "50", "90"], {"TMAX": "90", "DISK_KB": "40"},
+    # phase changes and still records every phase (below LOG_MIN_KB fly
+    # refuses to START instead - "no disk to fly" case)...
+    ("tiny disk", ["go", "100", "50", "90"], {"TMAX": "90", "DISK_KB": "200"},
      ["climb", "cruise", "brake", "hold"]),
     # ...and when writes fail without warning the log stops but the craft
     # still gets there (judged by where it ends up, the log being truncated)
@@ -165,6 +166,8 @@ SELFTEST = [
     # the ground typed 16 too HIGH: flare at 82, then creep down to 64
     ("land, ground typed too high", ["land", "100", "80", "50"], {"TMAX": "200", "NO_PAD": "1"},
      ["climb", "cruise", "brake", "land", "touchdown"]),
+    # under LOG_MIN_KB free, fly refuses before any thrust
+    ("no disk to fly", ["go", "100", "50", "90"], {"TMAX": "30", "DISK_KB": "60"}, []),
     ("quad land", ["land"], {"TMAX": "120", "QUAD": "1"}, ["land", "touchdown"]),
     # fly there, then land: the go machinery with a different ending
     # x y z, y being the ground at the far end. 100,50 is where the mock's

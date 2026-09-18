@@ -582,7 +582,7 @@ local CFG = {
   BRAKE_LINEAR = true,
   BRAKE_D0 = 12,                      -- blocks
   BRAKE_S = 3.37,                     -- blocks per b/s of entry speed
-  BRAKE_MARGIN = 1.5,
+  BRAKE_MARGIN = 1.75,
   -- The speed at the trigger is not the speed the brake has to kill: this
   -- frame keeps accelerating for the ~3 s the lean takes to reverse from 84
   -- deg forward to 45 back, and every logged brake peaked 30-35 b/s above
@@ -591,7 +591,7 @@ local CFG = {
   -- however the margin was raised (1.1, 1.35, 1.75). The trigger now
   -- predicts the reversal peak, trigger + BRAKE_LEAD_V, and the margin goes
   -- back near the fitted one. 0 = the old behaviour.
-  BRAKE_LEAD_V = 30,
+  BRAKE_LEAD_V = 0,                   -- 30 was flown once on 2026-09-19 and the craft was lost at sea with no log; back to the last known-good until a logged flight says otherwise
   BRAKE_LIN_MIN_V = 15,               -- b/s: below this the old trigger (no real cruise is this slow)
   ARRIVE = 8,                         -- blocks: close enough to hand over to hold
 
@@ -746,6 +746,8 @@ local CFG = {
   AUTO_UPLOAD = true,                 -- push the flightlog to GitHub when the flight ends
   LOG_RESERVE_KB = 40,                -- free space the flightlog budget leaves for everything else
   LOG_HARD_KB = 8,                    -- never write a row that would leave less than this free
+  LOG_MIN_KB = 120,                   -- refuse to take off with less free than this: a flight that cannot be
+                                      -- logged cannot be learned from (2026-09-19: a 3 s log, then the sea)
   CHIME = true,                       -- speaker tones on phase changes, if a speaker is attached
 }
 
@@ -1771,6 +1773,13 @@ if mode == "pads" then
   do return end
 end
 
+do
+  local freeKB = ((fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge) / 1024
+  if freeKB < CFG.LOG_MIN_KB then
+    error(string.format("only %.0f KB free - a flight needs %d KB for its log. delete flightlog.thin, probe.txt or other files first",
+      freeKB, CFG.LOG_MIN_KB), 0)
+  end
+end
 local log = fs.open("flightlog", "w")
 -- A full disk must never end a flight. fs throws "Out of space" from inside
 -- writeLine, and that used to take the control loop - and the thrusters -
