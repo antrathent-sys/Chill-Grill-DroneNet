@@ -27,7 +27,12 @@ local function world(opts)
     end,
     delete = function(p) w.files[p] = nil end,
     makeDir = function() end,
-    getFreeSpace = function() return 900000 end,
+    getFreeSpace = function()
+      if not opts.disk then return 900000 end
+      local used = 0
+      for _, v in pairs(w.files) do used = used + #v end
+      return opts.disk - used
+    end,
     getSize = function(p) return #(w.files[p] or "") end,
   }
   env.textutils = { unserializeJSON = function(s)
@@ -140,6 +145,13 @@ check("a fly command already in .autorun is refused at boot", #b6.runs == 0 and 
 local b7 = world({})
 local ok7 = run(b7)
 check("no .autorun: update only, nothing run", ok7 and #b7.runs == 0 and b7.waits == 0)
+
+print("short of space")
+local big = string.rep("x", 300000)
+local d1 = world({ disk = 500000, files = { ["flightlog"] = big, ["mixmap.csv"] = "name,dp,dr\nvector_thruster_5,1,1\n" } })
+run(d1)
+check("a full disk gives up the flightlog", d1.files["flightlog"] == nil and printedHas(d1, "reclaimed: flightlog"))
+check("but never the thruster map mixcal wrote", d1.files["mixmap.csv"] ~= nil)
 
 print("dock hold")
 local h1 = world()

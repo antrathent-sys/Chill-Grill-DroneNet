@@ -174,7 +174,10 @@ end
 -- with the default 1 MB that is survivable; on a server that has turned the
 -- limit down it is not, and the failure looks like "Out of space" halfway
 -- through an update with the tree left half old and half new.
-local DISPOSABLE = { "flightlog", "probe.txt", "preflight.txt", "mixmap.csv", "probelog.csv", "stickers.txt" }
+-- Never calibration: mixmap.csv (the thruster corner map mixcal writes) used
+-- to be on this list, and on a server with a small disk limit every boot
+-- deleted it - the craft cannot fly without it.
+local DISPOSABLE = { "flightlog", "probe.txt", "preflight.txt", "probelog.csv", "stickers.txt" }
 
 local function freeSpace() return (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge end
 
