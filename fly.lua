@@ -582,7 +582,7 @@ local CFG = {
   BRAKE_LINEAR = true,
   BRAKE_D0 = 12,                      -- blocks
   BRAKE_S = 3.37,                     -- blocks per b/s of entry speed
-  BRAKE_MARGIN = 1.75,
+  BRAKE_MARGIN = 2.2,                -- six logged 600-block brakes on this frame all needed 550-580 blocks from a 65-89 b/s trigger (peak ~106); 1.75 gave 415-475 and ~105 over
   -- The speed at the trigger is not the speed the brake has to kill: this
   -- frame keeps accelerating for the ~3 s the lean takes to reverse from 84
   -- deg forward to 45 back, and every logged brake peaked 30-35 b/s above
