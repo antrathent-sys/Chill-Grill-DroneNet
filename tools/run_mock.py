@@ -184,6 +184,10 @@ def make_test_copy():
     out, nsub = re.subn(r'HDG_OFFSET = -?\d+,', 'HDG_OFFSET = 269,', out, count=1)
     if nsub != 1:
         raise SystemExit("run_mock: could not find HDG_OFFSET in fly.lua to rewrite")
+    # the mock has one flat table, navigation_table_0
+    out, nsub = re.subn(r'NAV_NAME = (?:nil|"[^"]*"),', 'NAV_NAME = nil,', out, count=1)
+    if nsub != 1:
+        raise SystemExit("run_mock: could not find NAV_NAME in fly.lua to rewrite")
     open(TEST_COPY, "w", encoding="utf-8", newline="\n").write(out)
     return TEST_COPY
 

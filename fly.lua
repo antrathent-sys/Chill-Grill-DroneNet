@@ -136,8 +136,11 @@ local CFG = {
   -- ~278, so OFFSET 269 -> 105. One flight cannot separate the mirror
   -- (HDG_SIGN): if the next hover still drifts at some other angle, flip
   -- the sign and refit from both logs.
+  -- fly cal on 2026-09-18 with the flat table (navigation_table_1, read
+  -- 85): pitch+ went north (5), roll+ went west (282, starboard), so the
+  -- offset is 270 - the old airframe's 269. cal.lua overrides these.
   HDG_SIGN = -1,
-  HDG_OFFSET = 105,
+  HDG_OFFSET = 270,
   HDG_ALPHA = 0.15,
   -- Velocity sensors, addressed BY NAME so peripheral.find ordering can't
   -- shuffle them. Identified in freefall: velocity_sensor_3 read -24 b/s while
@@ -155,7 +158,7 @@ local CFG = {
   -- Motion heading needed the velocity sensors, which the four-thruster
   -- airframe does not carry, so the nav table is primary now.
   NAV_PRIMARY = true,                 -- nav table is THE heading; motion heading is legacy fallback
-  NAV_NAME = nil,                     -- which navigation_table (the FLAT one); nil = first found.
+  NAV_NAME = "navigation_table_1",    -- which navigation_table (the FLAT one); nil = first found.
                                       -- 2026-09-18: nil picked a VERTICAL table on the new airframe
                                       -- (reads a constant 0 or 180 when level) and the heading was
                                       -- garbage for two flights. fly cal picks the flat one and
@@ -1854,8 +1857,12 @@ local FL = {}
 -- heading is the bearing OPPOSITE the pitch+ travel; with ROLL_DIR 1 roll+
 -- travels to starboard of that heading. HDG_SIGN comes from the table
 -- turning with (or against) Sable's yaw rate over the whole run.
-function FL.calStep(c, t, p, raw, wy, dt)
+function FL.calStep(c, t, p, rawH, wy, dt)
   c.t0 = c.t0 or t
+  -- rawH is rawHeading(): the table angle with HDG_SIGN and HDG_OFFSET
+  -- already applied. Undo them: the fit wants the table itself. (The first
+  -- cal flight, 2026-09-18, fitted against rawH and came out 75 deg off.)
+  local raw = (CFG.HDG_SIGN * (rawH - CFG.HDG_OFFSET)) % 360
   -- mirror evidence: the table's unwrapped change against integrated yaw
   if c.yawRaw then
     local dr = ((raw - c.yawRaw + 540) % 360) - 180
