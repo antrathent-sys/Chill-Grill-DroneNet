@@ -332,6 +332,11 @@ local CFG = {
   BRAKE_TURN_POWER = 0,               -- throttle floor during the reversal
   BRAKE_TURN_ERR = 20,                -- deg of attitude error that counts as still turning
   BRAKE_TURN_OFF = 8,                 -- deg it must come back inside before the floor lets go
+  -- ...and not while the floor has already carried the craft this far above
+  -- the leg's height: on a wobbly brake the error keeps crossing back over
+  -- BRAKE_TURN_ERR, the floor re-engages each time and it climbed 137 blocks
+  -- in one brake (flightlog 23-40-25, second brake). 0 = no altitude guard.
+  BRAKE_TURN_HIGH = 20,               -- blocks above the goal at which the floor gives up
   BRAKE_TURN_IN = 1.5,                -- throttle/s ramping the floor in
   BRAKE_TURN_OUT = 1.0,               -- throttle/s ramping it out
   BRAKE_EASE = 15,                    -- b/s under which the brake lean bleeds off toward zero. At 4 the brake
@@ -2423,8 +2428,14 @@ end
 -- craft is already near the commanded brake lean (or the floor is off). The
 -- error is the gimbal target against the gimbal reading, which is what the
 -- attitude loop itself is closing, and it is reported once per brake.
-function FL.brakeTurnFloor(st, a, tp, tr, dt)
+function FL.brakeTurnFloor(st, a, tp, tr, dt, e)
   if CFG.BRAKE_TURN_POWER <= 0 then return 0 end
+  -- e is (goal - height): negative is above the goal
+  if CFG.BRAKE_TURN_HIGH > 0 and e and e < -CFG.BRAKE_TURN_HIGH then
+    st.turnOn = false
+    st.turnLvl = math.max(0, (st.turnLvl or 0) - CFG.BRAKE_TURN_OUT * (dt or 0.1))
+    return st.turnLvl
+  end
   local err = math.sqrt((tp - a[1]) * (tp - a[1]) + (tr - a[2]) * (tr - a[2]))
   -- Hysteresis and a ramp, as the cruise floor has: on a bare threshold the
   -- floor toggled 0.55/0.25 eleven times in one brake as the error crossed 20
@@ -3133,7 +3144,7 @@ local function flyLeg()
         -- BRAKE_TURN_POWER: keep enough thrust to rotate while reversing
         -- (tpS/trS: the throttle is set before this iteration's lean, so the
         -- error is measured against the lean the craft is already turning to)
-        if phase == "brake" then pwr = math.max(pwr, FL.brakeTurnFloor(st, a, tpS, trS, dt)) end
+        if phase == "brake" then pwr = math.max(pwr, FL.brakeTurnFloor(st, a, tpS, trS, dt, e)) end
         -- and never the whole throttle: the attitude loop needs the headroom
         pwr = math.min(pwr, CFG.CRUISE_MAX_POWER)
       end
