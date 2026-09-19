@@ -99,6 +99,11 @@ SELFTEST = [
      {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5"},
      "reaches 20.5 30.5"),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
+    # BRAKE_MAP in tune.lua: the mock cruises at ~9 b/s, where this map says
+    # 45 blocks - the brake must fire there, not at the model's 8
+    ("brake map", ["go", "100", "50", "90"],
+     {"TMAX": "90", "TUNE": "return { BRAKE_MAP = '0:0,10:50,100:500' }", "BRAKE_CHECK": "45"},
+     ["climb", "cruise", "brake", "hold"]),
     # WORLD_BORDER in tune.lua: a target past it (less the 150 margin) is
     # refused before takeoff - no log, no flight; one inside it flies
     ("border refuses", ["go", "100", "50", "90"], {"TMAX": "30", "TUNE": "return { WORLD_BORDER = 200 }"}, []),
@@ -236,7 +241,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -442,6 +447,16 @@ def main(argv=None):
             if env.get("UNDOCK_CHECK"):
                 tok, extra = undock_check(logpath)
                 ok = ok and tok
+            if env.get("BRAKE_CHECK"):
+                import csv as _csv, math as _m
+                want = float(env["BRAKE_CHECK"])
+                with open(logpath, encoding="utf-8") as fh:
+                    rs = list(_csv.DictReader(fh))
+                b = next((r for r in rs if r["phase"] == "brake"), None)
+                d = _m.hypot(100.5 - float(b["x"]), 50.5 - float(b["z"])) if b else -1
+                tok = abs(d - want) <= 8
+                ok = ok and tok
+                extra = "brake fired %.1f blocks out, map says ~%.0f" % (d, want)
             if env.get("TUNE_CHECK"):
                 import csv as _csv, math as _m
                 cap = float(env["TUNE_CHECK"])

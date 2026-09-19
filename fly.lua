@@ -673,6 +673,16 @@ local CFG = {
   -- off by 152 - 380 short from 120 b/s, ~90 past from 31, and 30 of the 47
   -- brakes ended in a re-cruise. At 1.1x the fit, 42 of 47 end within
   -- RECRUISE_DIST. false = the BRAKE_K v^2 trigger, exactly as before.
+  -- Measured stopping distances for THIS craft, "speed:blocks,speed:blocks,..."
+  -- in increasing speed, set in tune.lua. The brake triggers at the distance
+  -- interpolated for the current ground speed (straight-line extension past
+  -- either end), scaled by BRAKE_MAP_SCALE, and the cruise's planned speed on
+  -- short legs is the same map read backwards. The straight-line model below
+  -- was too generous at 50 b/s (stopped 40-120 short) and too tight at 180+
+  -- (overshot 100-200) on the server craft, 31 brakes, 2026-09-19. Empty =
+  -- the model below, exactly as before.
+  BRAKE_MAP = "",
+  BRAKE_MAP_SCALE = 1.0,
   BRAKE_LINEAR = true,
   BRAKE_D0 = 12,                      -- blocks
   BRAKE_S = 3.37,                     -- blocks per b/s of entry speed
@@ -2388,7 +2398,36 @@ end
 
 -- Distance at which to start braking. fs is the speed capped at 150 that the
 -- old trigger used; gs the true ground speed, capped at 200 for the fit.
+-- BRAKE_MAP parsed once into sorted {speed, blocks} pairs; nil when unset
+-- or unreadable (a bad map is reported once and the model is used instead).
+function FL.brakeMap()
+  if FL.bmapSrc == CFG.BRAKE_MAP then return FL.bmap end
+  FL.bmapSrc, FL.bmap = CFG.BRAKE_MAP, nil
+  if type(CFG.BRAKE_MAP) ~= "string" or CFG.BRAKE_MAP == "" then return nil end
+  local m = {}
+  for v, d in CFG.BRAKE_MAP:gmatch("([%d%.]+)%s*:%s*([%d%.]+)") do m[#m + 1] = { tonumber(v), tonumber(d) } end
+  table.sort(m, function(a, b) return a[1] < b[1] end)
+  local ok = #m >= 2
+  for i = 2, #m do if m[i][1] <= m[i - 1][1] or m[i][2] <= m[i - 1][2] then ok = false end end
+  if not ok then
+    print("BRAKE_MAP ignored - needs at least two speed:blocks pairs, both rising: " .. CFG.BRAKE_MAP)
+    return nil
+  end
+  FL.bmap = m
+  return m
+end
+
+-- interpolate column b of the map at value x of column a (1 = speed, 2 = blocks)
+function FL.mapAt(m, x, a, b)
+  local i = 2
+  while i < #m and x > m[i][a] do i = i + 1 end
+  local p, q = m[i - 1], m[i]
+  return p[b] + (x - p[a]) * (q[b] - p[b]) / (q[a] - p[a])
+end
+
 function FL.brakeDistance(fs, gs)
+  local m = FL.brakeMap()
+  if m then return math.max(0, FL.mapAt(m, gs, 1, 2) * CFG.BRAKE_MAP_SCALE) end
   if CFG.BRAKE_LINEAR and gs >= CFG.BRAKE_LIN_MIN_V then
     return CFG.BRAKE_MARGIN * (CFG.BRAKE_D0 + CFG.BRAKE_S * math.min(gs + CFG.BRAKE_LEAD_V, 200))
   end
@@ -2412,6 +2451,10 @@ end
 -- Speed the cruise plans for at distance d (see CRUISE_TAPER). With "brake"
 -- it is the inverse of FL.brakeDistance, so cruise and brake agree.
 function FL.planSpeed(d)
+  local m = FL.brakeMap()
+  if CFG.CRUISE_TAPER == "brake" and m then
+    return math.max(CFG.BRAKE_LIN_MIN_V, FL.mapAt(m, d / CFG.BRAKE_MAP_SCALE, 2, 1))
+  end
   if CFG.CRUISE_TAPER == "brake" then
     if CFG.BRAKE_LINEAR then
       return math.max(CFG.BRAKE_LIN_MIN_V, (d / CFG.BRAKE_MARGIN - CFG.BRAKE_D0) / CFG.BRAKE_S - CFG.BRAKE_LEAD_V)
