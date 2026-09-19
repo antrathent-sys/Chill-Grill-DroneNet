@@ -546,7 +546,15 @@ local CFG = {
   -- (SPEED_GUARD - 2) once the along-speed is gone, the brake falls back to
   -- the total velocity until it is. false = brake the total, as before.
   BRAKE_ALONG = true,
-  CRUISE_AIM = "attitude",            -- "attitude": aim the cruise lean through the three-table attitude
+  CRUISE_AIM = "attitude",
+  -- Smooth the aimed cruise lean (body pitch/roll command) over this many
+  -- seconds. At 60 deg of lean a few degrees of heading needs a large roll
+  -- change to keep the lean on the track, and rolling the leaned craft swings
+  -- the heading again: on the server craft at 150-180 b/s yaw rate and roll
+  -- error moved together (correlation 0.91) and the roll command followed the
+  -- yaw by 0.5 s, a 3 s wobble of +-20 deg/s (flightlog 13-27-24). Set per
+  -- craft in tunes/. 0 = the aim as computed, exactly as before.
+  CRUISE_AIM_TAU = 0,            -- "attitude": aim the cruise lean through the three-table attitude
                                       -- (nav tables 4/5/7 + gimbal, lib/attitude.lua). "heading": the old
                                       -- split by the flat-table heading, which swings ~56 deg with roll at
                                       -- cruise lean and weaved the lean +-35 deg around the path (flightlog
@@ -3180,6 +3188,14 @@ local function flyLeg()
         cruiseIx, cruiseIz = FL.cruiseIntegrate(cruiseIx, cruiseIz, eWx, eWz, ux, uz, dt, cap)
       end
       if useQ then tp, tr, aimQ = FL.aimLean(tp, tr, cWx, cWz, mag, cap, a[1], a[2]) end
+      -- CRUISE_AIM_TAU: first-order smoothing, restarted after any gap
+      if CFG.CRUISE_AIM_TAU > 0 then
+        if not st.aimT or t - st.aimT > 0.5 then st.aimP, st.aimR = tp, tr end
+        st.aimP = st.aimP + (tp - st.aimP) * math.min(1, dt / CFG.CRUISE_AIM_TAU)
+        st.aimR = st.aimR + (tr - st.aimR) * math.min(1, dt / CFG.CRUISE_AIM_TAU)
+        st.aimT = t
+        tp, tr = st.aimP, st.aimR
+      end
     elseif phase == "cruise" then
       tp = CFG.DASH_DIR * dashDeg
     elseif phase == "brake" then

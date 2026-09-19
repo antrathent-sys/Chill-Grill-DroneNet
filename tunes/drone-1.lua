@@ -11,6 +11,9 @@
 --                      the defaults suit hover (~0.27); at cruise (~0.52) the
 --                      yaw rang at 1.9 s, +-40 deg/s, demand bang-bang at
 --                      +-0.6 (flightlog 13-19-39)
+--   CRUISE_AIM_TAU 0.8 halving the yaw gains left a 3 s yaw/roll wobble,
+--                      +-20 deg/s, driven by the lean being re-aimed on every
+--                      heading wiggle (flightlog 13-27-24)
 return {
   YAW_MAX_LEAN = 0.6,
   YAW_OFFSET = 225,
@@ -18,4 +21,5 @@ return {
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1110",
   YAW_KP = 0.01,
   YAW_KD = 0.01,
+  CRUISE_AIM_TAU = 0.8,
 }
