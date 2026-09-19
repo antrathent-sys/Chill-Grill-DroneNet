@@ -3,6 +3,7 @@
 --
 --   mixcal            calibrate, print the map, write mixmap.txt and push it
 --   mixcal dry        do everything EXCEPT fire the thrusters (safe to try)
+--   mixcal <power>    pulse at this power instead (0.2 - 0.8), e.g. mixcal 0.6
 --
 -- Peripheral names carry no position, so a four-thruster mixer cannot be
 -- written from a diagram without risking a sign error that flips the craft on
@@ -14,7 +15,9 @@
 -- and zeroes every thruster on any exit including an error.
 
 local CFG = {
-  PULSE_POWER = 0.35,     -- normalised, per thruster. Low: this must not lift it.
+  PULSE_POWER = 0.5,      -- normalised, per thruster: one of four at 0.5 is under half the
+                          -- craft's weight at hover 0.27, so it rocks and cannot lift. 0.35
+                          -- left three of four thrusters in the noise on 2026-09-19.
   PULSE_TIME  = 0.8,      -- seconds of thrust per test
   SETTLE_TIME = 1.5,      -- seconds to let it rest between tests
   ABORT_TILT  = 25,       -- degrees: stop everything if it leans this far
@@ -24,6 +27,14 @@ local CFG = {
 }
 
 local DRY = ({ ... })[1] == "dry"
+do
+  local want = tonumber(({ ... })[1])
+  if want then
+    if want < 0.2 or want > 0.8 then error("mixcal <power>: 0.2 to 0.8", 0) end
+    CFG.PULSE_POWER = want
+  end
+end
+print(string.format("pulse power %.2f for %.1f s per thruster", CFG.PULSE_POWER, CFG.PULSE_TIME))
 
 -- ---------- devices ----------
 local thrusters = {}
