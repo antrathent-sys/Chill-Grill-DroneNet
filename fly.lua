@@ -325,8 +325,13 @@ local CFG = {
   -- 50 (about 60 true on this frame) hover needs ~0.50 throttle: the loop
   -- sits mid-range with authority both ways, and the tables still solve.
   -- Slower - the old frame did ~100-135 b/s at 60-70 - and that is the
-  -- trade. 70 gave 216 peak / 194 mean on the old frame (663ac06a).
-  CRUISE_DEG = 50,                    -- max lean during cruise, at speed.
+  -- trade. Flown once at 50 the same evening: still unstable, so the cap is
+  -- not where the trouble is; back to 70 (Alex). The frame HAS the sails;
+  -- what differs from the old frame is hover 0.284 vs 0.25 for less mass
+  -- (55.5 vs 66) and no lift showing at 100-150 b/s - the airframe, to be
+  -- sorted out in the test world. 70 gave 216 peak / 194 mean on the old
+  -- frame (663ac06a).
+  CRUISE_DEG = 70,                    -- max lean during cruise, at speed.
                                       -- 74 (80 with the lean-over) was SLOWER: 199 / 183, flightlog 0fa26a7c. At 80
                                       -- true the craft sinks 7 b/s at full throttle until the sails' lift catches up
                                       -- near 190 b/s, so the height loop cycles it: low -> ALT_LEAN_GAIN pulls the
@@ -387,9 +392,8 @@ local CFG = {
   -- (flightlog ee7e92af). The craft has flown 76 deg true for 5-6 s on every
   -- acceleration without incident, so +6 over a 70 cap stays inside proven
   -- territory. Only while high (e < 0); false = the cap is the cap.
-  -- 2026-09-20: off with the 50 cap - the cap IS the stability limit now,
-  -- the height loop has throttle to spare and must not buy height with lean.
-  ALT_LEAN_OVER_ON = false,
+  -- (2026-09-20: was off for the one flight at a 50 cap; back on with 70.)
+  ALT_LEAN_OVER_ON = true,
   -- 10 was tried (d4fe44a3) to hold height by lean instead of throttle at
   -- 196 b/s: the high excursion shrank 22 -> 16 but the throttle still fell
   -- to 0.25, the speed sag grew (193 -> 170) and true lean reached 83.5
