@@ -5,7 +5,7 @@
 --   YAW_MAX_LEAN 0.6   the yaw ran away both ways at 45-60 b/s with 0.3
 --   YAW_OFFSET 225     puts the lean on the pitch/roll diagonal; 260 put it
 --                      mostly on roll and the gimbal let go past ~75 deg
---   CRUISE_DEG 62      62 (13-49) topped out lower at 185, roll swing grew to 60+ deg, thrust
+--   CRUISE_DEG 58      62 (13-49) topped out lower at 185, roll swing grew to 60+ deg, thrust
 --                      hit the 0.80 cap and it tumbled at 150 b/s: 58 is the ceiling on this frame
 --   BRAKE_MAP          31 measured brakes, blocks needed from each speed. The
 --                      top points re-fitted 2026-09-19 night: with
@@ -32,11 +32,16 @@
 --                      swings from the cruise lean to the brake lean, so the
 --                      thrusters keep the torque to turn with. The first 3 s
 --                      of a brake from 200 took off only 10-20 b/s
+-- 2026-09-19 night, 11 legs measured in 5 s slices: at 58 the roll swing
+-- grows slowly and settles around 8-9 deg; at 62 it grows about half as fast
+-- again every 5 s (2.6 -> 4.6 -> 7.6 on the calmest leg, 9.6 -> 20.3 on the
+-- worst) and tumbled twice. 62 is divergent on this frame, so 58 it is - the
+-- good 62 legs were short ones that ended before the swing had grown.
 return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
-  CRUISE_DEG = 62,
+  CRUISE_DEG = 58,
   CRUISE_BODY_LEAN = 30,
   BRAKE_TURN_POWER = 0.55,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:900,190:1090,205:1220",
