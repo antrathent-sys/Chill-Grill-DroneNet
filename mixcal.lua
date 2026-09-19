@@ -196,6 +196,20 @@ else
   end
 end
 
+-- Two thrusters in one corner is not a map, however it came about: on
+-- 2026-09-19 three of four barely rocked the craft (0.0006 against 0.024),
+-- their corners came out of the noise, two landed on A1, the map was
+-- written anyway, and the next hover sat at 43 deg of pitch with the mixer
+-- pinned. Refuse it.
+if dupC then
+  print("")
+  print("NOT WRITTEN: two thrusters came out in the same corner, so one corner")
+  print("has nothing. Usually the craft could not rock: latched to the dock,")
+  print("wedged against something, or a thruster not firing. Put it on flat")
+  print("ground, free, check all four fire, and run mixcal again.")
+  return
+end
+
 -- A mixer can only balance a craft with thrust on both sides of both axes.
 -- On 2026-09-18 the new airframe's computer saw two of its four thrusters
 -- (the other two were not on its network), both on one side: the map was

@@ -914,7 +914,16 @@ if #thrs > 1 then (function()
   -- two-thruster map (two of four off the network) tipped the new airframe
   -- over in its first second, 2026-09-18
   local side = {}
-  for _, m in ipairs(map) do side["p" .. m.pitch], side["r" .. m.roll] = true, true end
+  for _, m in ipairs(map) do
+    -- one thruster per corner: two in one corner leave another empty
+    local c = m.pitch .. "/" .. m.roll
+    if side[c] then
+      error("the thruster map has two thrusters in one corner (" .. side[c] .. " and " .. m.name
+        .. ") - it is not a map. Put the craft on flat ground, free of the dock, and run mixcal", 0)
+    end
+    side[c] = m.name
+    side["p" .. m.pitch], side["r" .. m.roll] = true, true
+  end
   if not (side["p1"] and side["p-1"] and side["r1"] and side["r-1"]) then
     error("the thruster map has nothing on one side of the pitch or roll axis - it would tip over. "
       .. #thrs .. " thruster(s) on the network: check every one has its wired modem on, then run mixcal", 0)
