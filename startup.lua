@@ -407,6 +407,27 @@ local function update(roleRequest)
     end
   end
 
+  -- This craft's tuning lives in the repo as tunes/<name>.lua (the name its
+  -- telemetry uses: the label, else drone-<id>) and is installed as tune.lua,
+  -- which fly loads over CFG. A tune.lua edited by hand on the drone went
+  -- missing on 2026-09-19 and the craft flew its defaults for three hours
+  -- without a word. No file in the repo: a local tune.lua is left alone.
+  do
+    local me = (os.getComputerLabel and os.getComputerLabel())
+               or ("drone-" .. tostring(os.getComputerID and os.getComputerID() or "?"))
+    local tb = fetch(ref, "tunes/" .. me .. ".lua")
+    if tb and tb:match("return%s*{") then
+      if tb ~= readLocal("tune.lua") then
+        writeText("tune.lua", tb)
+        updated[#updated + 1] = "tune.lua (tunes/" .. me .. ".lua)"
+      else
+        unchanged[#unchanged + 1] = "tune.lua"
+      end
+    else
+      print("tune:      none in the repo for " .. me .. (fs.exists("tune.lua") and " - keeping this computer's tune.lua" or ""))
+    end
+  end
+
   if #updated > 0   then print("updated:   " .. table.concat(updated, ", ")) end
   if #unchanged > 0 then print("unchanged: " .. table.concat(unchanged, ", ")) end
   if #failed > 0    then print("FAILED:    " .. table.concat(failed, ", ")) end

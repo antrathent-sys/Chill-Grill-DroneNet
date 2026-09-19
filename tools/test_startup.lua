@@ -71,6 +71,10 @@ local function world(opts)
       if not name then return nil, "bad url " .. url end
       w.fetched = w.fetched or {}
       w.fetched[#w.fetched + 1] = name
+      if opts.tunes and name:match("^tunes/") then
+        if not opts.tunes[name] then return nil, "404" end
+        return { readAll = function() return opts.tunes[name] end, close = function() end }
+      end
       if name == "manifest.lua" then
         if not opts.manifest then return nil, "404" end
         return { readAll = function() return opts.manifest end, close = function() end }
@@ -94,7 +98,9 @@ local function world(opts)
       if kind == "vector_thruster" then return unpack(opts.thrusters) end
     end }
   end
-  env.os = setmetatable({ pullEvent = function() return "key", 57 end }, { __index = os })
+  env.os = setmetatable({ pullEvent = function() return "key", 57 end,
+                          getComputerLabel = function() return opts.label end,
+                          getComputerID = function() return 7 end }, { __index = os })
   -- after the scripted runs, a key press stops the loop so the test ends
   env.shell = { run = function(cmd)
     w.runs[#w.runs + 1] = cmd
@@ -373,6 +379,26 @@ for _, n in ipairs(realMan.common) do
   end
 end
 check("every role carries what its programs load", #gaps == 0, table.concat(gaps, "; "))
+
+print("per-drone tuning from the repo")
+local TUNE = "return { YAW_MAX_LEAN = 0.6 }"
+local t1 = world({ label = "drone-1", tunes = { ["tunes/drone-1.lua"] = TUNE } })
+run(t1)
+check("the drone's tunes file is installed as tune.lua", t1.files["tune.lua"] == TUNE, t1.files["tune.lua"])
+check("and it says so", printedHas(t1, "tune.lua (tunes/drone-1.lua)"))
+local t2 = world({ tunes = { ["tunes/drone-7.lua"] = TUNE } })
+run(t2)
+check("no label: found by computer id (drone-7)", t2.files["tune.lua"] == TUNE, t2.files["tune.lua"])
+local t3 = world({ label = "drone-1", tunes = {}, files = { ["tune.lua"] = "return { CRUISE_DEG = 50 }" } })
+run(t3)
+check("none in the repo: a local tune.lua is kept", t3.files["tune.lua"] == "return { CRUISE_DEG = 50 }")
+check("and it says so", printedHas(t3, "none in the repo for drone-1 - keeping"))
+local t4 = world({ label = "drone-1", tunes = { ["tunes/drone-1.lua"] = TUNE }, files = { ["tune.lua"] = "return { CRUISE_DEG = 50 }" } })
+run(t4)
+check("the repo's file replaces a local one", t4.files["tune.lua"] == TUNE)
+local t5 = world({ label = "drone-1", tunes = { ["tunes/drone-1.lua"] = "<html>not found</html>" } })
+run(t5)
+check("something that is not a tune table is not installed", t5.files["tune.lua"] == nil)
 
 print("thrusters off at boot")
 local thrCalls = {}
