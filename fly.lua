@@ -168,6 +168,15 @@ local CFG = {
   -- 2026-09-18 (tables 0/1/2). With no match the cruise flies on the flat
   -- table alone, which is only good to ~30 deg of lean.
   ATT_PRESET = "airframe2",          -- mirror resolved on three flights, see lib/attitude.lua
+  -- When that preset's tables are not on this craft, fly on whichever
+  -- preset's are. 2026-09-20: the test-world craft is the old frame (tables
+  -- 4/5/7) and flew a 9,700-block leg under the airframe2 preset - no
+  -- solve (trihdg -1 throughout), the cruise aimed by the flat table alone,
+  -- which swings +-70 deg at 70 deg of lean, so the yaw hold chased it at
+  -- +-40 deg/s and the craft ended 750 blocks off the line (paste.rs
+  -- rZXcp). The same fly.lua must fly both crafts. false = the named
+  -- preset or nothing, exactly as before.
+  ATT_PRESET_AUTO = true,
   CAL_DEG = 10,                       -- fly cal: tilt of each pulse
   CAL_T = 2.0,                        -- s each pulse lasts; the counter-pulse is the same
   CAL_SETTLE = 4.0,                   -- s level before the first pulse and between them
@@ -1009,12 +1018,55 @@ if not ATT then print("WARNING: lib/attitude.lua missing - attitude errors fall 
 local triPre = ATT and ATT.presets and ATT.presets[CFG.ATT_PRESET] or nil
 if ATT and not triPre then print("WARNING: no attitude preset called " .. tostring(CFG.ATT_PRESET)) end
 local triTables = {}
-if triPre then
-  for _, e in ipairs(triPre.tables) do
-    local tp = peripheral.wrap(e.name)
-    if tp and tp.getRelativeAngle then
-      triTables[#triTables + 1] = { name = e.name, p = tp, mount = ATT.mountFrom(e) }
+do
+  -- the tables a preset names that are actually on this craft
+  local function present(pre)
+    local found = {}
+    for _, e in ipairs(pre.tables) do
+      local tp = peripheral.wrap(e.name)
+      if tp and tp.getRelativeAngle then
+        found[#found + 1] = { name = e.name, p = tp, mount = ATT.mountFrom(e) }
+      end
     end
+    return found
+  end
+  local found = triPre and present(triPre) or {}
+  -- ATT_PRESET_AUTO: the named preset is not this craft's - take the one
+  -- whose tables are all here, first by name if several are
+  if CFG.ATT_PRESET_AUTO and ATT and ATT.presets and (not triPre or #found < #triPre.tables) then
+    local names = {}
+    for k in pairs(ATT.presets) do names[#names + 1] = k end
+    table.sort(names)
+    for _, k in ipairs(names) do
+      local pre = ATT.presets[k]
+      local f = present(pre)
+      if #f == #pre.tables and #f >= 2 then
+        local list = {}
+        for _, e in ipairs(f) do list[#list + 1] = (e.name:gsub("navigation_table_", "nav")) end
+        print(string.format("attitude: preset %s's tables are not on this craft - using %s (%s)",
+          tostring(CFG.ATT_PRESET), k, table.concat(list, " ")))
+        triPre, found = pre, f
+        CFG.ATT_PRESET = k
+        break
+      end
+    end
+    -- and the flat table for the hover heading, when NAV_NAME's is not here
+    -- either: the preset's horizontal one. Its offset and sign still come
+    -- from this computer's cal.lua - run fly cal on a craft that has none.
+    if triPre and CFG.NAV_NAME and not peripheral.isPresent(CFG.NAV_NAME) then
+      for _, e in ipairs(triPre.tables) do
+        if (e.normal == "+y" or e.normal == "-y") and peripheral.isPresent(e.name) then
+          nav = peripheral.wrap(e.name)
+          print("heading: " .. CFG.NAV_NAME .. " is not on this craft - flat table " .. e.name .. " from the preset")
+          CFG.NAV_NAME = e.name
+          break
+        end
+      end
+    end
+  end
+  triTables = found
+  if triPre and #triTables > 0 then
+    print(string.format("attitude: preset %s, %d of %d tables", tostring(CFG.ATT_PRESET), #triTables, #triPre.tables))
   end
 end
 -- No preset tables on this airframe? Read the first three tables present

@@ -101,6 +101,11 @@ SELFTEST = [
     # log must show the attitude path actually flying most cruise rows
     ("triad cruise", ["go", "100", "50", "90"], {"TMAX": "90", "TRIAD": "1"},
      ["climb", "cruise", "brake", "hold"]),
+    # the other craft's preset named: its tables are not here, airframe1's
+    # are, so the auto pick must find them and the cruise must still be
+    # aimed by the attitude (triad_check: level heading 30, aimq share)
+    ("triad auto", ["go", "100", "50", "90"], {"TMAX": "90", "TRIAD": "1", "PRESET": "airframe2"},
+     ["climb", "cruise", "brake", "hold"]),
     # a full disk must never end a flight: with little space the log thins to
     # phase changes and still records every phase (below LOG_MIN_KB fly
     # refuses to START instead - "no disk to fly" case)...
@@ -197,7 +202,8 @@ def make_test_copy():
         raise SystemExit("run_mock: could not find HDG_OFFSET in fly.lua to rewrite")
     # the mock has one flat table, navigation_table_0, and its TRIAD tables are airframe1's
     out, nsub = re.subn(r'NAV_NAME = (?:nil|"[^"]*"),', 'NAV_NAME = nil,', out, count=1)
-    out = re.sub(r'ATT_PRESET = "[^"]*",', 'ATT_PRESET = "airframe1",', out, count=1)
+    # PRESET=<name> names another (the other craft's) to exercise the auto pick
+    out = re.sub(r'ATT_PRESET = "[^"]*",', 'ATT_PRESET = "%s",' % os.environ.get("PRESET", "airframe1"), out, count=1)
     if nsub != 1:
         raise SystemExit("run_mock: could not find NAV_NAME in fly.lua to rewrite")
     open(TEST_COPY, "w", encoding="utf-8", newline="\n").write(out)
@@ -208,7 +214,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
