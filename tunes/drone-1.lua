@@ -7,19 +7,13 @@
 --                      mostly on roll and the gimbal let go past ~75 deg
 --   CRUISE_DEG 58      62 bought 7 b/s and brought back a roll swing
 --   BRAKE_MAP          31 measured brakes, blocks needed from each speed
---   YAW_KP/YAW_KD 0.01 half the defaults: yaw twist scales with throttle and
---                      the defaults suit hover (~0.27); at cruise (~0.52) the
---                      yaw rang at 1.9 s, +-40 deg/s, demand bang-bang at
---                      +-0.6 (flightlog 13-19-39)
---   CRUISE_AIM_TAU 0.8 halving the yaw gains left a 3 s yaw/roll wobble,
---                      +-20 deg/s, driven by the lean being re-aimed on every
---                      heading wiggle (flightlog 13-27-24)
+-- Tried and reverted 2026-09-19: YAW_KP/KD 0.01 and CRUISE_AIM_TAU 0.8 each
+-- trimmed the cruise yaw swing a little (rms 25 -> 16.5 -> 13.9 deg/s) but
+-- roll tracking went 3.8 -> 9.5 -> 11.9 deg rms (flightlogs 13-15-51,
+-- 13-27-24, 13-33-44) - back to the default yaw gains and no aim smoothing.
 return {
   YAW_MAX_LEAN = 0.6,
   YAW_OFFSET = 225,
   CRUISE_DEG = 58,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1110",
-  YAW_KP = 0.01,
-  YAW_KD = 0.01,
-  CRUISE_AIM_TAU = 0.8,
 }
