@@ -74,4 +74,8 @@ if url then
 else
   print("")
   print("nothing accepted it - wait a while and try again, or set up .ghtoken and use upload")
+  if #text > 60 * 1024 then
+    print(string.format("(%d KB: paste.rs takes about 60 - `upload thin` picks a step that fits, then paste flightlog.thin)",
+      math.floor(#text / 1024)))
+  end
 end

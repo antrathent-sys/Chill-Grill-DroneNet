@@ -19,8 +19,19 @@ local KEEP   = 12                  -- keep every Nth row when downsampling
 local args = { ... }
 local full = args[1] == "full"
 local thin = args[1] == "thin"
-if thin then KEEP = tonumber(args[2]) or 4 end
 local src  = (not full and not thin and args[1]) or "flightlog"
+-- `upload thin` with no number sizes the step to land under THIN_TARGET:
+-- paste.rs took 49 and 54 KB and refused 95 and 153 with an HTTP 500, so
+-- the copy has to come out small, and nobody wants to guess the number
+-- after a long flight. Never coarser than a typed number, never finer than 4.
+local THIN_TARGET = 50 * 1024
+if thin then
+  KEEP = tonumber(args[2])
+  if not KEEP then
+    local size = (fs.exists(src) and fs.getSize and fs.getSize(src)) or 0
+    KEEP = math.max(4, math.ceil(size / THIN_TARGET))
+  end
+end
 
 -- ---------- base64, for the GitHub contents API ----------
 local B = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
