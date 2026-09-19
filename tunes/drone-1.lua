@@ -5,7 +5,7 @@
 --   YAW_MAX_LEAN 0.6   the yaw ran away both ways at 45-60 b/s with 0.3
 --   YAW_OFFSET 225     puts the lean on the pitch/roll diagonal; 260 put it
 --                      mostly on roll and the gimbal let go past ~75 deg
---   CRUISE_DEG 58      62 (13-49) topped out lower at 185, roll swing grew to 60+ deg, thrust
+--   CRUISE_DEG 62      62 (13-49) topped out lower at 185, roll swing grew to 60+ deg, thrust
 --                      hit the 0.80 cap and it tumbled at 150 b/s: 58 is the ceiling on this frame
 --   BRAKE_MAP          31 measured brakes, blocks needed from each speed
 --   BRAKE_EASE 60      the brake held its full 45 deg lean down to 15 b/s;
@@ -19,13 +19,16 @@
 -- 13-57-32 at 58 WITHOUT body lean (tune not yet pulled) tumbled on the
 -- return leg: heading error grew to 70 deg from 40 b/s, thrust capped. So
 -- 58 is marginal too, and the return leg always wobbles about twice as much.
---   CRUISE_BODY_LEAN 30  on test from 2026-09-20: lean held on the body while
---                      the nose wobbles, so yaw stops moving the roll command
+--   CRUISE_BODY_LEAN 30  lean held on the body while the nose wobbles, so yaw
+--                      stops moving the roll command: roll command swing 7.0
+--                      -> 3.2 deg, heading error 8.6 -> 6.3, return leg steady
+--                      for the first time (14-04-32, 22-38-47, 22-53-13). It
+--                      costs ~11 b/s, which is why 62 is worth another go.
 return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
-  CRUISE_DEG = 58,
+  CRUISE_DEG = 62,
   CRUISE_BODY_LEAN = 30,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1110",
 }
