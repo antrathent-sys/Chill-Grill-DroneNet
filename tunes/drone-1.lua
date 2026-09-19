@@ -7,7 +7,10 @@
 --                      mostly on roll and the gimbal let go past ~75 deg
 --   CRUISE_DEG 62      62 (13-49) topped out lower at 185, roll swing grew to 60+ deg, thrust
 --                      hit the 0.80 cap and it tumbled at 150 b/s: 58 is the ceiling on this frame
---   BRAKE_MAP          31 measured brakes, blocks needed from each speed
+--   BRAKE_MAP          31 measured brakes, blocks needed from each speed. The
+--                      top two points raised 2026-09-19: at 62 deg the craft
+--                      reaches 204 and the brakes from 188-204 ran 124-163
+--                      blocks long (22-38-47, 23-06-53)
 --   BRAKE_EASE 60      the brake held its full 45 deg lean down to 15 b/s;
 --                      below ~85 b/s that saturated the mixer in bursts,
 --                      roll missed by 30, yaw kicked to 90 deg/s (13-15-51).
@@ -30,5 +33,5 @@ return {
   YAW_OFFSET = 225,
   CRUISE_DEG = 62,
   CRUISE_BODY_LEAN = 30,
-  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1110",
+  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1180,205:1330",
 }
