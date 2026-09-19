@@ -654,6 +654,17 @@ local CFG = {
   CRUISE_TAPER = "brake",
                                       -- so a short leg never leans to the cap (a 125-block re-cruise did, and
                                       -- ping-ponged dash/brake four times, 2026-09-10)
+  -- A brake that ends within APPROACH_MAX of the target glides the rest of
+  -- the way on the position hold, its speed limit raised to APPROACH_VMAX,
+  -- instead of starting a new cruise. Brakes from the same speed scatter
+  -- +-100 blocks (ten on the server craft, 2026-09-19: margin that fits
+  -- 1.43-1.87, median 1.62), and every one that ended more than
+  -- RECRUISE_DIST out re-cruised - lean to the cap, accelerate, brake again -
+  -- in 2-3 hops and 15-25 s. The hold's own taper (PKP) brings it in; the
+  -- normal limits return within 30 blocks. false = re-cruise, as before.
+  APPROACH_GLIDE = true,
+  APPROACH_MAX = 400,                 -- blocks: further out than this still re-cruises
+  APPROACH_VMAX = 30,                 -- b/s: the hold's speed limit while gliding in
   RECRUISE_DIST = 60,                 -- blocks: a brake that ends further out than this goes back to dash
   -- Brake trigger. The brake takes about 5 s almost whatever the entry speed,
   -- so its distance grows LINEARLY with speed: least squares over 47 brakes in
@@ -2740,7 +2751,12 @@ local function flyLeg()
       end
       if st.done or t - brakeStart > CFG.BRAKE_MAX_T then
         local dLeft = (mode == "go" or mode == "dock") and math.sqrt((tgtX - pos.x)^2 + (tgtZ - pos.z)^2) or 0
-        if dLeft > CFG.RECRUISE_DIST then
+        local glide = CFG.APPROACH_GLIDE and dLeft > CFG.RECRUISE_DIST and dLeft <= CFG.APPROACH_MAX
+        if glide then
+          st.glide = true
+          print(string.format("stopped %.0f blocks out - gliding in", dLeft))
+        end
+        if dLeft > CFG.RECRUISE_DIST and not glide then
           -- stopped short: cruise again rather than crawl in on the hold
           phase = "cruise" dashStart = t cruiseIx, cruiseIz = 0, 0 st.trkX, st.trkZ = pos.x, pos.z
           print(string.format("stopped %.0f blocks short - cruising again", dLeft))
@@ -3130,10 +3146,12 @@ local function flyLeg()
         goalX, goalZ = pos.x, pos.z
         CAL = nil
       end
-    elseif phase ~= "climb" and fresh and speed < CFG.SPEED_GUARD then
+    elseif phase ~= "climb" and fresh and speed < (st.glide and CFG.APPROACH_VMAX + 10 or CFG.SPEED_GUARD) then
       ex, ez = goalX - pos.x, goalZ - pos.z
-      local vdx = clamp(CFG.PKP * ex, CFG.VMAX)
-      local vdz = clamp(CFG.PKP * ez, CFG.VMAX)
+      -- APPROACH_GLIDE: a faster limit until within 30 blocks, then the normal one
+      if st.glide and ex * ex + ez * ez < 900 then st.glide = nil end
+      local vdx = clamp(CFG.PKP * ex, st.glide and CFG.APPROACH_VMAX or CFG.VMAX)
+      local vdz = clamp(CFG.PKP * ez, st.glide and CFG.APPROACH_VMAX or CFG.VMAX)
       local evx, evz = vdx - pos.vx, vdz - pos.vz
       local r = math.rad(hdg)
       local fwd   = evx * math.sin(r) - evz * math.cos(r)
