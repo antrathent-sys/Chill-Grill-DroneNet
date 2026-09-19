@@ -402,6 +402,19 @@ local CFG = {
   -- Smooth cruise (2026-09-10 rework): commit to a lean and hold it.
   DASH_ENTRY_FRAC = 0.6,              -- go/dock: start the cruise lean once this fraction of the climb is done;
                                       -- the altitude cascade finishes the climb underneath (feed-forward covers the lean)
+  -- ...but not while still climbing hard. Two logs on 2026-09-19 (paste.rs
+  -- cNFSZ and JKsLe, both 2,500-3,000-block legs on the hand-built frame):
+  -- handed over at 60% of the climb still doing 45 b/s, the cruise floated
+  -- 30 m past the goal - its throttle floor 0.25 IS hover, so the small
+  -- early lean cannot arrest a climb - sat 6 s on that floor while CRUISE_MAX
+  -- leaned it to the cap, 88 deg true at 30 b/s, then 0.80 throttle at that
+  -- lean took it 30 -> 107 b/s in 4 s with the heading solve useless. 355 and
+  -- 243 blocks off the line and a 10 s throttle cycle for the rest of both
+  -- cruises. Above this vertical speed the climb phase keeps the craft (its
+  -- cascade can cut throttle below hover); reaching the top hands over
+  -- regardless. The cascade (DECEL 8) is at 8 b/s about 4 m under the goal,
+  -- so this is "enter at the top, arrested". 0 = off: the old handover exactly.
+  DASH_ENTRY_VY = 8,                  -- b/s
   CRUISE_TILT_RATE = 20,              -- deg/s: lean target slew in cruise (TILT_RATE elsewhere); no twitching
   -- CRUISE_MAX: fly the cruise for speed. false = the previous law, exactly.
   -- 2026-09-13 log: 8 of 11 cruise seconds barely pushed - the lean cap
@@ -2416,7 +2429,8 @@ local function flyLeg()
       if mode == "go" or mode == "dock" then
         entryH = math.min(entryH, h0 + CFG.DASH_ENTRY_FRAC * (goal - h0))
       end
-      if h >= entryH then
+      -- DASH_ENTRY_VY: the early handover waits for the climb to be arrested
+      if h >= entryH and (CFG.DASH_ENTRY_VY <= 0 or v <= CFG.DASH_ENTRY_VY or h >= goal - CFG.DASH_SETTLE) then
         local hop = (mode == "go" or mode == "dock") and CFG.HOP_DIST > 0
                     and (tgtX - pos.x)^2 + (tgtZ - pos.z)^2 < CFG.HOP_DIST^2
         if hop then
@@ -3120,7 +3134,22 @@ end
 local loops = { controlLoop, posLoop, monLoop, chime.loop, cmdLoop }
 if CFG.TELEM_ON and LINK then loops[#loops + 1] = linkLoop end
 local ok, err = pcall(parallel.waitForAny, unpack_(loops))
-allStop() pump(false) pcall(log.close)
+allStop() pump(false)
+-- The last row says how the flight ended: "end:ok:control" when the control
+-- loop returned (docked, landed, mission complete), "end:<error>" when a
+-- loop threw (tumble, lost peripheral...), "end:Terminated" for Ctrl+T. A
+-- log with NO end row means the computer itself stopped mid-flight: on
+-- 2026-09-19 (paste.rs cNFSZ) the log ended mid-climb with the thrusters
+-- still firing and nothing anywhere to say why. Written straight to the
+-- handle, past any logging budget; commas and newlines are swapped out so
+-- the row still parses as one line of the CSV.
+do
+  local names = { "control", "pos", "mon", "chime", "cmd", "link" }
+  local why = ok and ("ok:" .. (names[err] or tostring(err))) or tostring(err)
+  why = why:gsub("[,\r\n]", ";"):sub(1, 80)
+  pcall(log.writeLine, string.format("%.2f,end:%s%s", TLM.t or 0, why, string.rep(",0", 43)))
+end
+pcall(log.close)
 print("thrusters off, pump off - flightlog saved")
 -- Sounded here, not in the loop: the control loop returns the instant it docks,
 -- so a queued chime would be cut off before it played.

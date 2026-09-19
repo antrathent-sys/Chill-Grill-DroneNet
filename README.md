@@ -290,7 +290,7 @@ touching down. A dock that gave up and fell back to holding must keep holding;
 calling that leg finished would return from the control loop and shut the
 thrusters off underneath a craft that is still in the air.
 
-Ctrl+T stops the program. On any exit, including a tumble error, the thruster is cut and `flightlog` is closed.
+Ctrl+T stops the program. On any exit, including a tumble error, the thruster is cut and `flightlog` is closed. Its last row is an **end row**: `t,end:<why>,0,0,...` with `end:ok:control` when the control loop returned (docked, landed, mission complete), `end:<error text>` when a loop threw, `end:Terminated` for Ctrl+T. A log with no end row means the computer itself stopped mid-flight (2026-09-19, paste.rs cNFSZ: the log ended in a normal climb and the craft flew on under power with nothing driving it). For the same reason `startup` zeroes every vector thruster at boot - a computer that comes back mid-flight must not leave the last thrust command running.
 
 Phases as they appear in the log:
 

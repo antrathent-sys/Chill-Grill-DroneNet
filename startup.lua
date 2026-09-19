@@ -122,6 +122,24 @@ if not roleRequest then
   end
 end
 
+-- Thrusters off at boot. A computer that stops mid-flight comes back with
+-- the thrusters still at their last command and nothing driving them: on
+-- 2026-09-19 the server stopped the drone's computer 3.6 s into a return
+-- leg and the craft flew on, inverted, into the sea under power. Nothing
+-- legitimately has thrust on while this computer is booting (fly never
+-- autoruns), so every vector thruster is zeroed before anything slower runs.
+-- Peripheral calls only - the dock hold above is redstone and stays up.
+if not roleRequest and peripheral and peripheral.find then
+  local thrs = { peripheral.find("vector_thruster") }
+  for _, thr in ipairs(thrs) do
+    pcall(thr.setPowerNormalized, 0)
+    pcall(thr.setVector, 0, 0)
+  end
+  if #thrs > 0 then
+    print("boot: " .. #thrs .. " thruster(s) zeroed - nothing flies until a flight command")
+  end
+end
+
 -- Private repo? Put a GitHub token (fine-grained, read-only Contents scope on
 -- this repo only) in a file called .ghtoken on THIS computer. It is read here
 -- and sent as an Authorization header; it never lives in the repo.

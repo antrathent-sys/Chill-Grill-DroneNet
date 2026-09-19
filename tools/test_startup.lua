@@ -79,6 +79,12 @@ local function world(opts)
     w.rs[side] = on
     w.firstRs = w.firstRs or (#(w.fetched or {}))
   end }
+  -- opts.thrusters: vector thrusters on the wired network, as peripheral.find sees them
+  if opts.thrusters then
+    env.peripheral = { find = function(kind)
+      if kind == "vector_thruster" then return unpack(opts.thrusters) end
+    end }
+  end
   env.os = setmetatable({ pullEvent = function() return "key", 57 end }, { __index = os })
   -- after the scripted runs, a key press stops the loop so the test ends
   env.shell = { run = function(cmd)
@@ -340,6 +346,34 @@ for _, n in ipairs(realMan.common) do
   end
 end
 check("every role carries what its programs load", #gaps == 0, table.concat(gaps, "; "))
+
+print("thrusters off at boot")
+local thrCalls = {}
+local function fakeThr(name)
+  return {
+    setPowerNormalized = function(p) thrCalls[#thrCalls + 1] = name .. ":pow=" .. tostring(p) end,
+    setVector = function(x, y) thrCalls[#thrCalls + 1] = name .. ":vec=" .. tostring(x) .. "," .. tostring(y) end,
+  }
+end
+local z1 = world({ files = { [".hold"] = "back" }, thrusters = { fakeThr("a"), fakeThr("b") } })
+run(z1)
+check("boot zeroes every thruster's power and vector",
+  #thrCalls == 4 and thrCalls[1] == "a:pow=0" and thrCalls[2] == "a:vec=0,0" and thrCalls[3] == "b:pow=0" and thrCalls[4] == "b:vec=0,0",
+  table.concat(thrCalls, " "))
+check("and says so", printedHas(z1, "2 thruster(s) zeroed"))
+check("the dock hold is still up", z1.rs.back == true)
+check("and the boot goes on to the update and autorun", z1.fetched ~= nil)
+local z2 = world({})
+run(z2)
+check("no peripheral API (a base computer): nothing said, nothing broken", not printedHas(z2, "zeroed") and z2.fetched ~= nil)
+thrCalls = {}
+local z3 = world({ thrusters = { fakeThr("c") } })
+run(z3, "hold", "back")
+check("startup hold on its own does not touch the thrusters", #thrCalls == 0)
+thrCalls = {}
+local z4 = world({ thrusters = { setmetatable({}, { __index = function() return function() error("peripheral detached", 0) end end }) } })
+local okZ4 = run(z4)
+check("a thruster that throws does not stop the boot", okZ4 and z4.fetched ~= nil)
 
 print("")
 print(string.format("%d passed, %d failed", pass, fail))

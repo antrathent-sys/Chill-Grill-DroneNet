@@ -540,7 +540,8 @@ local function scheduler(untilAll, ...)
       step(T)
       local ok, a = coroutine.resume(cos[best])
       if not ok then error(a, 0) end
-      if coroutine.status(cos[best]) == "dead" and not untilAll then return end
+      -- like CC: waitForAny returns the index of the routine that finished
+      if coroutine.status(cos[best]) == "dead" and not untilAll then return best end
       wake[best] = T + (tonumber(a) or 0)
     end
 end

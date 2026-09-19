@@ -226,7 +226,7 @@ def triad_check(logpath):
     """Level rows of a TRIAD=1 run must log trihdg == TRIAD_HDG."""
     import csv
     with open(logpath, encoding="utf-8") as fh:
-        rows = list(csv.DictReader(fh))
+        rows = [r for r in csv.DictReader(fh) if not r["phase"].startswith("end:")]
     if not rows or "trihdg" not in rows[0]:
         return False, "no trihdg column"
     level = [r for r in rows if abs(float(r["p"])) < 0.5 and abs(float(r["r"])) < 0.5
@@ -343,15 +343,33 @@ def undock_check(logpath):
 
 
 def phases_from(logpath):
+    """Phase sequence of a log. The end row ("end:<why>") is not a phase; it is
+    checked separately by end_row_of."""
     seen, order = None, []
     with open(logpath, encoding="utf-8") as fh:
         next(fh, None)
         for line in fh:
             parts = line.split(",")
-            if len(parts) > 1 and parts[1] != seen:
+            if len(parts) > 1 and parts[1] != seen and not parts[1].startswith("end:"):
                 seen = parts[1]
                 order.append(seen)
     return order
+
+
+def end_row_of(logpath):
+    """The last row's end reason, or None when the log has no end row (which
+    in a real flight means the computer stopped before fly could write it)."""
+    header, last = None, None
+    with open(logpath, encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                if header is None:
+                    header = line
+                last = line
+    parts = (last or "").split(",")
+    if len(parts) > 1 and parts[1].startswith("end:") and len(parts) == len((header or "").split(",")):
+        return parts[1][4:]
+    return None
 
 
 def main(argv=None):
@@ -399,6 +417,11 @@ def main(argv=None):
             if env.get("CAL_CHECK"):
                 tok, extra = cal_check(logpath)
                 ok = ok and tok
+            # every flight, however it ends, closes its log with an end row
+            why = end_row_of(logpath)
+            if why is None and got:
+                ok = False
+                extra = "no well-formed end row at the end of the log"
             failures += 0 if ok else 1
             print("%-5s %-12s %s" % ("ok" if ok else "FAIL", name, " -> ".join(got)))
             if not isinstance(expect, str) and got != expect:
