@@ -27,11 +27,16 @@
 --                      -> 3.2 deg, heading error 8.6 -> 6.3, return leg steady
 --                      for the first time (14-04-32, 22-38-47, 22-53-13). It
 --                      costs ~11 b/s, which is why 62 is worth another go.
+--   BRAKE_TURN_POWER   on test from 2026-09-20: 0.55 throttle while the craft
+--                      swings from the cruise lean to the brake lean, so the
+--                      thrusters keep the torque to turn with. The first 3 s
+--                      of a brake from 200 took off only 10-20 b/s
 return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
   CRUISE_DEG = 62,
   CRUISE_BODY_LEAN = 30,
+  BRAKE_TURN_POWER = 0.55,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1180,205:1330",
 }

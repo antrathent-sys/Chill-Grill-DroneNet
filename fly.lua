@@ -319,6 +319,18 @@ local CFG = {
                                       -- and speed falls 14->4 in half a second, faster than any lean can come
                                       -- off), re-accelerating it 10 b/s the other way - 14 s of hold, twice.
   BRAKE_MAX_T = 20,                   -- give up after this many seconds
+  -- Throttle floor while the craft is still swinging round from the cruise
+  -- lean to the brake lean. Vectoring torque is thrust x deflection, and the
+  -- reversal passes through level, where holding altitude needs least thrust:
+  -- the altitude loop throttles back to 0.28-0.31 exactly where the craft has
+  -- 110 deg to turn, so it turns at ~35 deg/s and the first 3 s of every brake
+  -- from 200 b/s take off only 10-20 b/s (flightlogs 23-06-53, 23-20-39,
+  -- 13-42-53: ~600 blocks at almost no braking, and most of the spread in
+  -- BRAKE_MAP). The floor only holds while the attitude is more than
+  -- BRAKE_TURN_ERR from the commanded lean, so it costs a little altitude at
+  -- the entry and nothing after. 0 = as before.
+  BRAKE_TURN_POWER = 0,               -- throttle floor during the reversal
+  BRAKE_TURN_ERR = 20,                -- deg of attitude error that counts as still turning
   BRAKE_EASE = 15,                    -- b/s under which the brake lean bleeds off toward zero. At 4 the brake
                                       -- handed over at 1 b/s still leaned 58 deg, which re-accelerated the craft
                                       -- to 16 b/s and 55 blocks past the target before the hold won (19 s, twice
@@ -2404,6 +2416,18 @@ function FL.headingSplit(cWx, cWz, hdgDeg, yawErr)
   return CFG.PITCH_DIR * cF, CFG.ROLL_DIR * cL
 end
 
+-- BRAKE_TURN_POWER: the throttle floor to apply this iteration, 0 when the
+-- craft is already near the commanded brake lean (or the floor is off). The
+-- error is the gimbal target against the gimbal reading, which is what the
+-- attitude loop itself is closing, and it is reported once per brake.
+function FL.brakeTurnFloor(st, a, tp, tr)
+  if CFG.BRAKE_TURN_POWER <= 0 then return 0 end
+  local err = math.sqrt((tp - a[1]) * (tp - a[1]) + (tr - a[2]) * (tr - a[2]))
+  if err <= CFG.BRAKE_TURN_ERR then return 0 end
+  if not st.turnSaid then st.turnSaid = true print(string.format("brake: holding %.2f throttle to swing round (%.0f deg to turn)", CFG.BRAKE_TURN_POWER, err)) end
+  return CFG.BRAKE_TURN_POWER
+end
+
 -- CRUISE_BODY_LEAN: turn the world lean command (cWx, cWz) with the nose by
 -- the heading's error from the leg's yaw target, capped at CRUISE_BODY_LEAN,
 -- so the lean holds its place on the body while the nose wobbles.
@@ -3095,6 +3119,10 @@ local function flyLeg()
           floorLvl = floorLvl + clamp(target - floorLvl, (target > floorLvl and 0.3 or 1.0) * dt)
           pwr = math.max(pwr, floorLvl)
         end
+        -- BRAKE_TURN_POWER: keep enough thrust to rotate while reversing
+        -- (tpS/trS: the throttle is set before this iteration's lean, so the
+        -- error is measured against the lean the craft is already turning to)
+        if phase == "brake" then pwr = math.max(pwr, FL.brakeTurnFloor(st, a, tpS, trS)) end
         -- and never the whole throttle: the attitude loop needs the headroom
         pwr = math.min(pwr, CFG.CRUISE_MAX_POWER)
       end
