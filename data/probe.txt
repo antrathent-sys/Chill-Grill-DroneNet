@@ -1,12 +1,12 @@
 ================ CC: Sable probe ================
 isInPlotGrid : true   (0.050s)
-name / uuid  : - / 3e002338-96c9-401e-a57e-e33283a99d07
-getLastPose  : pos  1203.8392    70.4292  1995.1632
+name / uuid  : - / ad5a0d7c-02f8-450f-b85c-e2ac31c5a834
+getLastPose  : pos  1892.5110    93.9794   365.4975
                ori     0.0000     0.0000     0.0000 w=  0.0000  norm 0.0000 <<< NOT A ROTATION
 getLogicalPose call cost: 0.050s
-  position   :  1203.8392    70.4292  1995.1632
+  position   :  1892.5110    93.9794   365.4975
   orientation:     0.0000     0.0000     0.0000 w=    0.0000
-  rotPoint   : 20481032.5098   129.4292 20618248.4977
+  rotPoint   : 20481032.5109   128.9794 20618248.4975
   scale      :     1.0000     1.0000     1.0000
 gps.locate   : no fix
 quat norm    : 0.0000 <<< NOT A ROTATION
@@ -14,25 +14,25 @@ quat norm    : 0.0000 <<< NOT A ROTATION
   try getLastPose(), and try again while the contraption is MOVING.
 quat yaw     :    0.00 deg   <- this is the yaw the gimbal cannot give
 quat p / r   :    0.00 /    0.00 deg
-gimbal p / r :    0.00 /    0.00 deg
+gimbal p / r :    0.00 /   -0.00 deg
   (if quat p/r and gimbal p/r disagree, the quaternion axis order differs
    from what this script assumes - note the numbers and we can fix the mapping)
 navigation_table x3:
   methods: getRelativeAngle getRelativeAngleRad
   navigation_table_0     relAngle     0.00 deg
-                           if nose is north now: HDG_OFFSET = 360.0
-  navigation_table_1     relAngle   145.43 deg
-                           if nose is north now: HDG_OFFSET = 214.6
-  navigation_table_2     relAngle   180.00 deg
-                           if nose is north now: HDG_OFFSET = 180.0
+                           if nose is north now: HDG_OFFSET = 0.0
+  navigation_table_1     relAngle   270.00 deg
+                           if nose is north now: HDG_OFFSET = 90.0
+  navigation_table_2     relAngle     0.00 deg
+                           if nose is north now: HDG_OFFSET = 0.0
   two tables: tilt the craft and re-run to see which plane each is in
 linear vel   :     0.0000     0.0000     0.0000   (0.050s)
-angular vel  :    -0.0000    -0.0000    -0.0000
-global vel   :     0.0000    -0.0001    -0.0000
+angular vel  :     0.0000    -0.0000     0.0000
+global vel   :    -0.0000     0.0001     0.0000
 body axes in world coords (hover: the thrust axis should read ~0,1,0):
   body +x ->     1.0000     0.0000     0.0000
   body +y ->     0.0000     1.0000     0.0000
   body +z ->     0.0000     0.0000     1.0000
-mass         : 69.25
-centre of mass: 20481032.5098   129.4292 20618248.4977
-alt sensor   : 72.5000   (pose.y - alt = -2.0708)
+mass         : 62.25
+centre of mass: 20481032.5109   128.9794 20618248.4975
+alt sensor   : 96.5000   (pose.y - alt = -2.5206)
