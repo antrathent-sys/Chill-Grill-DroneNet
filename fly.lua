@@ -185,7 +185,10 @@ local CFG = {
   -- pulses only did if the craft happened to yaw 8 deg) and measures how
   -- far the flat table and the TRIAD heading stray from the true turn at
   -- every heading. Needs the four-thruster mixer. 0 = no turn, as before.
-  CAL_YAW_DEG = 360,
+  -- OFF: the server craft flipped during the turn on 2026-09-19 (flightlog
+  -- 04-22-26, level and turning at 17 deg/s one step, on its side the next).
+  -- Until that is understood, fly cal is the pitch and roll pulses only.
+  CAL_YAW_DEG = 0,
   CAL_YAW_RATE = 15,                  -- deg/s
   CAL_YAW_T = 40,                     -- s: give up on the turn after this and write what the pulses found
   NAV_FALLBACK = true,                -- legacy: use nav table when motion heading has no lock
