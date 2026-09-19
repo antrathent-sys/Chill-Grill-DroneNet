@@ -331,6 +331,9 @@ local CFG = {
   -- the entry and nothing after. 0 = as before.
   BRAKE_TURN_POWER = 0,               -- throttle floor during the reversal
   BRAKE_TURN_ERR = 20,                -- deg of attitude error that counts as still turning
+  BRAKE_TURN_OFF = 8,                 -- deg it must come back inside before the floor lets go
+  BRAKE_TURN_IN = 1.5,                -- throttle/s ramping the floor in
+  BRAKE_TURN_OUT = 1.0,               -- throttle/s ramping it out
   BRAKE_EASE = 15,                    -- b/s under which the brake lean bleeds off toward zero. At 4 the brake
                                       -- handed over at 1 b/s still leaned 58 deg, which re-accelerated the craft
                                       -- to 16 b/s and 55 blocks past the target before the hold won (19 s, twice
@@ -2420,12 +2423,20 @@ end
 -- craft is already near the commanded brake lean (or the floor is off). The
 -- error is the gimbal target against the gimbal reading, which is what the
 -- attitude loop itself is closing, and it is reported once per brake.
-function FL.brakeTurnFloor(st, a, tp, tr)
+function FL.brakeTurnFloor(st, a, tp, tr, dt)
   if CFG.BRAKE_TURN_POWER <= 0 then return 0 end
   local err = math.sqrt((tp - a[1]) * (tp - a[1]) + (tr - a[2]) * (tr - a[2]))
-  if err <= CFG.BRAKE_TURN_ERR then return 0 end
-  if not st.turnSaid then st.turnSaid = true print(string.format("brake: holding %.2f throttle to swing round (%.0f deg to turn)", CFG.BRAKE_TURN_POWER, err)) end
-  return CFG.BRAKE_TURN_POWER
+  -- Hysteresis and a ramp, as the cruise floor has: on a bare threshold the
+  -- floor toggled 0.55/0.25 eleven times in one brake as the error crossed 20
+  -- deg, every toggle a step for the attitude loop to absorb, and the swing
+  -- grew until the craft tumbled at 100 b/s (flightlog 23-29-57).
+  if err > CFG.BRAKE_TURN_ERR then st.turnOn = true
+  elseif err < CFG.BRAKE_TURN_OFF then st.turnOn = false end
+  st.turnLvl = st.turnLvl or 0
+  local want = st.turnOn and CFG.BRAKE_TURN_POWER or 0
+  st.turnLvl = st.turnLvl + clamp(want - st.turnLvl, (want > st.turnLvl and CFG.BRAKE_TURN_IN or CFG.BRAKE_TURN_OUT) * (dt or 0.1))
+  if st.turnOn and not st.turnSaid then st.turnSaid = true print(string.format("brake: holding %.2f throttle to swing round (%.0f deg to turn)", CFG.BRAKE_TURN_POWER, err)) end
+  return st.turnLvl
 end
 
 -- CRUISE_BODY_LEAN: turn the world lean command (cWx, cWz) with the nose by
@@ -3122,7 +3133,7 @@ local function flyLeg()
         -- BRAKE_TURN_POWER: keep enough thrust to rotate while reversing
         -- (tpS/trS: the throttle is set before this iteration's lean, so the
         -- error is measured against the lean the craft is already turning to)
-        if phase == "brake" then pwr = math.max(pwr, FL.brakeTurnFloor(st, a, tpS, trS)) end
+        if phase == "brake" then pwr = math.max(pwr, FL.brakeTurnFloor(st, a, tpS, trS, dt)) end
         -- and never the whole throttle: the attitude loop needs the headroom
         pwr = math.min(pwr, CFG.CRUISE_MAX_POWER)
       end
