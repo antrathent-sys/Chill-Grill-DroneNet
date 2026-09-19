@@ -5,7 +5,7 @@
 --   YAW_MAX_LEAN 0.6   the yaw ran away both ways at 45-60 b/s with 0.3
 --   YAW_OFFSET 225     puts the lean on the pitch/roll diagonal; 260 put it
 --                      mostly on roll and the gimbal let go past ~75 deg
---   CRUISE_DEG 58      62 bought 7 b/s and brought back a roll swing
+--   CRUISE_DEG 62      58 held roll 3.8-5.2 deg at 187 b/s (13-15, 13-42); speed step to 62
 --   BRAKE_MAP          31 measured brakes, blocks needed from each speed
 --   BRAKE_EASE 60      the brake held its full 45 deg lean down to 15 b/s;
 --                      below ~85 b/s that saturated the mixer in bursts,
@@ -19,6 +19,6 @@ return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
-  CRUISE_DEG = 58,
+  CRUISE_DEG = 62,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1110",
 }
