@@ -99,6 +99,13 @@ SELFTEST = [
      {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5"},
      "reaches 20.5 30.5"),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
+    # WORLD_BORDER in tune.lua: a target past it (less the 150 margin) is
+    # refused before takeoff - no log, no flight; one inside it flies
+    ("border refuses", ["go", "100", "50", "90"], {"TMAX": "30", "TUNE": "return { WORLD_BORDER = 200 }"}, []),
+    ("border allows", ["go", "100", "50", "90"], {"TMAX": "90", "TUNE": "return { WORLD_BORDER = 400 }"},
+     ["climb", "cruise", "brake", "hold"]),
+    ("border checks every leg", ["deliver", "100", "80", "50", "90"],
+     {"TMAX": "30", "START_DOCKED": "1", "LEGS": "100.5,50.5;0.5,0.5", "TUNE": "return { WORLD_BORDER = 240 }"}, []),
     # a tune.lua on the craft overrides CFG: a 40 deg cruise lean cap (the
     # cap never goes below 30) must show in the log - untuned, the mock
     # leans 55; a key CFG does not have and a wrong type are ignored

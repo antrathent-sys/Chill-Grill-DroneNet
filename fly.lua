@@ -828,6 +828,15 @@ local CFG = {
   AUTO_UPLOAD = true,                 -- push the flightlog to GitHub when the flight ends
   LOG_RESERVE_KB = 40,                -- free space the flightlog budget leaves for everything else
   LOG_HARD_KB = 8,                    -- never write a row that would leave less than this free
+  -- World border: set WORLD_BORDER in this craft's tune.lua to the server's
+  -- border distance from its centre (a square, like Minecraft's). Before
+  -- takeoff every point the flight will go to is checked, and a flight with
+  -- any of them within WORLD_BORDER_MARGIN of the border is refused. On
+  -- 2026-09-19 a 6,000-block leg went past the server's border at z 6,372.
+  -- 0 = no check, as before.
+  WORLD_BORDER = 0,
+  WORLD_CENTER_X = 0, WORLD_CENTER_Z = 0,
+  WORLD_BORDER_MARGIN = 150,          -- blocks: room for a brake that runs long
   LOG_MIN_KB = 120,                   -- refuse to take off with less free than this: a flight that cannot be
                                       -- logged cannot be learned from (2026-09-19: a 3 s log, then the sea)
   CHIME = true,                       -- speaker tones on phase changes, if a speaker is attached
@@ -1878,6 +1887,24 @@ else
   if mode == "land" then goalX = tonumber(arg[2]) or px goalZ = tonumber(arg[3]) or pz end
   if mode == "go" or mode == "dock" then goalX, goalZ = tgtX, tgtZ end
   cruiseY = goal
+  -- WORLD_BORDER: every point this flight goes to, inside the border by the margin
+  if CFG.WORLD_BORDER > 0 and mode ~= "pads" then
+    local pts = {}
+    if legs then
+      for i, L in ipairs(legs) do if L.x then pts[#pts + 1] = { L.x, L.z, "leg " .. i } end end
+    else
+      if tgtX then pts[#pts + 1] = { tgtX, tgtZ, "target" } end
+      if goalX then pts[#pts + 1] = { goalX, goalZ, "goal" } end
+    end
+    local lim = CFG.WORLD_BORDER - CFG.WORLD_BORDER_MARGIN
+    for _, q in ipairs(pts) do
+      local over = math.max(math.abs(q[1] - CFG.WORLD_CENTER_X), math.abs(q[2] - CFG.WORLD_CENTER_Z)) - lim
+      if over > 0 then
+        error(string.format("%s %.0f %.0f is %.0f blocks past the safe limit (world border %d, %d kept clear) - not flying",
+          q[3], q[1], q[2], over, CFG.WORLD_BORDER, CFG.WORLD_BORDER_MARGIN), 0)
+      end
+    end
+  end
 end
 end)() end
 
