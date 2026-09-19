@@ -1,3 +1,54 @@
+**Where it stands, 2026-09-20 (server, hand-built frame).** Two long legs
+(paste.rs cNFSZ 3,060 blocks, JKsLe 2,470) weave the same way from the first
+second of cruise, and the log says why: the handover at 60% of the climb came
+still climbing 45 b/s, the cruise throttle floor (0.25 = hover) cannot arrest
+that, the craft floated 30 m past the goal, the 0.60 floor let go
+(CRUISE_MAX_ESCAPE_E), and CRUISE_MAX leaned it to 88 deg true at 30 b/s on
+0.25 throttle - a stall. The recovery (0.80 at 88 deg) took it 30 -> 107 b/s
+in 4 s with both heading estimates useless at that lean: 355 / 243 blocks off
+the line, then the known 10 s throttle cycle. `DASH_ENTRY_VY` (8 b/s) now
+holds the handover until the climb is arrested; unflown as of writing. The
+88-deg-at-speed cycle itself is the next cruise problem (commanded pairs like
+tp -75 / tr -58 are 82 deg true against a 76 cap: the attitude aim overshoots
+the cap, as the CRUISE_DEG history already says).
+
+**Open: the computer stopped in flight (cNFSZ, 88.2 s).** A nine-agent
+read of fly.lua, the libraries, CC:Tweaked and the mods, against the log:
+CC file writes are unbuffered, so the last row is the last completed
+iteration (~88.2 s, five iterations short of the 258 m cruise handover - the
+handover code never ran); no return, error, latch or budget path in fly.lua
+can end the flight on a level climb row with nothing printed; the mock flies
+the same leg sequence clean. Two families remain and the flightlog cannot
+tell them apart: the CC computer closed/rebooted mid-flight (chunk or
+sub-level unload, server stop, `Error running computer`), or the server itself
+crashed and rolled back. Sourced fact that matters: the Create Propulsion
+thruster API clears its Lua throttle when the computer detaches
+(github.com/Propulsion-Team/create-propulsion-simulated/wiki/ComputerCraft-peripherals-API:
+"When the computer detaches, peripheral throttle is cleared and the thruster
+returns to normal redstone-controlled behavior"), so any ORDERLY stop is an
+unpowered fall; a craft found still thrusting points at a hard crash with
+world rollback, or a Sable storage race (issue ryanhcode/sable#1098: sub-levels
+are put into storage despite third-party chunk loaders, and the unload kills
+the loader riding on them). Evidence to collect next time, in order: the
+drone terminal before anything reboots it (error text + "thrusters off, pump
+off - flightlog saved" = fly exited; boot banner or frozen flight screen =
+the computer went), the base wall's SIGNAL LOST time, the server log around
+the second, and whether the thrusters read 0 or not on the wreck. Since
+33f31d1 every log ends with an end row (none = the computer stopped) and
+`startup` zeroes the thrusters at boot. One more thing to check on the
+airframe: `startup hold` raises the dock side at every boot - a thruster
+that can see that redstone would come up at full power after any reboot.
+
+**Small code findings from the same read (not urgent):** (a) a detached
+thruster is invisible to `mixer.faults()` - `peripheral.call` on a missing
+peripheral returns nil and the pcall succeeds; only monLoop's
+`peripheral.isPresent` notices. (b) `alt.getHeight()`, `gim.getAngles()` and
+`nav.getRelativeAngle()` are the only unprotected peripheral calls in the
+control loop; a detached sensor ends the flight with a Lua error (thrust
+cut) rather than holding the last value. (c) `triPre.gimbalSigns` is
+evaluated outside the pcall in `FL.triRead` / `FL.aimLean`, safe only because
+useQ implies the preset exists.
+
 **Where it stands, night of 2026-09-13.** Cruise: 70 cap / +6 over is this
 airframe's speed - ~195 mean, 210-216 peaks, ~205 into the brake; 74 cap,
 lean-over 10 and the low floor were each neutral or slower (commit log).
