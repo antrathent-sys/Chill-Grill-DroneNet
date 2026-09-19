@@ -218,6 +218,8 @@ if os.getenv("PADS") then
   end
   memFiles["pads.lua"] = "return {" .. table.concat(parts) .. "}"
 end
+-- TUNE="return { ... }" gives the craft a tune.lua
+if os.getenv("TUNE") then memFiles["tune.lua"] = os.getenv("TUNE") end
 local function memHandle(path, mode)
   if mode == "w" then memFiles[path] = "" end
   local data, pos = memFiles[path] or "", 1

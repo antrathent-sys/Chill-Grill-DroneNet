@@ -864,6 +864,49 @@ do
   end
 end
 
+-- tune.lua: THIS craft's tuning, loaded over CFG after cal.lua. The test-world
+-- craft and the server craft read one fly.lua but are different airframes
+-- (2026-09-19: the server craft needs more yaw authority while leaned than
+-- the old frame, whose sails steadied yaw on their own). A plain file on
+-- this computer, never in the repo:
+--     return { YAW_MAX_LEAN = 0.6 }
+-- Only keys CFG already has, with the same type (number, boolean or
+-- string), are taken; anything else is named and ignored. No file = CFG.
+do
+  local okT, text = pcall(function()
+    if not fs.exists("tune.lua") then return nil end
+    local f = fs.open("tune.lua", "r")
+    local s = f.readAll()
+    f.close()
+    return s
+  end)
+  if okT and type(text) == "string" then
+    local chunk, lerr = (loadstring or load)(text, "tune")
+    if chunk and setfenv then setfenv(chunk, {}) end
+    local okR, tune = false, lerr
+    if chunk then okR, tune = pcall(chunk) end
+    if okR and type(tune) == "table" then
+      local applied, skipped = {}, {}
+      for k, v in pairs(tune) do
+        local cur = CFG[k]
+        if type(k) == "string" and cur ~= nil and type(v) == type(cur)
+           and (type(v) == "number" or type(v) == "boolean" or type(v) == "string") then
+          CFG[k] = v
+          applied[#applied + 1] = k .. "=" .. tostring(v)
+        else
+          skipped[#skipped + 1] = tostring(k)
+        end
+      end
+      table.sort(applied)
+      table.sort(skipped)
+      if #applied > 0 then print("tune.lua: " .. table.concat(applied, " ")) end
+      if #skipped > 0 then print("tune.lua: IGNORED (not a CFG setting, or wrong type): " .. table.concat(skipped, " ")) end
+    else
+      print("WARNING: tune.lua ignored - " .. tostring(tune))
+    end
+  end
+end
+
 local alt = peripheral.find("altitude_sensor")
 local gim = peripheral.find("gimbal_sensor")
 local nav = CFG.NAV_NAME and peripheral.wrap(CFG.NAV_NAME) or peripheral.find("navigation_table")

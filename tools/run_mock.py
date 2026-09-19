@@ -99,6 +99,12 @@ SELFTEST = [
      {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5"},
      "reaches 20.5 30.5"),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
+    # a tune.lua on the craft overrides CFG: a 40 deg cruise lean cap (the
+    # cap never goes below 30) must show in the log - untuned, the mock
+    # leans 55; a key CFG does not have and a wrong type are ignored
+    ("tune", ["go", "100", "50", "90"],
+     {"TMAX": "90", "TUNE": "return { CRUISE_DEG = 40, LEAN_AT_0 = 40, NOT_A_SETTING = 3, YAW_HOLD = 'yes' }", "TUNE_CHECK": "40"},
+     ["climb", "cruise", "brake", "hold"]),
     # the four-thruster cal adds the full turn. The quad mock neither yaws
     # nor moves on a 10 deg pulse, so nothing is fitted here; this checks the
     # turn starts, gives up at CAL_YAW_T and the flight ends cleanly
@@ -223,7 +229,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -429,6 +435,16 @@ def main(argv=None):
             if env.get("UNDOCK_CHECK"):
                 tok, extra = undock_check(logpath)
                 ok = ok and tok
+            if env.get("TUNE_CHECK"):
+                import csv as _csv, math as _m
+                cap = float(env["TUNE_CHECK"])
+                with open(logpath, encoding="utf-8") as fh:
+                    rs = [r for r in _csv.DictReader(fh) if r["phase"] == "cruise"]
+                cmd = max((_m.hypot(float(r["tp"]), float(r["tr"])) for r in rs), default=0.0)
+                # the cap may run ALT_LEAN_OVER (6) higher while above the goal
+                tok = 0 < cmd <= cap + 6 + 1.0
+                ok = ok and tok
+                extra = "largest commanded cruise lean %.1f deg against a tuned cap of %.0f (+6 lean-over)" % (cmd, cap)
             if env.get("CAL_CHECK"):
                 tok, extra = cal_check(logpath)
                 ok = ok and tok
