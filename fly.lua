@@ -563,6 +563,16 @@ local CFG = {
   -- cruise yaw just holds still: "hold" = entry heading, "course" = follow
   -- the track + YAW_OFFSET (the old behaviour, more yaw activity for nothing).
   YAW_CRUISE = "hold",
+  -- The yaw hold in cruise and brake steers by the TRIAD heading whenever
+  -- this iteration has a solution, not by the flat table. At speed the flat
+  -- table's heading (de-rotated by gimbal, with the gyro blend) sat 33-38 deg
+  -- rms and up to 72 deg off the TRIAD one, while the yaw hold believed it
+  -- was within 6 deg - and had its demand pinned at the limit on half the
+  -- fast rows, swinging the real craft +-17 deg rms (39 max) to keep a
+  -- wrong heading steady (paste.rs TkkGV, flightlog 2026-09-19_11-51-07).
+  -- The lean was already aimed through TRIAD; the yaw now agrees with it.
+  -- false = the flat-table cruise heading, exactly as before.
+  YAW_TRIAD = true,
   YAW_OFFSET = 0,                     -- deg between held heading and course when YAW_CRUISE = "course"
   -- 2026-09-10: with P capped at 0.05 the yaw sat 100 deg off the course all
   -- cruise (lean was all roll, sails sideways). P/KD now settle at ~10 deg/s.
@@ -3010,7 +3020,9 @@ local function flyLeg()
     -- yaw hold
     yawErr, yawDem = 0, 0
     if yawOK then
-      local hdgUsed = (phase == "cruise" or phase == "brake") and cruiseHdg or hdgNow
+      local hdgUsed = (phase == "cruise" or phase == "brake")
+                      and ((CFG.YAW_TRIAD and tri.q and tri.qt == t and tri.hdg >= 0) and tri.hdg or cruiseHdg)
+                      or hdgNow
       local src = "hold"
       local yawOff = CFG.YAW_OFFSET
       local docking = (phase == "align" or phase == "descend" or phase == "capture")
