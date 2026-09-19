@@ -16,13 +16,16 @@
 -- trimmed the cruise yaw swing a little (rms 25 -> 16.5 -> 13.9 deg/s) but
 -- roll tracking went 3.8 -> 9.5 -> 11.9 deg rms (flightlogs 13-15-51,
 -- 13-27-24, 13-33-44) - back to the default yaw gains and no aim smoothing.
--- CRUISE_BODY_LEAN 30 (13-57-32): outbound leg a little better (roll 4.0),
--- return leg diverged from 40 b/s - heading error to 70 deg, roll command
--- still swinging (now through the velocity error), thrust capped, tumbled.
+-- 13-57-32 at 58 WITHOUT body lean (tune not yet pulled) tumbled on the
+-- return leg: heading error grew to 70 deg from 40 b/s, thrust capped. So
+-- 58 is marginal too, and the return leg always wobbles about twice as much.
+--   CRUISE_BODY_LEAN 30  on test from 2026-09-20: lean held on the body while
+--                      the nose wobbles, so yaw stops moving the roll command
 return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
   CRUISE_DEG = 58,
+  CRUISE_BODY_LEAN = 30,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1110",
 }
