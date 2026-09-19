@@ -316,7 +316,17 @@ local CFG = {
   -- ~74 deg only applies at standstill. Allowed lean = LEAN_AT_0 at rest,
   -- rising linearly to CRUISE_DEG at LEAN_FULL_SPD; pulled back by
   -- ALT_PROTECT_GAIN deg per block once more than ALT_PROTECT below goal.
-  CRUISE_DEG = 70,                    -- max lean during cruise, at speed. 70 gave 216 peak / 194 mean (663ac06a).
+  -- 2026-09-20, stability first (Alex): on the hand-built frame every long
+  -- cruise at the 70 cap cycled - the attitude loop runs 9-12 deg past the
+  -- cap, and past ~65 deg true the throttle range [0.25, 0.80] cannot hold
+  -- height at all (0.80 x cos 76 = 0.19 < hover), so the height loop goes
+  -- bang-bang: 0.25 <-> 0.80, +-25 m, speed 85 <-> 190, a 10 s period, and
+  -- both heading solves fall apart at 85+ deg (paste.rs cNFSZ, JKsLe). At
+  -- 50 (about 60 true on this frame) hover needs ~0.50 throttle: the loop
+  -- sits mid-range with authority both ways, and the tables still solve.
+  -- Slower - the old frame did ~100-135 b/s at 60-70 - and that is the
+  -- trade. 70 gave 216 peak / 194 mean on the old frame (663ac06a).
+  CRUISE_DEG = 50,                    -- max lean during cruise, at speed.
                                       -- 74 (80 with the lean-over) was SLOWER: 199 / 183, flightlog 0fa26a7c. At 80
                                       -- true the craft sinks 7 b/s at full throttle until the sails' lift catches up
                                       -- near 190 b/s, so the height loop cycles it: low -> ALT_LEAN_GAIN pulls the
@@ -377,7 +387,9 @@ local CFG = {
   -- (flightlog ee7e92af). The craft has flown 76 deg true for 5-6 s on every
   -- acceleration without incident, so +6 over a 70 cap stays inside proven
   -- territory. Only while high (e < 0); false = the cap is the cap.
-  ALT_LEAN_OVER_ON = true,
+  -- 2026-09-20: off with the 50 cap - the cap IS the stability limit now,
+  -- the height loop has throttle to spare and must not buy height with lean.
+  ALT_LEAN_OVER_ON = false,
   -- 10 was tried (d4fe44a3) to hold height by lean instead of throttle at
   -- 196 b/s: the high excursion shrank 22 -> 16 but the throttle still fell
   -- to 0.25, the speed sag grew (193 -> 170) and true lean reached 83.5
