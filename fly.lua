@@ -942,10 +942,27 @@ do
       table.sort(skipped)
       if #applied > 0 then print("tune.lua: " .. table.concat(applied, " ")) end
       if #skipped > 0 then print("tune.lua: IGNORED (not a CFG setting, or wrong type): " .. table.concat(skipped, " ")) end
+      CFG.TUNE_REPORT = (#applied > 0 and ("loaded: " .. table.concat(applied, " ")) or "loaded, but it sets nothing")
+        .. (#skipped > 0 and ("\nIGNORED: " .. table.concat(skipped, " ")) or "")
     else
       print("WARNING: tune.lua ignored - " .. tostring(tune))
+      CFG.TUNE_REPORT = "NOT LOADED - " .. tostring(tune)
     end
+  elseif okT then
+    CFG.TUNE_REPORT = "no tune.lua on this computer - flying the defaults in fly.lua"
   end
+end
+
+-- fly tune: what this craft's tuning is, on one screen, and nothing else
+-- (fly's other output scrolls the tune line off the top of a CC terminal)
+if arg and arg[1] == "tune" then
+  print("tune.lua " .. tostring(CFG.TUNE_REPORT or "?"))
+  print(string.format("in effect: YAW_MAX_LEAN %s  YAW_OFFSET %s  CRUISE_DEG %s  BRAKE_MAP %s",
+    tostring(CFG.YAW_MAX_LEAN), tostring(CFG.YAW_OFFSET), tostring(CFG.CRUISE_DEG),
+    (CFG.BRAKE_MAP ~= "" and CFG.BRAKE_MAP or "(none - margin " .. tostring(CFG.BRAKE_MARGIN) .. ")")))
+  print("name for tunes/<name>.lua in the repo: " .. tostring((os.getComputerLabel and os.getComputerLabel())
+    or ("drone-" .. tostring(os.getComputerID and os.getComputerID() or "?"))))
+  return
 end
 
 local alt = peripheral.find("altitude_sensor")
