@@ -459,6 +459,16 @@ local CFG = {
   -- regardless. The cascade (DECEL 8) is at 8 b/s about 4 m under the goal,
   -- so this is "enter at the top, arrested". 0 = off: the old handover exactly.
   DASH_ENTRY_VY = 8,                  -- b/s
+  -- ...and with YAW_CRUISE "target", not until the climb's turn to the leg
+  -- heading is within CRUISE_YAW_GATE of done (giving up after
+  -- CRUISE_YAW_GATE_T). On 2026-09-19 (flightlog 11-05-48) a short climb from
+  -- a drop at Y 200 handed over still 66 deg off and turning at 31 deg/s; the
+  -- lean went in on a rotating body and at 45-50 b/s the yaw ran away to
+  -- 206 deg/s against a yaw hold pushing back at its leaned limit, and it
+  -- tumbled. The two good long legs before it started 2 and 6 deg off.
+  -- 0 = no gate, as before.
+  CRUISE_YAW_GATE = 15,               -- deg
+  CRUISE_YAW_GATE_T = 8,              -- s
   CRUISE_TILT_RATE = 20,              -- deg/s: lean target slew in cruise (TILT_RATE elsewhere); no twitching
   -- CRUISE_MAX: fly the cruise for speed. false = the previous law, exactly.
   -- 2026-09-13 log: 8 of 11 cruise seconds barely pushed - the lean cap
@@ -2400,6 +2410,22 @@ end
 -- old trigger used; gs the true ground speed, capped at 200 for the fit.
 -- BRAKE_MAP parsed once into sorted {speed, blocks} pairs; nil when unset
 -- or unreadable (a bad map is reported once and the model is used instead).
+-- CRUISE_YAW_GATE: true once the heading is within the gate of the yaw
+-- target (or the gate has waited CRUISE_YAW_GATE_T, or there is nothing to
+-- wait for). Remembers when it started waiting in st.gate0 (fresh each leg).
+function FL.yawGate(st, t, tgt, hdg)
+  if CFG.CRUISE_YAW_GATE <= 0 or CFG.YAW_CRUISE ~= "target" or not tgt then return true end
+  st.gate0 = st.gate0 or t
+  local off = math.abs(((tgt - hdg + 540) % 360) - 180)
+  if off < CFG.CRUISE_YAW_GATE then return true end
+  if t - st.gate0 >= CFG.CRUISE_YAW_GATE_T then
+    if not st.gateGave then st.gateGave = true print(string.format("heading still %.0f deg off after %ds - cruising anyway", off, CFG.CRUISE_YAW_GATE_T)) end
+    return true
+  end
+  if not st.gateSaid then st.gateSaid = true print(string.format("holding the cruise until the heading is square (%.0f deg off)", off)) end
+  return false
+end
+
 function FL.brakeMap()
   if FL.bmapSrc == CFG.BRAKE_MAP then return FL.bmap end
   FL.bmapSrc, FL.bmap = CFG.BRAKE_MAP, nil
@@ -2759,7 +2785,8 @@ local function flyLeg()
         entryH = math.min(entryH, h0 + CFG.DASH_ENTRY_FRAC * (goal - h0))
       end
       -- DASH_ENTRY_VY: the early handover waits for the climb to be arrested
-      if h >= entryH and (CFG.DASH_ENTRY_VY <= 0 or v <= CFG.DASH_ENTRY_VY or h >= goal - CFG.DASH_SETTLE) then
+      if h >= entryH and (CFG.DASH_ENTRY_VY <= 0 or v <= CFG.DASH_ENTRY_VY or h >= goal - CFG.DASH_SETTLE)
+         and FL.yawGate(st, t, yawOK and yawTgt, hdgNow) then
         local hop = (mode == "go" or mode == "dock") and CFG.HOP_DIST > 0
                     and (tgtX - pos.x)^2 + (tgtZ - pos.z)^2 < CFG.HOP_DIST^2
         if hop then
