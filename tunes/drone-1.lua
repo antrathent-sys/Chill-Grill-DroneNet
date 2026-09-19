@@ -7,9 +7,15 @@
 --                      mostly on roll and the gimbal let go past ~75 deg
 --   CRUISE_DEG 58      62 bought 7 b/s and brought back a roll swing
 --   BRAKE_MAP          31 measured brakes, blocks needed from each speed
+--   YAW_KP/YAW_KD 0.01 half the defaults: yaw twist scales with throttle and
+--                      the defaults suit hover (~0.27); at cruise (~0.52) the
+--                      yaw rang at 1.9 s, +-40 deg/s, demand bang-bang at
+--                      +-0.6 (flightlog 13-19-39)
 return {
   YAW_MAX_LEAN = 0.6,
   YAW_OFFSET = 225,
   CRUISE_DEG = 58,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1110",
+  YAW_KP = 0.01,
+  YAW_KD = 0.01,
 }
