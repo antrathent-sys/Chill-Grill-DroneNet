@@ -201,9 +201,22 @@ local DISPOSABLE = { "flightlog", "probe.txt", "preflight.txt", "probelog.csv", 
 -- space it is THINNED to flightlog.thin (every 4th row plus every phase
 -- change, ~50 KB, what upload thin makes) and only then removed. Alex lost
 -- two logs to the plain delete on 2026-09-18.
+local function freeSpace() return (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge end
+
+-- Every 4th row when there is room for that, 1 row in N when there is not:
+-- the copy is written while the full log is still on the disk, and on
+-- 2026-09-20 a 500 KB log on a disk with 65 KB free died at this write with
+-- "Out of space" and took the whole update with it. With no room at all the
+-- log goes unthinned - the computer working beats the evidence.
 local function thinLog(src, dst)
   local h = fs.open(src, "r")
   if not h then return false end
+  if fs.exists(dst) then fs.delete(dst) end
+  local room = freeSpace() - 8 * 1024
+  local size = (fs.getSize and fs.getSize(src)) or 0
+  if room <= 0 then h.close() return false end
+  local every = 4
+  if size / 4 > room then every = math.ceil(size / room) end
   local out, lastPhase, i = { h.readLine() }, nil, 0
   if not out[1] then h.close() return false end
   while true do
@@ -211,19 +224,20 @@ local function thinLog(src, dst)
     if not line then break end
     i = i + 1
     local phase = line:match("^[^,]*,([^,]*)")
-    if i % 4 == 0 or phase ~= lastPhase then out[#out + 1] = line end
+    if i % every == 0 or phase ~= lastPhase then out[#out + 1] = line end
     lastPhase = phase
   end
   h.close()
-  if fs.exists(dst) then fs.delete(dst) end
   local w = fs.open(dst, "w")
   if not w then return false end
-  w.write(table.concat(out, "\n") .. "\n")
-  w.close()
-  return true
+  local okW = pcall(w.write, table.concat(out, "\n") .. "\n")
+  pcall(w.close)
+  if not okW then
+    if fs.exists(dst) then fs.delete(dst) end
+    return false
+  end
+  return true, every
 end
-
-local function freeSpace() return (fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge end
 
 local function reclaim(needed)
   local freed = {}
@@ -232,7 +246,10 @@ local function reclaim(needed)
     if fs.exists(name) then
       local sz = fs.getSize(name)
       local kept = ""
-      if name == "flightlog" and thinLog(name, "flightlog.thin") then kept = " -> flightlog.thin kept" end
+      if name == "flightlog" then
+        local ok, every = thinLog(name, "flightlog.thin")
+        if ok then kept = string.format(" -> flightlog.thin kept (1 row in %d)", every) end
+      end
       fs.delete(name)
       freed[#freed + 1] = string.format("%s (%.0fKB)%s", name, sz / 1024, kept)
     end

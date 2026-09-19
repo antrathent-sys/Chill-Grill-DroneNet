@@ -32,8 +32,17 @@ local function world(opts)
                  end,
                  close = function() end }
       end
-      local buf = {}
-      return { write = function(s) buf[#buf + 1] = s end, close = function() w.files[p] = table.concat(buf) end }
+      local buf, held = {}, 0
+      return {
+        write = function(s)
+          if opts.disk then
+            local used = 0
+            for q, v in pairs(w.files) do if q ~= p then used = used + #v end end
+            if used + held + #s > opts.disk then error("Out of space", 0) end
+          end
+          buf[#buf + 1] = s held = held + #s
+        end,
+        close = function() w.files[p] = table.concat(buf) end }
     end,
     delete = function(p) w.files[p] = nil end,
     makeDir = function() end,
@@ -170,16 +179,34 @@ check("a full disk gives up the flightlog", d1.files["flightlog"] == nil and pri
 local rows = {}
 for i = 1, 40 do rows[#rows + 1] = string.format("%d,%s,x", i, i < 20 and "cruise" or "brake") end
 local NL = string.char(10)
-local d2 = world({ disk = 320000, files = { ["flightlog"] = "t,phase,v" .. NL .. table.concat(rows, NL)
-  .. string.rep(NL .. string.rep("z", 100), 3000) } })
+local biglog = "t,phase,v" .. NL .. table.concat(rows, NL) .. string.rep(NL .. string.rep("z", 100), 3000)
+local d2 = world({ disk = 420000, files = { ["flightlog"] = biglog } })
 run(d2)
 local thin = d2.files["flightlog.thin"] or ""
 check("but keeps a thinned copy first", d2.files["flightlog"] == nil and thin:sub(1, 10) == "t,phase,v" .. NL
-  and printedHas(d2, "flightlog.thin kept"))
+  and printedHas(d2, "flightlog.thin kept (1 row in 4)"))
 check("the thin copy keeps every 4th row and every phase change", thin:find(NL .. "4,cruise,x" .. NL, 1, true)
   and thin:find(NL .. "20,brake,x" .. NL, 1, true) and not thin:find(NL .. "5,cruise,x" .. NL, 1, true)
   and #thin < 90000, #thin)
 check("but never the thruster map mixcal wrote", d1.files["mixmap.csv"] ~= nil)
+-- 303 KB log, 40 KB free: a 1-in-4 copy (76 KB) cannot be written beside the
+-- full log, so it thins harder instead of dying at the write
+local d3 = world({ disk = #biglog + 40000, files = { ["flightlog"] = biglog, ["flightlog.thin"] = string.rep("o", 3000) } })
+local ok3, err3 = run(d3)
+local thin3 = d3.files["flightlog.thin"] or ""
+check("no room for 1 in 4: thins harder and still keeps a copy", ok3 and d3.files["flightlog"] == nil
+  and #thin3 > 1000 and #thin3 < 40000 and thin3:sub(1, 10) == "t,phase,v" .. NL, err3 or #thin3)
+check("says how thin", printedHas(d3, "flightlog.thin kept (1 row in 1") or printedHas(d3, "flightlog.thin kept (1 row in 2")
+  or printedHas(d3, "flightlog.thin kept (1 row in 3"))
+check("phase changes survive the harder thin", thin3:find(NL .. "20,brake,x" .. NL, 1, true)
+  and not thin3:find(NL .. "4,cruise,x" .. NL, 1, true))
+check("and the update went on", d3.fetched ~= nil and not printedHas(d3, "update failed"))
+-- 5 KB free: no copy possible at all - the log goes, the computer keeps working
+local d4 = world({ disk = #biglog + 5000, files = { ["flightlog"] = biglog } })
+local ok4, err4 = run(d4)
+check("no room at all: the log goes unthinned", ok4 and d4.files["flightlog"] == nil and d4.files["flightlog.thin"] == nil
+  and printedHas(d4, "reclaimed: flightlog") and not printedHas(d4, "kept"), err4)
+check("and the update went on", d4.fetched ~= nil and not printedHas(d4, "update failed"))
 
 print("dock hold")
 local h1 = world()
