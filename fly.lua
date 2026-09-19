@@ -887,9 +887,12 @@ do
     return s
   end)
   if okC and type(text) == "string" then
-    local chunk = (loadstring or load)(text, "cal")
+    -- ('chunk and pcall(chunk)' kept only pcall's first value, so until
+    -- 2026-09-19 cal.lua was read and then dropped: "cal.lua ignored - nil")
+    local chunk, lerr = (loadstring or load)(text, "cal")
     if chunk and setfenv then setfenv(chunk, {}) end
-    local okR, cal = chunk and pcall(chunk)
+    local okR, cal = false, lerr
+    if chunk then okR, cal = pcall(chunk) end
     if okR and type(cal) == "table" then
       local applied = {}
       for _, k in ipairs({ "NAV_NAME", "HDG_SIGN", "HDG_OFFSET", "PITCH_DIR", "ROLL_DIR" }) do

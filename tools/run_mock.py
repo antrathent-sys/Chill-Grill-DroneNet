@@ -99,6 +99,10 @@ SELFTEST = [
      {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5"},
      "reaches 20.5 30.5"),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
+    # a cal.lua on the craft is applied: the mock's flat table reads 90, the
+    # test copy's HDG_SIGN is -1, so HDG_OFFSET 300 must log a heading of 210
+    # (179 with the test copy's own 269)
+    ("cal applied", ["90"], {"TMAX": "10", "CALFILE": "return { HDG_OFFSET = 300 }", "HDG_CHECK": "210"}, ["fly"]),
     # BRAKE_MAP in tune.lua: the mock cruises at ~9 b/s, where this map says
     # 45 blocks - the brake must fire there, not at the model's 8
     ("brake map", ["go", "100", "50", "90"],
@@ -241,7 +245,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -447,6 +451,13 @@ def main(argv=None):
             if env.get("UNDOCK_CHECK"):
                 tok, extra = undock_check(logpath)
                 ok = ok and tok
+            if env.get("HDG_CHECK"):
+                import csv as _csv
+                with open(logpath, encoding="utf-8") as fh:
+                    r0 = next(_csv.DictReader(fh))
+                tok = abs(float(r0["hdg"]) - float(env["HDG_CHECK"])) < 1.5
+                ok = ok and tok
+                extra = "heading at start %s, cal.lua says %s" % (r0["hdg"], env["HDG_CHECK"])
             if env.get("BRAKE_CHECK"):
                 import csv as _csv, math as _m
                 want = float(env["BRAKE_CHECK"])

@@ -218,6 +218,8 @@ if os.getenv("PADS") then
   end
   memFiles["pads.lua"] = "return {" .. table.concat(parts) .. "}"
 end
+-- CALFILE="return { ... }" gives the craft a cal.lua (as fly cal writes)
+if os.getenv("CALFILE") then memFiles["cal.lua"] = os.getenv("CALFILE") end
 -- TUNE="return { ... }" gives the craft a tune.lua
 if os.getenv("TUNE") then memFiles["tune.lua"] = os.getenv("TUNE") end
 local function memHandle(path, mode)
