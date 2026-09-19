@@ -249,7 +249,7 @@ fly go <x> <z> [y]          climb to y (default +25), cruise to x z, brake, hold
 fly dock [<x> <y> <z>] [cruiseY] cruise to the pad (default: home), settle, descend and dock
 fly land [<x> <y> <z> [cruiseY]] descend where you are, or fly there first; no pad
 fly undock [y]              release the connector once thrust is up, then hold y
-fly deliver <x> <y> <z> [cruiseY]  the round trip: undock, fly out, drop, come home, dock
+fly deliver <x> <y> <z> [cruiseY] [to <pad> | to <x> <padY> <z>]  the round trip: undock, fly out, drop, come home (or to that pad), dock
 fly spin <y> <deg>          hold y, then yaw <deg> and back
 ```
 

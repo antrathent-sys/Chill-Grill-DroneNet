@@ -93,6 +93,11 @@ SELFTEST = [
      # ending as "dock grabs early", reached honestly
      ["climb", "cruise", "brake", "hold", "fly",
       "climb", "cruise", "brake", "align", "docked"]),
+    # the same round trip ending on another pad: `to x padY z` docks there,
+    # the home pad untouched (the mock's second pad sits at 20.5,30.5)
+    ("deliver to", ["deliver", "100", "80", "50", "90", "to", "20", "70", "30"],
+     {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5"},
+     "reaches 20.5 30.5"),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # three-table heading is logged (not flown with): level rows must read the
     # heading the mock's tables were built for

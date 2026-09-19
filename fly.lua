@@ -1733,7 +1733,23 @@ else
     end
     -- Home is the home PAD, not wherever the craft is standing: a mission
     -- launched from the wrong place still comes back to the right one.
-    local hp = PAD.home()
+    -- `... to <pad>` or `... to <x> <y> <z>` docks somewhere else at the end
+    -- instead - a depot run, a one-off pad, a test - and leaves the home pad
+    -- exactly as it is.
+    local hp
+    for i = 2, #arg do
+      if arg[i] == "to" then
+        if arg[i + 1] and not tonumber(arg[i + 1]) then
+          hp = PAD.named(arg[i + 1])
+        else
+          local tx, ty, tz = tonumber(arg[i + 1]), tonumber(arg[i + 2]), tonumber(arg[i + 3])
+          if not (tx and ty and tz) then error("deliver ... to <pad>   or   to <x> <padY> <z>", 0) end
+          hp = { name = "typed", x = tx, y = ty, z = tz }
+        end
+        break
+      end
+    end
+    hp = hp or PAD.home()
     home = { x = blockCentre(hp.x), z = blockCentre(hp.z), padY = hp.y }
     legs = {
       { leg = "cruise", x = blockCentre(dx), z = blockCentre(dz), y = goal, undock = true },
