@@ -1551,9 +1551,11 @@ local function readPos()
       function() local ok, r = pcall(sublevel.getLogicalPose) if ok then pose = r end end,
       function() local ok, r = pcall(sublevel.getLinearVelocity) if ok then lv = r end end,
     }
-    if CFG.YAW_HOLD then
-      jobs[#jobs + 1] = function() local ok, r = pcall(sublevel.getAngularVelocity) if ok then av = r end end
-    end
+    -- Always: fly cal switches the yaw hold off but its full turn, and its
+    -- mirror check, run on this rate. Gated on YAW_HOLD it read 0 through
+    -- every cal (2026-09-19): the turn could not see itself turn and spun
+    -- the craft for 40 s. Batched with the pose, so it costs no extra tick.
+    jobs[#jobs + 1] = function() local ok, r = pcall(sublevel.getAngularVelocity) if ok then av = r end end
     if parallel and parallel.waitForAll then parallel.waitForAll(unpack_(jobs))
     else for _, j in ipairs(jobs) do j() end end
     if type(pose) ~= "table" or not pose.position then return nil end
@@ -2122,7 +2124,12 @@ function FL.calStep(c, t, p, rawH, wy, dt)
     if tri.hdg >= 0 then k.triPrev = tri.hdg end
     -- rate control: feed-forward (0.08 of demand gave 6.5 deg/s) plus damping
     c.yawDem = clamp(CFG.YAW_SIGN * (0.0125 * CFG.CAL_YAW_RATE + CFG.YAW_KD * (CFG.CAL_YAW_RATE - wy)), CFG.YAW_MAX)
-    if math.abs(k.y) >= CFG.CAL_YAW_DEG or el >= CFG.CAL_YAW_T then
+    -- pushing for 3 s and the rate has not moved at all: no rate to steer by
+    if el >= 3 and math.abs(k.y) < 1 then
+      c.yawDem = nil
+      c.step, c.t0 = "done", t
+      print("cal: no yaw rate from Sable after 3 s of turning - turn stopped, nothing measured")
+    elseif math.abs(k.y) >= CFG.CAL_YAW_DEG or el >= CFG.CAL_YAW_T then
       c.yawDem = nil
       c.step, c.t0 = "yaw-settle", t
       print(string.format("cal: turned %.0f deg in %.0f s", k.y, el))
