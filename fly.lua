@@ -380,6 +380,14 @@ local CFG = {
   -- enough thrust to steer whenever leaning; altitude can give, control not.
   ATT_MIN_POWER = 0.25,               -- throttle floor whenever lean exceeds ATT_MIN_TILT
   ATT_MIN_TILT = 15,                  -- deg
+  -- The mission hover leg's way down to the drop height gets the same
+  -- falling floor as land and descend (ATT_MIN_LAND). It borrowed the
+  -- landing profile but not the floor: 2026-09-19 on the server frame
+  -- (flightlog 03-20-51) the drop from 350 to 150 ran at 0.00 throttle for
+  -- 3.5 s, roll drifted 1 -> 16 deg with no thrust to steer by, and when
+  -- the throttle came back to arrest 37 b/s it went to (86, 59) and the
+  -- tumble guard cut. false = no floor there, exactly as before.
+  HOVER_LEG_FLOOR = true,
   -- In cruise the floor rises with TRUE lean. 0.25 keeps the attitude loop
   -- alive at 20 deg; at 75 deg it is nothing, and the altitude loop cutting
   -- throttle to it was the last step in three of four tumbles (2026-09-13,
@@ -2813,7 +2821,8 @@ local function flyLeg()
         -- zero differential, so the attitude loop had nothing to work with:
         -- roll drifted to 15 deg against a 4 deg demand before the tilt gate
         -- above finally engaged. ATT_MIN_LAND still falls at ~5 b/s^2.
-        if phase == "descend" or (phase == "land" and landSettled) then
+        if phase == "descend" or (phase == "land" and landSettled)
+           or (CFG.HOVER_LEG_FLOOR and legKind == "hover" and phase == "fly") then
           pwr = math.max(pwr, CFG.ATT_MIN_LAND)
         end
         -- Braking too. The reversal from cruise lean to brake lean passes
