@@ -1,5 +1,5 @@
 thruster,dpitch,droll,corner,thrust
-vector_thruster_0,0.0239,0.0245,A1,5.00
-vector_thruster_1,-0.0008,0.0006,B1,5.00
-vector_thruster_2,0.0006,-0.0008,A2,5.00
-vector_thruster_3,0.0006,0.0005,A1,5.00
+vector_thruster_0,0.0103,0.0105,A1,7.00
+vector_thruster_1,0.0102,-0.0105,A2,7.00
+vector_thruster_2,-0.0107,0.0105,B1,7.00
+vector_thruster_3,-0.0119,-0.0117,B2,7.00
