@@ -665,6 +665,7 @@ local CFG = {
   APPROACH_GLIDE = true,
   APPROACH_MAX = 400,                 -- blocks: further out than this still re-cruises
   APPROACH_VMAX = 30,                 -- b/s: the hold's speed limit while gliding in
+  GLIDE_NO_TRIM = true,               -- the hold's trim does not learn while gliding (false = it does, as 70da568)
   RECRUISE_DIST = 60,                 -- blocks: a brake that ends further out than this goes back to dash
   -- Brake trigger. The brake takes about 5 s almost whatever the entry speed,
   -- so its distance grows LINEARLY with speed: least squares over 47 brakes in
@@ -3167,8 +3168,14 @@ local function flyLeg()
       end
       tp = clamp(CFG.PITCH_DIR * CFG.PKV * fwd, tiltCap)
       tr = clamp(CFG.ROLL_DIR * CFG.PKV * right, tiltCap)
-      trimP = clamp(trimP + CFG.PKI * CFG.PITCH_DIR * fwd * dt, CFG.TRIM_MAX)
-      trimR = clamp(trimR + CFG.PKI * CFG.ROLL_DIR * right * dt, CFG.TRIM_MAX)
+      -- no trim learning while gliding in (APPROACH_GLIDE): 10-20 s of wanting
+      -- 10-30 b/s more wound the trim to TRIM_MAX toward the pad, and on arrival
+      -- it held the craft 2-3 blocks past it for 35-45 s while it unwound
+      -- (flightlogs 10-27-07 .. 10-43-37; 6-14 s before the glide existed)
+      if not (st.glide and CFG.GLIDE_NO_TRIM) then
+        trimP = clamp(trimP + CFG.PKI * CFG.PITCH_DIR * fwd * dt, CFG.TRIM_MAX)
+        trimR = clamp(trimR + CFG.PKI * CFG.ROLL_DIR * right * dt, CFG.TRIM_MAX)
+      end
     elseif fresh then
       ex, ez = goalX - pos.x, goalZ - pos.z
     end
