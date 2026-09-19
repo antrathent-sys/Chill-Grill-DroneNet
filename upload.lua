@@ -1,9 +1,9 @@
 -- upload: push the last flightlog to GitHub so it can be read without anyone
 -- copying files out of the save.
 --
---   upload              downsample and push flightlog
---   upload full         push every row (big, use sparingly)
---   upload <file>       push some other file
+--   upload              push flightlog, every row (fly runs this after a flight)
+--   upload sampled      push every 12th row plus every phase change
+--   upload <file>       push some other file, whole
 --   upload thin [N]     no GitHub: write flightlog.thin with every Nth row (4)
 --                       plus every phase change, small enough for
 --                       `pastebin put flightlog.thin` (pastebin refuses ~500 KB+)
@@ -17,9 +17,20 @@ local DIR    = "logs/flights"      -- where logs land in the repo
 local KEEP   = 12                  -- keep every Nth row when downsampling
 
 local args = { ... }
-local full = args[1] == "full"
+-- Every row by default: a 1-in-12 log hid the first half-second of a spin
+-- on 2026-09-19, and the analysis needs 10 Hz. `upload full` still works.
+local sampled = args[1] == "sampled"
 local thin = args[1] == "thin"
-local src  = (not full and not thin and args[1]) or "flightlog"
+local full = not sampled and not thin
+local src  = (args[1] ~= "full" and not sampled and not thin and args[1]) or "flightlog"
+-- ...unless the log is too big to push whole through the contents API
+-- (base64 adds a third): then the fewest rows dropped that make it fit.
+local FULL_MAX = 700 * 1024
+if full and fs.exists(src) and fs.getSize and fs.getSize(src) > FULL_MAX then
+  full = false
+  KEEP = math.ceil(fs.getSize(src) / FULL_MAX)
+  print(string.format("%s is %d KB - too big to push whole, keeping 1 row in %d", src, math.floor(fs.getSize(src) / 1024), KEEP))
+end
 -- `upload thin` with no number sizes the step to land under THIN_TARGET:
 -- paste.rs took 49 and 54 KB and refused 95 and 153 with an HTTP 500, so
 -- the copy has to come out small, and nobody wants to guess the number

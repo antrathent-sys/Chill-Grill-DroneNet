@@ -142,7 +142,7 @@ responses = {
   ["GET " .. API .. "logs/flights/2026-09-10_12-00-00_sampled.csv"] = { code = 404, body = "{}", fail = true },
   ["PUT"] = { code = 201, body = '{"content":"ok"}' },
 }
-local ok, err = run()
+local ok, err = run("sampled")
 check("runs clean", ok, err)
 check("two requests: GET then PUT", #requests == 2 and requests[1].method == "GET" and requests[2].method == "PUT",
       #requests .. " requests")
@@ -181,8 +181,8 @@ check("sync sends the file verbatim, not downsampled",
 
 print("full mode")
 responses = { ["GET"] = { code = 404, body = "{}", fail = true }, ["PUT"] = { code = 201, body = "{}" } }
-ok, err = run("full")
-check("full runs clean", ok, err)
+ok, err = run()
+check("full (the default) runs clean", ok, err)
 local fb = requests[2] and bodyOf(requests[2]) or {}
 local fullTxt = fb.content and unb64(fb.content) or ""
 check("full keeps every row", select(2, fullTxt:gsub("\n", "")) == 101,
@@ -203,6 +203,20 @@ files[".ghtoken"] = "ghp_faketoken123"
 files["flightlog"] = nil
 ok, err = run()
 check("errors clearly with no flightlog", not ok and tostring(err):match("flightlog") ~= nil, err)
+
+print("too big to push whole")
+fs.getSize = function(p) return #(files[p] or "") end
+local bigRows = { rows[1] }
+for i = 1, 4000 do bigRows[#bigRows + 1] = rows[2 + (i % 99)] .. string.rep("9", 150) end
+files["flightlog"] = table.concat(bigRows, "\n") .. "\n"
+responses["PUT"] = { code = 201, body = '{"content":"ok"}' }
+ok, err = run()
+check("a log over 700 KB still pushes", ok, err)
+local bigPut = requests[#requests]
+local bigTxt = bigPut and bigPut.body and unb64(bodyOf(bigPut).content or "") or ""
+check("thinned just enough to fit", #bigTxt > 350 * 1024 and #bigTxt <= 700 * 1024, #bigTxt)
+check("and named sampled", bigPut and bigPut.url:match("_sampled%.csv") ~= nil, bigPut and bigPut.url)
+fs.getSize = nil
 
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
