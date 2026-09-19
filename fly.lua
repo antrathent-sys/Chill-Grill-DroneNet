@@ -562,7 +562,19 @@ local CFG = {
   -- everywhere. Orientation about the thrust axis does not change drag, so
   -- cruise yaw just holds still: "hold" = entry heading, "course" = follow
   -- the track + YAW_OFFSET (the old behaviour, more yaw activity for nothing).
-  YAW_CRUISE = "hold",
+  -- "target" (2026-09-20): from the start of the climb the craft turns to
+  -- the leg's bearing + YAW_OFFSET and holds that through cruise and brake,
+  -- so the lean always lands on the same body axis whatever way it was
+  -- parked. With "hold" it kept the pad heading: parked nose 270 on a
+  -- course of ~11 the lean went ~58 deg from the pitch axis and two 10k
+  -- legs flew clean (flightlogs 12-08-48, 12-22-19: yaw 4 deg rms); parked
+  -- nose 0 the lean went on pure pitch (14 deg from the axis), the gimbal
+  -- ran to 84 deg of pitch where its roll reading and the TRIAD heading are
+  -- ill-conditioned (roll error 36 deg rms vs 6), the yaw hold chased the
+  -- noise (+-57 deg, demand at the limit 21 of 27 rows) and it tumbled
+  -- (flightlog 12-48-39). The same pad heading also decided 11-51 and
+  -- 12-02 (26-34 deg: yaw 17-22 rms). "hold" = the old behaviour, exactly.
+  YAW_CRUISE = "target",
   -- The yaw hold in cruise and brake steers by the TRIAD heading whenever
   -- this iteration has a solution, not by the flat table. At speed the flat
   -- table's heading (de-rotated by gimbal, with the gyro blend) sat 33-38 deg
@@ -573,7 +585,10 @@ local CFG = {
   -- The lean was already aimed through TRIAD; the yaw now agrees with it.
   -- false = the flat-table cruise heading, exactly as before.
   YAW_TRIAD = true,
-  YAW_OFFSET = 0,                     -- deg between held heading and course when YAW_CRUISE = "course"
+  -- heading minus course: with "target", 260 is the geometry of the two
+  -- clean 10k flights (nose 270 on a bearing of ~11). The gimbal wants the
+  -- lean well off its pitch axis; 0 or 180 would put it back on pitch.
+  YAW_OFFSET = 260,                   -- deg between held heading and course ("course" and "target")
   -- 2026-09-10: with P capped at 0.05 the yaw sat 100 deg off the course all
   -- cruise (lean was all roll, sails sideways). P/KD now settle at ~10 deg/s.
   -- fly spin 40 (2026-09-10): sign confirmed (+ = heading up = clockwise),
@@ -3037,6 +3052,13 @@ local function flyLeg()
         -- point the lean axis (CRUISE_LEAN_AXIS clockwise from the nose) at the target
         src = "target"
         yawTgt = (math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) - CFG.CRUISE_LEAN_AXIS + yawOff) % 360
+      elseif CFG.YAW_CRUISE == "target" and (mode == "go" or mode == "dock")
+             and (phase == "climb" or phase == "cruise" or phase == "brake") then
+        -- the leg's bearing, fixed once per leg (st is fresh each flyLeg), so
+        -- the target does not swing about as the craft closes on it
+        src = "target"
+        if not st.yawBrg then st.yawBrg = math.deg(math.atan2(tgtX - pos.x, -(tgtZ - pos.z))) % 360 end
+        yawTgt = (st.yawBrg + yawOff) % 360
       elseif (phase == "cruise" or phase == "brake") and speed > CFG.YAW_MIN_SPEED
              and (CFG.YAW_CRUISE == "course" or CFG.YAW_SWEEP ~= 0) then
         src = "course"
