@@ -180,6 +180,14 @@ local CFG = {
   CAL_DEG = 10,                       -- fly cal: tilt of each pulse
   CAL_T = 2.0,                        -- s each pulse lasts; the counter-pulse is the same
   CAL_SETTLE = 4.0,                   -- s level before the first pulse and between them
+  -- After the pulses, a full turn at CAL_YAW_RATE, rate-controlled from
+  -- Sable's yaw rate (no heading needed): settles HDG_SIGN in one go (the
+  -- pulses only did if the craft happened to yaw 8 deg) and measures how
+  -- far the flat table and the TRIAD heading stray from the true turn at
+  -- every heading. Needs the four-thruster mixer. 0 = no turn, as before.
+  CAL_YAW_DEG = 360,
+  CAL_YAW_RATE = 15,                  -- deg/s
+  CAL_YAW_T = 40,                     -- s: give up on the turn after this and write what the pulses found
   NAV_FALLBACK = true,                -- legacy: use nav table when motion heading has no lock
   HDG_EVERY = 4,                      -- read the nav table every N control iterations (each read is a tick;
                                       -- the craft yaws slowly, so heading tolerates being ~0.5 s stale)
@@ -1753,6 +1761,7 @@ else
       print("cal: could not tell the flat table apart (every one reads 0/180) - keeping " .. tostring(CFG.NAV_NAME or "the first"))
     end
     CFG.YAW_HOLD = false          -- no yaw commands from a heading we are about to measure
+    CFG.HDG_EVERY = 1             -- every table read fresh: the turn compares them step by step
   elseif arg[1] == "pads" or arg[1] == "pad" then
     -- Not a flight: listed and edited after the arguments are read, then fly
     -- returns to the shell without ever touching a thruster.
@@ -2088,7 +2097,39 @@ function FL.calStep(c, t, p, rawH, wy, dt)
     end
   elseif c.step == "pitch-back" or c.step == "roll-back" then
     if c.step == "pitch-back" then tp = -c.deg else tr = -c.deg end
-    if el >= CFG.CAL_T then c.step, c.t0 = c.step == "pitch-back" and "level" or "done", t end
+    if el >= CFG.CAL_T then
+      local turn = CFG.CAL_YAW_DEG > 0 and mixer ~= nil
+      c.step, c.t0 = c.step == "pitch-back" and "level" or (turn and "level2" or "done"), t
+    end
+  elseif c.step == "level2" then
+    if el >= CFG.CAL_SETTLE then
+      c.step, c.t0 = "yaw", t
+      c.turn = { y = 0, raw0 = raw, rawPrev = raw, rawU = 0, tri0 = tri.hdg, triPrev = tri.hdg, triU = 0,
+                 tabErr = {}, triErr = {} }
+      print(string.format("cal: turning %d deg at %d deg/s", CFG.CAL_YAW_DEG, CFG.CAL_YAW_RATE))
+    end
+  elseif c.step == "yaw" then
+    local k = c.turn
+    k.y = k.y + wy * dt
+    -- the table and the TRIAD heading, unwrapped, against Sable's turn
+    k.rawU = k.rawU + ((raw - k.rawPrev + 540) % 360) - 180
+    k.rawPrev = raw
+    k.tabErr[#k.tabErr + 1] = k.rawU - CFG.HDG_SIGN * k.y
+    if tri.hdg >= 0 and k.triPrev >= 0 then
+      k.triU = k.triU + ((tri.hdg - k.triPrev + 540) % 360) - 180
+      k.triErr[#k.triErr + 1] = k.triU - k.y
+    end
+    if tri.hdg >= 0 then k.triPrev = tri.hdg end
+    -- rate control: feed-forward (0.08 of demand gave 6.5 deg/s) plus damping
+    c.yawDem = clamp(CFG.YAW_SIGN * (0.0125 * CFG.CAL_YAW_RATE + CFG.YAW_KD * (CFG.CAL_YAW_RATE - wy)), CFG.YAW_MAX)
+    if math.abs(k.y) >= CFG.CAL_YAW_DEG or el >= CFG.CAL_YAW_T then
+      c.yawDem = nil
+      c.step, c.t0 = "yaw-settle", t
+      print(string.format("cal: turned %.0f deg in %.0f s", k.y, el))
+    end
+  elseif c.step == "yaw-settle" then
+    c.yawDem = CFG.YAW_SIGN * clamp(-CFG.YAW_KD * wy, CFG.YAW_MAX)   -- stop the turn, nothing else
+    if el >= CFG.CAL_SETTLE then c.yawDem = nil c.step, c.t0 = "done", t end
   elseif c.step == "level" then
     if el >= CFG.CAL_SETTLE and math.sqrt(p.vx * p.vx + p.vz * p.vz) < 1.5 then
       c.step, c.t0 = "roll", t
@@ -2134,6 +2175,29 @@ function FL.calResult(c)
   end
   out.measured = string.format("pitch %.0f/%.1f roll %s yaw %.0f", c.pitch.brg, c.pitch.spd,
     c.roll and string.format("%.0f/%.1f", c.roll.brg, c.roll.spd) or "-", c.yawI or 0)
+  -- the full turn: how far each heading source strays from Sable's turn
+  if c.turn and math.abs(c.turn.y) >= 90 then
+    local function spread(errs)
+      if #errs < 5 then return nil end
+      local m = 0
+      for _, e in ipairs(errs) do m = m + e end
+      m = m / #errs                                   -- a constant offset is not an error
+      local worst, ss = 0, 0
+      for _, e in ipairs(errs) do worst = math.max(worst, math.abs(e - m)) ss = ss + (e - m) ^ 2 end
+      return worst, math.sqrt(ss / #errs)
+    end
+    local tw, tr2 = spread(c.turn.tabErr)
+    local qw, qr = spread(c.turn.triErr)
+    lines[#lines + 1] = string.format("turn %.0f deg: flat table strays %s from the true turn, TRIAD %s",
+      c.turn.y, tw and string.format("%.0f max / %.1f rms", tw, tr2) or "-",
+      qw and string.format("%.0f max / %.1f rms", qw, qr) or "(no solve)")
+    if tw and tw > 20 then lines[#lines + 1] = "  flat table is off by more than 20 deg at some headings - check it is level" end
+    if qw and qw > 15 then lines[#lines + 1] = "  TRIAD is off by more than 15 deg at some headings - the preset may not fit this craft" end
+    out.measured = out.measured .. string.format(" turn %.0f table %s tri %s", c.turn.y,
+      tw and string.format("%.0f/%.1f", tw, tr2) or "-", qw and string.format("%.0f/%.1f", qw, qr) or "-")
+  elseif c.turn then
+    lines[#lines + 1] = string.format("turn: only %.0f deg in %d s - yaw authority is weak or YAW_SIGN is wrong", c.turn.y, CFG.CAL_YAW_T)
+  end
   return out, lines
 end
 
@@ -3052,6 +3116,7 @@ local function flyLeg()
     ir = clamp(ir + KI * er * dt, CFG.IMAX)
     -- yaw hold
     yawErr, yawDem = 0, 0
+    if CAL and CAL.yawDem then yawDem = CAL.yawDem end
     if yawOK then
       local hdgUsed = (phase == "cruise" or phase == "brake")
                       and ((CFG.YAW_TRIAD and tri.q and tri.qt == t and tri.hdg >= 0) and tri.hdg or cruiseHdg)

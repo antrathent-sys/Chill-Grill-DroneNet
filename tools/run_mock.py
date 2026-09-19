@@ -99,6 +99,10 @@ SELFTEST = [
      {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5"},
      "reaches 20.5 30.5"),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
+    # the four-thruster cal adds the full turn. The quad mock neither yaws
+    # nor moves on a 10 deg pulse, so nothing is fitted here; this checks the
+    # turn starts, gives up at CAL_YAW_T and the flight ends cleanly
+    ("quad cal", ["cal", "80"], {"TMAX": "120", "QUAD": "1"}, ["fly"]),
     # three-table heading is logged (not flown with): level rows must read the
     # heading the mock's tables were built for
     ("triad log", ["90"], {"TMAX": "30", "TRIAD": "1"}, ["fly"]),
