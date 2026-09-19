@@ -225,7 +225,9 @@ A.presets = {
     gimbalSigns = { pitch = 1, roll = -1 },
     tables = {
       { name = "navigation_table_1", normal = "+y", forward = "+x" },   -- the flat one
-      { name = "navigation_table_0", normal = "-z", forward = "-x" },
+      -- was navigation_table_0: the same block, renamed by CC when its
+      -- modem was reconnected during the ballast work (2026-09-19)
+      { name = "navigation_table_3", normal = "-z", forward = "-x" },
       { name = "navigation_table_2", normal = "+x", forward = "-z" },
     },
   },
