@@ -1403,7 +1403,7 @@ do
   end
 end
 -- forward (nose-axis) speed from the velocity sensor, positive = moving forward
-local pos = { x = 0, z = 0, vx = 0, vz = 0, vy = nil, t = 0, rej = 0, wy = 0 }   -- vy: Sable vertical speed; wy: world yaw rate, deg/s
+local pos = { x = 0, z = 0, vx = 0, vz = 0, vy = nil, t = 0, rej = 0, wy = 0, wx = 0, wz = 0 }   -- vy: Sable vertical speed; wy: world yaw rate, deg/s
 
 -- raw sensor reads, in the AIRFRAME's own (tilted) frame
 local SENS = {
@@ -1567,6 +1567,10 @@ local function readPos()
     local vx, vy, vz = 0, 0, 0
     if type(lv) == "table" then vx, vy, vz = lv.x or 0, lv.y or 0, lv.z or 0 end
     if type(av) == "table" and av.y then pos.wy = -math.deg(av.y) end   -- +y spin turns heading DOWN
+    -- Sable's rotation rate about world x and z, deg/s, as it reports them:
+    -- logged on every row (wx, wz) so a flip shows whether the craft really
+    -- rotated or only the gimbal's reading jumped
+    if type(av) == "table" then pos.wx, pos.wz = math.deg(av.x or 0), math.deg(av.z or 0) end
     return pose.position.x, pose.position.z, vx, vz, vy
   end
   local x, _, z = gps.locate(0.3)
@@ -1969,7 +1973,7 @@ end
 pcall(log.writeLine, "t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg,"
   .. (triLog[1] and triLog[1]:gsub("navigation_table_", "nav") or "nav4") .. ","
   .. (triLog[2] and triLog[2]:gsub("navigation_table_", "nav") or "nav5") .. ","
-  .. (triLog[3] and triLog[3]:gsub("navigation_table_", "nav") or "nav7") .. ",trihdg,trires,aimq")
+  .. (triLog[3] and triLog[3]:gsub("navigation_table_", "nav") or "nav7") .. ",trihdg,trires,aimq,wx,wz")
 local t0 = os.clock()
 print(mode == "find" and ("find: holding " .. findP)
    or mode == "dash" and string.format("dash: Y %.0f, %d deg for %ds", goal, dashDeg, dashSecs)
@@ -3091,7 +3095,8 @@ local function flyLeg()
 
     if CFG.TUMBLE > 0 and (math.abs(a[1]) > CFG.TUMBLE or math.abs(a[2]) > CFG.TUMBLE) then
         chime.play("alarm")
-      error(string.format("tumbled (%.0f, %.0f) - thrust cut", a[1], a[2]))
+      error(string.format("tumbled (%.0f, %.0f) - thrust cut. Sable rates x %.0f y %.0f z %.0f deg/s",
+        a[1], a[2], pos.wx, pos.wy, pos.wz))
     end
 
     -- gain schedule on total tilt
@@ -3201,13 +3206,13 @@ local function flyLeg()
       (tri.hdg >= 0) and tri.hdg or hdg, a[1], a[2], goalX, goalZ, st.trkX, st.trkZ, mixSat
     local s0, s1, s2 = 0, 0, 0
     if haveVelSensors then s0, s1, s2 = rawFwd(), rawLat(), rawVrt() end
-    logRow(phase, string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%d",
+    logRow(phase, string.format("%.2f,%s,%.2f,%.2f,%.3f,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.0f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.0f,%d,%.0f,%.1f,%.2f,%.3f,%.3f,%.2f,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%d,%.1f,%.1f",
       t - t0, phase, h, e, math.max(0, math.min(1, pwr)), fresh and 1 or 0, pos.x, pos.z, ex, ez, pos.vx, pos.vz, hdg, raw,
       motHdg or -1, tp, tr, a[1], a[2], vx, vy, s, s0, s1, s2, fwdSpeed(), latSpeed(), mon.energy, fuel.pct, mixSat and 1 or 0,
       yawErr, pos.wy, yawDem, mixThr, mixMax, v, dock.connected and 1 or 0, dock.npers,
       dock.charging and 1 or 0,
       (triLog[1] and tri.ang[triLog[1]]) or -1, (triLog[2] and tri.ang[triLog[2]]) or -1, (triLog[3] and tri.ang[triLog[3]]) or -1,
-      tri.hdg, tri.res, aimQ and 1 or 0))
+      tri.hdg, tri.res, aimQ and 1 or 0, pos.wx, pos.wz))
     if phase == "touchdown" then
       -- Thrust is already zero (see the power section). Keep flying the loop
       -- for a few more seconds purely to log: at the instant it fires, a
@@ -3357,8 +3362,8 @@ allStop() pump(false)
 do
   local names = { "control", "pos", "mon", "chime", "cmd", "link" }
   local why = ok and ("ok:" .. (names[err] or tostring(err))) or tostring(err)
-  why = why:gsub("[,\r\n]", ";"):sub(1, 80)
-  pcall(log.writeLine, string.format("%.2f,end:%s%s", TLM.t or 0, why, string.rep(",0", 43)))
+  why = why:gsub("[,\r\n]", ";"):sub(1, 140)
+  pcall(log.writeLine, string.format("%.2f,end:%s%s", TLM.t or 0, why, string.rep(",0", 45)))
 end
 pcall(log.close)
 print("thrusters off, pump off - flightlog saved")

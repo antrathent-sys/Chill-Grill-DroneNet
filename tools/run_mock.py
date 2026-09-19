@@ -434,7 +434,8 @@ def main(argv=None):
                 ok = ok and tok
             # every flight, however it ends, closes its log with an end row
             why = end_row_of(logpath)
-            if why is None and got:
+            # a disk that fills without warning has no room for an end row either
+            if why is None and got and not env.get("DISK_LIE"):
                 ok = False
                 extra = "no well-formed end row at the end of the log"
             failures += 0 if ok else 1
