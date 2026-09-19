@@ -12,6 +12,8 @@
 --                      below ~85 b/s that saturated the mixer in bursts,
 --                      roll missed by 30, yaw kicked to 90 deg/s (13-15-51).
 --                      Now it fades below 60 b/s: 30 deg at 40, 15 at 20.
+--   CRUISE_BODY_LEAN 30  on test from 2026-09-19 14:00: lean held on the body while
+--                      the nose wobbles, so yaw stops moving the roll command
 -- Tried and reverted 2026-09-19: YAW_KP/KD 0.01 and CRUISE_AIM_TAU 0.8 each
 -- trimmed the cruise yaw swing a little (rms 25 -> 16.5 -> 13.9 deg/s) but
 -- roll tracking went 3.8 -> 9.5 -> 11.9 deg rms (flightlogs 13-15-51,
@@ -21,5 +23,6 @@ return {
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
   CRUISE_DEG = 58,
+  CRUISE_BODY_LEAN = 30,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:950,190:1110",
 }

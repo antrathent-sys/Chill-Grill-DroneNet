@@ -103,6 +103,8 @@ SELFTEST = [
     # still fly the cruise (triad_check: level heading, aimq share)
     ("aim smoothed", ["go", "100", "50", "90"], {"TMAX": "90", "TRIAD": "1", "TUNE": "return { CRUISE_AIM_TAU = 0.8 }"},
      ["climb", "cruise", "brake", "hold"]),
+    ("body lean", ["go", "100", "50", "90"], {"TMAX": "90", "TRIAD": "1", "TUNE": "return { CRUISE_BODY_LEAN = 30 }"},
+     ["climb", "cruise", "brake", "hold"]),
     # a cal.lua on the craft is applied: the mock's flat table reads 90, the
     # test copy's HDG_SIGN is -1, so HDG_OFFSET 300 must log a heading of 210
     # (179 with the test copy's own 269)

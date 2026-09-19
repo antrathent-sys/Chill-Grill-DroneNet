@@ -554,7 +554,18 @@ local CFG = {
   -- error moved together (correlation 0.91) and the roll command followed the
   -- yaw by 0.5 s, a 3 s wobble of +-20 deg/s (flightlog 13-27-24). Set per
   -- craft in tunes/. 0 = the aim as computed, exactly as before.
-  CRUISE_AIM_TAU = 0,            -- "attitude": aim the cruise lean through the three-table attitude
+  CRUISE_AIM_TAU = 0,
+  -- Body-fixed cruise lean. The attitude aim points the lean at a WORLD
+  -- direction, so every degree the nose wobbles off the yaw target moves the
+  -- roll command to keep the lean on the track, and that roll swings the nose
+  -- again. At CRUISE_DEG 62 on the server craft a +-40 deg/s yaw wobble moved
+  -- the roll COMMAND between 1 and 56 deg, the swing grew, thrust hit
+  -- CRUISE_MAX_POWER and it tumbled (flightlog 13-49-53). With this set, the
+  -- world lean is turned with the nose by the heading error (capped at this
+  -- many degrees), so the lean stays where it is on the body and yaw steers
+  -- the whole craft; beyond the cap the aim still pulls the lean round. Needs
+  -- YAW_CRUISE "target" (the fixed leg bearing). 0 = world aim, as before.
+  CRUISE_BODY_LEAN = 0,               -- deg            -- "attitude": aim the cruise lean through the three-table attitude
                                       -- (nav tables 4/5/7 + gimbal, lib/attitude.lua). "heading": the old
                                       -- split by the flat-table heading, which swings ~56 deg with roll at
                                       -- cruise lean and weaved the lean +-35 deg around the path (flightlog
@@ -2393,6 +2404,17 @@ function FL.headingSplit(cWx, cWz, hdgDeg, yawErr)
   return CFG.PITCH_DIR * cF, CFG.ROLL_DIR * cL
 end
 
+-- CRUISE_BODY_LEAN: turn the world lean command (cWx, cWz) with the nose by
+-- the heading's error from the leg's yaw target, capped at CRUISE_BODY_LEAN,
+-- so the lean holds its place on the body while the nose wobbles.
+function FL.bodyLean(st, cWx, cWz)
+  if CFG.CRUISE_BODY_LEAN <= 0 or not st.yawBrg or not (tri.hdg and tri.hdg >= 0) then return cWx, cWz end
+  local tgt = (st.yawBrg + CFG.YAW_OFFSET) % 360
+  local o = math.rad(clamp(((tri.hdg - tgt + 540) % 360) - 180, CFG.CRUISE_BODY_LEAN))
+  st.bodyOff = math.deg(o)
+  return cWx * math.cos(o) - cWz * math.sin(o), cWz * math.cos(o) + cWx * math.sin(o)
+end
+
 -- Aim a sized, capped world lean through the attitude; if there is no usable
 -- answer, the heading-split (tp, tr), capped.
 function FL.aimLean(tp, tr, cWx, cWz, mag, cap, pitch, roll)
@@ -3187,7 +3209,10 @@ local function flyLeg()
         -- integrate only while unsaturated (anti-windup)
         cruiseIx, cruiseIz = FL.cruiseIntegrate(cruiseIx, cruiseIz, eWx, eWz, ux, uz, dt, cap)
       end
-      if useQ then tp, tr, aimQ = FL.aimLean(tp, tr, cWx, cWz, mag, cap, a[1], a[2]) end
+      if useQ then
+        cWx, cWz = FL.bodyLean(st, cWx, cWz)
+        tp, tr, aimQ = FL.aimLean(tp, tr, cWx, cWz, mag, cap, a[1], a[2])
+      end
       -- CRUISE_AIM_TAU: first-order smoothing, restarted after any gap
       if CFG.CRUISE_AIM_TAU > 0 then
         if not st.aimT or t - st.aimT > 0.5 then st.aimP, st.aimR = tp, tr end
