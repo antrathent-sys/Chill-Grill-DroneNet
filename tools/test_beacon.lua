@@ -77,14 +77,11 @@ local function drone(opts)
   w.inbox = opts.inbox or {}
   w.said = {}
   w.opens = {}
+  -- orders arrive sealed, on the telemetry channel, as the base sends them
+  w.baseSealer = S.sender(KEY, opts.label or "drone-1", S.DIR.BASE_TO_DRONE, nil)
   env.rednet = {
     open = function(nm) w.opens[#w.opens + 1] = nm end,
     broadcast = function(msg, proto) w.said[#w.said + 1] = { msg = msg, proto = proto } end,
-    receive = function()
-      local m = table.remove(w.inbox, 1)
-      if not m then error("no more orders", 0) end   -- the harness stops here
-      return 1, m
-    end,
   }
   local v = opts.velocity or { x = 3, y = 0, z = -1 }
   env.sublevel = {
@@ -111,7 +108,15 @@ local function drone(opts)
     b()
   end }
   env.os = setmetatable({
-    pullEvent = function() return "char", table.remove(w.keys, 1) or "q" end,
+    pullEvent = function(want)
+      if want == "modem_message" or (want == nil and #w.inbox > 0) then
+        local m = table.remove(w.inbox, 1)
+        if not m then error("no more orders", 0) end   -- the harness stops here
+        local env2 = m.raw and m.msg or w.baseSealer.seal(m)
+        return "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL, env2
+      end
+      return "char", table.remove(w.keys, 1) or "q"
+    end,
     getComputerLabel = function() return opts.label or "drone-1" end,
     getComputerID = function() return 7 end,
   }, { __index = os })
@@ -187,21 +192,33 @@ check("an empty fly line flies nothing", #w.runs == 0 and w.text:find("nothing f
 print("orders over the cable")
 local F = dofile(DIR .. "/../lib/fleet.lua")
 local function order(t) t.to = t.to or "drone-1" return t end
+-- what the drone said back, opened with its key as the base would
 local function saidOfType(w, ty)
   local out = {}
-  for _, s in ipairs(w.said) do if type(s.msg) == "table" and s.msg.type == ty then out[#out + 1] = s.msg end end
+  for _, b in ipairs(w.opened) do if b.type == ty then out[#out + 1] = b end end
   return out
 end
 
 w = run(drone({ name = "pad", inbox = { order(F.flyCommand("ferry pier", "ops-1")) } }))
 check("an ops command is flown", w.runs[1] == "fly ferry pier", w.runs[1] or "nothing")
-check("on the wired modem only", #w.opens == 1 and w.opens[1] == "modem_0", table.concat(w.opens, ","))
+check("the order channel is open", w.text:find("taking sealed orders", 1, true) ~= nil)
 check("and acked", #saidOfType(w, "job.ack") == 1 and saidOfType(w, "job.ack")[1].ok == true)
-check("everything it says is on the fleet protocol", w.said[1].proto == F.PROTO, w.said[1].proto)
+check("its answer is sealed, and the base can open it", w.refused == 0 and #saidOfType(w, "job.ack") == 1)
 
 w = run(drone({ name = "pad", inbox = { order({ v = 1, type = "ops.fly", nonce = "ops-2",
   args = "land 1 2; shutdown" }) } }))
 check("a command with shell characters is not flown", #w.runs == 0)
+
+-- an order nobody sealed, or sealed with the wrong key, never arrives at all
+local OTHER = S.parseKey("ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100")
+w = run(drone({ name = "pad", inbox = { { raw = true, msg = order(F.flyCommand("ferry pier", "ops-5")) } } }))
+check("an unsealed order is ignored", #w.runs == 0)
+local stranger = S.sender(OTHER, "drone-1", S.DIR.BASE_TO_DRONE, nil)
+w = run(drone({ name = "pad", inbox = { { raw = true, msg = stranger.seal(order(F.flyCommand("ferry pier", "ops-6"))) } } }))
+check("an order sealed with the wrong key is ignored", #w.runs == 0)
+local wrongWay = S.sender(KEY, "drone-1", S.DIR.DRONE_TO_BASE, nil)
+w = run(drone({ name = "pad", inbox = { { raw = true, msg = wrongWay.seal(order(F.flyCommand("ferry pier", "ops-7"))) } } }))
+check("an order sealed the wrong way round is ignored", #w.runs == 0)
 
 w = run(drone({ name = "pad", inbox = { { to = "drone-9", v = 1, type = "ops.fly", nonce = "ops-3",
   args = "ferry pier" } } }))
@@ -240,8 +257,7 @@ check("it lands beside the customer", w.runs[1] == "fly land 812 71 -344", w.run
 check("then flies them to the destination", w.runs[2] == "fly land 1200 340", w.runs[2] or "nothing")
 check("then home", w.runs[3] == "fly ferry home", w.runs[3] or "nothing")
 
-w = run(drone({ name = "pad", cycles = 1, nowire = true, inbox = {} }))
-check("no wired modem: it says it is taking no orders", w.text:find("no wired modem", 1, true) ~= nil)
+
 
 print("refusals")
 w = run(drone({ nokey = true }))

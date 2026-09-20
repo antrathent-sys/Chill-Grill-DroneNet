@@ -12,27 +12,22 @@
 -- <who> is a drone id, or "any" for the nearest one that is docked, has called
 -- in within the last 15 s and is not already on a job.
 --
--- Two networks, on purpose:
---   * the ENDER modem, listening only. Sealed telemetry from every drone in
---     .fleetkeys (lib/seclink.lua). This is where the board comes from, and
---     nothing is ever sent back this way.
---   * the WIRED modems, rednet, protocol dronenet. Every order goes out here
---     and only here, because anyone in earshot can copy a radio packet, and a
---     drone that strangers can re-route is not a fleet (MISSIONCONTROL.md:52-59).
---     In practice that means orders reach a drone while it is docked and its
---     connector bridges the pad cable. A drone in the air is read-only, except
---     for the three words fly's own command loop takes (land, hold, undock),
---     which ops sends on fly's protocol.
+-- All radio, no cables:
+--   * telemetry comes in on the ENDER modem, sealed by each drone with its own
+--     key, exactly as the wall reads it.
+--   * ORDERS go back out the same modem, sealed by ops with that drone's key
+--     from .fleetkeys (direction BASE_TO_DRONE). Only this computer can make
+--     one, the counter rises so a copied packet is refused as a replay, and a
+--     drone ignores anything it cannot open with its own key. That is what
+--     replaces the cable: the proof rides with the message.
+--   * customers' requests arrive as plain rednet. They ask, they never
+--     command; ops decides and rate-limits them.
 --
--- Hails by radio: a customer with a pocket computer (hail.lua) is nowhere near
--- a cable, so ops also listens on the WIRELESS modem - but only for a request,
--- never for an order. A hail is a question ops may refuse; the flight command
--- it decides on still leaves over the wire. So the rule that matters holds: no
--- drone ever takes a flight command from the air. Hails are rate-limited per
--- caller, printed as they arrive, and `ops closed` turns them away entirely.
+-- Hails are rate-limited per caller, logged as they arrive, and `ops closed`
+-- turns them away entirely while the cabled pads keep working.
 --
--- ops holds no drone keys and cannot forge telemetry: .fleetkeys only ever
--- opens packets, and the sealed direction here is drone-to-base.
+-- ops cannot forge telemetry: the keys open drone-to-base packets and seal
+-- base-to-drone ones, and the two directions have separate nonces.
 
 local F = dofile("lib/fleet.lua")
 local SEC = dofile("lib/seclink.lua")
@@ -45,9 +40,11 @@ local fleetKeys, nKeys = SEC.readFleetKeys(".fleetkeys")
 local me = (os.getComputerLabel and os.getComputerLabel()) or ("ops-" .. tostring(os.getComputerID()))
 
 -- ---------------------------------------------------------------- the wire --
+-- Wired modems are opened if there are any - a pad on a cable still works -
+-- but nothing needs one any more.
 local wired = F.wired(peripheral)
 for _, nm in ipairs(wired) do pcall(rednet.open, nm) end
--- and the radio, for hails only (see the note above)
+-- the radio, for customers' requests (and, sealed, for every order)
 local HAIL_EVERY = 20        -- seconds a caller must wait between hails
 local openToHails = (cmd ~= "closed")
 local lastHail = {}
@@ -60,9 +57,19 @@ if openToHails then
   end
 end
 if cmd == "closed" then cmd = "watch" end
-if #wired == 0 then
-  print("ops: no WIRED modem - the board will fill in but no order can leave.")
-  print("     Put a modem on this computer and cable it to the pads.")
+
+
+-- one sealed sender per drone, made on first use; the counter persists so a
+-- restart of ops never reuses a nonce
+local radio = link.findRadio(peripheral)
+if radio then peripheral.call(radio, "open", link.CHANNEL) end
+local senders = {}
+local function senderFor(id)
+  if senders[id] ~= nil then return senders[id] end
+  local key = fleetKeys[id]
+  if not key then senders[id] = false return false end
+  senders[id] = SEC.sender(key, id, SEC.DIR.BASE_TO_DRONE, ".ops-" .. id .. ".ctr")
+  return senders[id]
 end
 
 local seq = 0
@@ -71,7 +78,7 @@ local function nonce()
   return F.nonce(me, tostring(os.epoch and os.epoch("utc") or os.time()) .. "." .. seq)
 end
 
-local function shout(msg) rednet.broadcast(msg, F.PROTO) end
+local function shout(msg) pcall(rednet.broadcast, msg, F.PROTO) end
 
 -- ------------------------------------------------------------- the fleet ----
 -- Built from telemetry alone: a drone exists the moment a packet of its opens.
@@ -115,21 +122,25 @@ local function note(d)
   if f.docked and f.job and jobs[f.job] and jobs[f.job].state == "done" then f.job = nil end
 end
 
+local handle    -- set below; a drone's sealed reply goes through the same path
+
 local function receive()
-  local radio = link.findRadio(peripheral)
   if not radio then
-    print("ops: no ender modem - no telemetry, orders still work")
-    while true do os.pullEvent("terminate_never") end
+    print("ops: no ender modem - this computer cannot hear or order anything")
+    while true do sleep(3600) end
   end
-  peripheral.call(radio, "open", link.CHANNEL)
   local rx = SEC.receiver()
   while true do
     local _, _, ch, _, msg = os.pullEvent("modem_message")
     if ch == link.CHANNEL and type(msg) == "table" and msg.sl then
       local ok, body = pcall(rx.open, msg, function(id) return fleetKeys[id] end,
                              SEC.DIR.DRONE_TO_BASE, 120000)
-      if ok and body and body.type == "tlm" and link.check(body) then note(body)
-      else rejected = rejected + 1 end
+      if ok and body then
+        if body.type == "tlm" and link.check(body) then note(body)
+        elseif F.TYPES[body.type] and handle then pcall(handle, nil, body) end
+      else
+        rejected = rejected + 1
+      end
     end
   end
 end
@@ -147,11 +158,17 @@ local function pickWho(who, near)
   return id
 end
 
--- An order is addressed: the drone checks the name against its own label, so a
--- second drone on the same cable ignores it.
+-- An order: sealed with that drone's key and sent on the telemetry channel.
+-- Nobody else can make one, and no other drone can open it.
 local function order(id, msg)
   msg.to = id
-  shout(msg)
+  local s = senderFor(id)
+  if not s then return false, "no key for " .. id .. " - run seckey new " .. id .. " here" end
+  if not radio then return false, "no ender modem on this computer" end
+  local env, why = s.seal(msg)
+  if not env then return false, tostring(why) end
+  local ok = pcall(peripheral.call, radio, "transmit", link.CHANNEL, link.CHANNEL, env)
+  return ok, ok and nil or "the modem refused the packet"
 end
 
 local function orderFly(who, line, near)
@@ -159,7 +176,8 @@ local function orderFly(who, line, near)
   if not argsOk then return false, "that command is no good: " .. why end
   local id, note2 = pickWho(who, near)
   if not id then return false, note2 end
-  order(id, F.flyCommand(argsOk, nonce()))
+  local sent, whySent = order(id, F.flyCommand(argsOk, nonce()))
+  if not sent then return false, whySent end
   return id, note2
 end
 
@@ -184,7 +202,13 @@ local function dispatch(req, from)
   fleet[id] = fleet[id] or {}
   fleet[id].job = job
   local assign = F.assign(job, req)
-  order(id, assign)                  -- to the drone, addressed, over the wire
+  local sent, whySent = order(id, assign)     -- sealed, to that drone only
+  if not sent then
+    jobs[job] = nil
+    fleet[id].job = nil
+    if from then pcall(rednet.send, from, F.ack(job, id, false, whySent, nonce()), F.PROTO) end
+    return nil, whySent
+  end
   if from then pcall(rednet.send, from, assign, F.PROTO) end   -- and to whoever asked
   return id, job
 end
@@ -236,11 +260,14 @@ if cmd == "fly" or cmd == "send" or cmd == "land" or cmd == "hold" or cmd == "un
   parallel.waitForAny(receive, function() sleep(3) end)
 
   if cmd == "land" or cmd == "hold" or cmd == "undock" then
-    -- fly's own in-flight words, on fly's protocol, wired only
-    local id = (who:lower() == "any") and nil or who
-    if not id then print("name the drone for " .. cmd) return end
-    rednet.broadcast({ cmd = cmd }, "drone-cmd")
-    print(cmd .. " sent to anything flying on this cable (fly takes it by word, not by name)")
+    -- fly's own in-flight words. fly only ever takes these on a WIRED modem
+    -- (CMD_RADIO_STRICT), so this reaches a drone that is on a cable and
+    -- nothing else; a drone in the air on radio alone cannot be stopped this
+    -- way, and that is fly's rule, not ops's.
+    if who:lower() == "any" then print("name the drone for " .. cmd) return end
+    local okB = pcall(rednet.broadcast, { cmd = cmd }, "drone-cmd")
+    print(okB and (cmd .. " sent on the cable (fly takes it by word, not by name)")
+                or ("no wired modem here, so " .. cmd .. " cannot be sent"))
     return
   end
 
@@ -250,15 +277,22 @@ if cmd == "fly" or cmd == "send" or cmd == "land" or cmd == "hold" or cmd == "un
   if why then print(why) end
   print(string.format("%s -> %s: fly %s", me, id, line2))
   print("waiting for an ack...")
-  local t0 = os.clock()
-  while os.clock() - t0 < 5 do
-    local _, msg, proto = rednet.receive(F.PROTO, 5 - (os.clock() - t0))
-    if type(msg) == "table" and msg.type == "job.ack" and msg.drone == id then
-      print(msg.ok and ("  " .. id .. " took it") or ("  " .. id .. " refused: " .. tostring(msg.why)))
-      return
+  local seen, rx2 = nil, SEC.receiver()
+  parallel.waitForAny(function()
+    while not seen do
+      local _, _, ch, _, m = os.pullEvent("modem_message")
+      if ch == link.CHANNEL and type(m) == "table" and m.sl then
+        local okO, body = pcall(rx2.open, m, function(idd) return fleetKeys[idd] end,
+                                SEC.DIR.DRONE_TO_BASE, 120000)
+        if okO and body and body.type == "job.ack" and body.drone == id then seen = body end
+      end
     end
+  end, function() sleep(6) end)
+  if seen then
+    print(seen.ok and ("  " .. id .. " took it") or ("  " .. id .. " refused: " .. tostring(seen.why)))
+  else
+    print("  no ack - is beacon running on it, and does its key match (seckey check)?")
   end
-  print("  no ack - is it docked with its connector on the cable, and is beacon running?")
   return
 end
 
@@ -268,22 +302,30 @@ if cmd == "poke" then
   -- this computer -> cable -> docking connector -> beacon.
   local who = args[2]
   if not who then print("ops poke <drone>   (the id on the board)") return end
-  local poke = F.flyCommand("pads", nonce())
-  poke.to = who
-  rednet.broadcast(poke, F.PROTO)
-  print("poked " .. who .. " over " .. #wired .. " wired modem(s) - waiting 5 s")
-  local t0 = os.clock()
-  while os.clock() - t0 < 5 do
-    local _, msg = rednet.receive(F.PROTO, 5 - (os.clock() - t0))
-    if type(msg) == "table" and msg.type == "job.ack" and msg.drone == who then
-      print(who .. " answered. The cable and its beacon are fine.")
-      return
+  local sent, whySent = order(who, F.flyCommand("pads", nonce()))
+  if not sent then print("ops: " .. tostring(whySent)) return end
+  print("poked " .. who .. ", sealed on channel " .. link.CHANNEL .. " - waiting 5 s")
+  parallel.waitForAny(receive, function() sleep(0.2) end)
+  local answered = false
+  local rx = SEC.receiver()
+  parallel.waitForAny(function()
+    while not answered do
+      local _, _, ch, _, m = os.pullEvent("modem_message")
+      if ch == link.CHANNEL and type(m) == "table" and m.sl then
+        local okO, body = pcall(rx.open, m, function(idd) return fleetKeys[idd] end,
+                                SEC.DIR.DRONE_TO_BASE, 120000)
+        if okO and body and body.type == "job.ack" and body.drone == who then answered = true end
+      end
     end
+  end, function() sleep(6) end)
+  if answered then
+    print(who .. " answered. Its radio, its key and its beacon are all fine.")
+    return
   end
   print(who .. " did not answer. Check, in this order:")
   print(" 1 beacon is running on it (its screen shows #n DOCKED)")
   print(" 2 it has been updated: run startup on the drone")
-  print(" 3 it has a WIRED modem, and the dock cable reaches this computer")
+  print(" 3 its key matches: seckey list here, seckey check on the drone")
   return
 end
 
@@ -310,15 +352,15 @@ if cmd ~= "watch" then
 end
 
 -- ---------------------------------------------------------------- watching --
-print(string.format("ops %s: %d key%s, %d pad%s, %d wired modem%s", me,
+print(string.format("ops %s: %d key%s, %d pad%s, orders sealed on %s", me,
   nKeys, nKeys == 1 and "" or "s", #pads, #pads == 1 and "" or "s",
-  #wired, #wired == 1 and "" or "s"))
+  radio and (radio .. " channel " .. link.CHANNEL) or "NOTHING - no ender modem"))
 print(openToHails and "dispatching pads and radio hails. Q quits."
                    or "dispatching pads only - radio hails turned away. Q quits.")
 
 -- One message. Kept separate so serve can run it under pcall: a single
 -- malformed packet must never be able to stop ops answering customers.
-local function handle(from, msg)
+function handle(from, msg)
   do
     if type(msg) == "table" and (F.check(msg)) then
       if msg.type == "taxi.request" then
@@ -401,7 +443,7 @@ local function watchdog()
         if not j.acked and not j.warned and now - j.at > ACK_WAIT then
           j.warned = true
           log("%s has not answered %s", tostring(j.drone), j.id)
-          log("  is its beacon running and updated, and is it on the cable?")
+          log("  is its beacon running and updated, and is its key right?")
         end
         if now - j.at > JOB_STUCK then
           j.state = "failed"

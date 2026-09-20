@@ -5,13 +5,23 @@
 -- drone). This module is pure - no peripherals, no files, no clock of its own -
 -- so all of it is tested on the desktop in tools/test_fleet.lua.
 --
--- Everything travels as rednet over the WIRED network, protocol fleet.PROTO.
--- That is deliberate and it is the same rule fly.lua's command loop follows
--- (fly.lua:3540-3575, CMD_RADIO_STRICT): a wireless packet can be copied and
--- replayed by anyone in earshot, and a drone that can be re-routed by anyone
--- in earshot is not a taxi, it is a free ride to the bottom of the sea. On the
--- cable an attacker has to already be on the base network. Nothing here is
--- encrypted; the transport is the security, exactly as with drone-cmd.
+-- Two transports, and which one a message takes is a security decision.
+--
+--   ORDERS (ops -> drone: job.assign, job.go, ops.fly) go by RADIO, SEALED
+--   with that drone's own key (lib/seclink.lua, direction BASE_TO_DRONE) on
+--   link.CHANNEL. Only the base, holding .fleetkeys, can make one; the counter
+--   rises so a copied packet cannot be replayed; the drone opens it with its
+--   own .dronekey and ignores anything it cannot open. This replaced a
+--   wired-only rule on 2026-09-20: the fleet flies with no cables, so the
+--   proof has to travel with the message rather than with the wire.
+--
+--   REQUESTS and REPORTS (taxi.request, ops.ping, pad.stats, and what a
+--   customer's terminal is told back) go as plain rednet on fleet.PROTO. They
+--   ask; they never command. ops rate-limits callers and may refuse. The worst
+--   a forged one can do is ask for a taxi.
+--
+-- So the rule that matters still holds: nothing flies on an unauthenticated
+-- message, no matter how it arrived.
 --
 -- Messages (all flat tables, v = fleet.VERSION):
 --   taxi.request  [pad] px py pz tx tz [ty] [who] nonce    pad  -> ops

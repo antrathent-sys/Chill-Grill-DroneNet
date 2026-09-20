@@ -7,13 +7,16 @@
 -- While it runs: F asks for a fly command and runs it - the beacon goes quiet
 -- for the flight and carries on afterwards - and Q stops it.
 --
--- It also listens on the WIRED network (rednet, protocol dronenet, lib/fleet.lua)
--- for the base: an ops.fly command from the admin panel, or a taxi job from a
--- pad by way of ops. Wired only, and the wired-only part is the whole security
--- model, the same one fly's own command loop uses (fly.lua:3540-3575): a radio
--- packet can be copied by anyone in earshot, and this runs flights. Orders are
--- addressed - a message for another drone on the same cable is ignored - and
--- each one is acted on once, by its nonce.
+-- It also takes orders from the base over the radio: an ops.fly command from
+-- the admin panel, or a taxi job from a customer by way of ops. An order is
+-- SEALED with this drone's own key (lib/seclink.lua, direction BASE_TO_DRONE)
+-- on the same channel the telemetry goes out on. That seal is the whole
+-- security model now that the fleet flies without cables: only the base, which
+-- holds the key in .fleetkeys, can make an order; the counter rises so a
+-- copied packet is refused as a replay; anything this drone cannot open with
+-- its own key is dropped without being read. Orders are also acted on once, by
+-- their nonce, and this drone answers sealed so the base knows it was really
+-- us.
 --
 -- So: it never flies on its own judgement, but a person at the base or at a pad
 -- can now start a flight without standing at this keyboard. fly itself still
@@ -118,9 +121,11 @@ end
 local function pct(v) return type(v) == "number" and string.format("%d%%", math.floor(v + 0.5)) or "--" end
 
 -- ---------------------------------------------------------------- orders ----
--- Only wired modems are opened, so a wireless order cannot even arrive.
-local wired = F.wired(peripheral)
-for _, nm in ipairs(wired) do pcall(rednet.open, nm) end
+-- The same modem and channel the telemetry leaves on; sealed both ways.
+pcall(peripheral.call, radio, "open", link.CHANNEL)
+local orderRx = SEC.receiver()
+local orderSealer          -- made on first use, shares .dronekey.ctr with the
+                           -- telemetry sealer so the counter only ever rises
 
 local job          -- { id, pad, tx, tz, ty, step } while carrying someone
 local pending      -- the fly command line the main loop should run next
@@ -132,7 +137,20 @@ local function myNonce()
   return F.nonce(id, tostring(os.epoch and os.epoch("utc") or os.clock()) .. "." .. orderSeq)
 end
 
-local function say(msg) pcall(rednet.broadcast, msg, F.PROTO) end
+-- ONE sealer for everything this drone sends. Two sealers over the same key
+-- both reserve counters out of .dronekey.ctr and then interleave, and the base
+-- refuses any counter that does not rise - which silently ate half the job
+-- states the first time orders and telemetry had a sealer each (2026-09-20).
+local function sealer()
+  if not orderSealer then orderSealer = SEC.sender(key, id, SEC.DIR.DRONE_TO_BASE, ".dronekey.ctr") end
+  return orderSealer
+end
+
+-- Answer the base, sealed as this drone. The reply rides the same channel.
+local function say(msg)
+  local ok, env = pcall(sealer().seal, msg)
+  if ok and env then pcall(peripheral.call, radio, "transmit", link.CHANNEL, link.CHANNEL, env) end
+end
 local function announce(state, detail)
   if job then say(F.state(job.id, id, state, detail, myNonce())) end
 end
@@ -141,7 +159,14 @@ end
 -- jobStep to work out what happens next.
 local function netLoop()
   while true do
-    local _, msg = rednet.receive(F.PROTO)
+    local _, _, ch, _, env = os.pullEvent("modem_message")
+    local msg
+    if ch == link.CHANNEL and type(env) == "table" and env.sl then
+      -- our key, our direction, and a counter that has not been used before
+      local okO, body = pcall(orderRx.open, env, function(who) return who == id and key or nil end,
+                              SEC.DIR.BASE_TO_DRONE, 120000)
+      if okO and body then msg = body end
+    end
     local ok = type(msg) == "table" and (F.check(msg))
     if ok and (msg.to == nil or msg.to == id) and F.fresh(seenNonce, msg.nonce, os.clock()) then
       if msg.type == "ops.fly" then
@@ -202,10 +227,10 @@ local function jobStep(flew)
 end
 
 local function sendLoop()
-  -- a fresh sealer each time: it reserves counters above whatever fly used
-  local sealer = SEC.sender(key, id, SEC.DIR.DRONE_TO_BASE, ".dronekey.ctr")
+  -- the one sealer, shared with the order replies; it reserves counters above
+  -- whatever fly used
   local function send(pkt)
-    local ok, env = pcall(sealer.seal, pkt)
+    local ok, env = pcall(sealer().seal, pkt)
     if ok and env then pcall(peripheral.call, radio, "transmit", link.CHANNEL, link.CHANNEL, env) end
   end
   while true do
@@ -226,8 +251,7 @@ end
 
 print(string.format("beacon: %s on %s channel %d, sealed%s", id, radio, link.CHANNEL,
   home and "" or " - home unknown (fly pad add home, or HOME_X/Z in fly.lua)"))
-print(string.format("F = fly, Q = stop%s", #wired > 0
-  and ("  -  taking orders on " .. table.concat(wired, ", ")) or "  -  no wired modem, no orders"))
+print(string.format("F = fly, Q = stop  -  taking sealed orders on %s ch %d", radio, link.CHANNEL))
 while true do
   local choice
   pending = nil
