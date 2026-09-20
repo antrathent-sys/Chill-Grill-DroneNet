@@ -6,12 +6,10 @@
 --   hail stats         what this terminal has been used for
 --   hail test          ask the base if it can hear this terminal
 --
--- While a taxi is coming it draws a map: you in the middle, the taxi as a dot
--- with the tail it flew, range rings that pick their own spacing, and the
--- distance counting down. The map is teletext sub-pixels through
--- lib/display.lua, so a 26x20 pocket screen is 52x60 dots. Positions come from
--- ops once a second (it can see the sealed telemetry; a customer cannot), so
--- the dot steps rather than glides.
+-- While a taxi is coming it shows a boxed terminal dashboard: the unit, the
+-- status, the range with a bar and an ETA, and the job printing itself into a
+-- log panel. Positions come from ops once a second (it can see the sealed
+-- telemetry; a customer cannot), so the range steps rather than glides.
 --
 -- Meant for a wireless pocket computer, so the customer can be anywhere. It
 -- finds them with gps.locate; with no GPS in range it asks them to type where
@@ -31,7 +29,7 @@
 -- .hailstats, and reports it to ops after every ride.
 
 local F = dofile("lib/fleet.lua")
-local D, MAP                -- lib/display.lua for its canvas, lib/hailmap for the map
+local D, MAP                -- lib/display.lua for its canvas, lib/hailmap for the screen
 do
   local okD, mod = pcall(dofile, "lib/display.lua")
   if okD and type(mod) == "table" and mod.canvas then D = mod end
@@ -254,23 +252,22 @@ end
 -- -------------------------------------------------------------------- map ---
 -- The drawing lives in lib/hailmap.lua so tools/preview_pocket.py renders the
 -- very same picture on the desktop.
-local mapCanvas
-local showMap = false        -- the gauge is what people want; M shows the map
-local function drawMap(view)
+local rideCanvas
+local function drawRide(view)
   if not (D and MAP) then return false end
-  if not mapCanvas then mapCanvas = D.canvas(W, H) end
-  if showMap then MAP.map(D, mapCanvas, view) else MAP.gauge(D, mapCanvas, view) end
-  mapCanvas:flush(term)
+  if not rideCanvas then rideCanvas = D.canvas(W, H) end
+  MAP.gauge(D, rideCanvas, view)
+  rideCanvas:flush(term)
   return true
 end
 
 -- ------------------------------------------------------------------- ride ---
 -- Follow one job to its end, drawing where the taxi is. Returns "done",
 -- "failed" or "gave up".
-local function follow(job, from, name, dest)
+local function follow(job, from, name)
   local aboard, state, drone, away = false, "calling", nil, nil
   local n, t0 = 0, os.clock()
-  local here, trail = nil, {}
+  local here = nil
   local startAway, eta, lastAway, lastAt = nil, nil, nil, nil
   local log = {}
   local function note(line)
@@ -278,13 +275,12 @@ local function follow(job, from, name, dest)
     while #log > 6 do table.remove(log, 1) end
   end
   note("unit requested")
-  mapCanvas = nil                     -- a fresh canvas per ride
+  rideCanvas = nil                    -- a fresh canvas per ride
   while true do
     if os.clock() - t0 > (aboard and 600 or 300) then return "gave up" end
     -- the map when there is something to draw, the words when there is not
-    if not drawMap({ from = from, drone = here, trail = trail, away = away,
-                     state = state, unit = drone, spin = n, dest = dest,
-                     start = startAway, eta = eta, log = log }) then
+    if not drawRide({ away = away, state = state, unit = drone, spin = n,
+                      start = startAway, eta = eta, log = log }) then
       frame("TAXI: " .. tostring(name):upper(), drone and ("unit " .. drone) or "finding a unit")
       at(1, 6, state == "enroute" and "on its way to you"
             or state == "waiting" and "HERE - get aboard"
@@ -309,7 +305,6 @@ local function follow(job, from, name, dest)
         if msg.type == "job.track" then
           drone, away = msg.drone or drone, dist(from, msg.x, msg.z)
           here = { x = msg.x, z = msg.z }
-          if MAP then MAP.addTrail(trail, msg.x, msg.z) end
           -- how fast the gap is closing, so the screen can say how long is
           -- left. Smoothed, because one slow tick should not swing the number.
           startAway = startAway or away
@@ -341,9 +336,7 @@ local function follow(job, from, name, dest)
       end
     elseif ev[1] == "char" then
       local ch = tostring(ev[2]):lower()
-      if ch == "m" then
-        showMap = not showMap
-      elseif ch == "g" and aboard then
+      if ch == "g" and aboard then
         pcall(rednet.broadcast, F.go(job, nonce()), F.PROTO)
         state = "riding"
       elseif ch == "q" then
@@ -409,7 +402,7 @@ local function oneRide(tx, ty, tz, name)
     return
   end
 
-  local how = follow(job, from, name, { x = tx, z = tz })
+  local how = follow(job, from, name)
   if how == "done" then
     F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(), blocks = away })
     frame("ARRIVED", name)

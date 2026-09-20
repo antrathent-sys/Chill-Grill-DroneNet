@@ -2,7 +2,7 @@
 """Render the pocket terminal's ride screens to a PNG, as the pocket shows them.
 
     python tools/preview_pocket.py [out.png] [--size 26x20] [--scale 14]
-                                   [--theme imperial|silo] [--screen gauge|map]
+                                   [--theme imperial|silo]
 
 Four frames of one ride: the taxi a long way off, closing, landed beside the
 customer, and carrying them to the destination. It calls lib/hailmap.lua - the
@@ -39,20 +39,12 @@ function(root, w, h, frames, theme, screen)
   for _, fr in ipairs(frames) do
     local c = D.canvas(w, h)
     local from = { x = 0, z = 0 }
-    local trail = {}
-    -- walk the taxi in from its start so the tail is the real one
-    local steps = fr.steps or 0
-    for i = 0, steps do
-      local t = (steps == 0) and 1 or (i / steps)
-      MAP.addTrail(trail, fr.x0 + (fr.x - fr.x0) * t, fr.z0 + (fr.z - fr.z0) * t)
-    end
     local away = math.sqrt(fr.x * fr.x + fr.z * fr.z)
-    local view = { from = from, drone = { x = fr.x, z = fr.z }, trail = trail,
-                   away = away, state = fr.state, unit = "drone-1", spin = fr.spin or 0,
-                   dest = fr.dest and { x = fr.dx, z = fr.dz } or nil,
+    local view = { away = away, state = fr.state, unit = "drone-1", spin = fr.spin or 0,
                    start = fr.start, eta = fr.eta,
-                   log = { "0612 UNIT REQUESTED", "0612 UNIT INBOUND" } }
-    if screen == "map" then MAP.map(D, c, view) else MAP.gauge(D, c, view) end
+                   log = { "0612 UNIT REQUESTED", "0613 UNIT INBOUND",
+                           fr.state == "riding" and "0615 IN TRANSIT" or nil } }
+    MAP.gauge(D, c, view)
     local rows = {}
     for y = 1, h do
       local s, f, b = c:row(y)
@@ -126,7 +118,6 @@ def main():
     ap.add_argument("--size", default="26x20")
     ap.add_argument("--scale", type=int, default=14)
     ap.add_argument("--theme", default="imperial", help="imperial or silo")
-    ap.add_argument("--screen", default="gauge", help="gauge or map")
     a = ap.parse_args()
     w, h = (int(v) for v in a.size.lower().split("x"))
 
@@ -138,8 +129,7 @@ def main():
                                       else repr(v).replace("'", '"')))
                        for k, v in f.items()) + "}" for f in FRAMES) + "}"
     blob, pal = L.eval(RENDER)(ROOT.replace("\\", "/").encode(), w, h,
-                               L.eval(lua_frames.encode()), a.theme.encode(),
-                               a.screen.encode())
+                               L.eval(lua_frames.encode()), a.theme.encode(), b"gauge")
     frames = blob.split(b"\1")
     for pair in pal.decode().split(","):
         slot, rgb = pair.split("=")
