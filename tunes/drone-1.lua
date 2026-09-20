@@ -11,7 +11,10 @@
 --                      top points re-fitted 2026-09-19 night: with
 --                      BRAKE_TURN_POWER the reversal takes ~2.5 s instead of
 --                      ~3.2 and four brakes from 187-192 needed 1039-1146
---                      blocks (23-40-25, 23-47-46), 140-165 inside the old map
+--                      blocks (23-40-25, 23-47-46). Re-fitted again on
+--                      2026-09-20 against the first flights that really flew
+--                      58 + the floor: 175 b/s needed 1092-1099, 195 needed
+--                      1218, so the top of the map rises with a 175 point
 --   BRAKE_EASE 60      the brake held its full 45 deg lean down to 15 b/s;
 --                      below ~85 b/s that saturated the mixer in bursts,
 --                      roll missed by 30, yaw kicked to 90 deg/s (13-15-51).
@@ -44,5 +47,5 @@ return {
   CRUISE_DEG = 58,
   CRUISE_BODY_LEAN = 30,
   BRAKE_TURN_POWER = 0.55,
-  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:900,190:1090,205:1220",
+  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:720,160:940,175:1100,190:1180,205:1280",
 }
