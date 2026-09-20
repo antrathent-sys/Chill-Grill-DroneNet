@@ -34,9 +34,23 @@
 local F = dofile("lib/fleet.lua")
 local SEC = dofile("lib/seclink.lua")
 local link = dofile("lib/link.lua")
+-- the screen, the same kit the customer's terminal uses; ops still runs
+-- without them and falls back to printing
+local D, T, UI
+do
+  local okD, d = pcall(dofile, "lib/display.lua")
+  if okD and type(d) == "table" and d.canvas then D = d end
+  local okT, t = pcall(dofile, "lib/tui.lua")
+  if okT and type(t) == "table" and t.box then T = t end
+  local okU, u = pcall(dofile, "lib/opsui.lua")
+  if okU and type(u) == "table" and u.board then UI = u end
+end
 
 local args = { ... }
 local cmd = (args[1] or "watch"):lower()
+-- `keys` is the name of this program's key loop further down, so the API gets
+-- its own name before that shadows it
+local keys_api = keys
 
 local fleetKeys, nKeys = SEC.readFleetKeys(".fleetkeys")
 local me = (os.getComputerLabel and os.getComputerLabel()) or ("ops-" .. tostring(os.getComputerID()))
@@ -574,32 +588,104 @@ local function watchdog()
   end
 end
 
-local function draw()
-  while true do
+-- ---------------------------------------------------------------- the board --
+-- What the operator sees, and what they can do to whatever is selected.
+local sel, canvas = 1, nil
+
+-- the fleet as the screen wants it: newest state, sorted by id
+local function units()
+  local now, out = os.clock(), {}
+  for id, f in pairs(fleet) do
+    local age = f.seen and (now - f.seen) or 999
+    local state = (age > 30 and "LOST") or (age > 5 and "STALE")
+                  or (f.docked and "DOCKED" or (f.phase or "FLYING"):upper())
+    out[#out + 1] = { id = id, state = state, batt = f.energy, spd = f.spd,
+                      job = f.job, x = f.x and math.floor(f.x), z = f.z and math.floor(f.z), age = age }
+  end
+  table.sort(out, function(a, b) return a.id < b.id end)
+  return out
+end
+
+local function liveJobs()
+  local n = 0
+  for _, j in pairs(jobs) do
+    if type(j) == "table" and j.state ~= "done" and j.state ~= "failed" then n = n + 1 end
+  end
+  return n
+end
+
+local function drawBoard()
+  local list = units()
+  if sel > #list then sel = math.max(1, #list) end
+  if not (D and T and UI) then           -- no kit: the old printed board
     term.clear()
     term.setCursorPos(1, 1)
     print(string.format("OPS  %s   %d refused", textutils.formatTime(os.time(), true), rejected))
     board()
-    local n = 0
-    for _ in pairs(padStats) do n = n + 1 end
-    if n > 0 then
-      print("")
-      for pad, s in pairs(padStats) do
-        print(string.format("%-10s %d rides today, %d asked", pad, s.rides, s.requests or 0))
-      end
-    end
-    if #events > 0 then
-      print("")
-      for _, line in ipairs(events) do print(line) end
-    end
-    sleep(2)
+    for _, line in ipairs(events) do print(line) end
+    return list
   end
+  if not canvas then canvas = D.canvas(term.getSize()) end
+  UI.board(T, canvas, {
+    units = list, sel = sel, log = events, jobs = liveJobs(), refused = rejected,
+    clock = textutils.formatTime(os.time(), true), hails = openToHails,
+    keys = { { "UP/DN", "PICK", #list > 0 }, { "F", "FLY" }, { "P", "POKE" },
+             { "R", "FREE" }, { "Q", "QUIT" } },
+  })
+  canvas:flush(term)
+  return list
+end
+
+local function draw()
+  while true do
+    drawBoard()
+    sleep(1)
+  end
+end
+
+-- Ask for a line of text over the board, then put the board back.
+local function prompt(question)
+  term.setBackgroundColour(colours.black)
+  term.setTextColour(colours.white)
+  term.clear()
+  term.setCursorPos(1, 1)
+  print(question)
+  term.write("> ")
+  local said = read()
+  canvas = nil                      -- the prompt scribbled over it
+  return said
 end
 
 local function keys()
   while true do
-    local _, ch = os.pullEvent("char")
-    if tostring(ch):lower() == "q" then return end
+    local ev, key = os.pullEvent()
+    local list = units()
+    local who = list[sel] and list[sel].id
+    if ev == "key" then
+      if key == keys_api.down then sel = math.min(math.max(#list, 1), sel + 1)
+      elseif key == keys_api.up then sel = math.max(1, sel - 1)
+      elseif key == keys_api.q then return
+      elseif key == keys_api.p and who then
+        local sent, why = order(who, F.flyCommand("pads", nonce()))
+        log(sent and ("poked %s"):format(who) or ("poke failed: " .. tostring(why)))
+      elseif key == keys_api.r and who then
+        if fleet[who] then fleet[who].job = nil end
+        for _, j in pairs(jobs) do
+          if type(j) == "table" and j.drone == who and j.state ~= "done" then j.state = "failed" end
+        end
+        log("%s freed by hand", who)
+      elseif key == keys_api.f and who then
+        local line = prompt("fly command for " .. who .. "   (eg ferry home)")
+        local argsOk, whyArgs = F.flyArgs(line or "")
+        if not argsOk then
+          log("not sent: %s", tostring(whyArgs))
+        else
+          local sent, why = order(who, F.flyCommand(argsOk, nonce()))
+          log(sent and ("%s: fly %s"):format(who, argsOk) or ("not sent: " .. tostring(why)))
+        end
+      end
+      drawBoard()
+    end
   end
 end
 

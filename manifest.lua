@@ -40,7 +40,7 @@ return {
     "lib/display.lua", "lib/state.lua", "lib/screens.lua",
     "lib/db.lua", "stickers.lua",
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
-    "ops.lua",
+    "ops.lua", "lib/opsui.lua", "lib/tui.lua", "lib/display.lua",
   },
 
   -- a customer terminal standing at a pad: it calls a taxi and counts its own use
