@@ -59,6 +59,8 @@ local function drone(opts)
     vector_thruster_5 = { type = "vector_thruster", m = thr },
     docking_connector_0 = { type = "docking_connector", m = { getConnectedName = function() return opts.name or "" end } },
   }
+  periph.modem_0 = { type = "modem", m = { isWireless = function() return false end } }
+  if opts.nowire then periph.modem_0 = nil end
   if opts.noradio then periph.modem_ender = nil end
   env.peripheral = {
     getNames = function() local t = {} for n in pairs(periph) do t[#t + 1] = n end table.sort(t) return t end,
@@ -72,6 +74,18 @@ local function drone(opts)
       return unpack(found)
     end,
   }
+  w.inbox = opts.inbox or {}
+  w.said = {}
+  w.opens = {}
+  env.rednet = {
+    open = function(nm) w.opens[#w.opens + 1] = nm end,
+    broadcast = function(msg, proto) w.said[#w.said + 1] = { msg = msg, proto = proto } end,
+    receive = function()
+      local m = table.remove(w.inbox, 1)
+      if not m then error("no more orders", 0) end   -- the harness stops here
+      return 1, m
+    end,
+  }
   local v = opts.velocity or { x = 3, y = 0, z = -1 }
   env.sublevel = {
     getLogicalPose = function() return { position = { x = 1892.5, y = 98.5 - 7.5, z = 365.5 } } end,
@@ -81,11 +95,18 @@ local function drone(opts)
                setCursorPos = function() end, clearLine = function() end, write = function() end }
   env.sleep = function() coroutine.yield() end
   -- the send loop runs `cycles` packets, then the key watcher gets the next key
-  env.parallel = { waitForAny = function(a, b)
+  -- send a few packets, then whichever of the other two has something to do:
+  -- an order if one is queued (net), else the keyboard
+  env.parallel = { waitForAny = function(a, b, net)
     local co = coroutine.create(a)
     for _ = 1, w.cycles do
       local ok, e = coroutine.resume(co)
       if not ok then error(e, 0) end
+    end
+    if net and #w.inbox > 0 then
+      local ok, e = pcall(net)
+      if ok then return end
+      if not tostring(e):find("no more orders", 1, true) then error(e, 0) end
     end
     b()
   end }
@@ -162,6 +183,58 @@ check("it carries on afterwards and every counter still rises", #tlm(w) >= 4 and
 check("the counter file moved on", tonumber(w.files[".dronekey.ctr"]) and tonumber(w.files[".dronekey.ctr"]) > 0)
 w = run(drone({ keys = { "f", "q" }, lines = { "  " } }))
 check("an empty fly line flies nothing", #w.runs == 0 and w.text:find("nothing flown", 1, true) ~= nil)
+
+print("orders over the cable")
+local F = dofile(DIR .. "/../lib/fleet.lua")
+local function order(t) t.to = t.to or "drone-1" return t end
+local function saidOfType(w, ty)
+  local out = {}
+  for _, s in ipairs(w.said) do if type(s.msg) == "table" and s.msg.type == ty then out[#out + 1] = s.msg end end
+  return out
+end
+
+w = run(drone({ name = "pad", inbox = { order(F.flyCommand("ferry pier", "ops-1")) } }))
+check("an ops command is flown", w.runs[1] == "fly ferry pier", w.runs[1] or "nothing")
+check("on the wired modem only", #w.opens == 1 and w.opens[1] == "modem_0", table.concat(w.opens, ","))
+check("and acked", #saidOfType(w, "job.ack") == 1 and saidOfType(w, "job.ack")[1].ok == true)
+check("everything it says is on the fleet protocol", w.said[1].proto == F.PROTO, w.said[1].proto)
+
+w = run(drone({ name = "pad", inbox = { order({ v = 1, type = "ops.fly", nonce = "ops-2",
+  args = "land 1 2; shutdown" }) } }))
+check("a command with shell characters is not flown", #w.runs == 0)
+
+w = run(drone({ name = "pad", inbox = { { to = "drone-9", v = 1, type = "ops.fly", nonce = "ops-3",
+  args = "ferry pier" } } }))
+check("an order for another drone is ignored", #w.runs == 0)
+
+local dup = order(F.flyCommand("ferry pier", "ops-4"))
+w = run(drone({ name = "pad", cycles = 1, inbox = { dup, dup } }))
+check("the same order twice flies once", #w.runs == 1, #w.runs)
+
+print("a taxi job, end to end")
+local req = F.request({ name = "pier", x = 100, y = 70, z = -50 }, { x = 1200, z = 340 }, "pier-1")
+w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-1", req)), order(F.go("j-1", "pier-2")) } }))
+check("first it ferries to the pad", w.runs[1] == "fly ferry pier", w.runs[1] or "nothing")
+check("then it lands at the destination", w.runs[2] == "fly land 1200 340", w.runs[2] or "nothing")
+check("then it takes itself home", w.runs[3] == "fly ferry home", w.runs[3] or "nothing")
+local states = {}
+for _, s in ipairs(saidOfType(w, "job.state")) do states[#states + 1] = s.state end
+check("and it says where it is at each step: " .. table.concat(states, " "),
+  table.concat(states, " ") == "enroute waiting riding done", table.concat(states, " "))
+check("every state names the job", saidOfType(w, "job.state")[1].job == "j-1")
+
+-- (a second request, so a second nonce: the same nonce twice is dropped as a
+-- replay before the job is even looked at, which the test above covers)
+local req2 = F.request({ name = "pier", x = 100, y = 70, z = -50 }, { x = 5, z = 6 }, "pier-9")
+w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-1", req)),
+                                                    order(F.assign("j-2", req2)) } }))
+local acks = saidOfType(w, "job.ack")
+check("a second job while carrying someone is refused", #acks == 2 and acks[1].ok == true and acks[2].ok == false
+  and acks[2].why:find("already on j-1", 1, true) ~= nil, acks[2] and acks[2].why)
+check("and it is not flown", #w.runs == 1, #w.runs)
+
+w = run(drone({ name = "pad", cycles = 1, nowire = true, inbox = {} }))
+check("no wired modem: it says it is taking no orders", w.text:find("no wired modem", 1, true) ~= nil)
 
 print("refusals")
 w = run(drone({ nokey = true }))

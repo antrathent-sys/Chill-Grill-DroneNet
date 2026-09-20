@@ -16,7 +16,7 @@ return {
   -- every computer: the updater, uploads, keys and the sealed link
   common = {
     "startup.lua", "upload.lua", "paste.lua", "seckey.lua",
-    "lib/seclink.lua", "lib/link.lua", "lib/pads.lua",
+    "lib/seclink.lua", "lib/link.lua", "lib/pads.lua", "lib/fleet.lua",
     "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
     "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
     "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua",
@@ -40,7 +40,11 @@ return {
     "lib/display.lua", "lib/state.lua", "lib/screens.lua",
     "lib/db.lua", "stickers.lua",
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
+    "ops.lua",
   },
+
+  -- a customer terminal standing at a pad: it calls a taxi and counts its own use
+  pad = { "taxipad.lua" },
 
   -- the portable terminal (an advanced ender pocket computer); its program lands here
   pocket = {},

@@ -1,0 +1,153 @@
+local DIR = ...
+local pass, fail = 0, 0
+local function check(n, c, d)
+  if c then pass = pass + 1 print("  ok   " .. n)
+  else fail = fail + 1 print("  FAIL " .. n .. (d and ("  " .. tostring(d)) or "")) end
+end
+
+local F = dofile(DIR .. "/../lib/fleet.lua")
+
+local PAD = { name = "pier", x = 100, y = 70, z = -50 }
+local DEST = { x = 1200, z = 340 }
+
+print("messages")
+local req = F.request(PAD, DEST, F.nonce("pier", 1), "alex")
+check("a request carries the pad and the destination",
+  req.pad == "pier" and req.px == 100 and req.tx == 1200 and req.tz == 340, req.pad)
+check("and passes its own check", (F.check(req)))
+local asg = F.assign("j-1", req)
+check("an assignment keeps the request's nonce", asg.nonce == req.nonce and asg.job == "j-1")
+check("assignment checks out", (F.check(asg)))
+check("ack checks out", (F.check(F.ack("j-1", "drone-1", true))))
+check("state checks out", (F.check(F.state("j-1", "drone-1", "enroute"))))
+check("go checks out", (F.check(F.go("j-1"))))
+
+print("a bad message is refused, with a reason")
+local function why(m) local ok, w = F.check(m) return (not ok) and w or "ACCEPTED" end
+check("not a table", why("hello") == "not a table", why("hello"))
+check("wrong version", why({ v = 99, type = "job.go", nonce = "a", job = "j" }):match("^version"))
+check("unknown type", why({ v = 1, type = "job.explode", nonce = "a" }):match("^type"))
+check("no nonce", why({ v = 1, type = "job.go", job = "j" }) == "no nonce")
+check("a request with no destination", why({ v = 1, type = "taxi.request", nonce = "a",
+  pad = "pier", px = 1, pz = 2 }) == "no destination")
+check("a state nobody has heard of", why(F.state("j", "d", "dancing")):match("^state"))
+check("an ack with no verdict", why({ v = 1, type = "job.ack", nonce = "a", job = "j",
+  drone = "drone-1" }) == "no verdict")
+
+print("the admin panel's free-hand fly command")
+check("a plain one is fine", F.flyArgs("ferry pier") == "ferry pier")
+check("trimmed", F.flyArgs("  land 10 20  ") == "land 10 20")
+check("numbers and dots", F.flyArgs("go 100 -50 0.5") == "go 100 -50 0.5")
+local function noArgs(s) local a, w = F.flyArgs(s) return (a == nil) and w or "ACCEPTED" end
+check("no semicolons", noArgs("land; shutdown"):match("^only"), noArgs("land; shutdown"))
+check("no quotes", noArgs([[land "x"]]):match("^only"))
+check("no slashes", noArgs("land ../x"):match("^only"))
+check("not empty", noArgs("   ") == "empty")
+check("not endless", noArgs(string.rep("a", 61)) == "too long")
+check("without the word fly", noArgs("fly land 1 2"):match("^leave off"))
+check("the message checks out", (F.check(F.flyCommand("ferry pier", "ops-1"))))
+local shellish = { v = 1, type = "ops.fly", nonce = "a", args = "land 1 2; shutdown" }
+check("a bad one is refused", why(shellish):match("^args:"), why(shellish))
+-- (a harmless-but-wrong command like "rm -rf" is only letters and dashes, so
+-- it passes the character check and fly itself says it does not know it)
+
+print("a nonce is only good once")
+local seen = {}
+check("first time", F.fresh(seen, "pier-1", 100))
+check("second time, no", not F.fresh(seen, "pier-1", 101))
+check("a different nonce is fine", F.fresh(seen, "pier-2", 101))
+check("and it is forgotten after the ttl", F.fresh(seen, "pier-1", 100 + 301))
+check("an empty nonce is never fresh", not F.fresh(seen, "", 100))
+
+print("who can take a job")
+local now = 1000
+check("a docked drone that just called in", (F.available({ seen = now - 1, docked = true }, now)))
+local ok, reason = F.available({ seen = now - 1, docked = false }, now)
+check("one in the air cannot", not ok and reason == "flying", reason)
+ok, reason = F.available({ seen = now - 60, docked = true }, now)
+check("one that has gone quiet cannot", not ok and reason == "no telemetry", reason)
+ok, reason = F.available({ seen = now, docked = true, job = "j-9" }, now)
+check("one already on a job cannot", not ok and reason:match("^on job"), reason)
+
+print("picking one")
+local fleet = {
+  ["drone-1"] = { seen = now, docked = true, x = 900, z = 0 },
+  ["drone-2"] = { seen = now, docked = true, x = 120, z = -40 },
+  ["drone-3"] = { seen = now, docked = false, x = 101, z = -50 },
+}
+local pick, dist = F.pick(fleet, PAD, now)
+check("the nearest docked drone wins", pick == "drone-2", pick)
+check("and it says how far", dist and dist < 30, dist)
+fleet["drone-2"].job = "j-2"
+check("busy, so the far one goes", F.pick(fleet, PAD, now) == "drone-1")
+local none, whyNot = F.pick({ ["drone-1"] = { seen = now, docked = false } }, PAD, now)
+check("nobody free: nil and a reason", none == nil and whyNot:match("flying"), whyNot)
+none, whyNot = F.pick({}, PAD, now)
+check("an empty fleet says so", none == nil and whyNot:match("called in"), whyNot)
+
+print("the flights a job turns into")
+check("pickup ferries to the pad", F.legCommand("pickup", asg) == "ferry pier", F.legCommand("pickup", asg))
+check("the ride lands at the destination", F.legCommand("ride", asg) == "land 1200 340", F.legCommand("ride", asg))
+local withY = F.assign("j-2", F.request(PAD, { x = 10, z = 20, y = 90 }, "n-1"))
+check("with a height when one was asked for", F.legCommand("ride", withY) == "land 10 20 90", F.legCommand("ride", withY))
+check("then home", F.legCommand("home", asg) == "ferry home")
+check("and nothing else", F.legCommand("teleport", asg) == nil)
+
+print("pad usage")
+local st = F.newStats("pier")
+F.record(st, "request")
+F.record(st, "request")
+F.record(st, "ride", { at = 1234, blocks = 1102.7 })
+F.record(st, "failure")
+check("counts requests", st.requests == 2)
+check("counts rides", st.rides == 1 and st.lastRide == 1234)
+check("counts blocks, whole ones", st.blocks == 1102, st.blocks)
+check("counts failures", st.failures == 1)
+local okE, whyE = F.record(st, "elevenses")
+check("an event it does not know is refused", not okE and whyE:match("elevenses"), whyE)
+check("the text reads plainly", F.statsText(st) == "pier: 1 rides of 2 asked, 1 failed, 1102 blocks flown", F.statsText(st))
+check("the report message checks out", (F.check(F.statsMessage(st))))
+
+print("usage survives a reboot")
+local files = {}
+local disk = {
+  exists = function(p) return files[p] ~= nil end,
+  open = function(p, mode)
+    if mode == "r" then
+      if not files[p] then return nil end
+      return { readAll = function() return files[p] end, close = function() end }
+    end
+    local buf = {}
+    return { write = function(s) buf[#buf + 1] = s end,
+             close = function() files[p] = table.concat(buf) end }
+  end,
+}
+check("saved", (F.saveStats(".padstats", st, disk)))
+local back = F.loadStats(".padstats", disk, "pier")
+check("rides come back", back.rides == 1 and back.requests == 2 and back.failures == 1)
+check("blocks come back", back.blocks == 1102)
+check("the last ride comes back", back.lastRide == 1234)
+check("a missing file just starts at zero", F.loadStats(".nothing", disk, "pier").rides == 0)
+files[".junk"] = "this is not lua at all ]]"
+check("so does a damaged one", F.loadStats(".junk", disk, "pier").rides == 0)
+files[".evil"] = "os.exit() return { rides = 5 }"
+local evil = F.loadStats(".evil", disk, "pier")
+check("a stats file cannot reach the world (no os, so it errors out)", evil.rides == 0, evil.rides)
+
+print("only wired modems are listed")
+local periph = {
+  getNames = function() return { "back", "monitor_1", "top", "left" } end,
+  getType = function(n) return (n == "monitor_1") and "monitor" or "modem" end,
+  call = function(n, m)
+    if m ~= "isWireless" then error("unexpected " .. tostring(m), 0) end
+    if n == "top" then return true end            -- ender modem
+    if n == "left" then error("rubbish", 0) end   -- a modem that throws
+    return false
+  end,
+}
+local wired = F.wired(periph)
+check("just the wired one", #wired == 1 and wired[1] == "back", table.concat(wired, ","))
+
+print("")
+print(string.format("%d passed, %d failed", pass, fail))
+if fail > 0 then error("fleet tests failed", 0) end
