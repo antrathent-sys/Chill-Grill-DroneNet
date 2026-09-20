@@ -105,12 +105,80 @@ function T.keys(c, y, list)
   end
 end
 
+-- ---------------------------------------------------------------- headline --
+-- ComputerCraft has no bold, so a headline is drawn rather than typed: a 3x5
+-- block font painted in sub-pixels, which is the only way to make a word
+-- heavier than the body text on this hardware. Reserved for the one title at
+-- the top of a screen; everything else stays on the text grid.
+T.FONT = {
+  A = "010,101,111,101,101", B = "110,101,110,101,110", C = "011,100,100,100,011",
+  D = "110,101,101,101,110", E = "111,100,110,100,111", F = "111,100,110,100,100",
+  G = "011,100,101,101,011", H = "101,101,111,101,101", I = "111,010,010,010,111",
+  J = "001,001,001,101,010", K = "101,110,100,110,101", L = "100,100,100,100,111",
+  M = "101,111,111,101,101", N = "101,111,111,111,101", O = "010,101,101,101,010",
+  P = "110,101,110,100,100", Q = "010,101,101,111,011", R = "110,101,110,101,101",
+  S = "011,100,010,001,110", T = "111,010,010,010,010", U = "101,101,101,101,011",
+  V = "101,101,101,101,010", W = "101,101,111,111,101", X = "101,101,010,101,101",
+  Y = "101,101,010,010,010", Z = "111,001,010,100,111",
+  ["0"] = "111,101,101,101,111", ["1"] = "010,110,010,010,111",
+  ["2"] = "111,001,111,100,111", ["3"] = "111,001,111,001,111",
+  ["4"] = "101,101,111,001,001", ["5"] = "111,100,111,001,111",
+  ["6"] = "111,100,111,101,111", ["7"] = "111,001,010,010,010",
+  ["8"] = "111,101,111,101,111", ["9"] = "111,101,111,001,111",
+  [" "] = "000,000,000,000,000", ["-"] = "000,000,111,000,000",
+  ["."] = "000,000,000,000,010", [":"] = "000,010,000,010,000",
+  ["/"] = "001,001,010,100,100",
+}
+
+-- Draw text in the block font. x, y are CELL coordinates; the word occupies
+-- two rows at scale 1. Returns the width in cells.
+function T.headline(c, x, y, text, col, scale)
+  scale = scale or 1
+  local px = (x - 1) * 2 + 1
+  local py = (y - 1) * 3 + 1
+  local adv = 4 * scale
+  text = tostring(text):upper()
+  for i = 1, #text do
+    local g = T.FONT[text:sub(i, i)] or T.FONT[" "]
+    local row = 0
+    for line in g:gmatch("[^,]+") do
+      for gx = 1, 3 do
+        if line:sub(gx, gx) == "1" then
+          for sy = 0, scale - 1 do
+            for sx = 0, scale - 1 do
+              c:pix(px + (i - 1) * adv + (gx - 1) * scale + sx, py + row * scale + sy, col or T.C.text)
+            end
+          end
+        end
+      end
+      row = row + 1
+    end
+  end
+  return math.ceil(#text * adv / 2)
+end
+
 -- A caption with a rule running out to both edges.
 function T.caption(c, y, title)
   local w = c.w
   c:text(1, y, string.rep("-", w), T.C.rule)
   local tx = math.max(1, math.floor((w - #title - 2) / 2) + 1)
   c:text(tx, y, " " .. title .. " ", T.C.text)
+end
+
+-- A masthead: the word in the block font with rules either side, two rows
+-- tall. What a screen uses when its title should carry weight.
+function T.masthead(c, y, title, col, sub)
+  local w = c.w
+  local cells = math.ceil(#tostring(title) * 4 / 2)
+  local x = math.max(1, math.floor((w - cells) / 2) + 1)
+  T.headline(c, x, y, title, col or T.C.text)
+  -- rules to the left and right of the word, on the middle row of the two
+  local midPx = (y - 1) * 3 + 3
+  if x > 2 then c:line(1, midPx, (x - 2) * 2, midPx, T.C.rule) end
+  local rightPx = (x + cells) * 2
+  if rightPx < w * 2 then c:line(rightPx, midPx, w * 2, midPx, T.C.rule) end
+  if sub then c:text(math.max(1, math.floor((w - #sub) / 2) + 1), y + 2, sub, T.C.faint) end
+  return y + (sub and 3 or 2)
 end
 
 T.SPIN = { "|", "/", "-", "\\" }

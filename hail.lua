@@ -1,12 +1,12 @@
--- hail: the customer's terminal, in their pocket. It calls a taxi to wherever
--- they are standing and flies them where they ask.
+-- hail: the customer's terminal, in their pocket. It calls a shuttle to
+-- wherever they are standing and flies them where they ask.
 --
 --   hail               serve customers: pick a place, a drone comes
 --   hail 1200 340      one ride, straight to those coordinates
 --   hail stats         what this terminal has been used for
 --   hail test          ask the base if it can hear this terminal
 --
--- While a taxi is coming it shows a boxed terminal dashboard: the unit, the
+-- While a shuttle is coming it shows a boxed terminal dashboard: the unit, the
 -- status, the range with a bar and an ETA, and the job printing itself into a
 -- log panel. Positions come from ops once a second (it can see the sealed
 -- telemetry; a customer cannot), so the range steps rather than glides.
@@ -115,7 +115,7 @@ end
 local function frame(title, note)
   bg(PAPER)
   term.clear()
-  at(1, 1, "CHILL GRILL AIR TAXI", AMBER)
+  at(1, 1, "CHILL GRILL SHUTTLE", AMBER)
   rule(2)
   if title then at(1, 3, title, INK) end
   if note then at(1, 4, note, DIM) end
@@ -259,7 +259,7 @@ local function chooseDestination(from)
 end
 
 -- ------------------------------------------------------------------- ride ---
--- Follow one job to its end, drawing where the taxi is. Returns "done",
+-- Follow one job to its end, drawing where the shuttle is. Returns "done",
 -- "failed" or "gave up".
 local function follow(job, from, name)
   local aboard, state, drone, away = false, "calling", nil, nil
@@ -388,7 +388,7 @@ local function oneRide(tx, ty, tz, name)
   if not job then
     F.record(stats, "failure")
     save()
-    frame("NO TAXI", "")
+    frame("NO SHUTTLE", "")
     at(1, 6, refused or (heard and "the base sent nobody" or "nothing came back"), INK)
     if not (refused or heard) then
       at(1, 8, "is ops running, and are", DIM)
@@ -453,8 +453,8 @@ refreshPlaces(2)
 save()
 
 while true do
-  frame("AIR TAXI", string.format("%d rides from this unit", stats.rides or 0))
-  at(1, 6, "ENTER  call a taxi", INK)
+  frame("SHUTTLE", string.format("%d rides from this unit", stats.rides or 0))
+  at(1, 6, "ENTER  call a shuttle", INK)
   at(1, 7, "R      refresh places", DIM)
   at(1, 8, "Q      stop", DIM)
   at(1, 10, string.format("%d places known", #places), DIM)

@@ -11,8 +11,13 @@
 
 local M = {}
 
+M.NAME = "SHUTTLE"                 -- what the mastheads say
+M.SUB = "CHILL GRILL SHUTTLE SVC"   -- and the line under the first one
+
 M.WORDS = {
-  calling = "REQUESTING UNIT",
+  -- kept short: the UNIT box is 13 characters wide and the masthead has
+  -- already said SHUTTLE
+  calling = "REQUESTED",
   enroute = "INBOUND",
   waiting = "ON STATION",
   riding  = "IN TRANSIT",
@@ -31,11 +36,11 @@ end
 function M.places(T, c, view)
   local w, h = c.w, c.h
   c:clear()
-  T.caption(c, 1, "AIR TAXI")
-  c:text(1, 2, "WHERE TO?", T.C.text)
-  c:text(1, 3, string.format("AT %d, %d", view.from.x, view.from.z), T.C.faint)
+  T.masthead(c, 1, M.NAME, T.C.text, M.SUB)
+  c:text(1, 4, "WHERE TO?", T.C.text)
+  c:text(1, 5, string.format("AT %d, %d", view.from.x, view.from.z), T.C.faint)
 
-  local top, bottom = 4, h - 2
+  local top, bottom = 6, h - 2
   T.box(c, 1, top, w, bottom - top + 1, "PLACES", T.C.rule, T.C.rule)
   local rows = (bottom - 1) - (top + 1) + 1
   local first = math.max(1, math.min(view.top or 1, math.max(1, #view.places - rows + 1)))
@@ -63,21 +68,21 @@ function M.ride(T, c, view)
   if view.state == "waiting" or view.state == "done" then frac = 1 end
   local failed = view.state == "failed"
 
-  T.caption(c, 1, "AIR TAXI")
+  T.masthead(c, 1, M.NAME, T.C.text)
 
   -- UNIT, with the status under it, and ETA beside it
   local etaW = 9
   local unitW = w - etaW - 1
-  local r = T.box(c, 1, 2, unitW, 4, "UNIT", T.C.rule, T.C.rule)
+  local r = T.box(c, 1, 3, unitW, 4, "UNIT", T.C.rule, T.C.rule)
   c:text(3, r, tostring(view.unit or "ASSIGNING"):upper():sub(1, unitW - 3), T.C.text)
   c:text(3, r + 1, (M.WORDS[view.state] or "STANDING BY"):sub(1, unitW - 3),
          failed and T.C.warn or (view.state == "waiting" and T.C.ok or T.C.accent))
-  local r2 = T.box(c, unitW + 2, 2, etaW, 4, "ETA", T.C.rule, T.C.rule)
+  local r2 = T.box(c, unitW + 2, 3, etaW, 4, "ETA", T.C.rule, T.C.rule)
   c:text(unitW + 4, r2, (view.state == "waiting" and "HERE" or clock(view.eta)):sub(1, etaW - 3), T.C.text)
   c:text(unitW + 4, r2 + 1, view.state == "riding" and "TO GO" or "OUT", T.C.faint)
 
   -- RANGE, the number the customer actually wants, with its bar
-  r = T.box(c, 1, 6, w, 4, "RANGE", T.C.rule, T.C.rule)
+  r = T.box(c, 1, 7, w, 4, "RANGE", T.C.rule, T.C.rule)
   local num = away and tostring(math.floor(away)) or "----"
   c:text(3, r, num, T.C.text)
   c:text(3 + #num + 1, r, "BLOCKS", T.C.faint)
@@ -85,7 +90,7 @@ function M.ride(T, c, view)
   T.bar(c, 3, r + 1, w - 4, frac, failed and T.C.warn or T.C.accent, T.C.panel)
 
   -- LOG: what has happened, newest last, the newest line lit
-  local logY, logBottom = 10, h - 1
+  local logY, logBottom = 11, h - 1
   r = T.box(c, 1, logY, w, logBottom - logY + 1, "LOG", T.C.rule, T.C.rule)
   local log = view.log or {}
   local rows = (logBottom - 1) - r + 1
