@@ -38,21 +38,22 @@ end
 
 
 -- ------------------------------------------------------------------ badge ---
--- The cog, drawn out by hand. A circle with spokes came out as a smudge at
--- this size - nine sub-pixels across leaves no room for an algorithm to be
--- clever in, so the shape is a bitmap and every pixel was chosen. 9 wide by 9
--- tall fills five cells across and three rows down, and the header line still
--- has room for the name.
+-- The cog, drawn out by hand. Nine sub-pixels across is the whole header, and
+-- at that size a cog only reads if it keeps two cues and drops the rest: a
+-- toothed rim, and a hollow middle. Spokes were tried and they fill the hole,
+-- which is what made the first two attempts look like a smudge - the teeth are
+-- what says "cog", so they get the pixels. tools/preview_pocket.py and
+-- scratchpad badge sheets were how this was chosen rather than guessed.
 M.BADGE = {
-  "...XXX...",
+  "..X.X.X..",
   ".XXXXXXX.",
-  ".XX.X.XX.",
-  "XXXXXXXXX",
-  "XX..X..XX",
-  "XXXXXXXXX",
-  ".XX.X.XX.",
+  "XXX...XXX",
+  ".XX...XX.",
+  "XX.....XX",
+  ".XX...XX.",
+  "XXX...XXX",
   ".XXXXXXX.",
-  "...XXX...",
+  "..X.X.X..",
 }
 
 function M.badge(c, x0, y0, ink)
