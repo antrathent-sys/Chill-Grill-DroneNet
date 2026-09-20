@@ -6,6 +6,13 @@
 --   hail stats         what this terminal has been used for
 --   hail test          ask the base if it can hear this terminal
 --
+-- While a taxi is coming it draws a map: you in the middle, the taxi as a dot
+-- with the tail it flew, range rings that pick their own spacing, and the
+-- distance counting down. The map is teletext sub-pixels through
+-- lib/display.lua, so a 26x20 pocket screen is 52x60 dots. Positions come from
+-- ops once a second (it can see the sealed telemetry; a customer cannot), so
+-- the dot steps rather than glides.
+--
 -- Meant for a wireless pocket computer, so the customer can be anywhere. It
 -- finds them with gps.locate; with no GPS in range it asks them to type where
 -- they are, once per ride.
@@ -24,6 +31,11 @@
 -- .hailstats, and reports it to ops after every ride.
 
 local F = dofile("lib/fleet.lua")
+local D                     -- lib/display.lua, only for its canvas; optional
+do
+  local okD, mod = pcall(dofile, "lib/display.lua")
+  if okD and type(mod) == "table" and mod.canvas then D = mod end
+end
 
 local args = { ... }
 local sub = (args[1] or ""):lower()
@@ -237,27 +249,107 @@ local function chooseDestination(from)
   end
 end
 
+-- -------------------------------------------------------------------- map ---
+-- One screen: the customer fixed in the middle, the taxi where ops last said,
+-- and the ground it has covered behind it. Rings are round numbers so the
+-- scale is readable without a legend.
+local function niceRing(r)
+  local steps = { 10, 25, 50, 100, 250, 500, 1000, 2500, 5000 }
+  for _, s in ipairs(steps) do if r <= s then return s end end
+  return 10000
+end
+
+local mapCanvas
+local function drawMap(from, drone, trail, away, state, unit, n)
+  if not D then return false end
+  if not mapCanvas then mapCanvas = D.canvas(W, H) end
+  local c = mapCanvas
+  c:clear()
+  local pw, ph = c.w * 2, c.h * 3          -- pixel size of the whole screen
+  local top = 12                            -- pixels reserved for the heading
+  local bot = ph - 12                       -- ...and for the readout
+  local cx, cy = pw / 2, (top + bot) / 2
+  local span = math.max(away or 0, 40) * 1.25          -- blocks from centre to edge
+  local radius = math.min(pw / 2, (bot - top) / 2) - 1
+  local function toPx(x, z)
+    return cx + (x - from.x) / span * radius, cy + (z - from.z) / span * radius
+  end
+
+  -- rings, and what one of them means
+  local ring = niceRing(span / 2)
+  for _, mult in ipairs({ 1, 2 }) do
+    local rr = ring * mult / span * radius
+    if rr < radius then c:circle(cx, cy, rr, D.C.grey or colours.grey, 1, 3) end
+  end
+
+  -- the ground the taxi has covered
+  local prev
+  for _, p in ipairs(trail or {}) do
+    local px, py = toPx(p.x, p.z)
+    if prev then c:line(prev[1], prev[2], px, py, D.C.grey or colours.grey, 1, 2) end
+    prev = { px, py }
+  end
+
+  -- the customer: a small cross, always the middle
+  c:pix(cx, cy, colours.white)
+  c:pix(cx - 1, cy, colours.white)
+  c:pix(cx + 1, cy, colours.white)
+  c:pix(cx, cy - 1, colours.white)
+  c:pix(cx, cy + 1, colours.white)
+
+  -- the taxi: a blob, and a line of sight to it
+  if drone then
+    local px, py = toPx(drone.x, drone.z)
+    local edge = math.max(1, math.min(radius, math.sqrt((px - cx) ^ 2 + (py - cy) ^ 2)))
+    if edge >= radius then      -- off the edge: put it on the rim, pointing the way
+      local ang = math.atan2(py - cy, px - cx)
+      px, py = cx + math.cos(ang) * radius, cy + math.sin(ang) * radius
+    end
+    c:line(cx, cy, px, py, colours.grey, 1, 4)
+    for dx = -1, 1 do
+      for dy = -1, 1 do
+        if math.abs(dx) + math.abs(dy) <= 1 then c:pix(px + dx, py + dy, colours.orange) end
+      end
+    end
+  end
+
+  c:text(1, 1, ("TAXI " .. tostring(unit or "")):sub(1, c.w), colours.orange)
+  c:text(1, c.h - 1, (away and string.format("%d blocks", math.floor(away)) or "locating"), colours.white)
+  c:text(1, c.h, (SPIN[(n % 4) + 1] .. " " .. tostring(state):upper() .. "  ring " .. ring .. "m"):sub(1, c.w),
+         colours.orange)
+  if state == "waiting" then
+    c:text(1, math.floor(c.h / 2), "  HERE - PRESS G  ", colours.black, colours.orange)
+  end
+  c:flush(term)
+  return true
+end
+
 -- ------------------------------------------------------------------- ride ---
 -- Follow one job to its end, drawing where the taxi is. Returns "done",
 -- "failed" or "gave up".
 local function follow(job, from, name)
   local aboard, state, drone, away = false, "calling", nil, nil
   local n, t0 = 0, os.clock()
+  local here, trail = nil, {}
+  mapCanvas = nil                     -- a fresh canvas per ride
   while true do
     if os.clock() - t0 > (aboard and 600 or 300) then return "gave up" end
-    frame("TAXI: " .. tostring(name):upper(), drone and ("unit " .. drone) or "finding a unit")
-    at(1, 6, state == "enroute" and "on its way to you"
-          or state == "waiting" and "HERE - get aboard"
-          or state == "riding" and "flying you there"
-          or "calling a taxi", INK)
-    if away then at(1, 7, string.format("%d blocks away", math.floor(away))) end
-    if state == "waiting" then
-      rule(9)
-      at(1, 10, "PRESS  G  TO GO", INK)
-      rule(11)
+    -- the map when there is something to draw, the words when there is not
+    if not (here and drawMap(from, here, trail, away, state, drone, n)) then
+      frame("TAXI: " .. tostring(name):upper(), drone and ("unit " .. drone) or "finding a unit")
+      at(1, 6, state == "enroute" and "on its way to you"
+            or state == "waiting" and "HERE - get aboard"
+            or state == "riding" and "flying you there"
+            or "calling a taxi", INK)
+      if away then at(1, 7, string.format("%d blocks away", math.floor(away))) end
+      if state == "waiting" then
+        rule(9)
+        at(1, 10, "PRESS  G  TO GO", INK)
+        rule(11)
+      end
+      at(1, H - 1, "Q gives up", DIM)
+      spinner(H, state:upper(), n)
     end
-    at(1, H - 1, "Q gives up", DIM)
-    spinner(H, state:upper(), n)
     n = n + 1
 
     local timer = os.startTimer(0.25)
@@ -267,6 +359,14 @@ local function follow(job, from, name)
       if type(msg) == "table" and msg.job == job and (F.check(msg)) then
         if msg.type == "job.track" then
           drone, away = msg.drone or drone, dist(from, msg.x, msg.z)
+          here = { x = msg.x, z = msg.z }
+          -- a tail, but only where it actually moved: standing still for a
+          -- minute must not fill the map with one bright dot
+          local last = trail[#trail]
+          if not last or math.sqrt((last.x - msg.x) ^ 2 + (last.z - msg.z) ^ 2) > 8 then
+            trail[#trail + 1] = here
+            while #trail > 40 do table.remove(trail, 1) end
+          end
         elseif msg.type == "job.state" then
           state, drone = msg.state, msg.drone or drone
           if msg.state == "waiting" then aboard = true end

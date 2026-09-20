@@ -674,3 +674,22 @@ quaternion.
 
 **`upload.lua` has never talked to the real GitHub API.** Everything up to the
 network hop is tested. Needs one live run.
+
+**More than one dock at base, and eventually a pick-and-place.** Today there
+is one dock and `ferry home` means that dock. With several, ops has to know
+which are free before it sends anyone: it can already infer where each drone is
+sitting by matching telemetry position against `pads.lua`, so the work is
+choosing a free pad at dispatch time rather than always `home`, and refusing to
+send two drones to the same one. The eventual shape Alex wants is a
+pick-and-place that lifts a docked drone onto a launch pad and back, which
+turns "docked" into two states - stored and on the pad - and makes readiness
+something ops schedules rather than something it observes. Future scope; the
+dock-assignment half is worth doing as soon as the second dock exists.
+
+**Fleet availability is time, not charge.** 34 flights on 2026-09-20 covered
+104,442 blocks in 49 minutes airborne for 18% of battery, so about 5,800 blocks
+per percent and a full charge worth several hundred thousand blocks. What
+limits throughput is the clock: 2,140 blocks a minute of cruise plus 40-60 s of
+climb, descent and settle per flight, three flights to a job. Queueing a second
+customer with an honest wait, and not flying home empty after every drop, are
+both worth more than any battery rule.

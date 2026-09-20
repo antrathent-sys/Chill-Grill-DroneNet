@@ -47,5 +47,6 @@ return {
   pad = { "taxipad.lua" },
 
   -- the portable terminal (an advanced wireless pocket computer)
-  pocket = { "hail.lua" },
+  -- the portable terminal: hail, plus the canvas it draws its map with
+  pocket = { "hail.lua", "lib/display.lua" },
 }
