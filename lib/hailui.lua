@@ -25,6 +25,16 @@ M.WORDS = {
   failed  = "ENDED",
 }
 
+-- spurs, as people say them: the ledger's own formatting, kept here so the
+-- screen and the base never disagree about what a number means
+function M.money(spurs)
+  spurs = math.floor(tonumber(spurs) or 0)
+  local sign, n = spurs < 0 and "-" or "", math.abs(spurs)
+  if n >= 4096 then return string.format("%s%.1f SUN", sign, n / 4096) end
+  if n >= 64 then return string.format("%s%.1f COG", sign, n / 64) end
+  return string.format("%s%d SPUR", sign, n)
+end
+
 local function clock(sec)
   if not sec then return "--:--" end
   return string.format("%d:%02d", math.floor(sec / 60), math.floor(sec % 60))
@@ -39,6 +49,10 @@ function M.places(T, c, view)
   T.masthead(c, 1, M.NAME, T.C.text, M.SUB)
   c:text(1, 4, "WHERE TO?", T.C.text)
   c:text(1, 5, string.format("AT %d, %d", view.from.x, view.from.z), T.C.faint)
+  if view.balance then
+    local owed = view.balance < 0
+    c:text(w - 11, 5, string.format("%11s", M.money(view.balance)), owed and T.C.warn or T.C.text)
+  end
 
   local top, bottom = 6, h - 2
   T.section(c, top, "PLACES")
@@ -53,8 +67,40 @@ function M.places(T, c, view)
   end
   if #view.places == 0 then c:text(2, top + 1, "NONE KNOWN - PRESS C", T.C.faint) end
 
-  T.keys(c, h, { { "UP/DN", "PICK", true }, { "ENT", "GO" }, { "C", "XZ" } })
+  T.keys(c, h, { { "UP/DN", "PICK", true }, { "ENT", "GO" }, { "C", "XZ" }, { "T", "TOP UP" } })
   return rows
+end
+
+-- -------------------------------------------------------------- the till ---
+-- view = { who, balance, amount, state = "choose"|"waiting"|"done", got }
+function M.topup(T, c, view)
+  local w, h = c.w, c.h
+  c:clear()
+  T.masthead(c, 1, "CREDIT", T.C.text)
+  local r = T.section(c, 4, "ACCOUNT")
+  c:text(2, r, tostring(view.who or "ANONYMOUS"):upper():sub(1, w - 2), T.C.text)
+  c:text(2, r + 1, M.money(view.balance or 0), (view.balance or 0) < 0 and T.C.warn or T.C.text)
+
+  r = T.section(c, 8, "TOP UP")
+  if view.state == "waiting" then
+    c:text(2, r, "PAY " .. M.money(view.amount) .. " AT", T.C.text)
+    c:text(2, r + 1, "THE DEPOSITOR", T.C.text)
+    c:text(2, r + 3, "IT CREDITS YOU WHEN", T.C.faint)
+    c:text(2, r + 4, "THE MONEY GOES IN", T.C.faint)
+    T.keys(c, h, { { "Q", "BACK" } })
+  elseif view.state == "done" then
+    c:text(2, r, "PAID " .. M.money(view.got or 0), T.C.ok)
+    c:text(2, r + 2, "BALANCE " .. M.money(view.balance or 0), T.C.text)
+    T.keys(c, h, { { "Q", "BACK" } })
+  else
+    c:text(2, r, "HOW MUCH?", T.C.text)
+    c:text(2, r + 2, "1  64 SPUR  (1 COG)", T.C.faint)
+    c:text(2, r + 3, "2  512 SPUR (8 COG)", T.C.faint)
+    c:text(2, r + 4, "3  4096 SPUR (1 SUN)", T.C.faint)
+    T.keys(c, h, { { "1/2/3", "PICK", true }, { "Q", "BACK" } })
+  end
+  c:text(w, h, T.spin(view.spin), T.C.rule)
+  return c
 end
 
 -- --------------------------------------------------------------- the ride ---

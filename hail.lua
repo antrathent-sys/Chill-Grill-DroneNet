@@ -34,6 +34,12 @@
 --
 -- Each terminal counts its own use - rides, asks, failures, blocks flown - in
 -- .hailstats, and reports it to ops after every ride.
+--
+-- Money: the base keeps the account, not this terminal. It shows the balance
+-- the base last told it, and T tops up - the customer says how much, walks to
+-- a depositor and pays it, and the base credits them when the coins go in. A
+-- balance may go negative, and a ride to the base is always free, so nobody
+-- can be stranded by an empty account.
 
 local F = dofile("lib/fleet.lua")
 local SEC = dofile("lib/seclink.lua")
@@ -198,6 +204,22 @@ local function localPlaces()
 end
 
 local places = localPlaces()
+local balance                    -- what the base last said, or nil if unknown
+
+-- What the base thinks this customer is worth. Cheap, so it is asked for
+-- whenever the main screen is about to be drawn.
+local function askBalance(secs)
+  say(F.accountAsk(nonce()))
+  local t0 = os.clock()
+  while os.clock() - t0 < (secs or 1) do
+    local _, msg = rednet.receive(F.PROTO, (secs or 1) - (os.clock() - t0))
+    if type(msg) == "table" and msg.type == "account.info" and (F.check(msg)) then
+      balance = msg.balance
+      return balance
+    end
+  end
+  return balance
+end
 
 -- Ask ops for its pads and fold them in. Whatever has arrived by the deadline
 -- is what the menu shows: a customer never waits on the base.
@@ -231,6 +253,40 @@ end
 
 local function dist(a, bx, bz) return math.sqrt((bx - a.x) ^ 2 + (bz - a.z) ^ 2) end
 
+-- Putting money on the account: pick an amount, then pay a depositor. The
+-- base arms itself for THIS customer when we say so, because a depositor
+-- cannot tell it who paid - it only reports that someone did.
+local AMOUNTS = { [keys.one] = 64, [keys.two] = 512, [keys.three] = 4096 }
+local function topUp()
+  local c = screen()
+  if not c then return end
+  local view = { who = me, balance = balance, state = "choose", spin = 0 }
+  while true do
+    UI.topup(T, c, view)
+    c:flush(term)
+    local ev = { os.pullEvent() }
+    view.spin = (view.spin or 0) + 1
+    if ev[1] == "key" then
+      local key = ev[2]
+      if key == keys.q then return end
+      if view.state == "choose" and AMOUNTS[key] then
+        view.amount, view.state = AMOUNTS[key], "waiting"
+        say(F.creditArm(view.amount, nonce()))
+      end
+    elseif ev[1] == "rednet_message" then
+      local msg = ev[3]
+      if type(msg) == "table" and (F.check(msg)) then
+        if msg.type == "credit.ok" then
+          balance, view.balance = msg.balance, msg.balance
+          view.got, view.state = msg.amount, "done"
+        elseif msg.type == "account.info" then
+          balance, view.balance = msg.balance, msg.balance
+        end
+      end
+    end
+  end
+end
+
 -- The menu: the places list, driven by the arrow keys. Returns x, y, z, name,
 -- or nil if they backed out. Falling back to a typed prompt when the screen
 -- kit is missing means a pocket with no lib/display.lua still works.
@@ -253,7 +309,8 @@ local function chooseDestination(from)
 
   local sel, top = 1, 1
   while true do
-    local rows = UI.places(T, c, { places = list, sel = sel, top = top, from = from })
+    local rows = UI.places(T, c, { places = list, sel = sel, top = top, from = from,
+                                   balance = balance })
     c:flush(term)
     local ev, key = os.pullEvent()
     if ev == "key" then
@@ -266,6 +323,9 @@ local function chooseDestination(from)
         return p.x, p.y, p.z, p.name
       elseif key == keys.q then
         return nil
+      elseif key == keys.t then
+        topUp()
+        canvas = nil
       elseif key == keys.c then
         frame("WHERE TO?", "coordinates, like 1200 340")
         term.setCursorPos(1, 6)
@@ -424,6 +484,7 @@ local function oneRide(tx, ty, tz, name)
   end
 
   local how = follow(job, from, name)
+  askBalance(1.5)                 -- the fare lands as the ride ends
   if how == "done" then
     F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(), blocks = away })
     frame("ARRIVED", name)
@@ -474,6 +535,7 @@ end
 
 frame("STARTING", "asking the base for places")
 refreshPlaces(2)
+askBalance(1)
 save()
 
 while true do

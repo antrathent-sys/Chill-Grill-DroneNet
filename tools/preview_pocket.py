@@ -40,8 +40,11 @@ function(root, w, h, frames)
   local out = {}
   for _, fr in ipairs(frames) do
     local c = D.canvas(w, h)
-    if fr.screen == "places" then
-      UI.places(T, c, { from = { x = 812, z = -344 }, sel = fr.sel, top = 1, places = {
+    if fr.screen == "topup" then
+      UI.topup(T, c, { who = "alex", balance = fr.balance, amount = fr.amount,
+                       state = fr.state, got = fr.got, spin = fr.spin or 0 })
+    elseif fr.screen == "places" then
+      UI.places(T, c, { from = { x = 812, z = -344 }, sel = fr.sel, top = 1, balance = fr.balance, places = {
         { name = "home", dist = 1104 }, { name = "pier", dist = 220 },
         { name = "depot", dist = 3480 }, { name = "quarry", dist = 760 },
         { name = "north gate", dist = 2190 }, { name = "market", dist = 940 },
@@ -67,9 +70,9 @@ end
 """
 
 FRAMES = [
-    dict(screen="places", sel=2, away=0, state="calling", spin=0, start=1, eta=0),
+    dict(screen="places", sel=2, away=0, state="calling", spin=0, start=1, eta=0, balance=416),
+    dict(screen="topup", state="choose", balance=-56, amount=0, spin=1, away=0, start=1, eta=0),
     dict(screen="ride", away=1332, state="enroute", spin=1, start=1670, eta=47),
-    dict(screen="ride", away=3, state="waiting", spin=3, start=1670, eta=0),
     dict(screen="ride", away=392, state="riding", spin=0, start=1456, eta=38),
 ]
 
@@ -149,7 +152,7 @@ def main():
     except Exception:
         font = ImageFont.load_default()
 
-    labels = ["choosing a destination", "a long way off", "on station", "carrying you"]
+    labels = ["choosing a destination", "putting credit on", "a long way off", "carrying you"]
     imgs = [draw_frame(f, a.scale, font, labels[i]) for i, f in enumerate(frames)]
     pad = 10
     sheet = Image.new("RGB", (sum(i.width for i in imgs) + pad * (len(imgs) + 1),

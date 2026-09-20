@@ -41,6 +41,7 @@ return {
     "lib/db.lua", "stickers.lua",
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
     "ops.lua", "lib/opsui.lua", "lib/tui.lua", "lib/display.lua",
+    "lib/ledger.lua", "tariff.example.lua",
   },
 
   -- a customer terminal standing at a pad: it calls a taxi and counts its own use

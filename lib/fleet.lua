@@ -40,6 +40,11 @@
 --   places.ask    nonce                                     anyone -> ops
 --   places.list   places nonce                              ops  -> anyone
 --                 (places is "name:x:z|name:x:z|...", the pads ops knows)
+--   account.ask   nonce                                     customer -> ops
+--   account.info  who balance rides owed nonce               ops -> customer
+--   credit.arm    amount nonce                               customer -> ops
+--                 (I am about to pay this much at a depositor - watch for it)
+--   credit.ok     who amount balance nonce                   ops -> customer
 --   ops.ping      nonce                                     anyone -> ops
 --                 (answered with a job.ack, so a customer can tell "the base
 --                  cannot hear me" from "the base has no drone free")
@@ -58,7 +63,9 @@ F.STATES = { assigned = true, enroute = true, waiting = true, riding = true, don
 F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["job.state"] = true, ["job.go"] = true, ["pad.stats"] = true,
             ["ops.fly"] = true, ["ops.ping"] = true, ["job.track"] = true,
-            ["places.ask"] = true, ["places.list"] = true }
+            ["places.ask"] = true, ["places.list"] = true,
+            ["account.ask"] = true, ["account.info"] = true,
+            ["credit.arm"] = true, ["credit.ok"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -140,6 +147,13 @@ function F.check(m)
   elseif m.type == "job.track" then
     if not str(m.job) then return false, "no job id" end
     if not (num(m.x) and num(m.z)) then return false, "no position" end
+  elseif m.type == "account.info" then
+    if not str(m.who) then return false, "no customer" end
+    if not num(m.balance) then return false, "no balance" end
+  elseif m.type == "credit.arm" then
+    if not num(m.amount) or m.amount <= 0 then return false, "bad amount" end
+  elseif m.type == "credit.ok" then
+    if not (str(m.who) and num(m.amount) and num(m.balance)) then return false, "bad credit" end
   elseif m.type == "places.list" then
     if type(m.places) ~= "string" then return false, "no places" end
   elseif m.type == "job.go" then
@@ -209,6 +223,21 @@ function F.unpackPlaces(text)
 end
 
 function F.placesAsk(nonce) return { v = F.VERSION, type = "places.ask", nonce = nonce } end
+function F.accountAsk(nonce) return { v = F.VERSION, type = "account.ask", nonce = nonce } end
+
+function F.accountInfo(who, balance, rides, nonce, fare)
+  return { v = F.VERSION, type = "account.info", nonce = nonce, who = who,
+           balance = math.floor(balance or 0), rides = rides or 0, fare = fare }
+end
+
+function F.creditArm(amount, nonce)
+  return { v = F.VERSION, type = "credit.arm", nonce = nonce, amount = math.floor(amount or 0) }
+end
+
+function F.creditOk(who, amount, balance, nonce)
+  return { v = F.VERSION, type = "credit.ok", nonce = nonce, who = who,
+           amount = math.floor(amount or 0), balance = math.floor(balance or 0) }
+end
 function F.placesList(list, nonce)
   return { v = F.VERSION, type = "places.list", nonce = nonce, places = F.packPlaces(list) }
 end

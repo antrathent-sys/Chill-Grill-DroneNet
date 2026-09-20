@@ -11,6 +11,8 @@
 --   ops poke <drone>     prove the link: ask a drone to answer, nothing flies
 --   ops free <drone>     it is not on a job, whatever ops thinks
 --   ops jobs [n]         the last n rides and what they cost in time
+--   ops account [who]    balances, or one customer's history
+--   ops credit <who> <n> put credit on an account by hand (spurs)
 --
 -- It runs on the base computer and, just as happily, on an ender pocket
 -- computer: the board lays itself out for 26 columns and keeps the keys that
@@ -40,6 +42,7 @@
 -- base-to-drone ones, and the two directions have separate nonces.
 
 local F = dofile("lib/fleet.lua")
+local LEDGER = dofile("lib/ledger.lua")
 local SEC = dofile("lib/seclink.lua")
 local link = dofile("lib/link.lua")
 -- the screen, the same kit the customer's terminal uses; ops still runs
@@ -107,6 +110,46 @@ end
 -- later - so a file, not a database. `upload joblog.csv` puts it in the repo
 -- where a script or a spreadsheet can read it, the same way flight logs work.
 local JOBLOG = "joblog.csv"
+
+-- ------------------------------------------------------------------ money ---
+-- Every movement is a line in ledger.csv; a balance is their sum. Customers
+-- may go negative, and a ride to a free place (the base, by default) costs
+-- nothing, so nobody can strand themselves.
+local LEDGER_FILE, TARIFF_FILE = "ledger.csv", "tariff.lua"
+local tariff = LEDGER.TARIFF
+do
+  local okT, t = pcall(dofile, TARIFF_FILE)
+  if okT and type(t) == "table" then tariff = LEDGER.tariff(t) end
+end
+
+-- The till's state lives up here with the rest of the money: `handle` arms a
+-- top-up long before the watcher below runs, and a local declared after its
+-- first use is a global - which silently armed nothing at all.
+local ARM_WINDOW = 60          -- seconds a customer has to actually pay
+local DEPOSIT_SIDE = "back"    -- where the depositor's pulse arrives
+local armed, depositor
+for _, nm in ipairs(peripheral.getNames()) do
+  if peripheral.getType(nm) == "Numismatics_Depositor" then depositor = nm end
+end
+
+local function ledgerRows()
+  if not fs.exists(LEDGER_FILE) then return {} end
+  local h = fs.open(LEDGER_FILE, "r")
+  local text = h.readAll() or ""
+  h.close()
+  return (LEDGER.parse(text))
+end
+
+local function post(who, kind, amount, note)
+  local new = not fs.exists(LEDGER_FILE)
+  local h = fs.open(LEDGER_FILE, new and "w" or "a")
+  if not h then return nil, "cannot write " .. LEDGER_FILE end
+  if new then h.writeLine(LEDGER.HEADER) end
+  local when = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()
+  h.writeLine(LEDGER.row(when, who, kind, amount, note))
+  h.close()
+  return LEDGER.balanceOf(ledgerRows(), who)
+end
 local function writeJob(j)
   local at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()
   local new = not fs.exists(JOBLOG)
@@ -235,7 +278,7 @@ local function dispatch(req, from)
     return nil, why
   end
   local job = "j-" .. tostring(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()) .. "-" .. id
-  jobs[job] = { id = job, drone = id, pad = pad.name, px = req.px, pz = req.pz,
+  jobs[job] = { id = job, drone = id, pad = pad.name, toName = req.toName, px = req.px, pz = req.pz,
                 tx = req.tx, tz = req.tz, state = "assigned",
                 at = os.clock(), who = req.who, client = from,
                 blocks = math.sqrt((req.tx - req.px) ^ 2 + (req.tz - req.pz) ^ 2) }
@@ -391,6 +434,44 @@ if cmd == "free" then
   return
 end
 
+if cmd == "account" then
+  local rows = ledgerRows()
+  local who = args[2]
+  if who then
+    local b = LEDGER.balances(rows)[who]
+    if not b then print("nothing on record for " .. who) return end
+    print(string.format("%s: %s, %d ride%s, paid %s, spent %s", who, LEDGER.money(b.balance),
+      b.rides, b.rides == 1 and "" or "s", LEDGER.money(b.paid), LEDGER.money(b.spent)))
+    print("")
+    local shown = 0
+    for i = #rows, 1, -1 do
+      if rows[i].who == who and shown < 12 then
+        shown = shown + 1
+        print(string.format("%-8s %8s  %s", rows[i].kind, LEDGER.money(rows[i].amount), rows[i].note))
+      end
+    end
+    return
+  end
+  local bal = LEDGER.balances(rows)
+  local names = {}
+  for n in pairs(bal) do names[#names + 1] = n end
+  table.sort(names)
+  if #names == 0 then print("no accounts yet - ops credit <who> <spurs>") return end
+  print(string.format("%-14s %10s %6s", "CUSTOMER", "BALANCE", "RIDES"))
+  for _, n in ipairs(names) do
+    print(string.format("%-14s %10s %6d", n, LEDGER.money(bal[n].balance), bal[n].rides))
+  end
+  return
+end
+
+if cmd == "credit" then
+  local who, amount = args[2], tonumber(args[3])
+  if not (who and amount) then print("ops credit <who> <spurs>   (negative to take it back)") return end
+  local bal = post(who, amount >= 0 and "credit" or "adjust", amount, "by hand")
+  print(string.format("%s: %s, balance %s", who, LEDGER.money(amount), LEDGER.money(bal or 0)))
+  return
+end
+
 if cmd == "jobs" then
   local want = tonumber(args[2]) or 10
   if not fs.exists(JOBLOG) then
@@ -479,6 +560,25 @@ function handle(from, msg, customer)
               id and (id .. " " .. tostring(why)) or ("nobody: " .. tostring(why)))
           end
         end
+      elseif msg.type == "account.ask" then
+        local who = customer or msg.who
+        if who then
+          local b = LEDGER.balances(ledgerRows())[who] or { balance = 0, rides = 0 }
+          pcall(rednet.send, from, F.accountInfo(who, b.balance, b.rides, nonce()), F.PROTO)
+        end
+      elseif msg.type == "credit.arm" then
+        -- "I am about to put money in a depositor": remember who, so the
+        -- redstone pulse can be credited to them. The depositor itself cannot
+        -- say who paid (Numismatics has no such API), which is exactly why
+        -- this has to be armed from the customer's own sealed terminal.
+        local who = customer or msg.who
+        if not who then
+          log("a top-up was armed with no name - ignored")
+        else
+          armed = { who = who, amount = math.floor(msg.amount), at = os.clock(), client = from }
+          if depositor then pcall(peripheral.call, depositor, "setTotalPrice", armed.amount) end
+          log("%s topping up %s - waiting for the depositor", who, LEDGER.money(armed.amount))
+        end
       elseif msg.type == "places.ask" then
         -- the pads this base knows, so a customer picks a name instead of
         -- typing coordinates off F3
@@ -524,6 +624,24 @@ function handle(from, msg, customer)
             j.rode = j.waited and (os.clock() - j.at - j.waited) or 0
             j.total = os.clock() - j.at
             j.outcome = msg.state
+            -- the fare, once, and only for a ride that actually finished
+            if msg.state == "done" and j.who and not j.charged then
+              local fare, why = LEDGER.fare(j.blocks, j.toName or j.pad, tariff)
+              j.charged = true
+              if fare > 0 then
+                local bal = post(j.who, "fare", -fare, why)
+                log("%s charged %s (%s)", j.who, LEDGER.money(fare), LEDGER.money(bal or 0))
+                if j.client then
+                  pcall(rednet.send, j.client, F.accountInfo(j.who, bal or 0, 0, nonce(), fare), F.PROTO)
+                end
+              else
+                log("%s: %s", j.who, why)
+                if j.client then
+                  pcall(rednet.send, j.client,
+                        F.accountInfo(j.who, LEDGER.balanceOf(ledgerRows(), j.who), 0, nonce(), 0), F.PROTO)
+                end
+              end
+            end
             if not j.logged then j.logged = writeJob(j) end
           end
           if j.client then pcall(rednet.send, j.client, msg, F.PROTO) end
@@ -579,6 +697,30 @@ local function finish(j, why)
   log("%s: %s - %s is free again", j.id, why, tostring(j.drone))
   if j.client then
     pcall(rednet.send, j.client, F.state(j.id, j.drone, "failed", why, nonce()), F.PROTO)
+  end
+end
+
+-- ------------------------------------------------------------- the till ----
+-- A Brass Depositor pulses redstone when someone pays it, and says nothing
+-- about who paid. So the customer arms a top-up from their own terminal first,
+-- and the next pulse inside ARM_WINDOW is credited to them. No arming, no
+-- credit - the money is still taken by the block, so ops says so loudly.
+local function till()
+  while true do
+    local ev, side = os.pullEvent("redstone")
+    if redstone.getInput(DEPOSIT_SIDE) then
+      if armed and os.clock() - armed.at <= ARM_WINDOW then
+        local bal = post(armed.who, "credit", armed.amount, "depositor")
+        log("%s paid %s - balance %s", armed.who, LEDGER.money(armed.amount), LEDGER.money(bal or 0))
+        if armed.client then
+          pcall(rednet.send, armed.client, F.creditOk(armed.who, armed.amount, bal or 0, nonce()), F.PROTO)
+        end
+        armed = nil
+      else
+        log("a payment arrived with nobody armed for it - credit by hand")
+      end
+      sleep(0.5)      -- one pulse is one payment
+    end
   end
 end
 
@@ -729,5 +871,5 @@ local function keys()
   end
 end
 
-parallel.waitForAny(receive, serve, watchdog, tracker, draw, keys)
+parallel.waitForAny(receive, serve, watchdog, tracker, till, draw, keys)
 print("ops stopped")
