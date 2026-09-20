@@ -37,62 +37,127 @@ function M.addTrail(trail, x, z)
 end
 
 
+-- ------------------------------------------------------------------ badge ---
+-- The cog, drawn out by hand. A circle with spokes came out as a smudge at
+-- this size - nine sub-pixels across leaves no room for an algorithm to be
+-- clever in, so the shape is a bitmap and every pixel was chosen. 9 wide by 9
+-- tall fills five cells across and three rows down, and the header line still
+-- has room for the name.
+M.BADGE = {
+  "...XXX...",
+  ".XXXXXXX.",
+  ".XX.X.XX.",
+  "XXXXXXXXX",
+  "XX..X..XX",
+  "XXXXXXXXX",
+  ".XX.X.XX.",
+  ".XXXXXXX.",
+  "...XXX...",
+}
+
+function M.badge(c, x0, y0, ink)
+  for row = 1, #M.BADGE do
+    local line = M.BADGE[row]
+    for col = 1, #line do
+      if line:sub(col, col) == "X" then c:pix(x0 + col - 1, y0 + row - 1, ink) end
+    end
+  end
+  return #M.BADGE[1]
+end
+
 -- ------------------------------------------------------------------ gauge ---
--- A bar of `n` cells wide filled to `frac`, drawn in sub-pixels so it moves in
--- steps of half a character rather than whole ones.
-local function bar(c, x0, y0, wpx, hpx, frac, ink, edge)
+-- A terminal readout, not a dashboard. Imperial: bone on near-black, one red
+-- for trouble, rules instead of boxes, everything in capitals with the labels
+-- on the left and the values lined up under each other. The bar is segmented
+-- because a solid bar looks like a modern progress spinner and a run of blocks
+-- looks like a machine reporting.
+M.WORDS = {
+  calling = "REQUESTING UNIT",
+  enroute = "UNIT INBOUND",
+  waiting = "UNIT ON STATION",
+  riding  = "IN TRANSIT",
+  done    = "ARRIVED",
+  failed  = "OPERATION ENDED",
+}
+
+local function ruleRow(c, y, slot)
+  c:text(1, y, string.rep("-", c.w), slot)
+end
+
+-- A segmented bar: `cells` blocks with a gap between them, filled to frac.
+local function segbar(c, x0, ypx, wpx, hpx, frac, ink, dim)
   frac = math.max(0, math.min(1, frac or 0))
-  for x = 0, wpx - 1 do
-    c:pix(x0 + x, y0, edge)
-    c:pix(x0 + x, y0 + hpx - 1, edge)
+  local seg, gap = 2, 1
+  local n = math.floor((wpx + gap) / (seg + gap))
+  local lit = math.floor(n * frac + 0.5)
+  for i = 0, n - 1 do
+    local col = (i < lit) and ink or dim
+    for x = 0, seg - 1 do
+      for y = 0, hpx - 1 do c:pix(x0 + i * (seg + gap) + x, ypx + y, col) end
+    end
   end
-  for y = 0, hpx - 1 do
-    c:pix(x0, y + y0, edge)
-    c:pix(x0 + wpx - 1, y + y0, edge)
-  end
-  local fill = math.floor((wpx - 4) * frac + 0.5)
-  for x = 0, fill - 1 do
-    for y = 2, hpx - 3 do c:pix(x0 + 2 + x, y0 + y, ink) end
-  end
+  return n, lit
 end
 
 -- view as for M.map, plus:
---   start = the distance when the leg began, so the bar has something to fill
+--   start = the distance when this leg began, so the bar has something to fill
 --   eta   = seconds left, or nil while it is still working that out
 function M.gauge(D, c, view)
   local C = D.C
-  local grey, white, amber, paper = C.dim, C.white, C.amber, C.bg
+  local dim, bone, bright, red = C.dim, C.white, C.bright, C.red
   c:clear()
   local pw = c.w * 2
   local away = view.away
   local start = math.max(view.start or away or 1, 1)
   local frac = away and (1 - away / start) or 0
   if view.state == "waiting" or view.state == "done" then frac = 1 end
+  local failed = view.state == "failed"
 
-  c:text(1, 1, ("TAXI " .. tostring(view.unit or "")):sub(1, c.w), amber)
-  c:text(1, 2, (view.state == "riding" and "TAKING YOU THERE"
-             or view.state == "waiting" and "YOUR TAXI IS HERE"
-             or view.state == "enroute" and "ON ITS WAY TO YOU"
-             or "CALLING"):sub(1, c.w), white)
+  -- header: the cog, who is serving you, and the unit
+  M.badge(c, 1, 1, bone)
+  c:text(7, 1, "CHILL GRILL", bone)
+  c:text(7, 2, "AIR TAXI", dim)
+  c:text(7, 3, tostring(view.unit or "NO UNIT"):upper():sub(1, c.w - 7), dim)
+  ruleRow(c, 4, dim)
+  c:text(1, 5, (M.WORDS[view.state] or "STANDING BY"):sub(1, c.w), failed and red or bright)
 
-  -- the number, as big as the screen allows
-  local digits = away and tostring(math.floor(away)) or "--"
+  -- Fixed rows, counted from the bottom, so the layout does not move when the
+  -- number gains a digit. Derived rows put the ETA under the rule at three
+  -- digits and hid it, which is exactly the sort of thing the desktop render
+  -- is for.
+  local rowBlocks = c.h - 7        -- the word under the digits
+  local rowVector = c.h - 5        -- VECTOR and its bar
+  local rowEta    = c.h - 3
+  local rowRule   = c.h - 2
+  local digits = away and tostring(math.floor(away)) or "----"
   local scale = (#digits <= 3) and 4 or 3
+  c:text(1, 7, "RANGE", dim)
   local wpx = #digits * 4 * scale
-  -- the digits sit in pixel rows 10..10+5*scale, so the word underneath has to
-  -- clear them: at scale 4 that is text row 11, at scale 3 row 9
-  c:bigText(math.max(1, math.floor((pw - wpx) / 2)), 10, digits, white, scale)
-  local lastPx = 10 + 5 * scale - 1                  -- bottom pixel row of the digits
-  c:text(math.max(1, math.floor((c.w - 6) / 2)), math.floor(lastPx / 3) + 2, "BLOCKS", grey)
+  -- sit the digits on the line above BLOCKS, whatever their size
+  c:bigText(math.max(1, pw - wpx - 2), (rowBlocks - 1) * 3 - 5 * scale + 1, digits, bone, scale)
+  c:text(c.w - 5, rowBlocks, "BLOCKS", dim)
 
-  bar(c, 3, 40, pw - 6, 7, frac, amber, grey)
+  c:text(1, rowVector, "VECTOR", dim)
+  segbar(c, 3, rowVector * 3 + 1, pw - 6, 3, frac, bone, C.grid)
 
-  local left = view.eta and string.format("%d:%02d left", math.floor(view.eta / 60), math.floor(view.eta % 60))
-               or "working it out"
-  if view.state == "waiting" then left = "PRESS G TO GO" end
-  c:text(1, c.h - 1, left:sub(1, c.w), view.state == "waiting" and white or grey)
+  c:text(1, rowEta, "ETA", dim)
+  local left = view.eta and string.format("%d:%02d", math.floor(view.eta / 60), math.floor(view.eta % 60))
+               or "--:--"
+  if view.state == "waiting" then left = "ON STATION" end
+  c:text(9, rowEta, left:upper(), bright)
+
+  ruleRow(c, rowRule, dim)
+  if view.state == "waiting" then
+    c:text(1, c.h - 1, "BOARD, THEN PRESS G", bright)
+  elseif failed then
+    c:text(1, c.h - 1, tostring(view.detail or "NO UNIT AVAILABLE"):upper():sub(1, c.w), red)
+  else
+    c:text(1, c.h - 1, "M MAP    Q ABORT", dim)
+  end
+  -- a cursor that blinks where a terminal would leave one
   local spin = ({ "|", "/", "-", "\\" })[((view.spin or 0) % 4) + 1]
-  c:text(1, c.h, (spin .. " " .. tostring(view.state or ""):upper() .. "   M = map"):sub(1, c.w), amber)
+  c:text(1, c.h, (spin .. " " .. tostring(view.state or ""):upper()):sub(1, c.w), dim)
+  if (view.spin or 0) % 2 == 0 then c:text(c.w, c.h, "_", bone) end
   return c
 end
 
@@ -109,7 +174,7 @@ function M.map(D, c, view)
 
   c:clear()
   local pw, ph = c.w * 2, c.h * 3
-  local top, bot = 9, ph - 12                      -- room for a heading and a readout
+  local top, bot = 12, ph - 12                      -- room for a heading and a readout
   local cx, cy = pw / 2, (top + bot) / 2
   local away = view.away or 0
   local span = math.max(away, 40) * 1.3            -- blocks from the middle to the edge
@@ -165,14 +230,14 @@ function M.map(D, c, view)
     end
   end
 
-  local head = "TAXI"
-  if view.unit then head = head .. " " .. view.unit end
-  c:text(1, 1, head:sub(1, c.w), amber)
-  c:text(1, c.h - 1, (view.away and string.format("%d blocks", math.floor(view.away)) or "locating"):sub(1, c.w), white)
+  M.badge(c, 1, 1, white)
+  c:text(7, 1, "CHILL GRILL", white)
+  c:text(7, 2, tostring(view.unit or "NO UNIT"):upper():sub(1, c.w - 7), grey)
+  c:text(1, c.h - 1, (view.away and string.format("RANGE %d", math.floor(view.away)) or "LOCATING"):sub(1, c.w), white)
   local spin = ({ "|", "/", "-", "\\" })[((view.spin or 0) % 4) + 1]
   c:text(1, c.h, (spin .. " " .. tostring(view.state or ""):upper() .. "  ring " .. ring .. "  M"):sub(1, c.w), amber)
   if view.state == "waiting" then
-    local bar = " HERE - PRESS G "
+    local bar = " ON STATION - G "
     c:text(math.max(1, math.floor((c.w - #bar) / 2)), math.floor(c.h / 2), bar, paper, amber)
   end
   return c
