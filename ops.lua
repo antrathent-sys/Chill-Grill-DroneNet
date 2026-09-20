@@ -173,16 +173,6 @@ local function order(id, msg)
   return ok, ok and nil or "the modem refused the packet"
 end
 
-local function orderFly(who, line, near)
-  local argsOk, why = F.flyArgs(line)
-  if not argsOk then return false, "that command is no good: " .. why end
-  local id, note2 = pickWho(who, near)
-  if not id then return false, note2 end
-  local sent, whySent = order(id, F.flyCommand(argsOk, nonce()))
-  if not sent then return false, whySent end
-  return id, note2
-end
-
 -- Who asked, so the answer and every state update go back to them. A pad on
 -- the cable and a pocket in the air are answered the same way.
 local function reply(to, msg)
@@ -274,22 +264,14 @@ if cmd == "fly" or cmd == "send" or cmd == "land" or cmd == "hold" or cmd == "un
   end
 
   local near = padByName(args[3]) or nil
-  local id, why = orderFly(who, line2, near)
+  local argsOk, whyArgs = F.flyArgs(line2)
+  if not argsOk then print("ops: that command is no good: " .. whyArgs) return end
+  local id, why = pickWho(who, near)
   if not id then print("ops: " .. tostring(why)) return end
   if why then print(why) end
-  print(string.format("%s -> %s: fly %s", me, id, line2))
-  print("waiting for an ack...")
-  local seen, rx2 = nil, SEC.receiver()
-  parallel.waitForAny(function()
-    while not seen do
-      local _, _, ch, _, m = os.pullEvent("modem_message")
-      if ch == link.CHANNEL and type(m) == "table" and m.sl then
-        local okO, body = pcall(rx2.open, m, function(idd) return fleetKeys[idd] end,
-                                SEC.DIR.DRONE_TO_BASE, 120000)
-        if okO and body and body.type == "job.ack" and body.drone == id then seen = body end
-      end
-    end
-  end, function() sleep(6) end)
+  print(string.format("%s -> %s: fly %s", me, id, argsOk))
+  local seen, sent, whySent = orderAndWait(id, F.flyCommand(argsOk, nonce()), 6)
+  if not sent then print("ops: " .. tostring(whySent)) return end
   if seen then
     print(seen.ok and ("  " .. id .. " took it") or ("  " .. id .. " refused: " .. tostring(seen.why)))
   else
@@ -298,33 +280,46 @@ if cmd == "fly" or cmd == "send" or cmd == "land" or cmd == "hold" or cmd == "un
   return
 end
 
+-- Listen first, send second. The ack comes back in milliseconds - the drone
+-- answers before it runs anything - so a send followed by a listen misses it
+-- every time, and the poke reported no answer while the drone was happily
+-- carrying out the order (2026-09-20).
+local function orderAndWait(id, msg, secs)
+  local got, rx = nil, SEC.receiver()
+  local sent, whySent
+  parallel.waitForAny(function()
+    while not got do
+      local _, _, ch, _, m = os.pullEvent("modem_message")
+      if ch == link.CHANNEL and type(m) == "table" and m.sl then
+        local okO, body = pcall(rx.open, m, function(idd) return fleetKeys[idd] end,
+                                SEC.DIR.DRONE_TO_BASE, 120000)
+        if okO and body and body.type == "job.ack" and body.drone == id then got = body end
+      end
+    end
+  end, function()
+    sleep(0.1)                      -- let the listener be waiting first
+    sent, whySent = order(id, msg)
+    if not sent then return end
+    print("sent on channel " .. link.CHANNEL .. ": " .. tostring(lastSent))
+    sleep(secs or 6)
+  end)
+  return got, sent, whySent
+end
+
 if cmd == "poke" then
   -- The wire test. It sends the drone a command it can obey without moving
   -- (fly pads just prints its pad list), so an ack proves the whole path:
   -- this computer -> cable -> docking connector -> beacon.
   local who = args[2]
   if not who then print("ops poke <drone>   (the id on the board)") return end
-  local sent, whySent = order(who, F.flyCommand("pads", nonce()))
+  print("poking " .. who .. " - it will print its pads and fly nothing")
+  local answered, sent, whySent = orderAndWait(who, F.flyCommand("pads", nonce()), 6)
   if not sent then print("ops: " .. tostring(whySent)) return end
-  print("poked " .. who .. " on channel " .. link.CHANNEL .. ": " .. tostring(lastSent))
-  print("(if the drone says 'replay', delete .ops-" .. who .. ".ctr here and poke again)")
-  parallel.waitForAny(receive, function() sleep(0.2) end)
-  local answered = false
-  local rx = SEC.receiver()
-  parallel.waitForAny(function()
-    while not answered do
-      local _, _, ch, _, m = os.pullEvent("modem_message")
-      if ch == link.CHANNEL and type(m) == "table" and m.sl then
-        local okO, body = pcall(rx.open, m, function(idd) return fleetKeys[idd] end,
-                                SEC.DIR.DRONE_TO_BASE, 120000)
-        if okO and body and body.type == "job.ack" and body.drone == who then answered = true end
-      end
-    end
-  end, function() sleep(6) end)
   if answered then
     print(who .. " answered. Its radio, its key and its beacon are all fine.")
     return
   end
+  print("(if the drone says 'replay', delete .ops-" .. who .. ".ctr here and poke again)")
   print(who .. " did not answer. Check, in this order:")
   print(" 1 beacon is running on it (its screen shows #n DOCKED)")
   print(" 2 it has been updated: run startup on the drone")
