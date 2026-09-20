@@ -80,6 +80,17 @@ local fleet, pads, jobs, padStats = {}, {}, {}, {}
 -- ageing them out: the first hail after a job existed crashed ops with
 -- "attempt to perform arithmetic on a table value" (2026-09-20).
 local seenNonce = {}
+
+-- The board clears the screen every two seconds, so anything printed from the
+-- serve loop vanished before it could be read - including the error that took
+-- the loop down. Events go in here instead and the board draws them.
+local events = {}
+local function log(fmt, ...)
+  local line = select("#", ...) > 0 and string.format(fmt, ...) or tostring(fmt)
+  events[#events + 1] = string.format("%s  %s", textutils.formatTime(os.time(), true), line)
+  while #events > 8 do table.remove(events, 1) end
+  return line
+end
 local rejected = 0
 
 do
@@ -279,9 +290,10 @@ print(string.format("ops %s: %d key%s, %d pad%s, %d wired modem%s", me,
 print(openToHails and "dispatching pads and radio hails. Q quits."
                    or "dispatching pads only - radio hails turned away. Q quits.")
 
-local function serve()
-  while true do
-    local from, msg = rednet.receive(F.PROTO)
+-- One message. Kept separate so serve can run it under pcall: a single
+-- malformed packet must never be able to stop ops answering customers.
+local function handle(from, msg)
+  do
     if type(msg) == "table" and (F.check(msg)) then
       if msg.type == "taxi.request" then
         local caller = tostring(msg.who or from)
@@ -292,13 +304,13 @@ local function serve()
           local slowEnough, whyRate = F.rateOk(lastHail, caller, os.clock(), HAIL_EVERY)
           if not slowEnough then
             pcall(rednet.send, from, F.ack("j-none", "ops", false, whyRate, nonce()), F.PROTO)
-            print("  (another hail from " .. caller .. ", " .. whyRate .. ")")
+            log("another hail from %s, %s", caller, whyRate)
           else
             local id, why = dispatch(msg, from)
-            print(string.format("%s from %s: %s",
+            log("%s from %s: %s",
               msg.pad and ("pad " .. msg.pad) or string.format("hail at %d,%d", msg.px or 0, msg.pz or 0),
               caller,
-              id and (id .. " " .. tostring(why)) or ("nobody: " .. tostring(why))))
+              id and (id .. " " .. tostring(why)) or ("nobody: " .. tostring(why)))
           end
         end
       elseif msg.type == "ops.ping" then
@@ -306,7 +318,7 @@ local function serve()
         local free = 0
         for _, d in pairs(fleet) do if (F.available(d, os.clock())) then free = free + 1 end end
         pcall(rednet.send, from, F.ack("ping", "ops", true, free .. " free", nonce()), F.PROTO)
-        print("  ping from " .. tostring(from) .. " - answered, " .. free .. " free")
+        log("ping from %s - answered, %d free", tostring(from), free)
       elseif msg.type == "job.go" then
         -- the customer is aboard. They may be on the radio; the drone only
         -- ever hears this over the wire, from here.
@@ -321,11 +333,22 @@ local function serve()
             if fleet[msg.drone] then fleet[msg.drone].job = nil end
           end
         end
-        print(string.format("  %s %s%s", msg.drone, msg.state, msg.detail and (" - " .. msg.detail) or ""))
+        log("%s %s%s", msg.drone, msg.state, msg.detail and (" - " .. msg.detail) or "")
       elseif msg.type == "pad.stats" then
         padStats[msg.pad] = msg
       end
+    elseif type(msg) == "table" and msg.v ~= nil then
+      local _, whyBad = F.check(msg)
+      log("ignored a %s: %s", tostring(msg.type), tostring(whyBad))
     end
+  end
+end
+
+local function serve()
+  while true do
+    local from, msg = rednet.receive(F.PROTO)
+    local ok, err = pcall(handle, from, msg)
+    if not ok then log("ERROR handling %s: %s", type(msg) == "table" and tostring(msg.type) or "?", tostring(err)) end
   end
 end
 
@@ -342,6 +365,10 @@ local function draw()
       for pad, s in pairs(padStats) do
         print(string.format("%-10s %d rides today, %d asked", pad, s.rides, s.requests or 0))
       end
+    end
+    if #events > 0 then
+      print("")
+      for _, line in ipairs(events) do print(line) end
     end
     sleep(2)
   end
