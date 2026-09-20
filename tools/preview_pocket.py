@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Render the pocket terminal's taxi map to a PNG, as the pocket would show it.
+"""Render the pocket terminal's ride screens to a PNG, as the pocket shows them.
 
     python tools/preview_pocket.py [out.png] [--size 26x20] [--scale 14]
+                                   [--theme imperial|silo] [--screen gauge|map]
 
 Four frames of one ride: the taxi a long way off, closing, landed beside the
 customer, and carrying them to the destination. It calls lib/hailmap.lua - the
@@ -29,7 +30,7 @@ PALETTE = {
 }
 
 RENDER = rb"""
-function(root, w, h, frames, theme)
+function(root, w, h, frames, theme, screen)
   package = package or {}
   local D = dofile(root .. "/lib/display.lua")
   D.setTheme(theme)
@@ -46,9 +47,11 @@ function(root, w, h, frames, theme)
       MAP.addTrail(trail, fr.x0 + (fr.x - fr.x0) * t, fr.z0 + (fr.z - fr.z0) * t)
     end
     local away = math.sqrt(fr.x * fr.x + fr.z * fr.z)
-    MAP.draw(D, c, { from = from, drone = { x = fr.x, z = fr.z }, trail = trail,
-                     away = away, state = fr.state, unit = "drone-1", spin = fr.spin or 0,
-                     dest = fr.dest and { x = fr.dx, z = fr.dz } or nil })
+    local view = { from = from, drone = { x = fr.x, z = fr.z }, trail = trail,
+                   away = away, state = fr.state, unit = "drone-1", spin = fr.spin or 0,
+                   dest = fr.dest and { x = fr.dx, z = fr.dz } or nil,
+                   start = fr.start, eta = fr.eta }
+    if screen == "map" then MAP.map(D, c, view) else MAP.gauge(D, c, view) end
     local rows = {}
     for y = 1, h do
       local s, f, b = c:row(y)
@@ -65,10 +68,14 @@ end
 """
 
 FRAMES = [
-    dict(x=1180, z=-620, x0=1400, z0=-900, steps=14, state="enroute", spin=1, dest=False, dx=0, dz=0),
-    dict(x=190, z=-95, x0=1400, z0=-900, steps=34, state="enroute", spin=2, dest=False, dx=0, dz=0),
-    dict(x=3, z=-2, x0=1400, z0=-900, steps=40, state="waiting", spin=3, dest=False, dx=0, dz=0),
-    dict(x=-240, z=310, x0=0, z0=0, steps=12, state="riding", spin=0, dest=True, dx=-900, dz=1150),
+    dict(x=1180, z=-620, x0=1400, z0=-900, steps=14, state="enroute", spin=1,
+         dest=False, dx=0, dz=0, start=1670, eta=47),
+    dict(x=190, z=-95, x0=1400, z0=-900, steps=34, state="enroute", spin=2,
+         dest=False, dx=0, dz=0, start=1670, eta=9),
+    dict(x=3, z=-2, x0=1400, z0=-900, steps=40, state="waiting", spin=3,
+         dest=False, dx=0, dz=0, start=1670, eta=0),
+    dict(x=-240, z=310, x0=0, z0=0, steps=12, state="riding", spin=0,
+         dest=True, dx=-900, dz=1150, start=1456, eta=38),
 ]
 
 # A teletext cell is a 2x3 grid of sub-pixels: bit 1 top-left, 2 top-right,
@@ -118,6 +125,7 @@ def main():
     ap.add_argument("--size", default="26x20")
     ap.add_argument("--scale", type=int, default=14)
     ap.add_argument("--theme", default="imperial", help="imperial or silo")
+    ap.add_argument("--screen", default="gauge", help="gauge or map")
     a = ap.parse_args()
     w, h = (int(v) for v in a.size.lower().split("x"))
 
@@ -129,7 +137,8 @@ def main():
                                       else repr(v).replace("'", '"')))
                        for k, v in f.items()) + "}" for f in FRAMES) + "}"
     blob, pal = L.eval(RENDER)(ROOT.replace("\\", "/").encode(), w, h,
-                               L.eval(lua_frames.encode()), a.theme.encode())
+                               L.eval(lua_frames.encode()), a.theme.encode(),
+                               a.screen.encode())
     frames = blob.split(b"\1")
     for pair in pal.decode().split(","):
         slot, rgb = pair.split("=")
@@ -140,7 +149,7 @@ def main():
     except Exception:
         font = ImageFont.load_default()
 
-    labels = ["far out, ring 1000", "closing, ring 100", "landed beside you", "carrying you"]
+    labels = ["a long way off", "nearly with you", "landed beside you", "carrying you"]
     imgs = [draw_frame(f, a.scale, font, labels[i]) for i, f in enumerate(frames)]
     pad = 10
     sheet = Image.new("RGB", (sum(i.width for i in imgs) + pad * (len(imgs) + 1),

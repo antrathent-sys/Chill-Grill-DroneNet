@@ -1,14 +1,18 @@
--- hailmap: the little map a customer watches while their taxi comes.
+-- hailmap: what a customer watches while their taxi comes.
 --
--- Pure drawing onto a lib/display.lua canvas, so the pocket terminal and
--- tools/preview_pocket.py draw exactly the same picture and the one on the
--- desktop can be trusted.
+-- Two screens, both pure drawing onto a lib/display.lua canvas so that
+-- tools/preview_pocket.py renders exactly what the pocket shows:
 --
--- The customer is always the middle. The scale follows the distance, so the
--- taxi stays on screen and the map zooms in as it closes. Rings are round
--- numbers; the footer says which. A 26x20 pocket screen is 52x60 sub-pixels,
--- which is enough for a bearing, a distance and a tail, and not enough for
--- anything clever - so there is nothing clever here.
+--   M.gauge  the default. How far away, in big digits, a bar that fills as it
+--            closes, and the time left. This is what someone standing in a
+--            field actually wants: one number and a sense of progress.
+--   M.map    the same ride as a picture - the customer in the middle, the taxi
+--            a block with its track behind it, range rings on round numbers.
+--            Prettier, and worse at answering "how long".
+--
+-- A 26x20 pocket screen is 52x60 sub-pixels. That is enough for a big number
+-- or a bearing, and not enough for anything clever, so there is nothing clever
+-- in here.
 
 local M = {}
 
@@ -32,9 +36,69 @@ function M.addTrail(trail, x, z)
   return trail
 end
 
+
+-- ------------------------------------------------------------------ gauge ---
+-- A bar of `n` cells wide filled to `frac`, drawn in sub-pixels so it moves in
+-- steps of half a character rather than whole ones.
+local function bar(c, x0, y0, wpx, hpx, frac, ink, edge)
+  frac = math.max(0, math.min(1, frac or 0))
+  for x = 0, wpx - 1 do
+    c:pix(x0 + x, y0, edge)
+    c:pix(x0 + x, y0 + hpx - 1, edge)
+  end
+  for y = 0, hpx - 1 do
+    c:pix(x0, y + y0, edge)
+    c:pix(x0 + wpx - 1, y + y0, edge)
+  end
+  local fill = math.floor((wpx - 4) * frac + 0.5)
+  for x = 0, fill - 1 do
+    for y = 2, hpx - 3 do c:pix(x0 + 2 + x, y0 + y, ink) end
+  end
+end
+
+-- view as for M.map, plus:
+--   start = the distance when the leg began, so the bar has something to fill
+--   eta   = seconds left, or nil while it is still working that out
+function M.gauge(D, c, view)
+  local C = D.C
+  local grey, white, amber, paper = C.dim, C.white, C.amber, C.bg
+  c:clear()
+  local pw = c.w * 2
+  local away = view.away
+  local start = math.max(view.start or away or 1, 1)
+  local frac = away and (1 - away / start) or 0
+  if view.state == "waiting" or view.state == "done" then frac = 1 end
+
+  c:text(1, 1, ("TAXI " .. tostring(view.unit or "")):sub(1, c.w), amber)
+  c:text(1, 2, (view.state == "riding" and "TAKING YOU THERE"
+             or view.state == "waiting" and "YOUR TAXI IS HERE"
+             or view.state == "enroute" and "ON ITS WAY TO YOU"
+             or "CALLING"):sub(1, c.w), white)
+
+  -- the number, as big as the screen allows
+  local digits = away and tostring(math.floor(away)) or "--"
+  local scale = (#digits <= 3) and 4 or 3
+  local wpx = #digits * 4 * scale
+  -- the digits sit in pixel rows 10..10+5*scale, so the word underneath has to
+  -- clear them: at scale 4 that is text row 11, at scale 3 row 9
+  c:bigText(math.max(1, math.floor((pw - wpx) / 2)), 10, digits, white, scale)
+  local lastPx = 10 + 5 * scale - 1                  -- bottom pixel row of the digits
+  c:text(math.max(1, math.floor((c.w - 6) / 2)), math.floor(lastPx / 3) + 2, "BLOCKS", grey)
+
+  bar(c, 3, 40, pw - 6, 7, frac, amber, grey)
+
+  local left = view.eta and string.format("%d:%02d left", math.floor(view.eta / 60), math.floor(view.eta % 60))
+               or "working it out"
+  if view.state == "waiting" then left = "PRESS G TO GO" end
+  c:text(1, c.h - 1, left:sub(1, c.w), view.state == "waiting" and white or grey)
+  local spin = ({ "|", "/", "-", "\\" })[((view.spin or 0) % 4) + 1]
+  c:text(1, c.h, (spin .. " " .. tostring(view.state or ""):upper() .. "   M = map"):sub(1, c.w), amber)
+  return c
+end
+
 -- view = { from = {x,z}, drone = {x,z} or nil, trail = {...}, away = blocks,
 --          state = "enroute"|..., unit = "drone-1", spin = n, dest = {x,z} }
-function M.draw(D, c, view)
+function M.map(D, c, view)
   -- A canvas cell holds a blit palette SLOT ("1", "8", ...), not a CC colour
   -- number: lib/display.lua:33 names the roles and the theme decides what they
   -- look like. Handing it colours.orange writes the number 2 into the blit
@@ -106,7 +170,7 @@ function M.draw(D, c, view)
   c:text(1, 1, head:sub(1, c.w), amber)
   c:text(1, c.h - 1, (view.away and string.format("%d blocks", math.floor(view.away)) or "locating"):sub(1, c.w), white)
   local spin = ({ "|", "/", "-", "\\" })[((view.spin or 0) % 4) + 1]
-  c:text(1, c.h, (spin .. " " .. tostring(view.state or ""):upper() .. "   ring " .. ring):sub(1, c.w), amber)
+  c:text(1, c.h, (spin .. " " .. tostring(view.state or ""):upper() .. "  ring " .. ring .. "  M"):sub(1, c.w), amber)
   if view.state == "waiting" then
     local bar = " HERE - PRESS G "
     c:text(math.max(1, math.floor((c.w - #bar) / 2)), math.floor(c.h / 2), bar, paper, amber)

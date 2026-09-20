@@ -255,11 +255,11 @@ end
 -- The drawing lives in lib/hailmap.lua so tools/preview_pocket.py renders the
 -- very same picture on the desktop.
 local mapCanvas
-local function drawMap(from, drone, trail, away, state, unit, n, dest)
+local showMap = false        -- the gauge is what people want; M shows the map
+local function drawMap(view)
   if not (D and MAP) then return false end
   if not mapCanvas then mapCanvas = D.canvas(W, H) end
-  MAP.draw(D, mapCanvas, { from = from, drone = drone, trail = trail, away = away,
-                           state = state, unit = unit, spin = n, dest = dest })
+  if showMap then MAP.map(D, mapCanvas, view) else MAP.gauge(D, mapCanvas, view) end
   mapCanvas:flush(term)
   return true
 end
@@ -271,11 +271,14 @@ local function follow(job, from, name, dest)
   local aboard, state, drone, away = false, "calling", nil, nil
   local n, t0 = 0, os.clock()
   local here, trail = nil, {}
+  local startAway, eta, lastAway, lastAt = nil, nil, nil, nil
   mapCanvas = nil                     -- a fresh canvas per ride
   while true do
     if os.clock() - t0 > (aboard and 600 or 300) then return "gave up" end
     -- the map when there is something to draw, the words when there is not
-    if not (here and drawMap(from, here, trail, away, state, drone, n, dest)) then
+    if not (here and drawMap({ from = from, drone = here, trail = trail, away = away,
+                               state = state, unit = drone, spin = n, dest = dest,
+                               start = startAway, eta = eta })) then
       frame("TAXI: " .. tostring(name):upper(), drone and ("unit " .. drone) or "finding a unit")
       at(1, 6, state == "enroute" and "on its way to you"
             or state == "waiting" and "HERE - get aboard"
@@ -301,8 +304,22 @@ local function follow(job, from, name, dest)
           drone, away = msg.drone or drone, dist(from, msg.x, msg.z)
           here = { x = msg.x, z = msg.z }
           if MAP then MAP.addTrail(trail, msg.x, msg.z) end
+          -- how fast the gap is closing, so the screen can say how long is
+          -- left. Smoothed, because one slow tick should not swing the number.
+          startAway = startAway or away
+          if lastAway and lastAt and os.clock() > lastAt then
+            local closing = (lastAway - away) / (os.clock() - lastAt)
+            if closing > 1 then
+              local guess = away / closing
+              eta = eta and (eta * 0.6 + guess * 0.4) or guess
+            end
+          end
+          lastAway, lastAt = away, os.clock()
         elseif msg.type == "job.state" then
           state, drone = msg.state, msg.drone or drone
+          if msg.state == "riding" or msg.state == "enroute" then
+            startAway, eta, lastAway, lastAt = nil, nil, nil, nil   -- new leg, new gauge
+          end
           if msg.state == "waiting" then aboard = true end
           if msg.state == "done" then return "done" end
           if msg.state == "failed" then
@@ -316,7 +333,9 @@ local function follow(job, from, name, dest)
       end
     elseif ev[1] == "char" then
       local ch = tostring(ev[2]):lower()
-      if ch == "g" and aboard then
+      if ch == "m" then
+        showMap = not showMap
+      elseif ch == "g" and aboard then
         pcall(rednet.broadcast, F.go(job, nonce()), F.PROTO)
         state = "riding"
       elseif ch == "q" then
