@@ -61,6 +61,11 @@ check("a different nonce is fine", F.fresh(seen, "pier-2", 101))
 check("and it is forgotten after the ttl", F.fresh(seen, "pier-1", 100 + 301))
 check("an empty nonce is never fresh", not F.fresh(seen, "", 100))
 
+check("a ping checks out", (F.check(F.ping("p-1"))))
+local mixed = { ["n-1"] = 100, job = { id = "j-1" } }   -- a store with junk in it
+check("ageing nonces steps over anything that is not a timestamp",
+  (F.fresh(mixed, "n-2", 500)) and mixed.job ~= nil)
+
 print("one hail per caller at a time")
 local rate = {}
 check("first hail goes through", (F.rateOk(rate, "pocket-1", 100, 20)))

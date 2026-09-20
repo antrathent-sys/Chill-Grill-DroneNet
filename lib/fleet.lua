@@ -24,6 +24,9 @@
 --   job.go        job nonce                                pad  -> drone
 --   pad.stats     pad rides requests failures lastRide     pad  -> ops
 --   ops.fly       args nonce                                ops  -> drone
+--   ops.ping      nonce                                     anyone -> ops
+--                 (answered with a job.ack, so a customer can tell "the base
+--                  cannot hear me" from "the base has no drone free")
 -- A nonce is "<who>-<counter>" and never repeats for that sender: a customer
 -- leaning on the button must not launch two drones (COMMAND.md:139-142).
 
@@ -38,7 +41,7 @@ F.PROTO = "dronenet"
 F.STATES = { assigned = true, enroute = true, waiting = true, riding = true, done = true, failed = true }
 F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["job.state"] = true, ["job.go"] = true, ["pad.stats"] = true,
-            ["ops.fly"] = true }
+            ["ops.fly"] = true, ["ops.ping"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -80,7 +83,10 @@ function F.nonce(who, n) return tostring(who or "?") .. "-" .. tostring(n or 0) 
 function F.fresh(store, nonce, now, ttl)
   if not str(nonce) then return false end
   ttl = ttl or 300
-  for k, t in pairs(store) do if now - t > ttl then store[k] = nil end end
+  -- only ever age out our own timestamps: a caller that hands in a table it
+  -- also uses for something else must not make this throw (ops did exactly
+  -- that with its jobs table, 2026-09-20)
+  for k, t in pairs(store) do if type(t) == "number" and now - t > ttl then store[k] = nil end end
   if store[nonce] then return false end
   store[nonce] = now
   return true
@@ -152,6 +158,10 @@ end
 
 function F.flyCommand(args, nonce)
   return { v = F.VERSION, type = "ops.fly", nonce = nonce, args = args }
+end
+
+function F.ping(nonce)
+  return { v = F.VERSION, type = "ops.ping", nonce = nonce }
 end
 
 function F.go(job, nonce)

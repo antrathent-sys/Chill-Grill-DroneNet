@@ -4,6 +4,7 @@
 --   hail               serve customers: find them, ask where to, call a drone
 --   hail 1200 340      one ride, straight to that destination
 --   hail stats         what this terminal has been used for
+--   hail test          ask the base if it can hear this terminal
 --
 -- Meant for a wireless pocket computer, so the customer can be anywhere. It
 -- finds them with gps.locate; with no GPS in range it asks them to type where
@@ -159,9 +160,10 @@ local function oneRide(tx, ty, tz)
   rednet.broadcast(req, F.PROTO)
   print("calling...")
 
-  local job, t0, refused = nil, os.clock(), nil
+  local job, t0, refused, heard = nil, os.clock(), nil, false
   while os.clock() - t0 < 15 and not job and not refused do
     local _, msg = rednet.receive(F.PROTO, 15)
+    if type(msg) == "table" then heard = true end
     if type(msg) == "table" and msg.nonce == req.nonce and msg.type == "job.assign" then
       job = msg.job
     elseif type(msg) == "table" and msg.type == "job.ack" and msg.ok == false then
@@ -172,8 +174,16 @@ local function oneRide(tx, ty, tz)
     F.record(stats, "failure")
     save()
     print("")
-    print("  no taxi: " .. (refused or "nobody answered - the base may be off, or out of range"))
-    sleep(5)
+    if refused then
+      print("  no taxi: " .. refused)
+    elseif heard then
+      print("  the base heard something but sent nobody. Try again shortly.")
+    else
+      print("  nothing came back at all.")
+      print("  Is ops running at the base, and are you in radio range?")
+      print("  hail test  asks the base to answer.")
+    end
+    sleep(6)
     return
   end
 
@@ -187,6 +197,25 @@ local function oneRide(tx, ty, tz)
   end
   save()
   sleep(4)
+end
+
+-- "can the base hear me?" - the one question worth answering on its own, and
+-- the difference between out of range and no drone free
+if sub == "test" then
+  local ping = F.ping(nonce())
+  rednet.broadcast(ping, F.PROTO)
+  print("asking the base to answer...")
+  local t0 = os.clock()
+  while os.clock() - t0 < 6 do
+    local _, msg = rednet.receive(F.PROTO, 6)
+    if type(msg) == "table" and msg.type == "job.ack" and msg.job == "ping" then
+      print("the base can hear you: " .. tostring(msg.why))
+      return
+    end
+  end
+  print("no answer in 6 s. Either ops is not running at the base,")
+  print("or this terminal is out of radio range of it.")
+  return
 end
 
 -- ------------------------------------------------------------------ serve ---

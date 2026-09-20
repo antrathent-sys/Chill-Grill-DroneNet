@@ -75,6 +75,11 @@ local function shout(msg) rednet.broadcast(msg, F.PROTO) end
 -- ------------------------------------------------------------- the fleet ----
 -- Built from telemetry alone: a drone exists the moment a packet of its opens.
 local fleet, pads, jobs, padStats = {}, {}, {}, {}
+-- nonces live in their OWN table. They were sharing `jobs`, whose values are
+-- job records, and fleet.fresh does arithmetic on every value it finds while
+-- ageing them out: the first hail after a job existed crashed ops with
+-- "attempt to perform arithmetic on a table value" (2026-09-20).
+local seenNonce = {}
 local rejected = 0
 
 do
@@ -280,19 +285,28 @@ local function serve()
     if type(msg) == "table" and (F.check(msg)) then
       if msg.type == "taxi.request" then
         local caller = tostring(msg.who or from)
-        local slowDown, whyRate = F.rateOk(lastHail, caller, os.clock(), HAIL_EVERY)
-        if not F.fresh(jobs, msg.nonce, os.clock()) then
+        if not F.fresh(seenNonce, msg.nonce, os.clock()) then
           -- a repeat of one already in hand: a customer leaning on the button
-        elseif not slowDown then
-          pcall(rednet.send, from, F.ack("j-none", "ops", false, whyRate, nonce()), F.PROTO)
-          print("  (another hail from " .. caller .. ", " .. whyRate .. ")")
         else
-          local id, why = dispatch(msg, from)
-          print(string.format("%s from %s: %s",
-            msg.pad and ("pad " .. msg.pad) or string.format("hail at %d,%d", msg.px or 0, msg.pz or 0),
-            caller,
-            id and (id .. " " .. tostring(why)) or ("nobody: " .. tostring(why))))
+          -- the rate slot is only spent on a hail we are really going to act on
+          local slowEnough, whyRate = F.rateOk(lastHail, caller, os.clock(), HAIL_EVERY)
+          if not slowEnough then
+            pcall(rednet.send, from, F.ack("j-none", "ops", false, whyRate, nonce()), F.PROTO)
+            print("  (another hail from " .. caller .. ", " .. whyRate .. ")")
+          else
+            local id, why = dispatch(msg, from)
+            print(string.format("%s from %s: %s",
+              msg.pad and ("pad " .. msg.pad) or string.format("hail at %d,%d", msg.px or 0, msg.pz or 0),
+              caller,
+              id and (id .. " " .. tostring(why)) or ("nobody: " .. tostring(why))))
+          end
         end
+      elseif msg.type == "ops.ping" then
+        -- "can you hear me?" - and how many drones are free right now
+        local free = 0
+        for _, d in pairs(fleet) do if (F.available(d, os.clock())) then free = free + 1 end end
+        pcall(rednet.send, from, F.ack("ping", "ops", true, free .. " free", nonce()), F.PROTO)
+        print("  ping from " .. tostring(from) .. " - answered, " .. free .. " free")
       elseif msg.type == "job.go" then
         -- the customer is aboard. They may be on the radio; the drone only
         -- ever hears this over the wire, from here.
