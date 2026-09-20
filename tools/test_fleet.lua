@@ -30,6 +30,8 @@ check("unknown type", why({ v = 1, type = "job.explode", nonce = "a" }):match("^
 check("no nonce", why({ v = 1, type = "job.go", job = "j" }) == "no nonce")
 check("a request with no destination", why({ v = 1, type = "taxi.request", nonce = "a",
   pad = "pier", px = 1, pz = 2 }) == "no destination")
+check("a request with no pickup", why({ v = 1, type = "taxi.request", nonce = "a",
+  tx = 1, tz = 2 }) == "no pickup position")
 check("a state nobody has heard of", why(F.state("j", "d", "dancing")):match("^state"))
 check("an ack with no verdict", why({ v = 1, type = "job.ack", nonce = "a", job = "j",
   drone = "drone-1" }) == "no verdict")
@@ -58,6 +60,14 @@ check("second time, no", not F.fresh(seen, "pier-1", 101))
 check("a different nonce is fine", F.fresh(seen, "pier-2", 101))
 check("and it is forgotten after the ttl", F.fresh(seen, "pier-1", 100 + 301))
 check("an empty nonce is never fresh", not F.fresh(seen, "", 100))
+
+print("one hail per caller at a time")
+local rate = {}
+check("first hail goes through", (F.rateOk(rate, "pocket-1", 100, 20)))
+local rOk, rWhy = F.rateOk(rate, "pocket-1", 105, 20)
+check("a second one five seconds later does not", not rOk and rWhy:match("5s ago"), rWhy)
+check("someone else is unaffected", (F.rateOk(rate, "pocket-2", 105, 20)))
+check("and after the wait it is fine again", (F.rateOk(rate, "pocket-1", 121, 20)))
 
 print("who can take a job")
 local now = 1000
@@ -88,8 +98,22 @@ check("an empty fleet says so", none == nil and whyNot:match("called in"), whyNo
 print("the flights a job turns into")
 check("pickup ferries to the pad", F.legCommand("pickup", asg) == "ferry pier", F.legCommand("pickup", asg))
 check("the ride lands at the destination", F.legCommand("ride", asg) == "land 1200 340", F.legCommand("ride", asg))
+-- fly land puts the ground height in the MIDDLE: land <x> <y> <z>
 local withY = F.assign("j-2", F.request(PAD, { x = 10, z = 20, y = 90 }, "n-1"))
-check("with a height when one was asked for", F.legCommand("ride", withY) == "land 10 20 90", F.legCommand("ride", withY))
+check("a height goes between x and z, as fly land takes it",
+  F.legCommand("ride", withY) == "land 10 90 20", F.legCommand("ride", withY))
+
+print("hailed from anywhere, not just a pad")
+local hail = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-1", "alex")
+check("a hail carries a pickup and no pad", hail.pad == nil and hail.px == 812 and hail.pz == -344)
+check("and it checks out", (F.check(hail)))
+local hj = F.assign("j-3", hail)
+check("the drone is sent to land by the customer",
+  F.legCommand("pickup", hj) == "land 812 71 -344", F.legCommand("pickup", hj))
+local noY = F.assign("j-4", F.request({ x = 812, z = -344 }, { x = 1, z = 2 }, "pocket-2"))
+check("no ground height known: just x and z",
+  F.legCommand("pickup", noY) == "land 812 -344", F.legCommand("pickup", noY))
+check("a pad pickup still ferries", F.legCommand("pickup", asg) == "ferry pier")
 check("then home", F.legCommand("home", asg) == "ferry home")
 check("and nothing else", F.legCommand("teleport", asg) == nil)
 

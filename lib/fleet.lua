@@ -14,8 +14,11 @@
 -- encrypted; the transport is the security, exactly as with drone-cmd.
 --
 -- Messages (all flat tables, v = fleet.VERSION):
---   taxi.request  pad px py pz tx tz [ty] [who] nonce      pad  -> ops
---   job.assign    job pad px py pz tx tz [ty] nonce        ops  -> drone
+--   taxi.request  [pad] px py pz tx tz [ty] [who] nonce    pad  -> ops
+--   job.assign    job [pad] px py pz tx tz [ty] nonce      ops  -> drone
+-- The pickup is a place, not necessarily a pad: with a pad name the drone
+-- ferries to it and docks, without one it lands in the open at px/pz, which is
+-- how someone hails a taxi from where they are standing.
 --   job.ack       job drone ok [why] nonce                 drone-> ops, pad
 --   job.state     job drone state [detail] nonce           drone-> everyone
 --   job.go        job nonce                                pad  -> drone
@@ -83,14 +86,25 @@ function F.fresh(store, nonce, now, ttl)
   return true
 end
 
+-- One hail per caller per `every` seconds. A pad on the cable is trusted; a
+-- pocket in the air is not, and without this one caller could keep the whole
+-- fleet in the air by holding a key down.
+function F.rateOk(store, caller, now, every)
+  caller = tostring(caller or "?")
+  local last = store[caller]
+  if last and now - last < (every or 20) then return false, "called one " .. math.floor(now - last) .. "s ago" end
+  store[caller] = now
+  return true
+end
+
 function F.check(m)
   if type(m) ~= "table" then return false, "not a table" end
   if m.v ~= F.VERSION then return false, "version " .. tostring(m.v) end
   if not F.TYPES[m.type] then return false, "type " .. tostring(m.type) end
   if not str(m.nonce) then return false, "no nonce" end
   if m.type == "taxi.request" or m.type == "job.assign" then
-    if not str(m.pad) then return false, "no pad" end
-    if not (num(m.px) and num(m.pz)) then return false, "no pad position" end
+    if m.pad ~= nil and not str(m.pad) then return false, "bad pad name" end
+    if not (num(m.px) and num(m.pz)) then return false, "no pickup position" end
     if not (num(m.tx) and num(m.tz)) then return false, "no destination" end
     if m.ty ~= nil and not num(m.ty) then return false, "bad destination height" end
     if m.type == "job.assign" and not str(m.job) then return false, "no job id" end
@@ -112,9 +126,11 @@ function F.check(m)
   return true
 end
 
-function F.request(pad, dest, nonce, who)
+-- from is where the customer is: a pad record { name, x, y, z } if they are
+-- standing on one, or just { x, y, z } if they hailed from anywhere else.
+function F.request(from, dest, nonce, who)
   return { v = F.VERSION, type = "taxi.request", nonce = nonce, who = who,
-           pad = pad.name, px = pad.x, py = pad.y, pz = pad.z,
+           pad = from.name, px = from.x, py = from.y, pz = from.z,
            tx = dest.x, tz = dest.z, ty = dest.y }
 end
 
@@ -173,11 +189,23 @@ end
 -- The two flights a taxi job is made of, as fly command lines. Nothing here
 -- runs them: beacon does, and only while it is already running, because fly
 -- must never start itself (startup.lua:45-47).
+-- fly land takes <x> <z>, or <x> <y> <z> where y is the GROUND at the far end
+-- (fly.lua:1852-1874) - so a height always goes in the MIDDLE, never last.
+local function landAt(x, y, z)
+  if num(y) then return string.format("land %d %d %d", math.floor(x), math.floor(y), math.floor(z)) end
+  return string.format("land %d %d", math.floor(x), math.floor(z))
+end
+
 function F.legCommand(step, m)
-  if step == "pickup" then return "ferry " .. m.pad end
+  if step == "pickup" then
+    -- a pad: ferry to it and dock. Anywhere else: land beside the customer.
+    if str(m.pad) then return "ferry " .. m.pad end
+    if num(m.px) and num(m.pz) then return landAt(m.px, m.py, m.pz) end
+    return nil
+  end
   if step == "ride" then
-    return string.format("land %d %d%s", math.floor(m.tx), math.floor(m.tz),
-      num(m.ty) and (" " .. math.floor(m.ty)) or "")
+    if not (num(m.tx) and num(m.tz)) then return nil end
+    return landAt(m.tx, m.ty, m.tz)
   end
   if step == "home" then return "ferry home" end
   return nil

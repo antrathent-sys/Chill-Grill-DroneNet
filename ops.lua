@@ -6,6 +6,7 @@
 --   ops send <who> <pad> shorthand for: ops fly <who> ferry <pad>
 --   ops land|hold|undock <who>     the in-flight words fly already takes
 --   ops stats            what the taxi pads have reported
+--   ops closed           run the board but turn radio hails away
 --
 -- <who> is a drone id, or "any" for the nearest one that is docked, has called
 -- in within the last 15 s and is not already on a job.
@@ -21,6 +22,13 @@
 --     connector bridges the pad cable. A drone in the air is read-only, except
 --     for the three words fly's own command loop takes (land, hold, undock),
 --     which ops sends on fly's protocol.
+--
+-- Hails by radio: a customer with a pocket computer (hail.lua) is nowhere near
+-- a cable, so ops also listens on the WIRELESS modem - but only for a request,
+-- never for an order. A hail is a question ops may refuse; the flight command
+-- it decides on still leaves over the wire. So the rule that matters holds: no
+-- drone ever takes a flight command from the air. Hails are rate-limited per
+-- caller, printed as they arrive, and `ops closed` turns them away entirely.
 --
 -- ops holds no drone keys and cannot forge telemetry: .fleetkeys only ever
 -- opens packets, and the sealed direction here is drone-to-base.
@@ -38,6 +46,19 @@ local me = (os.getComputerLabel and os.getComputerLabel()) or ("ops-" .. tostrin
 -- ---------------------------------------------------------------- the wire --
 local wired = F.wired(peripheral)
 for _, nm in ipairs(wired) do pcall(rednet.open, nm) end
+-- and the radio, for hails only (see the note above)
+local HAIL_EVERY = 20        -- seconds a caller must wait between hails
+local openToHails = (cmd ~= "closed")
+local lastHail = {}
+if openToHails then
+  for _, nm in ipairs(peripheral.getNames()) do
+    if peripheral.getType(nm) == "modem" then
+      local okW, wireless = pcall(peripheral.call, nm, "isWireless")
+      if okW and wireless then pcall(rednet.open, nm) end
+    end
+  end
+end
+if cmd == "closed" then cmd = "watch" end
 if #wired == 0 then
   print("ops: no WIRED modem - the board will fill in but no order can leave.")
   print("     Put a modem on this computer and cable it to the pads.")
@@ -125,19 +146,29 @@ local function orderFly(who, line, near)
   return id, note2
 end
 
-local function dispatch(req)
-  local pad = padByName(req.pad) or { name = req.pad, x = req.px, y = req.py, z = req.pz }
+-- Who asked, so the answer and every state update go back to them. A pad on
+-- the cable and a pocket in the air are answered the same way.
+local function reply(to, msg)
+  if to then pcall(rednet.send, to, msg, F.PROTO) end
+  shout(msg)
+end
+
+local function dispatch(req, from)
+  -- the pickup is a pad if it names one, otherwise wherever the caller is
+  local pad = (req.pad and padByName(req.pad)) or { name = req.pad, x = req.px, y = req.py, z = req.pz }
   local id, why = F.pick(fleet, pad, os.clock())
   if not id then
-    shout(F.ack("j-none", "ops", false, why, nonce()))
+    reply(from, F.ack("j-none", "ops", false, why, nonce()))
     return nil, why
   end
   local job = "j-" .. tostring(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()) .. "-" .. id
   jobs[job] = { id = job, drone = id, pad = pad.name, tx = req.tx, tz = req.tz, state = "assigned",
-                at = os.clock(), who = req.who }
+                at = os.clock(), who = req.who, client = from }
   fleet[id] = fleet[id] or {}
   fleet[id].job = job
-  order(id, F.assign(job, req))
+  local assign = F.assign(job, req)
+  order(id, assign)                  -- to the drone, addressed, over the wire
+  if from then pcall(rednet.send, from, assign, F.PROTO) end   -- and to whoever asked
   return id, job
 end
 
@@ -240,22 +271,38 @@ end
 print(string.format("ops %s: %d key%s, %d pad%s, %d wired modem%s", me,
   nKeys, nKeys == 1 and "" or "s", #pads, #pads == 1 and "" or "s",
   #wired, #wired == 1 and "" or "s"))
-print("dispatching taxi pads. Q quits.")
+print(openToHails and "dispatching pads and radio hails. Q quits."
+                   or "dispatching pads only - radio hails turned away. Q quits.")
 
 local function serve()
   while true do
     local from, msg = rednet.receive(F.PROTO)
     if type(msg) == "table" and (F.check(msg)) then
       if msg.type == "taxi.request" then
-        if F.fresh(jobs, msg.nonce, os.clock()) then
-          local id, why = dispatch(msg)
-          print(string.format("%s: %s -> %s", msg.pad, msg.who or "someone",
+        local caller = tostring(msg.who or from)
+        local slowDown, whyRate = F.rateOk(lastHail, caller, os.clock(), HAIL_EVERY)
+        if not F.fresh(jobs, msg.nonce, os.clock()) then
+          -- a repeat of one already in hand: a customer leaning on the button
+        elseif not slowDown then
+          pcall(rednet.send, from, F.ack("j-none", "ops", false, whyRate, nonce()), F.PROTO)
+          print("  (another hail from " .. caller .. ", " .. whyRate .. ")")
+        else
+          local id, why = dispatch(msg, from)
+          print(string.format("%s from %s: %s",
+            msg.pad and ("pad " .. msg.pad) or string.format("hail at %d,%d", msg.px or 0, msg.pz or 0),
+            caller,
             id and (id .. " " .. tostring(why)) or ("nobody: " .. tostring(why))))
         end
+      elseif msg.type == "job.go" then
+        -- the customer is aboard. They may be on the radio; the drone only
+        -- ever hears this over the wire, from here.
+        local j = jobs[msg.job]
+        if j then order(j.drone, F.go(j.id, nonce())) end
       elseif msg.type == "job.state" then
         local j = jobs[msg.job]
         if j then
           j.state = msg.state
+          if j.client then pcall(rednet.send, j.client, msg, F.PROTO) end
           if msg.state == "done" or msg.state == "failed" then
             if fleet[msg.drone] then fleet[msg.drone].job = nil end
           end

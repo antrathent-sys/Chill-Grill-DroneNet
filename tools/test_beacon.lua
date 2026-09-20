@@ -233,6 +233,13 @@ check("a second job while carrying someone is refused", #acks == 2 and acks[1].o
   and acks[2].why:find("already on j-1", 1, true) ~= nil, acks[2] and acks[2].why)
 check("and it is not flown", #w.runs == 1, #w.runs)
 
+print("collected from where the customer stands, not just a pad")
+local hail = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-1", "alex")
+w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-7", hail)), order(F.go("j-7", "pocket-2")) } }))
+check("it lands beside the customer", w.runs[1] == "fly land 812 71 -344", w.runs[1] or "nothing")
+check("then flies them to the destination", w.runs[2] == "fly land 1200 340", w.runs[2] or "nothing")
+check("then home", w.runs[3] == "fly ferry home", w.runs[3] or "nothing")
+
 w = run(drone({ name = "pad", cycles = 1, nowire = true, inbox = {} }))
 check("no wired modem: it says it is taking no orders", w.text:find("no wired modem", 1, true) ~= nil)
 

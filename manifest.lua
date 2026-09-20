@@ -46,6 +46,6 @@ return {
   -- a customer terminal standing at a pad: it calls a taxi and counts its own use
   pad = { "taxipad.lua" },
 
-  -- the portable terminal (an advanced ender pocket computer); its program lands here
-  pocket = {},
+  -- the portable terminal (an advanced wireless pocket computer)
+  pocket = { "hail.lua" },
 }
