@@ -7,6 +7,7 @@
 --   ops land|hold|undock <who>     the in-flight words fly already takes
 --   ops stats            what the taxi pads have reported
 --   ops closed           run the board but turn radio hails away
+--   ops poke <drone>     prove the cable: ask a drone to answer, nothing flies
 --
 -- <who> is a drone id, or "any" for the nearest one that is docked, has called
 -- in within the last 15 s and is not already on a job.
@@ -261,6 +262,31 @@ if cmd == "fly" or cmd == "send" or cmd == "land" or cmd == "hold" or cmd == "un
   return
 end
 
+if cmd == "poke" then
+  -- The wire test. It sends the drone a command it can obey without moving
+  -- (fly pads just prints its pad list), so an ack proves the whole path:
+  -- this computer -> cable -> docking connector -> beacon.
+  local who = args[2]
+  if not who then print("ops poke <drone>   (the id on the board)") return end
+  local poke = F.flyCommand("pads", nonce())
+  poke.to = who
+  rednet.broadcast(poke, F.PROTO)
+  print("poked " .. who .. " over " .. #wired .. " wired modem(s) - waiting 5 s")
+  local t0 = os.clock()
+  while os.clock() - t0 < 5 do
+    local _, msg = rednet.receive(F.PROTO, 5 - (os.clock() - t0))
+    if type(msg) == "table" and msg.type == "job.ack" and msg.drone == who then
+      print(who .. " answered. The cable and its beacon are fine.")
+      return
+    end
+  end
+  print(who .. " did not answer. Check, in this order:")
+  print(" 1 beacon is running on it (its screen shows #n DOCKED)")
+  print(" 2 it has been updated: run startup on the drone")
+  print(" 3 it has a WIRED modem, and the dock cable reaches this computer")
+  return
+end
+
 if cmd == "stats" then
   print("listening 10 s for pad reports (each pad sends on the minute and after a ride)...")
   local heard = 0
@@ -324,6 +350,17 @@ local function handle(from, msg)
         -- ever hears this over the wire, from here.
         local j = jobs[msg.job]
         if j then order(j.drone, F.go(j.id, nonce())) end
+      elseif msg.type == "job.ack" then
+        local j = jobs[msg.job]
+        if j then
+          j.acked = os.clock()
+          if not msg.ok then
+            log("%s refused %s: %s", tostring(msg.drone), msg.job, tostring(msg.why))
+            if fleet[j.drone] then fleet[j.drone].job = nil end
+            j.state = "failed"
+            if j.client then pcall(rednet.send, j.client, F.state(j.id, msg.drone, "failed", tostring(msg.why), nonce()), F.PROTO) end
+          end
+        end
       elseif msg.type == "job.state" then
         local j = jobs[msg.job]
         if j then
@@ -349,6 +386,34 @@ local function serve()
     local from, msg = rednet.receive(F.PROTO)
     local ok, err = pcall(handle, from, msg)
     if not ok then log("ERROR handling %s: %s", type(msg) == "table" and tostring(msg.type) or "?", tostring(err)) end
+  end
+end
+
+-- An assignment the drone never answers. Without this the drone sits with a
+-- job against its name and no later hail can have it, while the customer
+-- waits on a taxi that was never told to come.
+local ACK_WAIT, JOB_STUCK = 6, 45
+local function watchdog()
+  while true do
+    local now = os.clock()
+    for _, j in pairs(jobs) do
+      if type(j) == "table" and j.state == "assigned" then
+        if not j.acked and not j.warned and now - j.at > ACK_WAIT then
+          j.warned = true
+          log("%s has not answered %s", tostring(j.drone), j.id)
+          log("  is its beacon running and updated, and is it on the cable?")
+        end
+        if now - j.at > JOB_STUCK then
+          j.state = "failed"
+          if fleet[j.drone] then fleet[j.drone].job = nil end
+          log("gave up on %s - %s is free again", j.id, tostring(j.drone))
+          if j.client then
+            pcall(rednet.send, j.client, F.state(j.id, j.drone, "failed", "the drone never answered", nonce()), F.PROTO)
+          end
+        end
+      end
+    end
+    sleep(2)
   end
 end
 
@@ -381,5 +446,5 @@ local function keys()
   end
 end
 
-parallel.waitForAny(receive, serve, draw, keys)
+parallel.waitForAny(receive, serve, watchdog, draw, keys)
 print("ops stopped")
