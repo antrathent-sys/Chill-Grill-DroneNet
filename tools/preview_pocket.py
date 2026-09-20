@@ -50,7 +50,8 @@ function(root, w, h, frames, theme, screen)
     local view = { from = from, drone = { x = fr.x, z = fr.z }, trail = trail,
                    away = away, state = fr.state, unit = "drone-1", spin = fr.spin or 0,
                    dest = fr.dest and { x = fr.dx, z = fr.dz } or nil,
-                   start = fr.start, eta = fr.eta }
+                   start = fr.start, eta = fr.eta,
+                   log = { "0612 UNIT REQUESTED", "0612 UNIT INBOUND" } }
     if screen == "map" then MAP.map(D, c, view) else MAP.gauge(D, c, view) end
     local rows = {}
     for y = 1, h do

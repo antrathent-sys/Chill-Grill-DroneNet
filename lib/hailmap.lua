@@ -37,41 +37,12 @@ function M.addTrail(trail, x, z)
 end
 
 
--- ------------------------------------------------------------------ badge ---
--- The cog, drawn out by hand. Nine sub-pixels across is the whole header, and
--- at that size a cog only reads if it keeps two cues and drops the rest: a
--- toothed rim, and a hollow middle. Spokes were tried and they fill the hole,
--- which is what made the first two attempts look like a smudge - the teeth are
--- what says "cog", so they get the pixels. tools/preview_pocket.py and
--- scratchpad badge sheets were how this was chosen rather than guessed.
-M.BADGE = {
-  "..X.X.X..",
-  ".XXXXXXX.",
-  "XXX...XXX",
-  ".XX...XX.",
-  "XX.....XX",
-  ".XX...XX.",
-  "XXX...XXX",
-  ".XXXXXXX.",
-  "..X.X.X..",
-}
-
-function M.badge(c, x0, y0, ink)
-  for row = 1, #M.BADGE do
-    local line = M.BADGE[row]
-    for col = 1, #line do
-      if line:sub(col, col) == "X" then c:pix(x0 + col - 1, y0 + row - 1, ink) end
-    end
-  end
-  return #M.BADGE[1]
-end
-
 -- ------------------------------------------------------------------ gauge ---
--- A terminal readout, not a dashboard. Imperial: bone on near-black, one red
--- for trouble, rules instead of boxes, everything in capitals with the labels
--- on the left and the values lined up under each other. The bar is segmented
--- because a solid bar looks like a modern progress spinner and a run of blocks
--- looks like a machine reporting.
+-- Text. Nothing but text: rules of equals signs, labels in a column, values in
+-- a column, and a loading bar made of hashes. No sub-pixel drawing at all, so
+-- it looks like a terminal reporting rather than a phone app - which is the
+-- point. Imperial colours: bone for what matters, grey for the furniture, red
+-- when something has gone wrong.
 M.WORDS = {
   calling = "REQUESTING UNIT",
   enroute = "UNIT INBOUND",
@@ -81,84 +52,73 @@ M.WORDS = {
   failed  = "OPERATION ENDED",
 }
 
-local function ruleRow(c, y, slot)
-  c:text(1, y, string.rep("-", c.w), slot)
+M.SPIN = { "|", "/", "-", "\\" }
+
+-- [########............] with the fill rounded down, so it only shows full
+-- when it really is.
+function M.bar(width, frac)
+  local inner = math.max(1, width - 2)
+  local lit = math.floor(inner * math.max(0, math.min(1, frac or 0)))
+  return "[" .. string.rep("#", lit) .. string.rep(".", inner - lit) .. "]"
 end
 
--- A segmented bar: `cells` blocks with a gap between them, filled to frac.
-local function segbar(c, x0, ypx, wpx, hpx, frac, ink, dim)
-  frac = math.max(0, math.min(1, frac or 0))
-  local seg, gap = 2, 1
-  local n = math.floor((wpx + gap) / (seg + gap))
-  local lit = math.floor(n * frac + 0.5)
-  for i = 0, n - 1 do
-    local col = (i < lit) and ink or dim
-    for x = 0, seg - 1 do
-      for y = 0, hpx - 1 do c:pix(x0 + i * (seg + gap) + x, ypx + y, col) end
-    end
-  end
-  return n, lit
+-- "1332 BLOCKS", "0:47", that sort of thing
+local function clock(sec)
+  if not sec then return "--:--" end
+  return string.format("%d:%02d", math.floor(sec / 60), math.floor(sec % 60))
 end
 
--- view as for M.map, plus:
---   start = the distance when this leg began, so the bar has something to fill
---   eta   = seconds left, or nil while it is still working that out
 function M.gauge(D, c, view)
   local C = D.C
   local dim, bone, bright, red = C.dim, C.white, C.bright, C.red
   c:clear()
-  local pw = c.w * 2
+  local w = c.w
   local away = view.away
   local start = math.max(view.start or away or 1, 1)
   local frac = away and (1 - away / start) or 0
   if view.state == "waiting" or view.state == "done" then frac = 1 end
   local failed = view.state == "failed"
-
-  -- header: the cog, who is serving you, and the unit
-  M.badge(c, 1, 1, bone)
-  c:text(7, 1, "CHILL GRILL", bone)
-  c:text(7, 2, "AIR TAXI", dim)
-  c:text(7, 3, tostring(view.unit or "NO UNIT"):upper():sub(1, c.w - 7), dim)
-  ruleRow(c, 4, dim)
-  c:text(1, 5, (M.WORDS[view.state] or "STANDING BY"):sub(1, c.w), failed and red or bright)
-
-  -- Fixed rows, counted from the bottom, so the layout does not move when the
-  -- number gains a digit. Derived rows put the ETA under the rule at three
-  -- digits and hid it, which is exactly the sort of thing the desktop render
-  -- is for.
-  local rowBlocks = c.h - 7        -- the word under the digits
-  local rowVector = c.h - 5        -- VECTOR and its bar
-  local rowEta    = c.h - 3
-  local rowRule   = c.h - 2
-  local digits = away and tostring(math.floor(away)) or "----"
-  local scale = (#digits <= 3) and 4 or 3
-  c:text(1, 7, "RANGE", dim)
-  local wpx = #digits * 4 * scale
-  -- sit the digits on the line above BLOCKS, whatever their size
-  c:bigText(math.max(1, pw - wpx - 2), (rowBlocks - 1) * 3 - 5 * scale + 1, digits, bone, scale)
-  c:text(c.w - 5, rowBlocks, "BLOCKS", dim)
-
-  c:text(1, rowVector, "VECTOR", dim)
-  segbar(c, 3, rowVector * 3 + 1, pw - 6, 3, frac, bone, C.grid)
-
-  c:text(1, rowEta, "ETA", dim)
-  local left = view.eta and string.format("%d:%02d", math.floor(view.eta / 60), math.floor(view.eta % 60))
-               or "--:--"
-  if view.state == "waiting" then left = "ON STATION" end
-  c:text(9, rowEta, left:upper(), bright)
-
-  ruleRow(c, rowRule, dim)
-  if view.state == "waiting" then
-    c:text(1, c.h - 1, "BOARD, THEN PRESS G", bright)
-  elseif failed then
-    c:text(1, c.h - 1, tostring(view.detail or "NO UNIT AVAILABLE"):upper():sub(1, c.w), red)
-  else
-    c:text(1, c.h - 1, "M MAP    Q ABORT", dim)
+  local function row(y, label, value, col)
+    c:text(1, y, label, dim)
+    if value then c:text(9, y, tostring(value):sub(1, w - 9), col or bone) end
   end
-  -- a cursor that blinks where a terminal would leave one
-  local spin = ({ "|", "/", "-", "\\" })[((view.spin or 0) % 4) + 1]
-  c:text(1, c.h, (spin .. " " .. tostring(view.state or ""):upper()):sub(1, c.w), dim)
-  if (view.spin or 0) % 2 == 0 then c:text(c.w, c.h, "_", bone) end
+
+  c:text(1, 1, string.rep("=", w), dim)
+  c:text(1, 2, ("CHILL GRILL // AIR TAXI"):sub(1, w), bone)
+  c:text(1, 3, string.rep("=", w), dim)
+
+  row(5, "UNIT", tostring(view.unit or "-- ASSIGNING"):upper(), bone)
+  row(6, "STATUS", M.WORDS[view.state] or "STANDING BY", failed and red or bright)
+  row(7, "RANGE", away and (math.floor(away) .. " BLOCKS") or "----", bone)
+  row(8, "ETA", view.state == "waiting" and "ON STATION" or clock(view.eta), bone)
+
+  c:text(1, 10, M.bar(w, frac), bone)
+  c:text(1, 11, string.format("%d%% %s", math.floor(frac * 100 + 0.5),
+    view.state == "riding" and "OF THE WAY" or view.state == "waiting" and "ON STATION" or "CLOSING"), dim)
+
+  if view.state == "waiting" then
+    c:text(1, 13, string.rep("-", w), dim)
+    c:text(1, 14, "BOARD, THEN PRESS G", bright)
+    c:text(1, 15, string.rep("-", w), dim)
+  elseif failed and view.detail then
+    c:text(1, 14, tostring(view.detail):upper():sub(1, w), red)
+  else
+    -- the empty middle is where a terminal would print what it has been
+    -- doing, so it does: the last few lines of the job, oldest at the top
+    local log = view.log or {}
+    local room = (c.h - 4) - 13
+    local first = math.max(1, #log - room + 1)
+    local y = 13
+    for i = first, #log do
+      c:text(1, y, tostring(log[i]):upper():sub(1, w), dim)
+      y = y + 1
+    end
+  end
+
+  c:text(1, c.h - 2, string.rep("-", w), dim)
+  c:text(1, c.h - 1, "M MAP    Q ABORT", dim)
+  c:text(1, c.h, "> " .. M.SPIN[((view.spin or 0) % 4) + 1] ..
+                 (((view.spin or 0) % 2 == 0) and " _" or ""), bone)
   return c
 end
 
@@ -175,7 +135,7 @@ function M.map(D, c, view)
 
   c:clear()
   local pw, ph = c.w * 2, c.h * 3
-  local top, bot = 12, ph - 12                      -- room for a heading and a readout
+  local top, bot = 6, ph - 12                      -- room for a heading and a readout
   local cx, cy = pw / 2, (top + bot) / 2
   local away = view.away or 0
   local span = math.max(away, 40) * 1.3            -- blocks from the middle to the edge
@@ -231,9 +191,7 @@ function M.map(D, c, view)
     end
   end
 
-  M.badge(c, 1, 1, white)
-  c:text(7, 1, "CHILL GRILL", white)
-  c:text(7, 2, tostring(view.unit or "NO UNIT"):upper():sub(1, c.w - 7), grey)
+  c:text(1, 1, ("CGAT " .. tostring(view.unit or "NO UNIT")):upper():sub(1, c.w), white)
   c:text(1, c.h - 1, (view.away and string.format("RANGE %d", math.floor(view.away)) or "LOCATING"):sub(1, c.w), white)
   local spin = ({ "|", "/", "-", "\\" })[((view.spin or 0) % 4) + 1]
   c:text(1, c.h, (spin .. " " .. tostring(view.state or ""):upper() .. "  ring " .. ring .. "  M"):sub(1, c.w), amber)

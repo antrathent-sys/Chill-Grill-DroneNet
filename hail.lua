@@ -272,13 +272,19 @@ local function follow(job, from, name, dest)
   local n, t0 = 0, os.clock()
   local here, trail = nil, {}
   local startAway, eta, lastAway, lastAt = nil, nil, nil, nil
+  local log = {}
+  local function note(line)
+    log[#log + 1] = string.format("%s %s", textutils.formatTime(os.time(), true), line)
+    while #log > 6 do table.remove(log, 1) end
+  end
+  note("unit requested")
   mapCanvas = nil                     -- a fresh canvas per ride
   while true do
     if os.clock() - t0 > (aboard and 600 or 300) then return "gave up" end
     -- the map when there is something to draw, the words when there is not
-    if not (here and drawMap({ from = from, drone = here, trail = trail, away = away,
-                               state = state, unit = drone, spin = n, dest = dest,
-                               start = startAway, eta = eta })) then
+    if not drawMap({ from = from, drone = here, trail = trail, away = away,
+                     state = state, unit = drone, spin = n, dest = dest,
+                     start = startAway, eta = eta, log = log }) then
       frame("TAXI: " .. tostring(name):upper(), drone and ("unit " .. drone) or "finding a unit")
       at(1, 6, state == "enroute" and "on its way to you"
             or state == "waiting" and "HERE - get aboard"
@@ -317,6 +323,8 @@ local function follow(job, from, name, dest)
           lastAway, lastAt = away, os.clock()
         elseif msg.type == "job.state" then
           state, drone = msg.state, msg.drone or drone
+          note((MAP and MAP.WORDS[msg.state] or msg.state) ..
+               (msg.detail and (" - " .. tostring(msg.detail)) or ""))
           if msg.state == "riding" or msg.state == "enroute" then
             startAway, eta, lastAway, lastAt = nil, nil, nil, nil   -- new leg, new gauge
           end
