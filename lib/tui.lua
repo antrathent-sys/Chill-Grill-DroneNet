@@ -70,6 +70,17 @@ function T.box(c, x, y, w, h, title, rule, ink)
   return y + 1
 end
 
+-- A section: one rule with the title set into it, and nothing else. Imperial
+-- screens are 70-90% unlit, and a full box spends four cells of ink per row on
+-- being a box - so this is the default and T.box is for the one panel that has
+-- to be fenced off. Returns the first row inside.
+function T.section(c, y, title, rule, ink)
+  rule, ink = rule or T.C.rule, ink or T.C.rule
+  c:text(1, y, string.rep("-", c.w), rule)
+  if title then c:text(3, y, " " .. title .. " ", ink) end
+  return y + 1
+end
+
 -- A bar: filled cells on a track, so it reads as a bar and not as text.
 function T.bar(c, x, y, w, frac, ink, track)
   frac = math.max(0, math.min(1, frac or 0))

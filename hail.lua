@@ -286,7 +286,7 @@ end
 local function follow(job, from, name)
   local aboard, state, drone, away = false, "calling", nil, nil
   local n, t0 = 0, os.clock()
-  local here = nil
+  local here, showLog = nil, false
   local startAway, eta, lastAway, lastAt = nil, nil, nil, nil
   local log = {}
   local function note(line)
@@ -299,7 +299,7 @@ local function follow(job, from, name)
     if os.clock() - t0 > (aboard and 600 or 300) then return "gave up" end
     -- the map when there is something to draw, the words when there is not
     if not drawRide({ away = away, state = state, unit = drone, spin = n,
-                      start = startAway, eta = eta, log = log }) then
+                      start = startAway, eta = eta, log = log, showLog = showLog }) then
       frame("TAXI: " .. tostring(name):upper(), drone and ("unit " .. drone) or "finding a unit")
       at(1, 6, state == "enroute" and "on its way to you"
             or state == "waiting" and "HERE - get aboard"
@@ -355,7 +355,9 @@ local function follow(job, from, name)
       end
     elseif ev[1] == "char" then
       local ch = tostring(ev[2]):lower()
-      if ch == "g" and aboard then
+      if ch == "l" then
+        showLog = not showLog
+      elseif ch == "g" and aboard then
         say(F.go(job, nonce()))
         state = "riding"
       elseif ch == "q" then

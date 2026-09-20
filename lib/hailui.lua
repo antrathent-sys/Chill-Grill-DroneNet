@@ -41,17 +41,17 @@ function M.places(T, c, view)
   c:text(1, 5, string.format("AT %d, %d", view.from.x, view.from.z), T.C.faint)
 
   local top, bottom = 6, h - 2
-  T.box(c, 1, top, w, bottom - top + 1, "PLACES", T.C.rule, T.C.rule)
-  local rows = (bottom - 1) - (top + 1) + 1
+  T.section(c, top, "PLACES")
+  local rows = bottom - top
   local first = math.max(1, math.min(view.top or 1, math.max(1, #view.places - rows + 1)))
   for i = 0, rows - 1 do
     local p = view.places[first + i]
     if p then
-      T.row(c, 2, top + 1 + i, w - 2, p.name:upper(), string.format("%5d", math.floor(p.dist or 0)),
+      T.row(c, 1, top + 1 + i, w, p.name:upper(), string.format("%5d", math.floor(p.dist or 0)),
             (first + i) == view.sel)
     end
   end
-  if #view.places == 0 then c:text(3, top + 1, "NONE KNOWN - PRESS C", T.C.faint) end
+  if #view.places == 0 then c:text(2, top + 1, "NONE KNOWN - PRESS C", T.C.faint) end
 
   T.keys(c, h, { { "UP/DN", "PICK", true }, { "ENT", "GO" }, { "C", "XZ" } })
   return rows
@@ -70,43 +70,43 @@ function M.ride(T, c, view)
 
   T.masthead(c, 1, M.NAME, T.C.text)
 
-  -- UNIT, with the status under it, and ETA beside it
-  local etaW = 9
-  local unitW = w - etaW - 1
-  local r = T.box(c, 1, 3, unitW, 4, "UNIT", T.C.rule, T.C.rule)
-  c:text(3, r, tostring(view.unit or "ASSIGNING"):upper():sub(1, unitW - 3), T.C.text)
-  c:text(3, r + 1, (M.WORDS[view.state] or "STANDING BY"):sub(1, unitW - 3),
+  -- UNIT and its status
+  local r = T.section(c, 3, "UNIT")
+  c:text(2, r, tostring(view.unit or "ASSIGNING"):upper():sub(1, w - 10), T.C.text)
+  c:text(w - 7, r, (view.state == "waiting" and "HERE" or clock(view.eta)), T.C.text)
+  c:text(2, r + 1, (M.WORDS[view.state] or "STANDING BY"):sub(1, w - 10),
          failed and T.C.warn or (view.state == "waiting" and T.C.ok or T.C.accent))
-  local r2 = T.box(c, unitW + 2, 3, etaW, 4, "ETA", T.C.rule, T.C.rule)
-  c:text(unitW + 4, r2, (view.state == "waiting" and "HERE" or clock(view.eta)):sub(1, etaW - 3), T.C.text)
-  c:text(unitW + 4, r2 + 1, view.state == "riding" and "TO GO" or "OUT", T.C.faint)
+  c:text(w - 7, r + 1, view.state == "riding" and "TO GO" or "OUT", T.C.faint)
 
   -- RANGE, the number the customer actually wants, with its bar
-  r = T.box(c, 1, 7, w, 4, "RANGE", T.C.rule, T.C.rule)
+  r = T.section(c, 6, "RANGE")
   local num = away and tostring(math.floor(away)) or "----"
-  c:text(3, r, num, T.C.text)
-  c:text(3 + #num + 1, r, "BLOCKS", T.C.faint)
-  c:text(w - 5, r, string.format("%3d%%", math.floor(frac * 100 + 0.5)), T.C.faint)
-  T.bar(c, 3, r + 1, w - 4, frac, failed and T.C.warn or T.C.accent, T.C.panel)
+  c:text(2, r, num, T.C.text)
+  c:text(2 + #num + 1, r, "BLOCKS", T.C.faint)
+  c:text(w - 4, r, string.format("%3d%%", math.floor(frac * 100 + 0.5)), T.C.faint)
+  T.bar(c, 2, r + 1, w - 2, frac, failed and T.C.warn or T.C.accent, T.C.panel)
 
-  -- LOG: what has happened, newest last, the newest line lit
-  local logY, logBottom = 11, h - 1
-  r = T.box(c, 1, logY, w, logBottom - logY + 1, "LOG", T.C.rule, T.C.rule)
-  local log = view.log or {}
-  local rows = (logBottom - 1) - r + 1
-  local first = math.max(1, #log - rows + 1)
-  for i = first, #log do
-    local last = (i == #log)
-    c:text(3, r + (i - first), tostring(log[i]):upper():sub(1, w - 4), last and T.C.text or T.C.faint)
+  -- LOG, only when it is wanted: a scrolling transcript is the least Imperial
+  -- thing on the screen, so it is off unless the customer presses L
+  if view.log and view.showLog then
+    local logY, logBottom = 9, h - 1
+    r = T.section(c, logY, "LOG")
+    local log = view.log
+    local rows = logBottom - logY
+    local first = math.max(1, #log - rows + 1)
+    for i = first, #log do
+      c:text(2, r + (i - first), tostring(log[i]):upper():sub(1, w - 2),
+             (i == #log) and T.C.text or T.C.faint)
+    end
   end
   if failed and view.detail then
-    c:text(3, logBottom - 1, tostring(view.detail):upper():sub(1, w - 4), T.C.warn)
+    c:text(2, h - 2, tostring(view.detail):upper():sub(1, w - 2), T.C.warn)
   end
 
   if view.state == "waiting" then
-    T.keys(c, h, { { "G", "BOARD", true }, { "Q", "ABORT" } })
+    T.keys(c, h, { { "G", "BOARD", true }, { "L", "LOG" }, { "Q", "ABORT" } })
   else
-    T.keys(c, h, { { "Q", "ABORT" } })
+    T.keys(c, h, { { "L", "LOG" }, { "Q", "ABORT" } })
   end
   c:text(w, h, T.spin(view.spin), T.C.rule)
   return c

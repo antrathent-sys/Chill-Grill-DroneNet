@@ -61,13 +61,13 @@ function M.board(T, c, view)
   local fleetW = wide and math.floor(w * 0.52) or w
   local fleetH = wide and (bottom - top + 1) or math.max(5, math.floor((bottom - top + 1) * 0.6))
 
-  local r = T.box(c, 1, top, fleetW, fleetH, "FLEET", T.C.rule, T.C.rule)
+  local r = T.section(c, top, "FLEET")
   -- one format string for the header and the rows, so the columns cannot
   -- drift apart (they did: STATE and BATT overlapped at 29 columns)
-  local inner = fleetW - 3
+  local inner = fleetW - 2
   local nameW = math.max(6, inner - 14)
   local fmt = "%-" .. nameW .. "s %-7s %s"
-  c:text(3, r, string.format(fmt, "UNIT", "STATE", "BATT"), T.C.faint)
+  c:text(2, r, string.format(fmt, "UNIT", "STATE", "BATT"), T.C.faint)
   local rows = (top + fleetH - 2) - (r + 1) + 1
   local first = math.max(1, math.min((view.sel or 1) - math.floor(rows / 2), #view.units - rows + 1))
   if first < 1 then first = 1 end
@@ -76,13 +76,13 @@ function M.board(T, c, view)
     if u then
       -- the job marker goes IN the line, not in a right-hand column: a
       -- right-hand value landed on top of the battery figure
-      T.row(c, 2, r + 1 + i, fleetW - 2,
+      T.row(c, 1, r + 1 + i, fleetW - 1,
             string.format(fmt, tostring(u.id):upper():sub(1, nameW), tostring(u.state):sub(1, 7), pct(u.batt))
               .. (u.job and " *" or ""),
             nil, (first + i) == view.sel)
     end
   end
-  if #view.units == 0 then c:text(3, r + 1, "NOTHING HAS CALLED IN", T.C.faint) end
+  if #view.units == 0 then c:text(2, r + 1, "NOTHING HAS CALLED IN", T.C.faint) end
 
   -- the selected unit, in words
   local sel = view.units[view.sel or 1]
@@ -97,14 +97,14 @@ function M.board(T, c, view)
   end
 
   if wide and sel then
-    local d = T.box(c, logX, logY, logW, 6, "UNIT", T.C.rule, T.C.rule)
-    c:text(logX + 2, d, tostring(sel.id):upper():sub(1, logW - 4), T.C.text)
-    c:text(logX + 2, d + 1, tostring(sel.state):upper():sub(1, logW - 4),
+    local d = T.section(c, logY, "UNIT")
+    c:text(logX + 1, d, tostring(sel.id):upper():sub(1, logW - 2), T.C.text)
+    c:text(logX + 1, d + 1, tostring(sel.state):upper():sub(1, logW - 2),
            sel.state == "LOST" and T.C.warn or T.C.accent)
-    c:text(logX + 2, d + 2, (sel.x and string.format("%d, %d", sel.x, sel.z) or "POSITION UNKNOWN"):sub(1, logW - 4), T.C.faint)
-    c:text(logX + 2, d + 3, (sel.job and ("JOB " .. tostring(sel.job):sub(1, logW - 8)) or "NO JOB"), T.C.faint)
-    logY = logY + 6
-    logH = logH - 6
+    c:text(logX + 1, d + 2, (sel.x and string.format("%d, %d", sel.x, sel.z) or "NO FIX"):sub(1, logW - 2), T.C.faint)
+    c:text(logX + 1, d + 3, (sel.job and ("JOB " .. tostring(sel.job):sub(1, logW - 6)) or "NO JOB"), T.C.faint)
+    logY = logY + 5
+    logH = logH - 5
   end
 
   if not wide and sel then
@@ -116,12 +116,12 @@ function M.board(T, c, view)
     logH = logH - 1
   end
 
-  local lr = T.box(c, logX, logY, logW, logH, "LOG", T.C.rule, T.C.rule)
+  local lr = T.section(c, logY, "LOG")
   local log = view.log or {}
-  local lrows = (logY + logH - 2) - lr + 1
+  local lrows = (logY + logH - 1) - lr + 1
   local lfirst = math.max(1, #log - lrows + 1)
   for i = lfirst, #log do
-    c:text(logX + 2, lr + (i - lfirst), tostring(log[i]):upper():sub(1, logW - 4),
+    c:text(logX + 1, lr + (i - lfirst), tostring(log[i]):upper():sub(1, logW - 2),
            (i == #log) and T.C.text or T.C.faint)
   end
 
