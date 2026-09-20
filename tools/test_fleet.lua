@@ -66,6 +66,23 @@ local mixed = { ["n-1"] = 100, job = { id = "j-1" } }   -- a store with junk in 
 check("ageing nonces steps over anything that is not a timestamp",
   (F.fresh(mixed, "n-2", 500)) and mixed.job ~= nil)
 
+print("where the taxi is, and where a customer can go")
+local tr = F.track("j-1", "drone-1", 100.6, -50.2, 14)
+check("a track message carries the position", (F.check(tr)) and tr.x == 100.6 and tr.eta == 14)
+check("without a position it is refused", why({ v = 1, type = "job.track", nonce = "a", job = "j" }) == "no position")
+local packed = F.packPlaces({ { name = "pier", x = 100.7, z = -50.2 }, { name = "depot", x = -12, z = 3 },
+                              { name = "bad" }, "nonsense" })
+-- floor, so a coordinate always names the block it is in, negatives included
+check("places pack flat", packed == "pier:100:-51|depot:-12:3", packed)
+local back = F.unpackPlaces(packed)
+check("and come back whole", #back == 2 and back[1].name == "pier" and back[1].x == 100
+  and back[1].z == -51 and back[2].z == 3)
+check("rubbish unpacks to nothing", #F.unpackPlaces("|:|x:y:z|") == 0)
+check("an empty list is still a valid message", (F.check(F.placesList({}, "n-1"))))
+check("and the ask is too", (F.check(F.placesAsk("n-2"))))
+check("a name with a separator in it cannot break the packing",
+  F.unpackPlaces(F.packPlaces({ { name = "a:b|c", x = 1, z = 2 } }))[1].name == "abc")
+
 print("one hail per caller at a time")
 local rate = {}
 check("first hail goes through", (F.rateOk(rate, "pocket-1", 100, 20)))

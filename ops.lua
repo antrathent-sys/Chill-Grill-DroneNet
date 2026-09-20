@@ -397,6 +397,10 @@ function handle(from, msg)
               id and (id .. " " .. tostring(why)) or ("nobody: " .. tostring(why)))
           end
         end
+      elseif msg.type == "places.ask" then
+        -- the pads this base knows, so a customer picks a name instead of
+        -- typing coordinates off F3
+        pcall(rednet.send, from, F.placesList(pads, nonce()), F.PROTO)
       elseif msg.type == "ops.ping" then
         -- "can you hear me?" - and how many drones are free right now
         local free = 0
@@ -460,6 +464,23 @@ local function finish(j, why)
   end
 end
 
+-- Where the taxi is, sent to the customer while their job is live. They hold
+-- no keys and cannot read telemetry themselves, so this is the only way their
+-- terminal can say how far away it is.
+local function tracker()
+  while true do
+    for _, j in pairs(jobs) do
+      if type(j) == "table" and j.client and j.state ~= "done" and j.state ~= "failed" then
+        local d = fleet[j.drone]
+        if d and d.x and d.z then
+          pcall(rednet.send, j.client, F.track(j.id, j.drone, d.x, d.z, nil, nonce()), F.PROTO)
+        end
+      end
+    end
+    sleep(1)
+  end
+end
+
 local function watchdog()
   while true do
     local now = os.clock()
@@ -520,5 +541,5 @@ local function keys()
   end
 end
 
-parallel.waitForAny(receive, serve, watchdog, draw, keys)
+parallel.waitForAny(receive, serve, watchdog, tracker, draw, keys)
 print("ops stopped")

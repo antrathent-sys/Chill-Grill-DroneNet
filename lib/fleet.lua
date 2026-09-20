@@ -34,6 +34,12 @@
 --   job.go        job nonce                                pad  -> drone
 --   pad.stats     pad rides requests failures lastRide     pad  -> ops
 --   ops.fly       args nonce                                ops  -> drone
+--   job.track     job drone x z [eta] nonce                  ops  -> customer
+--                 (where the taxi is, a few times a second-ish, so the
+--                  terminal can show how far away it is)
+--   places.ask    nonce                                     anyone -> ops
+--   places.list   places nonce                              ops  -> anyone
+--                 (places is "name:x:z|name:x:z|...", the pads ops knows)
 --   ops.ping      nonce                                     anyone -> ops
 --                 (answered with a job.ack, so a customer can tell "the base
 --                  cannot hear me" from "the base has no drone free")
@@ -51,7 +57,8 @@ F.PROTO = "dronenet"
 F.STATES = { assigned = true, enroute = true, waiting = true, riding = true, done = true, failed = true }
 F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["job.state"] = true, ["job.go"] = true, ["pad.stats"] = true,
-            ["ops.fly"] = true, ["ops.ping"] = true }
+            ["ops.fly"] = true, ["ops.ping"] = true, ["job.track"] = true,
+            ["places.ask"] = true, ["places.list"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -130,6 +137,11 @@ function F.check(m)
   elseif m.type == "job.state" then
     if not (str(m.job) and str(m.drone)) then return false, "no job or drone" end
     if not F.STATES[m.state] then return false, "state " .. tostring(m.state) end
+  elseif m.type == "job.track" then
+    if not str(m.job) then return false, "no job id" end
+    if not (num(m.x) and num(m.z)) then return false, "no position" end
+  elseif m.type == "places.list" then
+    if type(m.places) ~= "string" then return false, "no places" end
   elseif m.type == "job.go" then
     if not str(m.job) then return false, "no job id" end
   elseif m.type == "ops.fly" then
@@ -168,6 +180,37 @@ end
 
 function F.flyCommand(args, nonce)
   return { v = F.VERSION, type = "ops.fly", nonce = nonce, args = args }
+end
+
+function F.track(job, drone, x, z, eta, nonce)
+  return { v = F.VERSION, type = "job.track", nonce = nonce or (job .. "-t"),
+           job = job, drone = drone, x = x, z = z, eta = eta }
+end
+
+-- The places a customer can pick from, packed flat because a sealed message
+-- cannot carry a table: "name:x:z|name:x:z|..."
+function F.packPlaces(list)
+  local out = {}
+  for _, p in ipairs(list or {}) do
+    if type(p) == "table" and p.name and p.x and p.z then
+      out[#out + 1] = string.format("%s:%d:%d", tostring(p.name):gsub("[|:]", ""), math.floor(p.x), math.floor(p.z))
+    end
+  end
+  return table.concat(out, "|")
+end
+
+function F.unpackPlaces(text)
+  local out = {}
+  for chunk in tostring(text or ""):gmatch("[^|]+") do
+    local name, x, z = chunk:match("^([^:]+):(-?%d+):(-?%d+)$")
+    if name then out[#out + 1] = { name = name, x = tonumber(x), z = tonumber(z) } end
+  end
+  return out
+end
+
+function F.placesAsk(nonce) return { v = F.VERSION, type = "places.ask", nonce = nonce } end
+function F.placesList(list, nonce)
+  return { v = F.VERSION, type = "places.list", nonce = nonce, places = F.packPlaces(list) }
 end
 
 function F.ping(nonce)
