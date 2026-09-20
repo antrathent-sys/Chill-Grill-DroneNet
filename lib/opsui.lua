@@ -6,10 +6,15 @@
 -- the selected unit is on the key bar, and nothing that needs a drone selected
 -- is offered when none is.
 --
--- It sizes itself: a 51x19 advanced computer gets the fleet and the log side
--- by side, a smaller screen stacks them and drops the log first. Nothing here
--- talks to a peripheral - ops passes in a table and this draws it - so
--- tools/preview_ops.py renders the same board on the desktop.
+-- It sizes itself for the three screens this actually runs on: an advanced
+-- computer (51x19) puts the fleet and the log side by side; a pocket computer
+-- (26x20) stacks them, shortens the status strip and carries the selected unit
+-- on one line; a monitor is just a bigger version of the first. The key bar
+-- changes with the width too - the operator's own pocket is the one place
+-- where QUIT must never be the key that falls off the end.
+--
+-- Nothing here talks to a peripheral - ops passes in a table and this draws it
+-- - so tools/preview_ops.py renders the same board on the desktop at any size.
 
 local M = {}
 
@@ -32,20 +37,27 @@ function M.board(T, c, view)
   c:clear()
   local y = T.masthead(c, 1, "CONTROL", T.C.text)
 
-  -- a status strip under the masthead: the things that are true right now
-  local strip = string.format("%s   %d UNIT%s   %d JOB%s   %s",
-    view.clock or "--:--", #view.units, #view.units == 1 and "" or "S",
-    view.jobs or 0, (view.jobs or 0) == 1 and "" or "S",
-    view.hails and "HAILS OPEN" or "HAILS CLOSED")
+  -- a status strip under the masthead: the things that are true right now,
+  -- abbreviated rather than truncated when the screen is narrow
+  local wide = w >= 46
+  local strip
+  if wide then
+    strip = string.format("%s   %d UNIT%s   %d JOB%s   %s",
+      view.clock or "--:--", #view.units, #view.units == 1 and "" or "S",
+      view.jobs or 0, (view.jobs or 0) == 1 and "" or "S",
+      view.hails and "HAILS OPEN" or "HAILS CLOSED")
+  else
+    strip = string.format("%s  %dU  %dJ  %s", view.clock or "--:--",
+      #view.units, view.jobs or 0, view.hails and "OPEN" or "SHUT")
+  end
   c:text(1, y + 1, strip:sub(1, w), T.C.faint)
-  if (view.refused or 0) > 0 then
+  if (view.refused or 0) > 0 and wide then
     c:text(w - 12, y + 1, string.format("%4d REFUSED", view.refused), T.C.warn)
   end
 
   -- the fleet, and the log under or beside it
   local top = y + 2
   local bottom = h - 1
-  local wide = w >= 46
   local fleetW = wide and math.floor(w * 0.52) or w
   local fleetH = wide and (bottom - top + 1) or math.max(5, math.floor((bottom - top + 1) * 0.6))
 
@@ -95,6 +107,15 @@ function M.board(T, c, view)
     logH = logH - 6
   end
 
+  if not wide and sel then
+    -- no room for a panel, so the selected unit gets one line
+    c:text(1, logY, (tostring(sel.id):upper() .. " " ..
+      (sel.x and string.format("%d,%d", sel.x, sel.z) or "NO FIX") ..
+      (sel.job and " ON JOB" or "")):sub(1, w), T.C.text)
+    logY = logY + 1
+    logH = logH - 1
+  end
+
   local lr = T.box(c, logX, logY, logW, logH, "LOG", T.C.rule, T.C.rule)
   local log = view.log or {}
   local lrows = (logY + logH - 2) - lr + 1
@@ -104,8 +125,19 @@ function M.board(T, c, view)
            (i == #log) and T.C.text or T.C.faint)
   end
 
-  T.keys(c, h, view.keys or { { "UP/DN", "PICK", true }, { "F", "FLY" }, { "P", "POKE" },
-                              { "R", "FREE" }, { "Q", "QUIT" } })
+  local keys = view.keys
+  if not keys then
+    if wide then
+      keys = { { "UP/DN", "PICK", true }, { "F", "FLY" }, { "P", "POKE" },
+               { "R", "FREE" }, { "Q", "QUIT" } }
+    else
+      -- the arrows are obvious, so they are not listed. QUIT goes FIRST here:
+      -- the bar drops whatever does not fit, and at 26 columns that was QUIT -
+      -- the one key someone must always be able to find.
+      keys = { { "Q", "QUIT" }, { "F", "FLY" }, { "P", "POKE" }, { "R", "FREE" } }
+    end
+  end
+  T.keys(c, h, keys)
   return c
 end
 

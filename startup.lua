@@ -106,7 +106,7 @@ if args[1] == "role" then
       f.close()
     end
     print("role: " .. (role ~= "" and role or "none - this computer pulls every file"))
-    print("startup role <drone|base|pad|pocket|rs|all> to change it")
+    print("startup role <drone|base|pad|pocket|admin|rs|all> to change it")
     return
   end
   roleRequest = args[2]:lower()

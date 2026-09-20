@@ -51,8 +51,6 @@ function(root, w, h, sel)
       "0612 drone-1 riding",
       "0612 pier: 12 rides today",
     },
-    keys = { { "UP/DN", "PICK", true }, { "F", "FLY" }, { "P", "POKE" },
-             { "R", "FREE" }, { "Q", "QUIT" } },
   })
   local rows = {}
   for y = 1, h do

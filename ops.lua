@@ -11,6 +11,13 @@
 --   ops free <drone>     it is not on a job, whatever ops thinks
 --   ops jobs [n]         the last n rides and what they cost in time
 --
+-- It runs on the base computer and, just as happily, on an ender pocket
+-- computer: the board lays itself out for 26 columns and keeps the keys that
+-- matter. A pocket running ops needs .fleetkeys on it to seal orders, so that
+-- pocket can order any drone in the fleet - treat it as the keys to the
+-- hangar, not as a customer terminal (customers run hail, which holds no
+-- keys).
+--
 -- <who> is a drone id, or "any" for the nearest one that is docked, has called
 -- in within the last 15 s and is not already on a job.
 --
@@ -629,8 +636,6 @@ local function drawBoard()
   UI.board(T, canvas, {
     units = list, sel = sel, log = events, jobs = liveJobs(), refused = rejected,
     clock = textutils.formatTime(os.time(), true), hails = openToHails,
-    keys = { { "UP/DN", "PICK", #list > 0 }, { "F", "FLY" }, { "P", "POKE" },
-             { "R", "FREE" }, { "Q", "QUIT" } },
   })
   canvas:flush(term)
   return list
