@@ -137,14 +137,22 @@ local function myNonce()
   return F.nonce(id, tostring(os.epoch and os.epoch("utc") or os.clock()) .. "." .. orderSeq)
 end
 
--- ONE sealer for everything this drone sends. Two sealers over the same key
--- both reserve counters out of .dronekey.ctr and then interleave, and the base
--- refuses any counter that does not rise - which silently ate half the job
--- states the first time orders and telemetry had a sealer each (2026-09-20).
+-- ONE sealer at a time for everything this drone sends. Two live sealers over
+-- the same key both reserve counters out of .dronekey.ctr and then interleave,
+-- and the base refuses any counter that does not rise - which silently ate half
+-- the job states the first time orders and telemetry had a sealer each.
+--
+-- ...and a FRESH one after every flight: fly seals its own telemetry with the
+-- same key and file and leaves the counter far ahead, so the sealer beacon was
+-- using before the flight is now behind and everything it sends is refused as
+-- a replay. That is what swallowed "your taxi has landed" on the first real
+-- ride: the drone arrived, said so, and the base threw the packet away
+-- (2026-09-20).
 local function sealer()
   if not orderSealer then orderSealer = SEC.sender(key, id, SEC.DIR.DRONE_TO_BASE, ".dronekey.ctr") end
   return orderSealer
 end
+local function sealerAfterFlight() orderSealer = nil end
 
 -- Answer the base, sealed as this drone. The reply rides the same channel.
 local function say(msg)
@@ -309,6 +317,7 @@ while true do
     local ordered = (pending ~= nil)
     pending = nil
     local flew = shell.run("fly " .. line)
+    sealerAfterFlight()     -- fly moved the counter on; start above it
     if ordered then jobStep(flew and true or false) end
     line = pending
   end

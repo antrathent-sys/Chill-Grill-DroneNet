@@ -250,6 +250,28 @@ check("a second job while carrying someone is refused", #acks == 2 and acks[1].o
   and acks[2].why:find("already on j-1", 1, true) ~= nil, acks[2] and acks[2].why)
 check("and it is not flown", #w.runs == 1, #w.runs)
 
+print("a counter that keeps rising across the flights of a job")
+-- fly seals with the same key and counter file while it flies, so beacon has
+-- to start a fresh sealer afterwards or the base refuses everything it says
+local flightCtr = 0
+local function flyMovesTheCounter(w)
+  return function(cmd)
+    w.runs[#w.runs + 1] = cmd
+    flightCtr = tonumber(w.files[".dronekey.ctr"] or "0") + 500
+    w.files[".dronekey.ctr"] = tostring(flightCtr)   -- as fly leaves it
+    return true
+  end
+end
+local wc = drone({ name = "pad", cycles = 1,
+                   inbox = { order(F.assign("j-9", req)), order(F.go("j-9", "pier-3")) } })
+wc.env.shell = { run = flyMovesTheCounter(wc) }
+run(wc)
+check("nothing it says after a flight is refused", wc.refused == 0, wc.refused .. " refused")
+local st9 = {}
+for _, b in ipairs(wc.opened) do if b.type == "job.state" then st9[#st9 + 1] = b.state end end
+check("so the customer hears every step: " .. table.concat(st9, " "),
+  table.concat(st9, " ") == "enroute waiting riding done", table.concat(st9, " "))
+
 print("collected from where the customer stands, not just a pad")
 local hail = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-1", "alex")
 w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-7", hail)), order(F.go("j-7", "pocket-2")) } }))
