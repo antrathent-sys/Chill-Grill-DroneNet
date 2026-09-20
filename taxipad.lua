@@ -135,13 +135,15 @@ local function ride(job, dest)
       if proto == F.PROTO and type(msg) == "table" and (F.check(msg)) and msg.job == job then
         if msg.type == "job.state" then
           if msg.state == "enroute" then
-            print("your taxi is on its way (" .. msg.drone .. ")")
+            print("  " .. msg.drone .. " is on its way. Stand clear of the pad.")
           elseif msg.state == "waiting" then
             print("")
-            print("*** your taxi is here - get on board, then press G ***")
+            print("  ***  YOUR TAXI IS HERE  ***")
+            print("  Climb aboard, then press G to go.")
+            print("")
             boarded = true
           elseif msg.state == "riding" then
-            print("on the way. Sit tight.")
+            print("  On our way. Sit tight.")
           elseif msg.state == "done" then
             return "done"
           elseif msg.state == "failed" then
@@ -163,65 +165,82 @@ local function ride(job, dest)
 end
 
 -- ------------------------------------------------------------------- serve --
+-- The whole customer flow is two presses: type where you are going, then ENTER.
+-- Everything else the pad does for them. Coordinates go in on ONE line, in the
+-- order F3 shows them, so a passenger can read them straight off the screen:
+--   1200 340        x and z
+--   1200 72 340     x, y and z, as F3 prints it
+-- A stray comma or "x=" is thrown away rather than refused.
 print("taxipad " .. padName .. " on " .. table.concat(wired, ", "))
 save()
 
+-- pull the numbers out of whatever they typed
+local function coords(s)
+  local n = {}
+  for w in tostring(s or ""):gmatch("%-?%d+%.?%d*") do n[#n + 1] = tonumber(w) end
+  if #n == 2 then return n[1], nil, n[2] end
+  if #n >= 3 then return n[1], n[2], n[3] end
+  return nil
+end
+
+local function bigMessage(...)
+  local lines = { ... }
+  print("")
+  for _, l in ipairs(lines) do print("  " .. l) end
+  print("")
+end
+
 while true do
   banner()
-  print("Where to? Coordinates from F3, or Q to quit.")
-  local sx = ask("  X: ")
-  if tostring(sx):lower() == "q" then print("bye") return end
-  local sz = ask("  Z: ")
-  local x, z = number(sx), number(sz)
-  if not (x and z) then
-    print("I need two numbers. Try again.")
+  print("Where to? Type the coordinates and press ENTER.")
+  print("(from F3, like  1200 340  - or Q to quit)")
+  print("")
+  local said = ask("  > ")
+  if tostring(said):lower() == "q" then print("bye") return end
+  local x, y, z = coords(said)
+  if not x then
+    bigMessage("I did not catch that.", "Two numbers, like  1200 340")
     sleep(2)
+  elseif not pad.x then
+    bigMessage("This pad does not know where it is.",
+               "Ask an operator to run: fly pad add " .. padName)
+    sleep(4)
   else
-    local sy = ask("  Y (blank = ground): ")
-    local y = number(sy)
-    if not pad.x then
-      print("this pad does not know where it is - add it to pads.lua first")
-      sleep(3)
-    else
-      local dist = math.sqrt((x - pad.x) ^ 2 + (z - pad.z) ^ 2)
-      print("")
-      print(string.format("%d, %d is %d blocks away.", x, z, math.floor(dist)))
-      local yes = ask("Order the taxi? (y/N) ")
-      if tostring(yes):lower():sub(1, 1) == "y" then
-        stats.requests = (stats.requests or 0) + 1
-        local req = F.request(pad, { x = x, z = z, y = y }, nonce(), "pad " .. padName)
-        rednet.broadcast(req, F.PROTO)
-        print("asking the base for a drone...")
-        -- ops answers with an assignment carrying the same nonce
-        local job, t0 = nil, os.clock()
-        while os.clock() - t0 < 10 and not job do
-          local _, msg, proto = rednet.receive(F.PROTO, 10)
-          if proto == F.PROTO and type(msg) == "table" and msg.nonce == req.nonce
-             and msg.type == "job.assign" then
-            job = msg.job
-          elseif type(msg) == "table" and msg.type == "job.ack" and msg.ok == false then
-            print("no taxi available: " .. tostring(msg.why))
-            break
-          end
+    local dist = math.sqrt((x - pad.x) ^ 2 + (z - pad.z) ^ 2)
+    bigMessage(string.format("%d, %d  -  %d blocks away", x, z, math.floor(dist)),
+               "ENTER to call your taxi, or anything else to change it")
+    local go = ask("  > ")
+    if go == "" then
+      stats.requests = (stats.requests or 0) + 1
+      local req = F.request(pad, { x = x, z = z, y = y }, nonce(), "pad " .. padName)
+      rednet.broadcast(req, F.PROTO)
+      print("Calling a taxi...")
+      local job, t0, refused = nil, os.clock(), nil
+      while os.clock() - t0 < 10 and not job and not refused do
+        local _, msg, proto = rednet.receive(F.PROTO, 10)
+        if proto == F.PROTO and type(msg) == "table" and msg.nonce == req.nonce
+           and msg.type == "job.assign" then
+          job = msg.job
+        elseif type(msg) == "table" and msg.type == "job.ack" and msg.ok == false then
+          refused = tostring(msg.why)
         end
-        if not job then
-          F.record(stats, "failure")
-          print("nothing came back. Try again in a minute.")
-          save()
-          sleep(4)
+      end
+      if not job then
+        F.record(stats, "failure")
+        save()
+        bigMessage("No taxi free just now.", refused or "Nothing answered.", "Try again in a minute.")
+        sleep(5)
+      else
+        local how = ride(job, { x = x, z = z })
+        if how == "done" then
+          F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(), blocks = dist })
+          bigMessage("You have arrived. Thanks for flying.")
         else
-          local how = ride(job, { x = x, z = z })
-          if how == "done" then
-            F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(), blocks = dist })
-            print("you have arrived. Thanks for flying.")
-          else
-            F.record(stats, "failure")
-            print("that ride did not finish (" .. how .. ").")
-          end
-          save()
-          print("")
-          ask("press ENTER for the next customer ")
+          F.record(stats, "failure")
+          bigMessage("That ride did not finish (" .. how .. ").")
         end
+        save()
+        sleep(4)
       end
     end
   end
