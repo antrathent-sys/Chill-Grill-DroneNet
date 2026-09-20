@@ -2,7 +2,7 @@
 """Render the pocket terminal's ride screens to a PNG, as the pocket shows them.
 
     python tools/preview_pocket.py [out.png] [--size 26x20] [--scale 14]
-                                   [--theme imperial|silo]
+
 
 Four frames of one ride: the taxi a long way off, closing, landed beside the
 customer, and carrying them to the destination. It calls lib/hailmap.lua - the
@@ -30,21 +30,18 @@ PALETTE = {
 }
 
 RENDER = rb"""
-function(root, w, h, frames, theme, screen)
+function(root, w, h, frames)
   package = package or {}
   local D = dofile(root .. "/lib/display.lua")
-  D.setTheme(theme)
-  local MAP = dofile(root .. "/lib/hailmap.lua")
+  local UI = dofile(root .. "/lib/hailui.lua")
   local out = {}
   for _, fr in ipairs(frames) do
     local c = D.canvas(w, h)
-    local from = { x = 0, z = 0 }
-    local away = math.sqrt(fr.x * fr.x + fr.z * fr.z)
-    local view = { away = away, state = fr.state, unit = "drone-1", spin = fr.spin or 0,
-                   start = fr.start, eta = fr.eta,
-                   log = { "0612 UNIT REQUESTED", "0613 UNIT INBOUND",
-                           fr.state == "riding" and "0615 IN TRANSIT" or nil } }
-    MAP.gauge(D, c, view)
+    local log = { "0612 UNIT REQUESTED", "0613 INBOUND" }
+    if fr.state == "riding" then log[#log + 1] = "0615 BOARDED" end
+    if fr.state == "waiting" then log[#log + 1] = "0615 ON STATION" end
+    UI.ride(D, c, { away = fr.away, state = fr.state, unit = "DRONE-1",
+                    spin = fr.spin or 0, start = fr.start, eta = fr.eta, log = log })
     local rows = {}
     for y = 1, h do
       local s, f, b = c:row(y)
@@ -52,23 +49,15 @@ function(root, w, h, frames, theme, screen)
     end
     out[#out + 1] = table.concat(rows, "\n")
   end
-  local pal = {}
-  for slot, rgb in pairs(D.THEMES[theme].palette) do
-    pal[#pal + 1] = slot .. "=" .. string.format("%06x", rgb)
-  end
-  return table.concat(out, "\1"), table.concat(pal, ",")
+  return table.concat(out, "\1")
 end
 """
 
 FRAMES = [
-    dict(x=1180, z=-620, x0=1400, z0=-900, steps=14, state="enroute", spin=1,
-         dest=False, dx=0, dz=0, start=1670, eta=47),
-    dict(x=190, z=-95, x0=1400, z0=-900, steps=34, state="enroute", spin=2,
-         dest=False, dx=0, dz=0, start=1670, eta=9),
-    dict(x=3, z=-2, x0=1400, z0=-900, steps=40, state="waiting", spin=3,
-         dest=False, dx=0, dz=0, start=1670, eta=0),
-    dict(x=-240, z=310, x0=0, z0=0, steps=12, state="riding", spin=0,
-         dest=True, dx=-900, dz=1150, start=1456, eta=38),
+    dict(away=1332, state="enroute", spin=1, start=1670, eta=47),
+    dict(away=212, state="enroute", spin=2, start=1670, eta=9),
+    dict(away=3, state="waiting", spin=3, start=1670, eta=0),
+    dict(away=392, state="riding", spin=0, start=1456, eta=38),
 ]
 
 # A teletext cell is a 2x3 grid of sub-pixels: bit 1 top-left, 2 top-right,
@@ -76,6 +65,14 @@ FRAMES = [
 # with the bottom-right lit is stored as its inverse with the colours swapped
 # (lib/display.lua:291-325). Drawing the six rectangles is what a CC screen
 # does, and it is the only way this preview looks like the real one.
+# PIL reads a bare integer fill as 0xBBGGRR, so every colour has to be handed
+# over as a tuple or the whole preview comes out with its channels swapped -
+# which is exactly what happened: cyan borders rendered gold for three rounds
+# of "that does not look right".
+def rgb(v):
+    return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
+
+
 def cell_bits(code):
     if code < 128 or code > 159:
         return None
@@ -88,14 +85,14 @@ def draw_frame(rows, scale, font, label):
     w = len(rows[0].split(b"\0")[0])
     cw = scale                       # cell width in pixels; 2 sub-pixels across
     ch = scale * 3 // 2              # and 3 down
-    img = Image.new("RGB", (w * cw, h * ch + 20), 0x111111)
+    img = Image.new("RGB", (w * cw, h * ch + 20), rgb(0x111111))
     d = ImageDraw.Draw(img)
     sw, sh = cw / 2.0, ch / 3.0
     for y, row in enumerate(rows):
         text, fg, bg = row.split(b"\0")
         for x in range(w):
-            ink = PALETTE.get(chr(fg[x]), 0xF0F0F0)
-            paper = PALETTE.get(chr(bg[x]), 0x111111)
+            ink = rgb(PALETTE.get(chr(fg[x]), 0xF0F0F0))
+            paper = rgb(PALETTE.get(chr(bg[x]), 0x111111))
             code = text[x]
             d.rectangle([x * cw, y * ch, (x + 1) * cw - 1, (y + 1) * ch - 1], fill=paper)
             bits = cell_bits(code)
@@ -108,7 +105,7 @@ def draw_frame(rows, scale, font, label):
                         d.rectangle([x0, y0, x0 + sw - 1, y0 + sh - 1], fill=ink)
             elif code != 32:
                 d.text((x * cw + 1, y * ch), chr(code), font=font, fill=ink)
-    d.text((2, h * ch + 4), label, font=font, fill=0x999999)
+    d.text((2, h * ch + 4), label, font=font, fill=rgb(0x999999))
     return img
 
 
@@ -117,7 +114,6 @@ def main():
     ap.add_argument("out", nargs="?", default=os.path.join(HERE, "pocket.png"))
     ap.add_argument("--size", default="26x20")
     ap.add_argument("--scale", type=int, default=14)
-    ap.add_argument("--theme", default="imperial", help="imperial or silo")
     a = ap.parse_args()
     w, h = (int(v) for v in a.size.lower().split("x"))
 
@@ -128,23 +124,20 @@ def main():
         "{" + ",".join("%s=%s" % (k, ("true" if v is True else "false" if v is False
                                       else repr(v).replace("'", '"')))
                        for k, v in f.items()) + "}" for f in FRAMES) + "}"
-    blob, pal = L.eval(RENDER)(ROOT.replace("\\", "/").encode(), w, h,
-                               L.eval(lua_frames.encode()), a.theme.encode(), b"gauge")
+    blob = L.eval(RENDER)(ROOT.replace("\\", "/").encode(), w, h,
+                          L.eval(lua_frames.encode()))
     frames = blob.split(b"\1")
-    for pair in pal.decode().split(","):
-        slot, rgb = pair.split("=")
-        PALETTE[slot] = int(rgb, 16)
 
     try:
         font = ImageFont.truetype("consola.ttf", a.scale)
     except Exception:
         font = ImageFont.load_default()
 
-    labels = ["a long way off", "nearly with you", "landed beside you", "carrying you"]
+    labels = ["a long way off", "nearly with you", "on station", "carrying you"]
     imgs = [draw_frame(f, a.scale, font, labels[i]) for i, f in enumerate(frames)]
     pad = 10
     sheet = Image.new("RGB", (sum(i.width for i in imgs) + pad * (len(imgs) + 1),
-                              max(i.height for i in imgs) + pad * 2), 0x000000)
+                              max(i.height for i in imgs) + pad * 2), (0, 0, 0))
     x = pad
     for im in imgs:
         sheet.paste(im, (x, pad))

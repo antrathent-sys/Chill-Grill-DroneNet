@@ -33,8 +33,8 @@ local D, MAP                -- lib/display.lua for its canvas, lib/hailmap for t
 do
   local okD, mod = pcall(dofile, "lib/display.lua")
   if okD and type(mod) == "table" and mod.canvas then D = mod end
-  local okM, m = pcall(dofile, "lib/hailmap.lua")
-  if okM and type(m) == "table" and m.draw then MAP = m end
+  local okM, m = pcall(dofile, "lib/hailui.lua")
+  if okM and type(m) == "table" and m.ride then MAP = m end
 end
 
 local args = { ... }
@@ -256,7 +256,7 @@ local rideCanvas
 local function drawRide(view)
   if not (D and MAP) then return false end
   if not rideCanvas then rideCanvas = D.canvas(W, H) end
-  MAP.gauge(D, rideCanvas, view)
+  MAP.ride(D, rideCanvas, view)
   rideCanvas:flush(term)
   return true
 end
