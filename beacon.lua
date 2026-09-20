@@ -161,6 +161,7 @@ local function netLoop()
   while true do
     local _, _, ch, _, env = os.pullEvent("modem_message")
     local msg
+    if ch == link.CHANNEL then run.heard = (run.heard or 0) + 1 end
     if ch == link.CHANNEL and type(env) == "table" and env.sl then
       -- our key, our direction, and a counter that has not been used before
       local okO, body = pcall(orderRx.open, env, function(who) return who == id and key or nil end,
@@ -250,7 +251,11 @@ local function sendLoop()
     local _, y = term.getCursorPos()
     term.setCursorPos(1, y)
     term.clearLine()
-    term.write(string.format("#%d %s  batt %s  FE %s", run.seq, s.phase:upper(), pct(mon.energy), pct(fuel.pct)):sub(1, w))
+    -- "hrd" is how many packets have arrived on the order channel: 0 while the
+    -- base is poking means nothing is reaching this drone at all, which is a
+    -- different problem from an order it cannot open
+    term.write(string.format("#%d %s  batt %s  FE %s  hrd %d", run.seq, s.phase:upper(),
+      pct(mon.energy), pct(fuel.pct), run.heard or 0):sub(1, w))
     sleep(PERIOD)
   end
 end
