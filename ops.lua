@@ -7,7 +7,8 @@
 --   ops land|hold|undock <who>     the in-flight words fly already takes
 --   ops stats            what the taxi pads have reported
 --   ops closed           run the board but turn radio hails away
---   ops poke <drone>     prove the cable: ask a drone to answer, nothing flies
+--   ops poke <drone>     prove the link: ask a drone to answer, nothing flies
+--   ops free <drone>     it is not on a job, whatever ops thinks
 --
 -- <who> is a drone id, or "any" for the nearest one that is docked, has called
 -- in within the last 15 s and is not already on a job.
@@ -327,6 +328,22 @@ if cmd == "poke" then
   return
 end
 
+if cmd == "free" then
+  -- the operator's override: this drone is not on a job, whatever ops thinks
+  local who = args[2]
+  if not who then print("ops free <drone>") return end
+  print("listening 3 s...")
+  parallel.waitForAny(receive, function() sleep(3) end)
+  local had = fleet[who] and fleet[who].job
+  if fleet[who] then fleet[who].job = nil end
+  for _, j in pairs(jobs) do
+    if type(j) == "table" and j.drone == who and j.state ~= "done" then j.state = "failed" end
+  end
+  print(had and (who .. " was on " .. tostring(had) .. " - cleared") or (who .. " was already free"))
+  print("(ops in watch mode keeps its own list; restart it there if it still says busy)")
+  return
+end
+
 if cmd == "stats" then
   print("listening 10 s for pad reports (each pad sends on the minute and after a ride)...")
   local heard = 0
@@ -345,7 +362,8 @@ if cmd == "stats" then
 end
 
 if cmd ~= "watch" then
-  print("ops: watch | list | fly <who> <...> | send <who> <pad> | land|hold|undock <who> | stats")
+  print("ops: watch | list | fly <who> <...> | send <who> <pad> | poke <who> | free <who>")
+  print("     | land|hold|undock <who> | stats | closed")
   return
 end
 
@@ -404,7 +422,7 @@ function handle(from, msg)
       elseif msg.type == "job.state" then
         local j = jobs[msg.job]
         if j then
-          j.state = msg.state
+          j.state, j.updated = msg.state, os.clock()
           if j.client then pcall(rednet.send, j.client, msg, F.PROTO) end
           if msg.state == "done" or msg.state == "failed" then
             if fleet[msg.drone] then fleet[msg.drone].job = nil end
@@ -432,11 +450,27 @@ end
 -- An assignment the drone never answers. Without this the drone sits with a
 -- job against its name and no later hail can have it, while the customer
 -- waits on a taxi that was never told to come.
-local ACK_WAIT, JOB_STUCK = 6, 45
+local ACK_WAIT, JOB_STUCK, JOB_SILENT = 6, 45, 180
+local function finish(j, why)
+  j.state = "failed"
+  if fleet[j.drone] and fleet[j.drone].job == j.id then fleet[j.drone].job = nil end
+  log("%s: %s - %s is free again", j.id, why, tostring(j.drone))
+  if j.client then
+    pcall(rednet.send, j.client, F.state(j.id, j.drone, "failed", why, nonce()), F.PROTO)
+  end
+end
+
 local function watchdog()
   while true do
     local now = os.clock()
     for _, j in pairs(jobs) do
+      -- a job that has gone quiet in ANY state. The first real ride got stuck
+      -- at "enroute" because the drone's later packets were refused, and its
+      -- drone stayed "on a job" long after it had been flown home by hand.
+      if type(j) == "table" and j.state ~= "done" and j.state ~= "failed"
+         and now - (j.updated or j.at) > JOB_SILENT then
+        finish(j, "nothing heard for " .. JOB_SILENT .. "s")
+      end
       if type(j) == "table" and j.state == "assigned" then
         if not j.acked and not j.warned and now - j.at > ACK_WAIT then
           j.warned = true
