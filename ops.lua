@@ -479,10 +479,18 @@ function handle(from, msg)
         pcall(rednet.send, from, F.ack("ping", "ops", true, free .. " free", nonce()), F.PROTO)
         log("ping from %s - answered, %d free", tostring(from), free)
       elseif msg.type == "job.go" then
-        -- the customer is aboard. They may be on the radio; the drone only
-        -- ever hears this over the wire, from here.
+        -- The customer is aboard. Only the terminal that ORDERED this job may
+        -- say so: hails are broadcast in the clear, so anyone in radio range
+        -- can read a job id, and without this check a passer-by could send the
+        -- shuttle off before the customer had climbed in (2026-09-21).
         local j = jobs[msg.job]
-        if j then order(j.drone, F.go(j.id, nonce())) end
+        if not j then
+          -- nothing to do
+        elseif j.client and from ~= j.client then
+          log("ignored a go for %s from %s - not the caller", tostring(msg.job), tostring(from))
+        else
+          order(j.drone, F.go(j.id, nonce()))
+        end
       elseif msg.type == "job.ack" then
         local j = jobs[msg.job]
         if j then
