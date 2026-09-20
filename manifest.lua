@@ -48,5 +48,5 @@ return {
 
   -- the portable terminal (an advanced wireless pocket computer)
   -- the portable terminal: hail, plus the canvas it draws its map with
-  pocket = { "hail.lua", "lib/display.lua", "lib/hailui.lua" },
+  pocket = { "hail.lua", "lib/display.lua", "lib/hailui.lua", "lib/tui.lua" },
 }

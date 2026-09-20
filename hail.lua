@@ -29,13 +29,16 @@
 -- .hailstats, and reports it to ops after every ride.
 
 local F = dofile("lib/fleet.lua")
-local D, MAP                -- lib/display.lua for its canvas, lib/hailmap for the screen
+local D, T, UI              -- canvas, the shared terminal look, the screens
 do
   local okD, mod = pcall(dofile, "lib/display.lua")
   if okD and type(mod) == "table" and mod.canvas then D = mod end
+  local okT, t = pcall(dofile, "lib/tui.lua")
+  if okT and type(t) == "table" and t.box then T = t end
   local okM, m = pcall(dofile, "lib/hailui.lua")
-  if okM and type(m) == "table" and m.ride then MAP = m end
+  if okM and type(m) == "table" and m.ride then UI = m end
 end
+if T then T.apply(term) end
 
 local args = { ... }
 local sub = (args[1] or ""):lower()
@@ -206,59 +209,53 @@ end
 
 local function dist(a, bx, bz) return math.sqrt((bx - a.x) ^ 2 + (bz - a.z) ^ 2) end
 
--- The menu. Returns x, y, z, name - or nil if they backed out.
+-- The menu: the places list, driven by the arrow keys. Returns x, y, z, name,
+-- or nil if they backed out. Falling back to a typed prompt when the screen
+-- kit is missing means a pocket with no lib/display.lua still works.
 local function chooseDestination(from)
-  local page = 0
+  local c = screen()
+  if not c then
+    frame("WHERE TO?", "coordinates, like 1200 340")
+    term.setCursorPos(1, 6)
+    local tx, ty, tz = coords(ask("> "))
+    if not tx then return nil end
+    return tx, ty, tz, string.format("%d, %d", tx, tz)
+  end
+
+  -- distances now, so the list is ordered by how far away things are
+  local list = {}
+  for _, p in ipairs(places) do
+    list[#list + 1] = { name = p.name, x = p.x, y = p.y, z = p.z, dist = dist(from, p.x, p.z) }
+  end
+  table.sort(list, function(a, b) return a.dist < b.dist end)
+
+  local sel, top = 1, 1
   while true do
-    frame("WHERE TO?", string.format("you are at %d, %d", from.x, from.z))
-    local rows = H - 8
-    local first = page * rows + 1
-    local shown = 0
-    for i = first, math.min(#places, first + rows - 1) do
-      local p = places[i]
-      shown = shown + 1
-      at(1, 4 + shown, string.format("%2d %-11s %5d", i, p.name:sub(1, 11), math.floor(dist(from, p.x, p.z))))
-    end
-    if #places == 0 then at(1, 5, "(no places known)", DIM) end
-    local more = #places > first + rows - 1
-    rule(H - 3)
-    at(1, H - 2, more and "number / C coords / M more" or "number / C coords", DIM)
-    at(1, H - 1, "Q back", DIM)
-    term.setCursorPos(1, H)
-    local said = ask("> ")
-    local pick = tonumber(said)
-    local letter = tostring(said):lower():sub(1, 1)
-    if pick and places[pick] then
-      local p = places[pick]
-      return p.x, p.y, p.z, p.name
-    elseif letter == "m" and more then
-      page = page + 1
-    elseif letter == "q" then
-      return nil
-    elseif letter == "c" then
-      frame("WHERE TO?", "coordinates, like 1200 340")
-      term.setCursorPos(1, 6)
-      local tx, ty, tz = coords(ask("> "))
-      if tx then return tx, ty, tz, string.format("%d, %d", tx, tz) end
-    elseif said and said:match("%d") then
-      local tx, ty, tz = coords(said)
-      if tx then return tx, ty, tz, string.format("%d, %d", tx, tz) end
-    else
-      page = 0
+    local rows = UI.places(T, c, { places = list, sel = sel, top = top, from = from })
+    c:flush(term)
+    local ev, key = os.pullEvent()
+    if ev == "key" then
+      if key == keys.down then sel = math.min(#list, sel + 1)
+      elseif key == keys.up then sel = math.max(1, sel - 1)
+      elseif key == keys.pageDown then sel = math.min(#list, sel + rows)
+      elseif key == keys.pageUp then sel = math.max(1, sel - rows)
+      elseif key == keys.enter and list[sel] then
+        local p = list[sel]
+        return p.x, p.y, p.z, p.name
+      elseif key == keys.q then
+        return nil
+      elseif key == keys.c then
+        frame("WHERE TO?", "coordinates, like 1200 340")
+        term.setCursorPos(1, 6)
+        local tx, ty, tz = coords(ask("> "))
+        canvas = nil                      -- the text prompt scribbled over it
+        if tx then return tx, ty, tz, string.format("%d, %d", tx, tz) end
+      end
+      -- keep the selected row on screen
+      if sel < top then top = sel end
+      if sel > top + rows - 1 then top = sel - rows + 1 end
     end
   end
-end
-
--- -------------------------------------------------------------------- map ---
--- The drawing lives in lib/hailmap.lua so tools/preview_pocket.py renders the
--- very same picture on the desktop.
-local rideCanvas
-local function drawRide(view)
-  if not (D and MAP) then return false end
-  if not rideCanvas then rideCanvas = D.canvas(W, H) end
-  MAP.ride(D, rideCanvas, view)
-  rideCanvas:flush(term)
-  return true
 end
 
 -- ------------------------------------------------------------------- ride ---
@@ -318,7 +315,7 @@ local function follow(job, from, name)
           lastAway, lastAt = away, os.clock()
         elseif msg.type == "job.state" then
           state, drone = msg.state, msg.drone or drone
-          note((MAP and MAP.WORDS[msg.state] or msg.state) ..
+          note((UI and UI.WORDS[msg.state] or msg.state) ..
                (msg.detail and (" - " .. tostring(msg.detail)) or ""))
           if msg.state == "riding" or msg.state == "enroute" then
             startAway, eta, lastAway, lastAt = nil, nil, nil, nil   -- new leg, new gauge

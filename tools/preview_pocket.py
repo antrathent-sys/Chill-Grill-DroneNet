@@ -21,7 +21,9 @@ except ImportError:
     print("needs lupa and Pillow:  pip install lupa pillow", file=sys.stderr)
     sys.exit(2)
 
-# CC's default palette, the colours hailmap names
+# Filled in from lib/tui.lua's own palette, so the preview cannot drift from
+# what the hardware shows. PIL reads a bare integer as 0xBBGGRR, so every
+# colour is handed over as a tuple - see rgb() below.
 PALETTE = {
     "0": 0xF0F0F0, "1": 0xF2B233, "2": 0xE57FD8, "3": 0x99B2F2, "4": 0xDEDE6C,
     "5": 0x7FCC19, "6": 0xF2B2CC, "7": 0x4C4C4C, "8": 0x999999, "9": 0x4C99B2,
@@ -33,15 +35,24 @@ RENDER = rb"""
 function(root, w, h, frames)
   package = package or {}
   local D = dofile(root .. "/lib/display.lua")
+  local T = dofile(root .. "/lib/tui.lua")
   local UI = dofile(root .. "/lib/hailui.lua")
   local out = {}
   for _, fr in ipairs(frames) do
     local c = D.canvas(w, h)
-    local log = { "0612 UNIT REQUESTED", "0613 INBOUND" }
-    if fr.state == "riding" then log[#log + 1] = "0615 BOARDED" end
-    if fr.state == "waiting" then log[#log + 1] = "0615 ON STATION" end
-    UI.ride(D, c, { away = fr.away, state = fr.state, unit = "DRONE-1",
-                    spin = fr.spin or 0, start = fr.start, eta = fr.eta, log = log })
+    if fr.screen == "places" then
+      UI.places(T, c, { from = { x = 812, z = -344 }, sel = fr.sel, top = 1, places = {
+        { name = "home", dist = 1104 }, { name = "pier", dist = 220 },
+        { name = "depot", dist = 3480 }, { name = "quarry", dist = 760 },
+        { name = "north gate", dist = 2190 }, { name = "market", dist = 940 },
+      } })
+    else
+      local log = { "0612 UNIT REQUESTED", "0613 INBOUND" }
+      if fr.state == "waiting" then log[#log + 1] = "0615 ON STATION" end
+      if fr.state == "riding" then log[#log + 1] = "0615 BOARDED" end
+      UI.ride(T, c, { away = fr.away, state = fr.state, unit = "DRONE-1",
+                      spin = fr.spin or 0, start = fr.start, eta = fr.eta, log = log })
+    end
     local rows = {}
     for y = 1, h do
       local s, f, b = c:row(y)
@@ -49,15 +60,17 @@ function(root, w, h, frames)
     end
     out[#out + 1] = table.concat(rows, "\n")
   end
-  return table.concat(out, "\1")
+  local pal = {}
+  for slot, rgb in pairs(T.PALETTE) do pal[#pal + 1] = slot .. "=" .. string.format("%06x", rgb) end
+  return table.concat(out, "\1"), table.concat(pal, ",")
 end
 """
 
 FRAMES = [
-    dict(away=1332, state="enroute", spin=1, start=1670, eta=47),
-    dict(away=212, state="enroute", spin=2, start=1670, eta=9),
-    dict(away=3, state="waiting", spin=3, start=1670, eta=0),
-    dict(away=392, state="riding", spin=0, start=1456, eta=38),
+    dict(screen="places", sel=2, away=0, state="calling", spin=0, start=1, eta=0),
+    dict(screen="ride", away=1332, state="enroute", spin=1, start=1670, eta=47),
+    dict(screen="ride", away=3, state="waiting", spin=3, start=1670, eta=0),
+    dict(screen="ride", away=392, state="riding", spin=0, start=1456, eta=38),
 ]
 
 # A teletext cell is a 2x3 grid of sub-pixels: bit 1 top-left, 2 top-right,
@@ -124,16 +137,19 @@ def main():
         "{" + ",".join("%s=%s" % (k, ("true" if v is True else "false" if v is False
                                       else repr(v).replace("'", '"')))
                        for k, v in f.items()) + "}" for f in FRAMES) + "}"
-    blob = L.eval(RENDER)(ROOT.replace("\\", "/").encode(), w, h,
-                          L.eval(lua_frames.encode()))
+    blob, pal = L.eval(RENDER)(ROOT.replace("\\", "/").encode(), w, h,
+                               L.eval(lua_frames.encode()))
     frames = blob.split(b"\1")
+    for pair in pal.decode().split(","):
+        slot, rgbv = pair.split("=")
+        PALETTE[slot] = int(rgbv, 16)
 
     try:
         font = ImageFont.truetype("consola.ttf", a.scale)
     except Exception:
         font = ImageFont.load_default()
 
-    labels = ["a long way off", "nearly with you", "on station", "carrying you"]
+    labels = ["choosing a destination", "a long way off", "on station", "carrying you"]
     imgs = [draw_frame(f, a.scale, font, labels[i]) for i, f in enumerate(frames)]
     pad = 10
     sheet = Image.new("RGB", (sum(i.width for i in imgs) + pad * (len(imgs) + 1),
