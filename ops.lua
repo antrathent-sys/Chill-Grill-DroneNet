@@ -7,6 +7,7 @@
 --   ops land|hold|undock <who>     the in-flight words fly already takes
 --   ops stats            what the taxi pads have reported
 --   ops closed           run the board but turn radio hails away
+--   ops known            take hails only from terminals you issued a key to
 --   ops poke <drone>     prove the link: ask a drone to answer, nothing flies
 --   ops free <drone>     it is not on a job, whatever ops thinks
 --   ops jobs [n]         the last n rides and what they cost in time
@@ -60,6 +61,12 @@ local cmd = (args[1] or "watch"):lower()
 local keys_api = keys
 
 local fleetKeys, nKeys = SEC.readFleetKeys(".fleetkeys")
+-- Customers have their own keys (seckey cust new <name>). A sealed request
+-- names the customer beyond doubt; an unsealed one is anonymous, and whether
+-- those are taken at all is `ops open` (default) versus `ops known`.
+local custKeys, nCusts = SEC.readFleetKeys(".custkeys")
+local custRx = SEC.receiver()
+local knownOnly = false
 local me = (os.getComputerLabel and os.getComputerLabel()) or ("ops-" .. tostring(os.getComputerID()))
 
 -- ---------------------------------------------------------------- the wire --
@@ -80,6 +87,7 @@ if openToHails then
   end
 end
 if cmd == "closed" then cmd = "watch" end
+if cmd == "known" then knownOnly, cmd = true, "watch" end
 
 
 -- one sealed sender per drone, made on first use; the counter persists so a
@@ -442,16 +450,19 @@ end
 print(string.format("ops %s: %d key%s, %d pad%s, orders sealed on %s", me,
   nKeys, nKeys == 1 and "" or "s", #pads, #pads == 1 and "" or "s",
   radio and (radio .. " channel " .. link.CHANNEL) or "NOTHING - no ender modem"))
-print(openToHails and "dispatching pads and radio hails. Q quits."
-                   or "dispatching pads only - radio hails turned away. Q quits.")
+print(string.format("%s  %d customer key%s%s",
+  openToHails and "dispatching pads and radio hails." or "dispatching pads only - hails turned away.",
+  nCusts, nCusts == 1 and "" or "s", knownOnly and "  KNOWN CUSTOMERS ONLY" or ""))
 
 -- One message. Kept separate so serve can run it under pcall: a single
 -- malformed packet must never be able to stop ops answering customers.
-function handle(from, msg)
+function handle(from, msg, customer)
   do
     if type(msg) == "table" and (F.check(msg)) then
       if msg.type == "taxi.request" then
-        local caller = tostring(msg.who or from)
+        -- a proven name beats a claimed one
+        local caller = tostring(customer or msg.who or from)
+        msg.who = caller
         if not F.fresh(seenNonce, msg.nonce, os.clock()) then
           -- a repeat of one already in hand: a customer leaning on the button
         else
@@ -534,7 +545,23 @@ end
 local function serve()
   while true do
     local from, msg = rednet.receive(F.PROTO)
-    local ok, err = pcall(handle, from, msg)
+    -- a sealed request: open it with that customer's key, and remember who
+    -- they are. Anything that fails to open is dropped, not guessed at.
+    local who
+    if type(msg) == "table" and msg.sl then
+      local okO, body = pcall(custRx.open, msg, function(id) return custKeys[id] end,
+                              SEC.DIR.DRONE_TO_BASE, 120000)
+      if okO and body then
+        who, msg = body.id, body
+      else
+        log("refused a sealed request from %s: %s", tostring(msg.id), tostring(body))
+        msg = nil
+      end
+    elseif knownOnly and type(msg) == "table" and msg.type == "taxi.request" then
+      log("ignored an unsealed hail - ops is in known-customers-only mode")
+      msg = nil
+    end
+    local ok, err = pcall(handle, from, msg, who)
     if not ok then log("ERROR handling %s: %s", type(msg) == "table" and tostring(msg.type) or "?", tostring(err)) end
   end
 end

@@ -21,14 +21,22 @@
 -- coordinates still works and always will: the menu is a shortcut, not a cage.
 --
 -- This talks to ops by RADIO, which is a request and never an order: ops
--- decides whether to send anyone, rate-limits every caller, and the flight
--- command it sends the drone is sealed with that drone's key. Nothing here can
--- re-route a drone in the air, and this terminal holds no keys.
+-- decides whether to send anyone and the flight command it sends the drone is
+-- sealed with that drone's key. Nothing here can re-route a drone in the air.
+--
+-- A terminal issued to a customer carries its own key in .custkey (made with
+-- `seckey cust new <name>` at the base). Requests from it are SEALED with that
+-- key, so the base knows which customer is calling, can bill them, and can
+-- turn one terminal off without touching the others. Without a key a terminal
+-- still works if the base is set to take open hails, and then it is simply
+-- anonymous. The key only ever proves who is ASKING - it cannot command a
+-- drone, which is what keeps handing these out safe.
 --
 -- Each terminal counts its own use - rides, asks, failures, blocks flown - in
 -- .hailstats, and reports it to ops after every ride.
 
 local F = dofile("lib/fleet.lua")
+local SEC = dofile("lib/seclink.lua")
 local D, T, UI              -- canvas, the shared terminal look, the screens
 do
   local okD, mod = pcall(dofile, "lib/display.lua")
@@ -46,6 +54,10 @@ local STATS, PLACES = ".hailstats", "places.lua"
 
 local me = (os.getComputerLabel and os.getComputerLabel()) or ("hail-" .. tostring(os.getComputerID()))
 local stats = F.loadStats(STATS, fs, me)
+
+-- this terminal's own key, if it was issued one
+local custKey = SEC.readKeyFile(".custkey")
+local sealer = custKey and SEC.sender(custKey, me, SEC.DIR.DRONE_TO_BASE, ".custkey.ctr")
 
 if sub == "stats" then
   print(F.statsText(stats))
@@ -80,9 +92,19 @@ local function nonce()
   return F.nonce(me, tostring(os.epoch and os.epoch("utc") or os.clock()) .. "." .. seq)
 end
 
+-- Everything this terminal says goes out through here: sealed when it has a
+-- key, plain when it does not, so the rest of the program never has to care.
+local function say(msg)
+  if sealer then
+    local ok, env = pcall(sealer.seal, msg)
+    if ok and env then return pcall(rednet.broadcast, env, F.PROTO) end
+  end
+  return pcall(rednet.broadcast, msg, F.PROTO)
+end
+
 local function save()
   pcall(F.saveStats, STATS, stats, fs)
-  pcall(rednet.broadcast, F.statsMessage(stats, nonce()), F.PROTO)
+  say(F.statsMessage(stats, nonce()))
 end
 
 -- ------------------------------------------------------------------ paint ---
@@ -180,7 +202,7 @@ local places = localPlaces()
 -- Ask ops for its pads and fold them in. Whatever has arrived by the deadline
 -- is what the menu shows: a customer never waits on the base.
 local function refreshPlaces(secs)
-  pcall(rednet.broadcast, F.placesAsk(nonce()), F.PROTO)
+  say(F.placesAsk(nonce()))
   local t0 = os.clock()
   while os.clock() - t0 < (secs or 1.5) do
     local _, msg = rednet.receive(F.PROTO, (secs or 1.5) - (os.clock() - t0))
@@ -334,7 +356,7 @@ local function follow(job, from, name)
     elseif ev[1] == "char" then
       local ch = tostring(ev[2]):lower()
       if ch == "g" and aboard then
-        pcall(rednet.broadcast, F.go(job, nonce()), F.PROTO)
+        say(F.go(job, nonce()))
         state = "riding"
       elseif ch == "q" then
         return "gave up"
@@ -364,7 +386,7 @@ local function oneRide(tx, ty, tz, name)
 
   stats.requests = (stats.requests or 0) + 1
   local req = F.request(from, { x = tx, z = tz, y = ty }, nonce(), me)
-  pcall(rednet.broadcast, req, F.PROTO)
+  say(req)
 
   frame("CALLING", name)
   local job, t0, refused, heard, n = nil, os.clock(), nil, false, 0
@@ -415,7 +437,7 @@ end
 
 -- ------------------------------------------------------------------- test ---
 if sub == "test" then
-  pcall(rednet.broadcast, F.ping(nonce()), F.PROTO)
+  say(F.ping(nonce()))
   frame("LINK TEST", "asking the base to answer")
   local t0, n = os.clock(), 0
   while os.clock() - t0 < 6 do

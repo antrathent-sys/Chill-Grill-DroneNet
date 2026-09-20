@@ -7,6 +7,14 @@
 --   seckey show drone-1    print drone-1's key again
 --   seckey drop drone-1    forget drone-1's key (its telemetry is then refused)
 --
+-- Customers get their own keys, so a shuttle is ordered by someone you issued
+-- a terminal to and not by anyone in radio range:
+--   seckey cust new alex   make a customer key, keep it in .custkeys, hand it over
+--   seckey cust list       who has one
+--   seckey cust drop alex  forget it - that terminal can no longer order
+-- and on the customer's pocket:
+--   seckey cust set <hex>  save it as .custkey (or `cust set disk`)
+--
 -- On the DRONE:
 --   seckey set <64 hex>    save this drone's key in .dronekey (Ctrl+V pastes)
 --   seckey set disk        copy it from the floppy `seckey new` wrote
@@ -19,6 +27,7 @@
 local SEC = dofile("lib/seclink.lua")
 local args = { ... }
 local FLEET, DRONE, KEYNAME = ".fleetkeys", ".dronekey", ".dronekey"
+local CUSTS, CUST, CUSTNAME = ".custkeys", ".custkey", ".custkey"
 
 -- Mount paths of every disk drive with a floppy in it, attached directly or
 -- over a wired network (a docked drone sees the base's drives through the
@@ -55,6 +64,22 @@ local function myId()
   return os.getComputerLabel() or ("drone-" .. os.getComputerID())
 end
 
+-- The customer list has the same shape as the fleet list, and is kept apart
+-- from it on purpose: a customer key may only ASK for a shuttle, and must
+-- never be usable to command one.
+local function loadCusts()
+  return SEC.readFleetKeys(CUSTS)
+end
+
+local function saveCusts(keys)
+  local ids = {}
+  for id in pairs(keys) do ids[#ids + 1] = id end
+  table.sort(ids)
+  local out = { "# Shuttle customer keys - one line per terminal you issued.\n" }
+  for _, id in ipairs(ids) do out[#out + 1] = id .. "=" .. SEC.keyHex(keys[id]) .. "\n" end
+  writeText(CUSTS, table.concat(out))
+end
+
 local function loadFleet()
   local keys = SEC.readFleetKeys(FLEET)
   return keys
@@ -71,10 +96,91 @@ end
 
 local function usage()
   print("base:  seckey new <id> | list | show <id> | drop <id>")
+  print("       seckey cust new|list|show|drop <name>")
   print("drone: seckey set <hex> | set disk | check")
+  print("cust:  seckey cust set <hex> | cust set disk")
 end
 
 local cmd = args[1]
+
+-- ------------------------------------------------------------- customers ---
+if cmd == "cust" then
+  local sub, id = args[2], args[3]
+  if sub == "new" then
+    if not id or not id:match("^[%w%-_]+$") or #id > 32 then
+      print("seckey cust new <name>   e.g. seckey cust new alex") return
+    end
+    local keys = loadCusts()
+    if keys[id] then print("replacing " .. id .. "'s key - their terminal will need the new one") end
+    print("gathering randomness...")
+    keys[id] = SEC.newKey()
+    saveCusts(keys)
+    local hex = SEC.keyHex(keys[id])
+    print("key for " .. id .. " saved in " .. CUSTS)
+    local disks = floppies()
+    if #disks > 0 then
+      writeText(disks[1] .. "/" .. CUSTNAME, hex .. "\n")
+      print("written to the floppy in " .. disks[1] .. ".")
+      print("On their pocket:  seckey cust set disk   then  label set " .. id)
+    else
+      print("on their pocket, type:")
+      print("seckey cust set " .. hex:sub(1, 16) .. " " .. hex:sub(17, 32) .. " " .. hex:sub(33, 48) .. " " .. hex:sub(49, 64))
+      print("then  label set " .. id)
+    end
+    return
+  elseif sub == "list" then
+    local keys = loadCusts()
+    local ids = {}
+    for k in pairs(keys) do ids[#ids + 1] = k end
+    table.sort(ids)
+    if #ids == 0 then print("no customer keys - seckey cust new <name>") end
+    for _, k in ipairs(ids) do print(string.format("%-16s %s...", k, SEC.keyHex(keys[k]):sub(1, 4))) end
+    return
+  elseif sub == "show" then
+    local keys = loadCusts()
+    if not (id and keys[id]) then print("no key for " .. tostring(id)) return end
+    local hex = SEC.keyHex(keys[id])
+    local disks = floppies()
+    if #disks > 0 then
+      writeText(disks[1] .. "/" .. CUSTNAME, hex .. "\n")
+      print("written to the floppy in " .. disks[1] .. " - on their pocket: seckey cust set disk")
+    else
+      print("seckey cust set " .. hex:sub(1, 16) .. " " .. hex:sub(17, 32) .. " " .. hex:sub(33, 48) .. " " .. hex:sub(49, 64))
+    end
+    return
+  elseif sub == "drop" then
+    local keys = loadCusts()
+    if not (id and keys[id]) then print("no key for " .. tostring(id)) return end
+    keys[id] = nil
+    saveCusts(keys)
+    print("forgot " .. id .. " - that terminal can no longer order a shuttle")
+    return
+  elseif sub == "set" then
+    local src, fromFile
+    if args[3] == "disk" then
+      for _, mount in ipairs(floppies()) do
+        local pth = mount .. "/" .. CUSTNAME
+        if fs.exists(pth) then src, fromFile = readText(pth), pth break end
+      end
+      if not src then print("no customer key on any floppy this computer can see") return end
+    else
+      src = table.concat(args, "", 3)
+    end
+    local key, why = SEC.parseKey(src)
+    if not key then print("not a key: " .. tostring(why)) return end
+    writeText(CUST, SEC.keyHex(key) .. "\n")
+    print("customer key saved in " .. CUST .. " (" .. SEC.keyHex(key):sub(1, 4) .. "...)")
+    if fromFile then fs.delete(fromFile) print("wiped it from the floppy") end
+    if not os.getComputerLabel() then
+      print("WARNING: no label. The base knows this key by name - run  label set <your name>")
+    else
+      print("this terminal orders as: " .. myId())
+    end
+    return
+  end
+  usage()
+  return
+end
 
 if cmd == "new" then
   local id = args[2]
@@ -160,6 +266,8 @@ elseif cmd == "check" then
   print(key and ("key: yes (" .. SEC.keyHex(key):sub(1, 4) .. "...)") or "key: NO - telemetry will not be sent")
   local fleet = readText(FLEET)
   if fleet then print("this computer also holds " .. FLEET .. " (base)") end
+  local cust = SEC.readKeyFile(CUST)
+  if cust then print("customer key: yes (" .. SEC.keyHex(cust):sub(1, 4) .. "...) - orders as " .. myId()) end
 
 else
   usage()
