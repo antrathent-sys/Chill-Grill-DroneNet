@@ -3638,6 +3638,11 @@ allStop() pump(false)
 do
   local names = { "control", "pos", "mon", "chime", "cmd", "link" }
   local why = ok and ("ok:" .. (names[err] or tostring(err))) or tostring(err)
+  -- ...and the settings it flew. Three flights on 2026-09-19 were analysed as
+  -- tests of a tune the drone had never loaded (it had not been rebooted) and
+  -- nothing in the log said so. Read this before trusting a flight.
+  why = why .. string.format(" [lean %s body %s braketurn %s]",
+    tostring(CFG.CRUISE_DEG), tostring(CFG.CRUISE_BODY_LEAN), tostring(CFG.BRAKE_TURN_POWER))
   why = why:gsub("[,\r\n]", ";"):sub(1, 140)
   pcall(log.writeLine, string.format("%.2f,end:%s%s", TLM.t or 0, why, string.rep(",0", 45)))
 end
