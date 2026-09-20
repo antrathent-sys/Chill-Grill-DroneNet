@@ -42,12 +42,17 @@
 -- again every 5 s (2.6 -> 4.6 -> 7.6 on the calmest leg, 9.6 -> 20.3 on the
 -- worst) and tumbled twice. 62 is divergent on this frame, so 58 it is - the
 -- good 62 legs were short ones that ended before the swing had grown.
+--   LAND_SETTLE_XZ 4   a taxi ride landed 26 blocks from the customer: level
+--                      and stopped was enough to start the descent, wherever
+--                      it had stopped (02-35-46). Now it closes to 4 blocks
+--                      first; LAND_SETTLE_MAX still forces it down after 10 s
 return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
   CRUISE_DEG = 58,
   CRUISE_BODY_LEAN = 30,
+  LAND_SETTLE_XZ = 4,
   BRAKE_TURN_POWER = 0.55,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1280",
 }

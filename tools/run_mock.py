@@ -105,6 +105,10 @@ SELFTEST = [
      ["climb", "cruise", "brake", "hold"]),
     ("body lean", ["go", "100", "50", "90"], {"TMAX": "90", "TRIAD": "1", "TUNE": "return { CRUISE_BODY_LEAN = 30 }"},
      ["climb", "cruise", "brake", "hold"]),
+    # LAND_SETTLE_XZ: it must still get all the way down, and land ON the spot
+    ("land on the spot", ["land", "100", "50"],
+     {"TMAX": "120", "TUNE": "return { LAND_SETTLE_XZ = 4 }", "LAND_CHECK": "6"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
     ("brake turn power", ["go", "100", "50", "90"],
      {"TMAX": "90", "TRIAD": "1", "TUNE": "return { BRAKE_TURN_POWER = 0.55 }"},
      ["climb", "cruise", "brake", "hold"]),
@@ -254,7 +258,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -460,6 +464,15 @@ def main(argv=None):
             if env.get("UNDOCK_CHECK"):
                 tok, extra = undock_check(logpath)
                 ok = ok and tok
+            if env.get("LAND_CHECK"):
+                import csv as _csv, math as _m
+                with open(logpath, encoding="utf-8") as fh:
+                    rs = list(_csv.DictReader(fh))
+                fin = [r for r in rs if not r["phase"].startswith("end")][-1]
+                miss = _m.hypot(100.5 - float(fin["x"]), 50.5 - float(fin["z"]))
+                tok = miss <= float(env["LAND_CHECK"])
+                ok = ok and tok
+                extra = "touched down %.1f blocks from the spot" % miss
             if env.get("HDG_CHECK"):
                 import csv as _csv
                 with open(logpath, encoding="utf-8") as fh:

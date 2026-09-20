@@ -260,6 +260,13 @@ local CFG = {
   LAND_SETTLE_TILT = 5,               -- deg: level enough to start falling
   LAND_SETTLE_DRIFT = 2,              -- b/s: still enough to start falling
   LAND_SETTLE_T = 0.8,                -- seconds both must hold
+  -- ...and be over the spot, not just still. Level and stopped says nothing
+  -- about WHERE it stopped: a taxi ride on 2026-09-20 (02-35-46) stopped 11
+  -- blocks out, dropped from there and touched down 26 blocks from the
+  -- customer's coordinates. Dock landings are unaffected - they have align and
+  -- descend for this - so this is for fly land <x> <z>. 0 = as before, drop
+  -- wherever it stopped. LAND_SETTLE_MAX still forces the descent eventually.
+  LAND_SETTLE_XZ = 0,                 -- blocks from the goal before dropping
   LAND_SETTLE_MAX = 10,               -- seconds to wait for that before coming down anyway, at the creep
                                       -- rate. Hovering until the battery runs out is worse than a
                                       -- slightly crooked descent, and the pilot can still take over.
@@ -2822,7 +2829,9 @@ local function flyLeg()
       if not landSettled then
         local gs = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)
         local lean = math.sqrt(a[1] * a[1] + a[2] * a[2])
-        if lean < CFG.LAND_SETTLE_TILT and gs < CFG.LAND_SETTLE_DRIFT then
+        local outBy = math.sqrt((goalX - pos.x) ^ 2 + (goalZ - pos.z) ^ 2)
+        if lean < CFG.LAND_SETTLE_TILT and gs < CFG.LAND_SETTLE_DRIFT
+           and (CFG.LAND_SETTLE_XZ <= 0 or outBy <= CFG.LAND_SETTLE_XZ) then
           settleT = settleT + dt
           if settleT >= CFG.LAND_SETTLE_T then
             landSettled = true
