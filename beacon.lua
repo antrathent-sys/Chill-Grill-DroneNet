@@ -165,7 +165,13 @@ local function netLoop()
       -- our key, our direction, and a counter that has not been used before
       local okO, body = pcall(orderRx.open, env, function(who) return who == id and key or nil end,
                               SEC.DIR.BASE_TO_DRONE, 120000)
-      if okO and body then msg = body end
+      if okO and body then
+        msg = body
+      elseif env.d == SEC.DIR.BASE_TO_DRONE then
+        -- an order meant for a drone that could not be opened: say so, because
+        -- silence here looks exactly like the base never sending anything
+        print(string.format("order refused (%s): %s", tostring(env.id), tostring(body)))
+      end
     end
     local ok = type(msg) == "table" and (F.check(msg))
     if ok and (msg.to == nil or msg.to == id) and F.fresh(seenNonce, msg.nonce, os.clock()) then
