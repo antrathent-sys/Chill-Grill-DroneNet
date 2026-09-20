@@ -274,6 +274,70 @@ function F.legCommand(step, m)
   return nil
 end
 
+-- ------------------------------------------------------------- job records --
+-- One finished job, one CSV line, appended to a file on the base. CSV rather
+-- than lib/db.lua on purpose: these are facts that never change once written,
+-- the interesting questions (rides an hour, how long people waited, which
+-- places earn) are all sums over rows, and `upload joblog.csv` puts it in the
+-- repo where it can be read with a spreadsheet or a script. A key/value store
+-- would only make that harder.
+F.JOB_HEADER = "id,at,drone,customer,pickup,px,pz,tx,tz,blocks,waited,rode,total,outcome"
+
+local function csvSafe(v)
+  return (tostring(v == nil and "" or v):gsub("[,\r\n]", " "))
+end
+
+-- j is the job record ops keeps; secs are its own clock, so the row carries
+-- both the wall time (for reading) and the durations (for adding up).
+function F.jobRow(j, at)
+  return table.concat({
+    csvSafe(j.id), csvSafe(at or 0), csvSafe(j.drone), csvSafe(j.who or j.client or ""),
+    csvSafe(j.pad or ""), csvSafe(j.px or ""), csvSafe(j.pz or ""),
+    csvSafe(j.tx or ""), csvSafe(j.tz or ""),
+    string.format("%d", math.floor(j.blocks or 0)),
+    string.format("%.1f", j.waited or 0),      -- from assigned to the customer aboard
+    string.format("%.1f", j.rode or 0),        -- from aboard to landed
+    string.format("%.1f", j.total or 0),       -- assigned to free again
+    csvSafe(j.outcome or j.state or "?"),
+  }, ",")
+end
+
+-- Read rows back for `ops jobs`: a list of tables, newest last.
+function F.jobRows(text)
+  local out = {}
+  local keys
+  for line in tostring(text or ""):gmatch("[^\r\n]+") do
+    local cells = {}
+    for cell in (line .. ","):gmatch("([^,]*),") do cells[#cells + 1] = cell end
+    if not keys then
+      if cells[1] == "id" then keys = cells end
+    elseif #cells >= 4 then
+      local row = {}
+      for i, k in ipairs(keys or {}) do row[k] = cells[i] end
+      out[#out + 1] = row
+    end
+  end
+  return out
+end
+
+-- What the operator actually wants to know, from those rows.
+function F.jobSummary(rows)
+  local n, done, blocks, waited, rode = 0, 0, 0, 0, 0
+  local byPlace = {}
+  for _, r in ipairs(rows) do
+    n = n + 1
+    if r.outcome == "done" then done = done + 1 end
+    blocks = blocks + (tonumber(r.blocks) or 0)
+    waited = waited + (tonumber(r.waited) or 0)
+    rode = rode + (tonumber(r.rode) or 0)
+    local where = (r.pickup ~= "" and r.pickup) or "open ground"
+    byPlace[where] = (byPlace[where] or 0) + 1
+  end
+  return { jobs = n, done = done, failed = n - done, blocks = math.floor(blocks),
+           avgWait = n > 0 and (waited / n) or 0, avgRide = n > 0 and (rode / n) or 0,
+           byPlace = byPlace }
+end
+
 function F.newStats(pad)
   return { pad = pad, requests = 0, rides = 0, failures = 0, lastRide = nil, blocks = 0 }
 end

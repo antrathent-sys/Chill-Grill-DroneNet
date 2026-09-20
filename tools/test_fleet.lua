@@ -139,6 +139,25 @@ check("a pad pickup still ferries", F.legCommand("pickup", asg) == "ferry pier")
 check("then home", F.legCommand("home", asg) == "ferry home")
 check("and nothing else", F.legCommand("teleport", asg) == nil)
 
+print("what a finished job leaves behind")
+local job = { id = "j-7", drone = "drone-1", who = "hail-41", pad = "pier", px = 100, pz = -50,
+              tx = 1200, tz = 340, blocks = 1104.7, waited = 62.4, rode = 48.25, total = 190,
+              outcome = "done" }
+local row = F.jobRow(job, 1789867493)
+check("one line, in the header order", row ==
+  "j-7,1789867493,drone-1,hail-41,pier,100,-50,1200,340,1104,62.4,48.2,190.0,done", row)
+check("a comma in a name cannot break the file",
+  F.jobRow({ id = "j,8", drone = "d", outcome = "done" }, 1):match("^j 8,"), F.jobRow({ id = "j,8" }, 1))
+local rows = F.jobRows(F.JOB_HEADER .. "\n" .. row .. "\n" .. F.jobRow(
+  { id = "j-8", drone = "drone-1", pad = "", blocks = 400, waited = 20, rode = 30, outcome = "failed" }, 2))
+check("and it reads back", #rows == 2 and rows[1].id == "j-7" and rows[2].outcome == "failed")
+check("rubbish lines are skipped", #F.jobRows("not,a,header\nnor this") == 0)
+local sum = F.jobSummary(rows)
+check("summed: two jobs, one done", sum.jobs == 2 and sum.done == 1 and sum.failed == 1)
+check("blocks added up", sum.blocks == 1504, sum.blocks)
+check("average wait", math.abs(sum.avgWait - 41.2) < 0.1, sum.avgWait)
+check("counted by pickup place", sum.byPlace["pier"] == 1 and sum.byPlace["open ground"] == 1)
+
 print("pad usage")
 local st = F.newStats("pier")
 F.record(st, "request")

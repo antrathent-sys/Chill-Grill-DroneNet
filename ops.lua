@@ -9,6 +9,7 @@
 --   ops closed           run the board but turn radio hails away
 --   ops poke <drone>     prove the link: ask a drone to answer, nothing flies
 --   ops free <drone>     it is not on a job, whatever ops thinks
+--   ops jobs [n]         the last n rides and what they cost in time
 --
 -- <who> is a drone id, or "any" for the nearest one that is docked, has called
 -- in within the last 15 s and is not already on a job.
@@ -71,6 +72,21 @@ local function senderFor(id)
   if not key then senders[id] = false return false end
   senders[id] = SEC.sender(key, id, SEC.DIR.BASE_TO_DRONE, ".ops-" .. id .. ".ctr")
   return senders[id]
+end
+
+-- Every finished job, one CSV line, appended. Facts that never change, summed
+-- later - so a file, not a database. `upload joblog.csv` puts it in the repo
+-- where a script or a spreadsheet can read it, the same way flight logs work.
+local JOBLOG = "joblog.csv"
+local function writeJob(j)
+  local at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()
+  local new = not fs.exists(JOBLOG)
+  local h = fs.open(JOBLOG, new and "w" or "a")
+  if not h then return false end
+  if new then h.writeLine(F.JOB_HEADER) end
+  h.writeLine(F.jobRow(j, at))
+  h.close()
+  return true
 end
 
 local seq = 0
@@ -190,8 +206,10 @@ local function dispatch(req, from)
     return nil, why
   end
   local job = "j-" .. tostring(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()) .. "-" .. id
-  jobs[job] = { id = job, drone = id, pad = pad.name, tx = req.tx, tz = req.tz, state = "assigned",
-                at = os.clock(), who = req.who, client = from }
+  jobs[job] = { id = job, drone = id, pad = pad.name, px = req.px, pz = req.pz,
+                tx = req.tx, tz = req.tz, state = "assigned",
+                at = os.clock(), who = req.who, client = from,
+                blocks = math.sqrt((req.tx - req.px) ^ 2 + (req.tz - req.pz) ^ 2) }
   fleet[id] = fleet[id] or {}
   fleet[id].job = job
   local assign = F.assign(job, req)
@@ -344,6 +362,38 @@ if cmd == "free" then
   return
 end
 
+if cmd == "jobs" then
+  local want = tonumber(args[2]) or 10
+  if not fs.exists(JOBLOG) then
+    print("no rides recorded yet (" .. JOBLOG .. " appears after the first one)")
+    return
+  end
+  local h = fs.open(JOBLOG, "r")
+  local rows = F.jobRows(h.readAll() or "")
+  h.close()
+  local sum = F.jobSummary(rows)
+  print(string.format("%d rides, %d finished, %d failed, %d blocks carried",
+    sum.jobs, sum.done, sum.failed, sum.blocks))
+  print(string.format("average wait %.0fs, average ride %.0fs", sum.avgWait, sum.avgRide))
+  local places = {}
+  for where, n in pairs(sum.byPlace) do places[#places + 1] = { where, n } end
+  table.sort(places, function(a, b) return a[2] > b[2] end)
+  for i = 1, math.min(#places, 4) do
+    print(string.format("  %-14s %d", places[i][1], places[i][2]))
+  end
+  print("")
+  print(string.format("%-16s %-10s %6s %6s %s", "WHEN", "DRONE", "BLOCKS", "WAIT", "OUTCOME"))
+  for i = math.max(1, #rows - want + 1), #rows do
+    local r = rows[i]
+    print(string.format("%-16s %-10s %6s %5ss %s",
+      textutils.formatTime((tonumber(r.at) or 0) % 86400 / 3600, true),
+      (r.drone or "?"):sub(1, 10), r.blocks or "?", math.floor(tonumber(r.waited) or 0), r.outcome or "?"))
+  end
+  print("")
+  print("upload joblog.csv  pushes this to the repo")
+  return
+end
+
 if cmd == "stats" then
   print("listening 10 s for pad reports (each pad sends on the minute and after a ride)...")
   local heard = 0
@@ -363,7 +413,7 @@ end
 
 if cmd ~= "watch" then
   print("ops: watch | list | fly <who> <...> | send <who> <pad> | poke <who> | free <who>")
-  print("     | land|hold|undock <who> | stats | closed")
+  print("     | jobs [n] | land|hold|undock <who> | stats | closed")
   return
 end
 
@@ -427,6 +477,15 @@ function handle(from, msg)
         local j = jobs[msg.job]
         if j then
           j.state, j.updated = msg.state, os.clock()
+          -- the two numbers worth knowing about a ride: how long the customer
+          -- waited for the taxi, and how long the ride itself took
+          if msg.state == "riding" then j.waited = os.clock() - j.at end
+          if msg.state == "done" or msg.state == "failed" then
+            j.rode = j.waited and (os.clock() - j.at - j.waited) or 0
+            j.total = os.clock() - j.at
+            j.outcome = msg.state
+            if not j.logged then j.logged = writeJob(j) end
+          end
           if j.client then pcall(rednet.send, j.client, msg, F.PROTO) end
           if msg.state == "done" or msg.state == "failed" then
             if fleet[msg.drone] then fleet[msg.drone].job = nil end
@@ -457,6 +516,9 @@ end
 local ACK_WAIT, JOB_STUCK, JOB_SILENT = 6, 45, 180
 local function finish(j, why)
   j.state = "failed"
+  j.outcome, j.total = "failed:" .. why, os.clock() - j.at
+  j.rode = j.waited and (j.total - j.waited) or 0
+  if not j.logged then j.logged = writeJob(j) end
   if fleet[j.drone] and fleet[j.drone].job == j.id then fleet[j.drone].job = nil end
   log("%s: %s - %s is free again", j.id, why, tostring(j.drone))
   if j.client then
