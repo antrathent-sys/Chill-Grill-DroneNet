@@ -162,20 +162,35 @@ local function netLoop()
     local _, _, ch, _, env = os.pullEvent("modem_message")
     local msg
     if ch == link.CHANNEL then run.heard = (run.heard or 0) + 1 end
-    if ch == link.CHANNEL and type(env) == "table" and env.sl then
+    if ch == link.CHANNEL and type(env) == "table" and env.sl and env.d == SEC.DIR.BASE_TO_DRONE then
       -- our key, our direction, and a counter that has not been used before
       local okO, body = pcall(orderRx.open, env, function(who) return who == id and key or nil end,
                               SEC.DIR.BASE_TO_DRONE, 120000)
       if okO and body then
         msg = body
-      elseif env.d == SEC.DIR.BASE_TO_DRONE then
-        -- an order meant for a drone that could not be opened: say so, because
-        -- silence here looks exactly like the base never sending anything
-        print(string.format("order refused (%s): %s", tostring(env.id), tostring(body)))
+      else
+        -- silence here looks exactly like the base never sending anything, so
+        -- say what came and why it was turned away
+        print(string.format("order for %s refused: %s", tostring(env.id), tostring(body)))
       end
     end
-    local ok = type(msg) == "table" and (F.check(msg))
-    if ok and (msg.to == nil or msg.to == id) and F.fresh(seenNonce, msg.nonce, os.clock()) then
+    -- ...and if it opened but the order is not one we will act on, say that
+    -- too: a sealed order that is silently dropped is the hardest fault there
+    -- is to find from either end (2026-09-20, the first taxi that never came).
+    if msg then
+      local okC, whyC = F.check(msg)
+      if not okC then
+        print(string.format("order %s ignored: %s", tostring(msg.type), tostring(whyC)))
+        msg = nil
+      elseif msg.to ~= nil and msg.to ~= id then
+        print(string.format("order was for %s, not me", tostring(msg.to)))
+        msg = nil
+      elseif not F.fresh(seenNonce, msg.nonce, os.clock()) then
+        print("order repeated - already done")
+        msg = nil
+      end
+    end
+    if msg then
       if msg.type == "ops.fly" then
         if job then
           say(F.ack(job.id, id, false, "carrying someone", myNonce()))

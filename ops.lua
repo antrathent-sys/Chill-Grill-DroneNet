@@ -160,6 +160,7 @@ end
 
 -- An order: sealed with that drone's key and sent on the telemetry channel.
 -- Nobody else can make one, and no other drone can open it.
+local lastSent           -- what the last order looked like on the air
 local function order(id, msg)
   msg.to = id
   local s = senderFor(id)
@@ -168,6 +169,7 @@ local function order(id, msg)
   local env, why = s.seal(msg)
   if not env then return false, tostring(why) end
   local ok = pcall(peripheral.call, radio, "transmit", link.CHANNEL, link.CHANNEL, env)
+  lastSent = string.format("%s n=%d d=%d to %s", tostring(msg.type), env.n, env.d, id)
   return ok, ok and nil or "the modem refused the packet"
 end
 
@@ -304,7 +306,8 @@ if cmd == "poke" then
   if not who then print("ops poke <drone>   (the id on the board)") return end
   local sent, whySent = order(who, F.flyCommand("pads", nonce()))
   if not sent then print("ops: " .. tostring(whySent)) return end
-  print("poked " .. who .. ", sealed on channel " .. link.CHANNEL .. " - waiting 5 s")
+  print("poked " .. who .. " on channel " .. link.CHANNEL .. ": " .. tostring(lastSent))
+  print("(if the drone says 'replay', delete .ops-" .. who .. ".ctr here and poke again)")
   parallel.waitForAny(receive, function() sleep(0.2) end)
   local answered = false
   local rx = SEC.receiver()
