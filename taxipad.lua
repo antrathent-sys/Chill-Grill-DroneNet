@@ -38,24 +38,37 @@ end
 
 local padName = readPad()
 
-if sub == "here" then
-  local name = tostring(args[2] or ""):lower()
-  if not name:match("^[%w_%-]+$") then
-    print("taxipad here <name>   (letters, numbers, - and _)")
-    return
-  end
+local function nameIt(name)
+  name = tostring(name or ""):lower()
+  if not name:match("^[%w_%-]+$") then return nil end
   local h = fs.open(PADFILE, "w")
   h.write(name)
   h.close()
   print("this pad is now called " .. name)
   print("it must also exist in pads.lua so a drone can ferry to it:")
   print("  on the drone, stand it here docked and run: fly pad add " .. name)
+  return name
+end
+
+if sub == "here" then
+  if not nameIt(args[2]) then print("taxipad here <name>   (letters, numbers, - and _)") end
   return
 end
 
-if not padName then
-  print("taxipad: which pad is this? Run:  taxipad here <name>")
-  return
+-- An unnamed pad ASKS. It used to print how to name it and quit, which under
+-- `startup autorun taxipad` is a restart loop: the program ends, autorun starts
+-- it again, it ends again, for ever (seen on the first pad built, 2026-09-20).
+-- Anything that runs from autorun has to settle into a wait, never exit.
+while not padName do
+  print("")
+  print("Which pad is this? (letters, numbers, - and _)")
+  term.write("  name: ")
+  local typed = read()
+  padName = nameIt(typed)
+  if not padName then
+    print("that name will not do.")
+    sleep(1)      -- never spin: this may be running with nobody watching
+  end
 end
 
 -- Where the pad is. pads.lua if this computer has one, else the position the
@@ -83,12 +96,17 @@ if sub ~= "serve" then
 end
 
 -- ------------------------------------------------------------------ wiring --
+-- Same rule as the name above: under autorun this must wait, not exit, or the
+-- program ends and is restarted for ever. Someone may well be cabling the pad
+-- up while it sits here.
 local wired = F.wired(peripheral)
-for _, nm in ipairs(wired) do pcall(rednet.open, nm) end
-if #wired == 0 then
-  print("taxipad: no wired modem. Cable this computer to the base and try again.")
-  return
+while #wired == 0 do
+  print("taxipad: no wired modem yet - put one on this computer and cable it")
+  print("         to the base. Checking again every 5 s.")
+  sleep(5)
+  wired = F.wired(peripheral)
 end
+for _, nm in ipairs(wired) do pcall(rednet.open, nm) end
 
 local seq = 0
 local function nonce()
