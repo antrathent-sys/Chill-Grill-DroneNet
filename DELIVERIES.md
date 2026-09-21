@@ -41,9 +41,10 @@ costs a vault, and that cost belongs in the parcel fare.
 ## A parcel, start to finish
 
 1. **Hand in.** The customer puts items in the depot's intake chest, then picks
-   a destination and pays on their pocket terminal. Identity works the same way
-   as at the till: whichever sealed terminal is standing on the depot's spot
-   gets charged.
+   a destination. A walk-up picks on the depot's touch monitor and pays coins
+   into its depositor. A member picks on their pocket terminal and it goes on
+   their account: whichever sealed terminal is standing on the depot's spot
+   gets charged, as at the till.
 2. **Book.** The depot computer counts the intake (CC's inventory peripheral),
    posts the fare to the ledger and asks ops for a drone. The job joins the
    same queue as rides, so it waits its turn when the fleet is busy.
