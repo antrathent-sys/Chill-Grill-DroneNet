@@ -10,11 +10,13 @@
 --                                table, pulse pitch then roll, and work out HDG_OFFSET, ROLL_DIR
 --                                and (if it yawed enough) HDG_SIGN. Written to cal.lua, which fly
 --                                loads over CFG from then on; then it holds with them - L lands.
--- fly pads                    -> list the named dock points in pads.lua, with distances
--- fly pad add <name>          -> record where the craft is standing as a pad (do it DOCKED)
--- fly pad del <name>          -> forget a pad
--- fly dock <pad>              -> dock at a named pad; `fly dock` alone is the home pad
--- fly ferry <pad> [cruiseY]   -> undock, cruise to that pad and dock there. The craft stays
+-- fly pads                    -> list the named places in pads.lua, docks and pads, with distances
+-- fly pad add <name> [pad]    -> record where the craft is standing: a DOCK (latch, charge, load;
+--                                record it docked) unless `pad` is added for a plain landing spot
+-- fly pad del <name>          -> forget one
+-- fly dock <dock>             -> dock at a named dock; `fly dock` alone is the home dock
+-- fly land <name>             -> fly to a named place and land there, dock or pad, without latching
+-- fly ferry <dock> [cruiseY]  -> undock, cruise to that dock and dock there. The craft stays
 --                                docked (telemetry keeps running), so load or unload there and
 --                                `fly ferry home` brings it back.
 -- fly deliver <x> <y> <z>     -> the round trip, starting docked: undock, fly to x z, hover at y,
@@ -1792,11 +1794,22 @@ function PAD.named(name)
     tostring(name), known ~= "" and known or "none"), 0)
 end
 
+-- A named place the craft can actually latch onto. A landing pad is refused
+-- here, on the ground, rather than 200 blocks up with the connector out.
+function PAD.dock(name)
+  local p = PAD.named(name)
+  if p.kind == "pad" then
+    error(string.format("'%s' is a landing pad, not a dock - there is nothing there to latch onto. fly land %s",
+      p.name, p.name), 0)
+  end
+  return p
+end
+
 -- The home pad: a pad called "home" if there is one, else CFG.
 function PAD.home()
   local p = PAD.lib and PAD.lib.get(PAD.list, "home")
   if p then return p end
-  return { name = "home", x = CFG.HOME_X, y = CFG.HOME_Y, z = CFG.HOME_Z,
+  return { name = "home", kind = "dock", x = CFG.HOME_X, y = CFG.HOME_Y, z = CFG.HOME_Z,
            trimX = CFG.DOCK_TRIM_X, trimZ = CFG.DOCK_TRIM_Z }
 end
 
@@ -1834,7 +1847,7 @@ else
     -- <x> <y> <z>: the same order as fly land, y being the pad altitude.
     -- A NAME instead is a pad from pads.lua; nothing at all is the home pad.
     local pad = nil
-    if arg[2] and not tonumber(arg[2]) then pad = PAD.named(arg[2])
+    if arg[2] and not tonumber(arg[2]) then pad = PAD.dock(arg[2])
     elseif not arg[2] then pad = PAD.home() end
     if pad then
       PAD.name = pad.name
@@ -1858,6 +1871,16 @@ else
     goal = tonumber(arg[2]) or (alt.getHeight() + 5)
   elseif arg[1] == "land" then
     local ax, ay, az = tonumber(arg[2]), tonumber(arg[3]), tonumber(arg[4])
+    local cruiseArg = arg[5]
+    if arg[2] and not ax then
+      -- a name: a dock or a landing pad, and either way just land on it.
+      -- Its recorded y is the block the craft stands on, so the descent
+      -- knows exactly where the ground is.
+      local p = PAD.named(arg[2])
+      PAD.name = p.name
+      ax, ay, az = p.x, p.y, p.z
+      cruiseArg = arg[3] or p.cruiseY
+    end
     if ax and ay and az then
       -- <x> <y> <z>: fly there first. Internally this IS a go - all the
       -- cruise, brake and re-cruise machinery is reused unchanged - and only
@@ -1866,7 +1889,7 @@ else
       mode = "go" landAtEnd = true
       tgtX, tgtZ = blockCentre(ax), blockCentre(az)
       landGround = ay
-      goal = tonumber(arg[5]) or math.max(CFG.CRUISE_Y, ay + CFG.LAND_CRUISE_UP)
+      goal = tonumber(cruiseArg) or math.max(CFG.CRUISE_Y, ay + CFG.LAND_CRUISE_UP)
       dashDeg = CFG.CRUISE_DEG
     elseif ax and ay then
       -- <x> <z>: fly there, but the ground is a guess (the start height)
@@ -1884,8 +1907,8 @@ else
     -- lands on the far pad, which is the path with the flight hours behind it.
     -- It stays docked there, so loading happens at the depot.
     if not CFG.DOCK_SIDE then error("ferry needs CFG.DOCK_SIDE set") end
-    if not arg[2] or tonumber(arg[2]) then error("ferry takes a pad name: fly ferry <pad>   (fly pads lists them)", 0) end
-    local pad = PAD.named(arg[2])
+    if not arg[2] or tonumber(arg[2]) then error("ferry takes a dock name: fly ferry <dock>   (fly pads lists them)", 0) end
+    local pad = PAD.dock(arg[2])
     PAD.name = pad.name
     goal = tonumber(arg[3]) or pad.cruiseY or CFG.CRUISE_Y
     legs = {
@@ -1950,7 +1973,7 @@ else
     for i = 2, #arg do
       if arg[i] == "to" then
         if arg[i + 1] and not tonumber(arg[i + 1]) then
-          hp = PAD.named(arg[i + 1])
+          hp = PAD.dock(arg[i + 1])
         else
           local tx, ty, tz = tonumber(arg[i + 1]), tonumber(arg[i + 2]), tonumber(arg[i + 3])
           if not (tx and ty and tz) then error("deliver ... to <pad>   or   to <x> <padY> <z>", 0) end
@@ -2019,8 +2042,10 @@ if CFG.AUTO_UNDOCK and CFG.DOCK_SIDE and not undockFirst and not legs and mode ~
     -- on a known pad (home or pads.lua): across and in height
     local onPad = false
     local h = alt.getHeight()
+    -- docks only: a craft resting on a landing pad is just as still, and
+    -- there is nothing there to let go of
     local candidates = { PAD.home() }
-    for _, pp in ipairs(PAD.list) do candidates[#candidates + 1] = pp end
+    for _, pp in ipairs(PAD.list) do if pp.kind ~= "pad" then candidates[#candidates + 1] = pp end end
     for _, pp in ipairs(candidates) do
       local cx = blockCentre(pp.x) + (pp.trimX or CFG.DOCK_TRIM_X)
       local cz = blockCentre(pp.z) + (pp.trimZ or CFG.DOCK_TRIM_Z)
@@ -2060,22 +2085,31 @@ if mode == "pads" then
   if not PAD.lib then error("lib/pads.lua is missing - run `startup` to update", 0) end
   local sub = (arg[1] == "pad") and arg[2] or nil
   if sub == "add" then
-    local name = arg[3] or error("usage: fly pad add <name>   (while docked on the pad)", 0)
+    local name = arg[3] or error("usage: fly pad add <name> [dock|pad]   (standing on it)", 0)
+    -- A DOCK gets ferried to and latched onto; a PAD is only ever landed at.
+    -- Recording from the craft nearly always means a dock, so that is the
+    -- default, and `pad` marks a plain landing spot.
+    local kind, noteAt = "dock", 4
+    local k = arg[4] and arg[4]:lower()
+    if k == "dock" or k == "pad" then kind, noteAt = k, 5 end
     -- Recorded from where the craft is standing, so nothing is typed: undo the
     -- dock trims to get the pad block, and the dock gap to get the pad height.
-    local entry = { name = name,
+    -- Resting on the ground reads the same gap as latched (the legs hold it
+    -- up either way), so a landing pad records the same way.
+    local entry = { name = name, kind = kind,
       x = math.floor(pos.x - CFG.DOCK_TRIM_X), z = math.floor(pos.z - CFG.DOCK_TRIM_Z),
       y = math.floor(alt.getHeight() - CFG.DOCK_GAP + 0.5),
       trimX = CFG.DOCK_TRIM_X ~= 0 and CFG.DOCK_TRIM_X or nil,
       trimZ = CFG.DOCK_TRIM_Z ~= 0 and CFG.DOCK_TRIM_Z or nil,
-      note = arg[4] and table.concat(arg, " ", 4) or nil }
+      note = arg[noteAt] and table.concat(arg, " ", noteAt) or nil }
     local okp, why = PAD.lib.put(PAD.list, entry)
     if not okp then error("pad add: " .. tostring(why), 0) end
     local saved, serr = PAD.lib.save(file, PAD.list, fs)
     if not saved then error("pad add: " .. tostring(serr), 0) end
     local p = PAD.lib.get(PAD.list, name)
-    print(string.format("pad '%s' recorded at %d %d %d (%s)", p.name, p.x, p.y, p.z, file))
-    print("that height is the altimeter minus the dock gap - record it DOCKED, or fix y by hand")
+    print(string.format("%s '%s' recorded at %d %d %d (%s)", p.kind, p.name, p.x, p.y, p.z, file))
+    print("that height is the altimeter minus the dock gap - record it standing on it, or fix y by hand")
+    if p.kind == "dock" then print("a landing spot with nothing to latch onto? fly pad add " .. p.name .. " pad") end
   elseif sub == "del" or sub == "rm" or sub == "remove" then
     local gone = PAD.lib.remove(PAD.list, arg[3] or "")
     if not gone then error("no pad called '" .. tostring(arg[3]) .. "'", 0) end
@@ -2083,12 +2117,12 @@ if mode == "pads" then
     if not saved then error("pad del: " .. tostring(serr), 0) end
     print(string.format("pad '%s' forgotten (%d left)", gone.name, #PAD.list))
   elseif sub then
-    error("usage: fly pads | fly pad add <name> [note] | fly pad del <name>", 0)
+    error("usage: fly pads | fly pad add <name> [dock|pad] [note] | fly pad del <name>", 0)
   else
-    print(string.format("pads in %s:", file))
-    if #PAD.list == 0 then print("  none yet - dock on a pad and run: fly pad add <name>") end
+    print(string.format("places in %s (ferry to a dock, land at a pad):", file))
+    if #PAD.list == 0 then print("  none yet - dock on one and run: fly pad add <name>") end
     for _, p in ipairs(PAD.list) do
-      print(string.format("  %-10s %6d %4d %6d  %5.0f away%s", p.name, p.x, p.y, p.z,
+      print(string.format("  %-10s %-4s %6d %4d %6d  %5.0f away%s", p.name, p.kind or "dock", p.x, p.y, p.z,
         PAD.lib.dist(p, pos.x, pos.z), p.note and ("  " .. p.note) or ""))
     end
     local hp = PAD.home()

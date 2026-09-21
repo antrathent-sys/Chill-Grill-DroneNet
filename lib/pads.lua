@@ -1,14 +1,26 @@
---- pads: named dock points - the home pad and every depot the fleet uses.
+--- pads: the named places the fleet knows, of which there are exactly two kinds.
 --
--- A pad is somewhere the craft can dock: block coordinates as F3 shows them,
--- the PAD altitude (the block the connector stands on - the same y `fly dock`
--- takes), and optional per-pad trims for a connector that is not directly
--- under the centre of mass.
+--   DOCK  a built facility: the connector latches, the craft charges, and
+--         cargo can be loaded. A craft may sit at one indefinitely. Recording
+--         one means standing the craft on it, because the coordinates have to
+--         be the connector's to a block.
+--   PAD   a known-good place to land. Nothing is provided and nothing latches;
+--         it is simply somewhere a craft will not tip over or land in a lake.
+--         A pad can be typed in from the map.
+--
+-- The difference decides what a craft is told to do: it FERRIES to a dock and
+-- it LANDS at a pad. Getting that wrong means asking a craft to latch onto a
+-- field, so the kind is a field in the record and not a convention.
+--
+-- Both carry block coordinates as F3 shows them and the landing altitude (for
+-- a dock, the block the connector stands on - the same y `fly dock` takes),
+-- plus optional per-pad trims for a connector that is not directly under the
+-- centre of mass.
 --
 -- The list lives in a file on the computer (fly.lua CFG.PADS_FILE, "pads.lua")
 -- and NOT in the repo: pads are per world, and startup would overwrite them.
--- `fly pad add <name>` writes it from where the craft is standing, so pad
--- coordinates are never typed by hand.
+-- `fly pad add <name> [dock|pad]` writes it from where the craft is standing;
+-- `ops place add <name> <x> <z> [y] [dock|pad]` types one in from the map.
 --
 --   local pads = dofile("lib/pads.lua")
 --   local list, bad = pads.load("pads.lua", fs)
@@ -35,10 +47,29 @@ function pads.check(e)
   end
   local x, y, z = num(e.x), num(e.y), num(e.z)
   if not (x and y and z) then return nil, name .. " needs x, y and z numbers" end
-  return { name = name, x = x, y = y, z = z,
+  -- A record with no kind at all predates the field, and everything written
+  -- before it existed was put there by standing a craft on the spot - home
+  -- included - so it is a dock. Both commands that write places now name the
+  -- kind outright (`fly pad add` a dock, `ops place add` a pad), so this only
+  -- ever applies to an old file.
+  local kind = type(e.kind) == "string" and e.kind:lower() or "dock"
+  if kind ~= "dock" and kind ~= "pad" then
+    return nil, name .. ": kind must be dock or pad, not " .. kind
+  end
+  return { name = name, x = x, y = y, z = z, kind = kind,
            trimX = num(e.trimX) or 0, trimZ = num(e.trimZ) or 0,
            cruiseY = num(e.cruiseY),
            note = type(e.note) == "string" and e.note or nil }
+end
+
+--- Is this one a dock - somewhere a craft can latch on and charge?
+function pads.isDock(e) return type(e) == "table" and e.kind == "dock" end
+
+--- Just the docks, or just the landing pads.
+function pads.ofKind(list, kind)
+  local out = {}
+  for _, e in ipairs(list or {}) do if (e.kind or "dock") == kind then out[#out + 1] = e end end
+  return out
 end
 
 --- A list of entries -> the pads that check out, in order, plus complaints
@@ -94,16 +125,20 @@ end
 --- The file text for a list: plain Lua, meant to be readable and editable.
 function pads.serialise(list)
   local out = {
-    "-- DroneNet pads: the dock points this fleet knows, one per line.",
+    "-- DroneNet places, one per line. kind = \"dock\" is a built facility the",
+    "-- craft latches onto and charges at; kind = \"pad\" is somewhere it is",
+    "-- simply safe to land. A craft FERRIES to a dock and LANDS at a pad.",
     "-- x, y, z are F3 block coordinates and y is the PAD block, the same",
     "-- number `fly dock <x> <y> <z>` takes. trimX/trimZ shift the park point",
     "-- for a pad whose connector is not under the centre of mass; cruiseY is",
     "-- the altitude to travel there at.",
-    "-- Written by `fly pad add <name>`, and safe to edit by hand.",
+    "-- Written by `fly pad add <name> [dock|pad]` and `ops place add`, and",
+    "-- safe to edit by hand.",
     "return {",
   }
   for _, p in ipairs(list or {}) do
-    local parts = { string.format("name = %q, x = %g, y = %g, z = %g", p.name, p.x, p.y, p.z) }
+    local parts = { string.format("name = %q, kind = %q, x = %g, y = %g, z = %g",
+                                  p.name, p.kind or "pad", p.x, p.y, p.z) }
     if (p.trimX or 0) ~= 0 then parts[#parts + 1] = string.format("trimX = %g", p.trimX) end
     if (p.trimZ or 0) ~= 0 then parts[#parts + 1] = string.format("trimZ = %g", p.trimZ) end
     if p.cruiseY then parts[#parts + 1] = string.format("cruiseY = %g", p.cruiseY) end

@@ -167,6 +167,20 @@ check("a pad pickup still ferries", F.legCommand("pickup", asg) == "ferry pier")
 check("then home", F.legCommand("home", asg) == "ferry home")
 check("and nothing else", F.legCommand("teleport", asg) == nil)
 
+print("which place a ride is going to")
+local known = { { name = "home", kind = "dock", x = 1892, y = 91, z = 365 },
+                { name = "market", kind = "pad", x = 865, y = 70, z = 248 } }
+local rq = F.request({ x = 1, y = 2, z = 3 }, { x = 865, z = 248, y = 70, name = "market" }, "n-dest", "alex")
+check("a request says where by name as well", rq.toName == "market", rq.toName)
+check("found by name", (F.placeFor(known, "Market", 0, 0) or {}).name == "market")
+check("a name cannot be borrowed for somewhere else - the place's own record wins",
+  F.placeFor(known, "home", 9000, 9000).x == 1892)
+check("typed coordinates next to a place are that place", (F.placeFor(known, nil, 1900, 370) or {}).name == "home")
+check("typed coordinates as a name are just coordinates",
+  (F.placeFor(known, "1900, 370", 1900, 370) or {}).name == "home")
+check("open ground is no place", F.placeFor(known, nil, 5000, 5000) == nil)
+check("a name nobody knows falls back to where", F.placeFor(known, "narnia", 5000, 5000) == nil)
+
 print("what a finished job leaves behind")
 local job = { id = "j-7", drone = "drone-1", who = "hail-41", pad = "pier", px = 100, pz = -50,
               tx = 1200, tz = 340, blocks = 1104.7, waited = 62.4, rode = 48.25, total = 190,

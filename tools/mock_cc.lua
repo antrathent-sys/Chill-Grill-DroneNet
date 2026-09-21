@@ -209,12 +209,16 @@ local diskLimit = os.getenv("DISK_KB") and tonumber(os.getenv("DISK_KB")) * 1024
 -- other path still goes to the flightlog writer as before
 local memFiles = {}
 if os.getenv("TELEM_KEY") then memFiles[".dronekey"] = os.getenv("TELEM_KEY") end
--- PADS="depot:100,70,50;home:0,70,0" gives the craft a pads.lua to read
+-- PADS="depot:100,70,50;home:0,70,0" gives the craft a pads.lua to read;
+-- ":pad" or ":dock" after the coordinates sets the kind
 if os.getenv("PADS") then
   local parts = {}
   for item in (os.getenv("PADS") .. ";"):gmatch("([^;]+);") do
-    local n, x, y, z = item:match("^([%w_%-]+):([%-%d%.]+),([%-%d%.]+),([%-%d%.]+)$")
-    if n then parts[#parts + 1] = string.format("{name=%q,x=%s,y=%s,z=%s},", n, x, y, z) end
+    local n, x, y, z, k = item:match("^([%w_%-]+):([%-%d%.]+),([%-%d%.]+),([%-%d%.]+):?(%a*)$")
+    if n then
+      parts[#parts + 1] = string.format("{name=%q,x=%s,y=%s,z=%s%s},", n, x, y, z,
+        k ~= "" and string.format(",kind=%q", k) or "")
+    end
   end
   memFiles["pads.lua"] = "return {" .. table.concat(parts) .. "}"
 end

@@ -15,7 +15,8 @@
 --   ops credit <who> <n> put credit on an account by hand (spurs)
 --   ops till             what the till can see: the seat, the pad, the depositor
 --   ops place            the destinations customers can pick from
---   ops place add <name> <x> <z> [y]      add one (or move it)
+--   ops place add <name> <x> <z> [y] [dock]   add one (or move it); a pad
+--                                         unless `dock` - a built facility
 --   ops place del <name>                  take one off the list
 --
 -- It runs on the base computer and, just as happily, on an ender pocket
@@ -325,8 +326,23 @@ local function reply(to, msg)
 end
 
 local function dispatch(req, from)
-  -- the pickup is a pad if it names one, otherwise wherever the caller is
-  local pad = (req.pad and padByName(req.pad)) or { name = req.pad, x = req.px, y = req.py, z = req.pz }
+  -- The destination as this computer knows it. A known place's own record
+  -- wins over what the terminal sent, which is also what makes a ride home
+  -- free only when it really goes home.
+  local dest = F.placeFor(pads, req.toName, req.tx, req.tz)
+  if dest then req.toName, req.tx, req.tz, req.ty = dest.name, dest.x, dest.z, dest.y
+  else req.toName = nil end
+  -- The pickup is a known place if it names one, otherwise wherever the
+  -- caller is. Only a DOCK is named in the order: the drone ferries there and
+  -- latches on. At a landing pad it lands beside the customer like anywhere
+  -- else. The name stays on the job record either way.
+  local known = req.pad and padByName(req.pad)
+  local pickupName = req.pad
+  if known then
+    req.px, req.py, req.pz = req.px or known.x, req.py or known.y, req.pz or known.z
+    if known.kind == "pad" then req.pad = nil end
+  end
+  local pad = known or { name = pickupName, x = req.px, y = req.py, z = req.pz }
   local id, why = F.pick(fleet, pad, os.clock())
   if not id then
     -- nobody free: take a place in the line rather than turning them away
@@ -337,7 +353,7 @@ local function dispatch(req, from)
     end
     local place = QUEUE.add(waiting, { who = req.who or tostring(from), nonce = req.nonce,
       px = req.px, pz = req.pz, tx = req.tx, tz = req.tz, toName = req.toName,
-      pad = req.pad, at = os.clock(), client = from, priority = stranded })
+      pad = pickupName, at = os.clock(), client = from, priority = stranded })
     if not place then
       reply(from, F.ack("j-none", "ops", false, "you are already in the queue", nonce()))
       return nil, "already waiting"
@@ -348,7 +364,7 @@ local function dispatch(req, from)
     return nil, "queued " .. place
   end
   local job = "j-" .. tostring(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()) .. "-" .. id
-  jobs[job] = { id = job, drone = id, pad = pad.name, toName = req.toName, px = req.px, pz = req.pz,
+  jobs[job] = { id = job, drone = id, pad = pickupName, toName = req.toName, px = req.px, pz = req.pz,
                 tx = req.tx, tz = req.tz, state = "assigned",
                 at = os.clock(), who = req.who, client = from,
                 blocks = math.sqrt((req.tx - req.px) ^ 2 + (req.tz - req.pz) ^ 2) }
@@ -508,21 +524,26 @@ if cmd == "place" then
   -- The destinations the pocket terminals offer. They live in pads.lua on this
   -- computer, the same file and format the drones use, so a place added here
   -- shows up on every terminal the next time one asks. A destination only
-  -- needs x and z; a PICKUP pad also needs the drone to know it, which is
-  -- `fly pad add <name>` standing on the spot.
+  -- needs x and z. A place is a PAD (somewhere safe to land) unless it is
+  -- added as a DOCK (a built facility the craft latches onto); a pickup at a
+  -- dock also needs the drone to know it, which is `fly pad add <name>`
+  -- standing on the spot.
   local P = dofile("lib/pads.lua")
   local list = P.load("pads.lua", fs) or {}
   local sub = (args[2] or "list"):lower()
   if sub == "add" then
     local name, x, z, y = args[3], tonumber(args[4]), tonumber(args[5]), tonumber(args[6])
-    if not (name and x and z) then print("ops place add <name> <x> <z> [y]") return end
-    local entry = { name = name:lower(), x = math.floor(x), z = math.floor(z), y = y and math.floor(y) or 64 }
+    if not (name and x and z) then print("ops place add <name> <x> <z> [y] [dock|pad]") return end
+    local kind = ((y and args[7]) or (not y and args[6]) or "pad"):lower()
+    local entry = { name = name:lower(), kind = kind,
+                    x = math.floor(x), z = math.floor(z), y = y and math.floor(y) or 64 }
     local ok, why = P.check(entry)
     if not ok then print("no: " .. tostring(why)) return end
     list = P.put(list, entry)
     local okW, whyW = P.save("pads.lua", list, fs)
-    print(okW and string.format("%s is at %d, %d", entry.name, entry.x, entry.z)
+    print(okW and string.format("%s (%s) is at %d, %d", entry.name, entry.kind, entry.x, entry.z)
                or ("could not save: " .. tostring(whyW)))
+    if okW and not y then print("no y given, so 64 - landings brake better with the real ground height") end
     return
   elseif sub == "del" then
     if not args[3] then print("ops place del <name>") return end
@@ -532,13 +553,14 @@ if cmd == "place" then
     return
   end
   if #list == 0 then print("no places yet - ops place add <name> <x> <z>") return end
-  print(string.format("%-14s %8s %8s %6s", "PLACE", "X", "Z", "Y"))
+  print(string.format("%-14s %-4s %8s %8s %6s", "PLACE", "KIND", "X", "Z", "Y"))
   for _, p in ipairs(list) do
-    print(string.format("%-14s %8d %8d %6s", p.name, p.x, p.z, p.y or "-"))
+    print(string.format("%-14s %-4s %8d %8d %6s", p.name, p.kind or "dock", p.x, p.z, p.y or "-"))
   end
   print("")
-  print("terminals pick these up the next time they ask; a pickup pad also")
-  print("needs the drone to know it: fly pad add <name>, standing on it")
+  print("a drone lands at a pad and docks at a dock. terminals pick these up")
+  print("the next time they ask; a dock also needs the drone to know it:")
+  print("fly pad add <name>, standing on it")
   return
 end
 
@@ -770,7 +792,8 @@ function handle(from, msg, customer)
             j.outcome = msg.state
             -- the fare, once, and only for a ride that actually finished
             if msg.state == "done" and j.who and not j.charged then
-              local fare, why = LEDGER.fare(j.blocks, j.toName or j.pad, tariff)
+              -- the DESTINATION decides a free ride; where they were picked up never does
+              local fare, why = LEDGER.fare(j.blocks, j.toName, tariff)
               j.charged, j.fare = true, fare
               if fare > 0 then
                 local bal = post(j.who, "fare", -fare, why)

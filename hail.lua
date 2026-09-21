@@ -461,7 +461,9 @@ local function oneRide(tx, ty, tz, name)
   if ask("> ") ~= "" then return end
 
   stats.requests = (stats.requests or 0) + 1
-  local req = F.request(from, { x = tx, z = tz, y = ty }, nonce(), me)
+  -- the name goes too: the base checks it against its own places, which is
+  -- how a ride home is known to be free
+  local req = F.request(from, { x = tx, z = tz, y = ty, name = name }, nonce(), me)
   say(req)
 
   frame("CALLING", name)

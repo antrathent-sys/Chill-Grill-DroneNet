@@ -38,6 +38,24 @@ check("missing coordinates refused", (select(2, pads.check({ name = "depot", y =
 check("a string coordinate refused", pads.check({ name = "depot", x = "1500", y = 2, z = 3 }) == nil)
 check("not a table refused", select(2, pads.check("depot")) == "not a table")
 
+print("dock or pad")
+local d = pads.check({ name = "base", kind = "dock", x = 1, y = 2, z = 3 })
+check("a dock is a dock", d.kind == "dock" and pads.isDock(d))
+local pd = pads.check({ name = "clearing", kind = "pad", x = 1, y = 2, z = 3 })
+check("a pad is not a dock", pd.kind == "pad" and not pads.isDock(pd))
+check("an old record with no kind is a dock - it was recorded standing on it",
+  pads.isDock(pads.check({ name = "home", x = 1, y = 2, z = 3 })))
+check("case does not matter", pads.check({ name = "b", kind = "DOCK", x = 1, y = 2, z = 3 }).kind == "dock")
+local badKind, whyKind = pads.check({ name = "b", kind = "helipad", x = 1, y = 2, z = 3 })
+check("anything else is refused", badKind == nil and whyKind:match("dock or pad"), whyKind)
+local both = { pads.check({ name = "base", kind = "dock", x = 1, y = 2, z = 3 }),
+               pads.check({ name = "clearing", kind = "pad", x = 4, y = 5, z = 6 }) }
+check("the docks can be picked out", #pads.ofKind(both, "dock") == 1
+  and pads.ofKind(both, "dock")[1].name == "base")
+check("and so can the pads", #pads.ofKind(both, "pad") == 1)
+check("the kind survives being written and read back",
+  pads.serialise(both):match('kind = "dock"') ~= nil and pads.serialise(both):match('kind = "pad"') ~= nil)
+
 print("parse")
 local list, bad = pads.parse({
   { name = "home", x = 0, y = 63, z = 0 },

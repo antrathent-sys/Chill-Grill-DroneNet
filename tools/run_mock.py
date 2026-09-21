@@ -13,7 +13,7 @@ Environment switches the harness honours:
     NO_PAD=1       open ground at the target instead of a solid pad
     TRIAD=1        fit nav tables 4/5/7 reporting a level heading of 30 deg
     DISK_KB=<kb>   a disk that small; DISK_LIE=1 also hides it from getFreeSpace
-    PADS=n:x,y,z;.. write a pads.lua with those named dock points
+    PADS=n:x,y,z;.. write a pads.lua with those named places (n:x,y,z:pad for a landing pad)
     NODOCK=1       never let the magnet catch, to exercise the abort path
     START_DOCKED=1 begin the run already docked
     TMAX=<secs>    simulated-time budget
@@ -194,6 +194,12 @@ SELFTEST = [
     # ferry: one dock leg that undocks first, so the craft moves pad to pad
     ("ferry to a pad", ["ferry", "depot", "90"], {"TMAX": "150", "START_DOCKED": "1", "PADS": "depot:100,70,50"},
      ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
+    # a landing pad is only ever landed at: ferry and dock refuse it on the
+    # ground, and `land <name>` flies there and lands with the pad's own y
+    ("ferry refuses a landing pad", ["ferry", "field", "90"], {"TMAX": "30", "PADS": "field:100,70,50:pad"}, []),
+    ("dock refuses a landing pad", ["dock", "field", "90"], {"TMAX": "30", "PADS": "field:100,70,50:pad"}, []),
+    ("land at a named pad", ["land", "field", "90"], {"TMAX": "150", "PADS": "field:100,70,50:pad"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
     # starting docked, a plain hover must release first (AUTO_UNDOCK): the
     # connector names its pad, so the flight opens with the undock step's
     # full thrust instead of pulling against the magnet at hover power

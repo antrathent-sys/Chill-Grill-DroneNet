@@ -189,7 +189,31 @@ end
 function F.request(from, dest, nonce, who)
   return { v = F.VERSION, type = "taxi.request", nonce = nonce, who = who,
            pad = from.name, px = from.x, py = from.y, pz = from.z,
-           tx = dest.x, tz = dest.z, ty = dest.y }
+           tx = dest.x, tz = dest.z, ty = dest.y, toName = dest.name }
+end
+
+-- How close typed coordinates have to be to a known place to count as it.
+F.PLACE_NEAR = 16
+
+--- Which known place a request means, if any. By name first, and then the
+-- place's own record wins over whatever the terminal sent, so a name cannot
+-- be borrowed for somewhere else (a free ride "home" to the far side of the
+-- map). Failing that, coordinates within `near` blocks of a place count as
+-- that place, so typing the base's coordinates is still a ride home. nil
+-- means open ground.
+function F.placeFor(list, name, x, z, near)
+  near = near or F.PLACE_NEAR
+  if str(name) then
+    local want = name:lower()
+    for _, p in ipairs(list or {}) do if p.name == want then return p end end
+  end
+  if not (num(x) and num(z)) then return nil end
+  local best, bd
+  for _, p in ipairs(list or {}) do
+    local d = math.sqrt((p.x - x) ^ 2 + (p.z - z) ^ 2)
+    if d <= near and (not bd or d < bd) then best, bd = p, d end
+  end
+  return best
 end
 
 function F.assign(job, req)
@@ -360,7 +384,9 @@ end
 
 function F.legCommand(step, m)
   if step == "pickup" then
-    -- a pad: ferry to it and dock. Anywhere else: land beside the customer.
+    -- A named DOCK: ferry to it and latch on. Anywhere else - a landing pad
+    -- included - land beside the customer. ops only names docks, so a job
+    -- never asks a craft to latch onto a field.
     if str(m.pad) then return "ferry " .. m.pad end
     if num(m.px) and num(m.pz) then return landAt(m.px, m.py, m.pz) end
     return nil
