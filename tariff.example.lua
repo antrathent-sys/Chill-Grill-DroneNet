@@ -26,6 +26,12 @@ return {
   -- rather than guessed at. r is how far off the spot still counts, amount is
   -- the default credit for a payment whose terminal did not name one.
   payPad = { x = 1892, z = 368, r = 2, amount = 512 },
+
+  -- A redstone side that OPENS a shutter over the depositor while there is
+  -- somebody to credit - a Create door, a piston, a sequenced gearshift. The
+  -- base also prices the depositor out of reach when nobody is there, so the
+  -- shutter is the visible half of a lock that works without it.
+  shutterSide = "left",
 }
 
 -- A better till than the pay pad, if you build it: a Create Seat where the

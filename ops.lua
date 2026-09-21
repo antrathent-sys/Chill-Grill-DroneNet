@@ -122,6 +122,7 @@ do
   local okT, t = pcall(dofile, TARIFF_FILE)
   if okT and type(t) == "table" then
     tariff = LEDGER.tariff(t)
+    if type(t.shutterSide) == "string" then shutterSide = t.shutterSide end
     if type(t.payPad) == "table" and tonumber(t.payPad.x) and tonumber(t.payPad.z) then
       payPad = { x = tonumber(t.payPad.x), z = tonumber(t.payPad.z),
                  r = tonumber(t.payPad.r) or PAD_RADIUS,
@@ -143,6 +144,17 @@ local armed, depositor
 -- that about itself. Set the spot in tariff.lua as payPad = { x=, z=, r= }.
 local present, payPad = {}, nil
 local PAD_RADIUS, PRESENCE_AGE = 2, 15
+-- Locking the till. Numismatics has no "disabled" state for a depositor, but
+-- it does have a price, and nobody can pay a price they cannot afford - so an
+-- idle till is priced out of reach and only drops to the real amount when
+-- there is somebody to credit. That closes the hole where a payment arrives
+-- with no owner and has to be sorted out by hand.
+--
+-- With a shutter side set, it also drives redstone: a Create door, a piston,
+-- anything that physically covers the block. Belt and braces, and the shutter
+-- is the part a customer can see, which is worth more than a silent refusal.
+local LOCK_PRICE = 2000000000     -- spurs: more than the mod can hold in an account
+local shutterSide, lockedNow, pricedAt = nil, nil, nil
 -- The seat. Create's "Entity Name" display source writes whoever is sitting in
 -- a Create Seat onto a Display Link; CC:C Bridge's target block hands that text
 -- to us. It is the only thing in this modpack that names a real player to a
@@ -480,6 +492,11 @@ if cmd == "till" then
   print("pay pad  : " .. (payPad and string.format("%d, %d r%d default %s", payPad.x, payPad.z, payPad.r,
     LEDGER.money(payPad.amount)) or "not set (tariff.lua payPad = { x=, z=, r=, amount= })"))
   print("side     : " .. DEPOSIT_SIDE .. " (redstone in)")
+  print("shutter  : " .. (shutterSide and (shutterSide .. " (redstone out, on = open)")
+                          or "not set (tariff.lua shutterSide = \"left\")"))
+  print("")
+  print("when nobody is there the depositor is priced at " .. LOCK_PRICE .. " spurs,")
+  print("which nobody can pay - so a payment always has an owner.")
   return
 end
 
@@ -760,47 +777,71 @@ end
 -- about who paid. So the customer arms a top-up from their own terminal first,
 -- and the next pulse inside ARM_WINDOW is credited to them. No arming, no
 -- credit - the money is still taken by the block, so ops says so loudly.
+-- Who the till would credit right now, and for how much. One answer, used
+-- both to decide the price and to decide who gets the money, so the two can
+-- never disagree.
+local function tillOwner()
+  local sitting = whoIsSitting()
+  if sitting then
+    local p = present[sitting]
+    local amount = (p and p.amount) or (armed and armed.who == sitting and armed.amount)
+                   or (payPad and payPad.amount) or 512
+    return sitting, math.floor(amount), "seat"
+  end
+  if payPad then
+    local who, amount = F.onPad(present, payPad, os.clock(), payPad.r, PRESENCE_AGE)
+    if who then return who, math.floor(amount or payPad.amount), "pad" end
+  end
+  if armed and os.clock() - armed.at <= ARM_WINDOW then
+    return armed.who, math.floor(armed.amount), "armed"
+  end
+  return nil
+end
+
+-- Keep the depositor priced for whoever is standing there, and shut when
+-- nobody is. Only writes when something actually changes: setting a price
+-- every tick would be a peripheral call per tick for nothing.
+local function lock()
+  while true do
+    local who, amount = tillOwner()
+    local wantLocked = (who == nil)
+    local wantPrice = wantLocked and LOCK_PRICE or amount
+    if depositor and wantPrice ~= pricedAt then
+      if pcall(peripheral.call, depositor, "setTotalPrice", wantPrice) then pricedAt = wantPrice end
+    end
+    if shutterSide and wantLocked ~= lockedNow then
+      pcall(redstone.setOutput, shutterSide, not wantLocked)
+    end
+    if wantLocked ~= lockedNow then
+      lockedNow = wantLocked
+      if wantLocked then
+        log("till shut")
+      else
+        log("till open for %s at %s", tostring(who), LEDGER.money(amount))
+      end
+    end
+    sleep(0.4)
+  end
+end
+
 local function till()
   while true do
     local ev, side = os.pullEvent("redstone")
     if redstone.getInput(DEPOSIT_SIDE) then
-      -- Three ways to know whose money this is, in order of how sure they
-      -- are: somebody sitting in the seat (a real player name from the game
-      -- itself), a terminal standing on the pay pad (an account that proved
-      -- itself), then an armed top-up (a claim made a minute ago).
-      local sitting = whoIsSitting()
-      local padWho, padAmount, padWhy
-      if payPad then
-        padWho, padAmount, padWhy = F.onPad(present, payPad, os.clock(), payPad.r, PRESENCE_AGE)
-      end
-      if sitting then
-        local amount = math.floor((padWho == sitting and padAmount) or (armed and armed.who == sitting and armed.amount)
-                                  or (payPad and payPad.amount) or 512)
-        local bal = post(sitting, "credit", amount, "seat")
-        log("%s paid %s in the seat - balance %s", sitting, LEDGER.money(amount), LEDGER.money(bal or 0))
-        local p = present[sitting]
+      -- whoever the till was open for is whose money this is: the same
+      -- answer that set the price, so the two can never disagree
+      local who, amount, howKnown = tillOwner()
+      if who then
+        local bal = post(who, "credit", amount, howKnown)
+        log("%s paid %s (%s) - balance %s", who, LEDGER.money(amount), howKnown, LEDGER.money(bal or 0))
+        local p = present[who]
         if p and p.client then
-          pcall(rednet.send, p.client, F.creditOk(sitting, amount, bal or 0, nonce()), F.PROTO)
+          pcall(rednet.send, p.client, F.creditOk(who, amount, bal or 0, nonce()), F.PROTO)
         end
         armed = nil
-      elseif padWho then
-        local amount = math.floor(padAmount or payPad.amount)
-        local bal = post(padWho, "credit", amount, "pay pad")
-        log("%s paid %s on the pad - balance %s", padWho, LEDGER.money(amount), LEDGER.money(bal or 0))
-        local p = present[padWho]
-        if p and p.client then
-          pcall(rednet.send, p.client, F.creditOk(padWho, amount, bal or 0, nonce()), F.PROTO)
-        end
-        armed = nil
-      elseif armed and os.clock() - armed.at <= ARM_WINDOW then
-        local bal = post(armed.who, "credit", armed.amount, "depositor")
-        log("%s paid %s - balance %s", armed.who, LEDGER.money(armed.amount), LEDGER.money(bal or 0))
-        if armed.client then
-          pcall(rednet.send, armed.client, F.creditOk(armed.who, armed.amount, bal or 0, nonce()), F.PROTO)
-        end
-        armed = nil
+        pricedAt = nil                 -- re-price for the next customer
       else
-        log("payment with no owner: %s - credit by hand", padWhy or "nobody armed")
+        log("payment with no owner - credit by hand (ops credit <who> <spurs>)")
       end
       sleep(0.5)      -- one pulse is one payment
     end
@@ -897,9 +938,8 @@ local function drawBoard()
     units = list, sel = sel, log = events, jobs = liveJobs(), refused = rejected,
     clock = textutils.formatTime(os.time(), true), hails = openToHails,
     till = LEDGER.money(takings),
-    arming = whoIsSitting() or
-             (payPad and (F.onPad(present, payPad, os.clock(), payPad.r, PRESENCE_AGE))) or
-             (armed and armed.who) or nil,
+    arming = (tillOwner()) or nil,
+    shut = lockedNow,
   })
   canvas:flush(term)
   return list
@@ -958,5 +998,5 @@ local function keys()
   end
 end
 
-parallel.waitForAny(receive, serve, watchdog, tracker, till, draw, keys)
+parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, draw, keys)
 print("ops stopped")

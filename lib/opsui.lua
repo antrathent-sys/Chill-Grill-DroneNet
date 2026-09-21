@@ -53,7 +53,8 @@ function M.board(T, c, view)
   c:text(1, y + 1, strip:sub(1, w), T.C.faint)
   -- the till: what has come in today, and whether someone is mid-payment
   if view.till then
-    local line = view.arming and ("ARMED " .. view.arming) or ("TILL " .. view.till)
+    local line = view.arming and ("OPEN " .. view.arming)
+                 or (view.shut and "TILL SHUT" or ("TILL " .. view.till))
     c:text(math.max(1, w - #line), y + 1, line, view.arming and T.C.accent or T.C.faint)
   end
   if (view.refused or 0) > 0 and wide then
