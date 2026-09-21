@@ -191,7 +191,7 @@ end
 print("a ride on a customer's pass")
 local w = run(world({ inputs = ride() }), "hail.lua", "kiosk")
 check("it ran until the player stopped pressing keys", w.err == "script over", w.err)
-check("the places list drew (the canvas helper exists)", has(w, "SELECT DESTINATION"))
+check("the places list drew (the canvas helper exists)", has(w, "DESTINATIONS"))
 check("Q did not leave the list", w.request ~= nil)
 -- the list is nearest first: market (766 blocks), then home (1799)
 check("it asked for the second place on the list", w.request and w.request.toName == "home", w.request and w.request.toName)
@@ -203,7 +203,7 @@ check("the ride screen drew while it came", has(w, "ON STATION"))
 check("G sent the shuttle off", w.went == true)
 check("it arrived", has(w, "TRANSIT COMPLETE"))
 check("with a receipt naming the unit by its class", has(w, "LAMBDA-1"))
-check("and came round to the list again", select(2, w.text:upper():gsub("SELECT DESTINATION", "")) >= 2)
+check("and came round to the list again", select(2, w.text:upper():gsub("DESTINATIONS", "")) >= 2)
 check("no operator words on a customer's screen",
   not has(w, "hail test") and not has(w, "ops ") and not has(w, "autorun"))
 local stats = w.files[".hailstats"] or ""

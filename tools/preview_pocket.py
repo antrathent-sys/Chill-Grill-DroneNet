@@ -10,6 +10,8 @@ same code hail.lua runs - through lib/display.lua's canvas, so what comes out
 is the real screen and not an impression of it. Needs lupa and Pillow.
 """
 import argparse, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ccfont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -107,34 +109,10 @@ def cell_bits(code):
 
 
 def draw_frame(rows, scale, font, label):
-    rows = rows.split(b"\n")
-    h = len(rows)
-    w = len(rows[0].split(b"\0")[0])
-    cw = scale                       # cell width in pixels; 2 sub-pixels across
-    ch = scale * 3 // 2              # and 3 down
-    img = Image.new("RGB", (w * cw, h * ch + 20), rgb(0x111111))
-    d = ImageDraw.Draw(img)
-    sw, sh = cw / 2.0, ch / 3.0
-    for y, row in enumerate(rows):
-        text, fg, bg = row.split(b"\0")
-        for x in range(w):
-            ink = rgb(PALETTE.get(chr(fg[x]), 0xF0F0F0))
-            paper = rgb(PALETTE.get(chr(bg[x]), 0x111111))
-            code = text[x]
-            d.rectangle([x * cw, y * ch, (x + 1) * cw - 1, (y + 1) * ch - 1], fill=paper)
-            bits = cell_bits(code)
-            if bits is not None:
-                for i in range(6):
-                    if bits & (1 << i):
-                        sx, sy = i % 2, i // 2
-                        x0 = x * cw + sx * sw
-                        y0 = y * ch + sy * sh
-                        d.rectangle([x0, y0, x0 + sw - 1, y0 + sh - 1], fill=ink)
-            elif code != 32:
-                d.text((x * cw + 1, y * ch), chr(code), font=font, fill=ink)
-    d.text((2, h * ch + 4), label, font=font, fill=rgb(0x999999))
-    return img
-
+    # The game's own cell geometry (6x9) and a chunky pixel font, so the
+    # preview packs text as tightly as the game does - see tools/ccfont.py.
+    # scale and font are kept for the callers and no longer used.
+    return ccfont.draw(rows, PALETTE, px=3, label=label)
 
 def main():
     ap = argparse.ArgumentParser()

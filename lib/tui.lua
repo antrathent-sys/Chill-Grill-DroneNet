@@ -37,7 +37,7 @@ T.C = {
 -- readability comes from contrast between three levels of grey, not from hue.
 T.PALETTE = {
   f = 0x0b0c0e,   -- ground, near black with a little blue in it
-  ["7"] = 0x1b1d20,  -- panel fill / bar track
+  ["7"] = 0x25282d,  -- panel fill / bar track: bands, lifted so they read in game
   ["8"] = 0x5b6169,  -- rules and labels: visible, never loud
   ["0"] = 0xd8dbdf,  -- primary type, light grey
   c = 0x8d939b,      -- secondary type
@@ -74,11 +74,24 @@ end
 -- screens are 70-90% unlit, and a full box spends four cells of ink per row on
 -- being a box - so this is the default and T.box is for the one panel that has
 -- to be fenced off. Returns the first row inside.
-function T.section(c, y, title, rule, ink)
-  rule, ink = rule or T.C.rule, ink or T.C.rule
-  c:text(1, y, string.rep("-", c.w), rule)
-  if title then c:text(3, y, " " .. title .. " ", ink) end
+-- A band: one full-width row in the panel colour, a label at the left and
+-- an optional value at the right. Solid colour is what CC draws cleanly; a
+-- rule made of dashes reads as a dotted line in its font. Returns y + 1.
+function T.band(c, y, left, right, leftInk, rightInk)
+  local w = c.w
+  c:text(1, y, string.rep(" ", w), T.C.faint, T.C.panel)
+  if left then c:text(2, y, tostring(left):upper():sub(1, w - 2), leftInk or T.C.faint, T.C.panel) end
+  if right then
+    right = tostring(right)
+    c:text(math.max(2, w - #right), y, right, rightInk or T.C.text, T.C.panel)
+  end
   return y + 1
+end
+
+-- A section heading is a band with its title. rule and ink are accepted for
+-- the older callers and ignored.
+function T.section(c, y, title, rule, ink)
+  return T.band(c, y, title)
 end
 
 -- A bar: filled cells on a track, so it reads as a bar and not as text.
@@ -103,16 +116,20 @@ function T.row(c, x, y, w, left, right, selected)
 end
 
 -- The keys along the bottom: { {"G", "BOARD", true}, {"Q", "ABORT"} }
+-- The key bar: a band along the bottom, each key bright and its label quiet,
+-- the live one (what Enter or the main key does) with its label lit as well.
+-- On the bottom row CC paints the screen's margin in the band's colour, so
+-- the bar runs to the edge of the screen.
 function T.keys(c, y, list)
-  local x = 1
+  local w = c.w
+  c:text(1, y, string.rep(" ", w), T.C.faint, T.C.panel)
+  local x = 2
   for _, k in ipairs(list) do
     local live, key, label = k[3], tostring(k[1]), tostring(k[2])
-    if x + #key + #label + 3 > c.w + 1 then return end   -- never wrap the key bar
-    c:text(x, y, "[", T.C.rule)
-    c:text(x + 1, y, key, live and T.C.accent or T.C.text)
-    c:text(x + 1 + #key, y, "]", T.C.rule)
-    c:text(x + 3 + #key, y, label, live and T.C.text or T.C.faint)
-    x = x + #key + #label + 4
+    if x + #key + #label > w then return end            -- never wrap the key bar
+    c:text(x, y, key, T.C.text, T.C.panel)
+    c:text(x + #key + 1, y, label, live and T.C.text or T.C.faint, T.C.panel)
+    x = x + #key + 1 + #label + 2
   end
 end
 
@@ -201,11 +218,16 @@ function T.masthead(c, y, title, col, sub)
   local cells = math.ceil(T.headlinePx(title) / 2)
   local x = math.max(1, math.floor((w - cells) / 2) + 1)
   T.headline(c, x, y, title, col or T.C.text)
-  -- rules to the left and right of the word, on the middle row of the two
-  local midPx = (y - 1) * 3 + 3
-  if x > 2 then c:line(1, midPx, (x - 2) * 2, midPx, T.C.rule) end
+  -- A double hairline either side of the word, one sub-pixel above and one
+  -- below its middle. Never ON the middle: that is the bottom third of a
+  -- cell, which CC can only draw by swapping the colours, and then the
+  -- screen's margin takes the rule's grey and boxes the name in.
+  local top = (y - 1) * 3 + 1
   local rightPx = (x + cells) * 2
-  if rightPx < w * 2 then c:line(rightPx, midPx, w * 2, midPx, T.C.rule) end
+  for _, py in ipairs({ top + 1, top + 3 }) do
+    if x > 2 then c:line(1, py, (x - 2) * 2, py, T.C.rule) end
+    if rightPx < w * 2 then c:line(rightPx, py, w * 2, py, T.C.rule) end
+  end
   if sub then c:text(math.max(1, math.floor((w - #sub) / 2) + 1), y + 2, sub, T.C.faint) end
   return y + (sub and 3 or 2)
 end

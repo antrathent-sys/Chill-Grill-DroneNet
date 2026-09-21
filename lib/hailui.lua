@@ -82,28 +82,30 @@ function M.places(T, c, view)
   local w, h = c.w, c.h
   c:clear()
   T.masthead(c, 1, M.NAME, T.C.text, M.SUB)
-  c:text(1, 4, "SELECT DESTINATION", T.C.text)
-  c:text(1, 5, string.format("LOC %d, %d", view.from.x, view.from.z), T.C.faint)
-  if view.balance then
-    local owed = view.balance < 0
-    c:text(w - 11, 5, string.format("%11s", M.money(view.balance)), owed and T.C.warn or T.C.text)
-  end
+
+  -- one band says what the list is and what the account holds
+  local owed = view.balance and view.balance < 0
+  T.band(c, 5, "DESTINATIONS", view.balance and M.money(view.balance) or nil,
+         nil, owed and T.C.warn or T.C.text)
 
   local top, bottom = 6, h - 2
-  T.section(c, top, "PLACES")
-  local rows = bottom - top
+  local rows = bottom - top + 1
   local first = math.max(1, math.min(view.top or 1, math.max(1, #view.places - rows + 1)))
   for i = 0, rows - 1 do
     local p = view.places[first + i]
     if p then
-      T.row(c, 1, top + 1 + i, w, p.name:upper(), string.format("%5d", math.floor(p.dist or 0)),
+      T.row(c, 1, top + i, w, p.name:upper(), string.format("%d", math.floor(p.dist or 0)),
             (first + i) == view.sel)
     end
   end
-  if #view.places == 0 then c:text(2, top + 1, "NONE ON RECORD - PRESS C", T.C.faint) end
+  if #view.places == 0 then
+    local function mid(y, s, ink) c:text(math.max(1, math.floor((w - #s) / 2) + 1), y, s, ink) end
+    mid(10, "NO DESTINATIONS YET", T.C.text)
+    mid(12, "C  ENTER COORDINATES", T.C.faint)
+  end
 
   -- the arrows explain themselves once a row is lit, so the bar spends its
-  -- 26 columns on the keys nobody would guess: credit and typed coordinates
+  -- width on the keys nobody would guess: credit and typed coordinates
   T.keys(c, h, { { "ENT", "GO", true }, { "T", "CREDIT" }, { "C", "XZ" } })
   return rows
 end
@@ -172,7 +174,7 @@ function M.topup(T, c, view)
     c:text(2, r + 4, "3  4096 SPUR (1 SUN)", T.C.faint)
     T.keys(c, h, { { "1/2/3", "PICK", true }, { "Q", "BACK" } })
   end
-  c:text(w, h, T.spin(view.spin), T.C.rule)
+  c:text(w, h, T.spin(view.spin), T.C.rule, T.C.panel)
   return c
 end
 
@@ -238,7 +240,8 @@ function M.ride(T, c, view)
   else
     T.keys(c, h, { { "L", "LOG" }, { "Q", "ABORT" } })
   end
-  c:text(w, h, T.spin(view.spin), T.C.rule)
+  -- no spinner here: the ETA and the status already show the screen is live,
+  -- and the corner is where the longest key bar ends
   return c
 end
 

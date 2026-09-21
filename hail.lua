@@ -162,8 +162,8 @@ local function frame(title, note, keyBar)
   if D and T and UI then
     local c = D.canvas(W, H)
     UI.header(T, c)
-    if title then c:text(1, 3, tostring(title):upper():sub(1, W), T.C.text) end
-    if note and note ~= "" then c:text(1, 4, tostring(note):upper():sub(1, W), T.C.faint) end
+    if title then T.band(c, 3, title, nil, T.C.text) end
+    if note and note ~= "" then c:text(2, 4, tostring(note):upper():sub(1, W - 2), T.C.faint) end
     if keyBar then T.keys(c, H, keyBar) end
     c:flush(term)
   else
