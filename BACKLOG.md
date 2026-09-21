@@ -693,3 +693,32 @@ limits throughput is the clock: 2,140 blocks a minute of cruise plus 40-60 s of
 climb, descent and settle per flight, three flights to a job. Queueing a second
 customer with an honest wait, and not flying home empty after every drop, are
 both worth more than any battery rule.
+
+**Air traffic control, for anyone's craft and not just ours.** Alex wants a
+service the whole server can use: any craft carrying a transponder appears on
+the board, gets separation and gets told about the traffic around it. The
+shape that follows from what already exists:
+
+- A transponder is a small program on the craft's computer - the beacon we
+  already fly, with its identity and its keys stripped out. It broadcasts
+  position, height, heading, speed and a callsign on an agreed channel, and it
+  is *send only*, because nothing that anyone can install should be able to
+  take instructions from us.
+- Identity is the callsign and nothing more. Ours are sealed and theirs are
+  not, so the board must show plainly which contacts are authenticated and
+  which are simply claiming to be somebody - the same distinction the till
+  makes between a sealed terminal and an anonymous one.
+- Separation is the actual product: who is near whom, closing, and at what
+  height. That is arithmetic over the contact list and it needs no cooperation
+  from the craft beyond its position.
+- Advisories go back by radio, unsealed, as *information*. A pilot may act on
+  them. Nothing we send should ever be able to fly someone else's craft, and
+  saying so out loud is the whole security model.
+- Flight levels by heading, the real-world rule (eastbound odd, westbound
+  even), would give the fleet and everyone else a cheap way not to meet.
+- The board is lib/opsui's fleet list with a second section for foreign
+  contacts, and the same screens work on the pocket.
+
+Worth building after the shuttle service is running: it shares the telemetry
+format, the screens and the queue's idea of what is nearby, and it is the
+first thing here that other people would use.

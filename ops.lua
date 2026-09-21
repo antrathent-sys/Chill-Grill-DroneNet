@@ -14,6 +14,9 @@
 --   ops account [who]    balances, or one customer's history
 --   ops credit <who> <n> put credit on an account by hand (spurs)
 --   ops till             what the till can see: the seat, the pad, the depositor
+--   ops place            the destinations customers can pick from
+--   ops place add <name> <x> <z> [y]      add one (or move it)
+--   ops place del <name>                  take one off the list
 --
 -- It runs on the base computer and, just as happily, on an ender pocket
 -- computer: the board lays itself out for 26 columns and keeps the keys that
@@ -498,6 +501,44 @@ if cmd == "free" then
   end
   print(had and (who .. " was on " .. tostring(had) .. " - cleared") or (who .. " was already free"))
   print("(ops in watch mode keeps its own list; restart it there if it still says busy)")
+  return
+end
+
+if cmd == "place" then
+  -- The destinations the pocket terminals offer. They live in pads.lua on this
+  -- computer, the same file and format the drones use, so a place added here
+  -- shows up on every terminal the next time one asks. A destination only
+  -- needs x and z; a PICKUP pad also needs the drone to know it, which is
+  -- `fly pad add <name>` standing on the spot.
+  local P = dofile("lib/pads.lua")
+  local list = P.load("pads.lua", fs) or {}
+  local sub = (args[2] or "list"):lower()
+  if sub == "add" then
+    local name, x, z, y = args[3], tonumber(args[4]), tonumber(args[5]), tonumber(args[6])
+    if not (name and x and z) then print("ops place add <name> <x> <z> [y]") return end
+    local entry = { name = name:lower(), x = math.floor(x), z = math.floor(z), y = y and math.floor(y) or 64 }
+    local ok, why = P.check(entry)
+    if not ok then print("no: " .. tostring(why)) return end
+    list = P.put(list, entry)
+    local okW, whyW = P.save("pads.lua", list, fs)
+    print(okW and string.format("%s is at %d, %d", entry.name, entry.x, entry.z)
+               or ("could not save: " .. tostring(whyW)))
+    return
+  elseif sub == "del" then
+    if not args[3] then print("ops place del <name>") return end
+    list = P.remove(list, args[3]:lower())
+    local okW = P.save("pads.lua", list, fs)
+    print(okW and ("removed " .. args[3]:lower()) or "could not save pads.lua")
+    return
+  end
+  if #list == 0 then print("no places yet - ops place add <name> <x> <z>") return end
+  print(string.format("%-14s %8s %8s %6s", "PLACE", "X", "Z", "Y"))
+  for _, p in ipairs(list) do
+    print(string.format("%-14s %8d %8d %6s", p.name, p.x, p.z, p.y or "-"))
+  end
+  print("")
+  print("terminals pick these up the next time they ask; a pickup pad also")
+  print("needs the drone to know it: fly pad add <name>, standing on it")
   return
 end
 
