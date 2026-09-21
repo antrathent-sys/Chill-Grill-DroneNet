@@ -54,7 +54,10 @@ local function drone(opts)
     modem_ender = { type = "modem", m = {
       isWireless = function() return true end,
       transmit = function(ch, _, msg) w.sent[#w.sent + 1] = { ch = ch, msg = msg } end } },
-    altitude_sensor_0 = { type = "altitude_sensor", m = { getHeight = function() return opts.height or 98.5 end } },
+    altitude_sensor_0 = { type = "altitude_sensor", m = { getHeight = function()
+      if type(opts.height) == "function" then return opts.height(w) end
+      return opts.height or 98.5
+    end } },
     modular_accumulator_0 = { type = "modular_accumulator", m = acc },
     vector_thruster_5 = { type = "vector_thruster", m = thr },
     docking_connector_0 = { type = "docking_connector", m = { getConnectedName = function() return opts.name or "" end } },
@@ -94,7 +97,43 @@ local function drone(opts)
   -- the send loop runs `cycles` packets, then the key watcher gets the next key
   -- send a few packets, then whichever of the other two has something to do:
   -- an order if one is queued (net), else the keyboard
-  env.parallel = { waitForAny = function(a, b, net)
+  w.depth, w.clock, w.queued = 0, 0, {}
+  w.holdEvents = opts.holdEvents or {}
+  local function sideBySide(...)
+    local cos, filters = {}, {}
+    for i, f in ipairs({ ... }) do cos[i] = coroutine.create(f) end
+    w.depth = w.depth + 1
+    local ev, first, n = {}, true, 0
+    while true do
+      for i, co in ipairs(cos) do
+        if first or filters[i] == nil or filters[i] == ev[1] or ev[1] == "terminate" then
+          local ok, want = coroutine.resume(co, (table.unpack or unpack)(ev))
+          if not ok then w.depth = w.depth - 1 error(want, 0) end
+          if coroutine.status(co) == "dead" then w.depth = w.depth - 1 return i end
+          filters[i] = want
+        end
+      end
+      first = false
+      n = n + 1
+      if n > 5000 then error("hold never ended", 0) end
+      -- what CC would deliver next: something queued, a scripted order when
+      -- its time comes, else a second passing
+      if #w.queued > 0 then
+        ev = table.remove(w.queued, 1)
+      elseif w.holdEvents[1] and w.clock >= (w.holdEvents[1].at or 0) then
+        local h = table.remove(w.holdEvents, 1)
+        ev = { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL, w.baseSealer.seal(h.order) }
+      else
+        w.clock = w.clock + 1
+        ev = { "timer", 1 }
+      end
+    end
+  end
+  env.parallel = { waitForAny = function(...)
+    if select("#", ...) == 2 then return sideBySide(...) end
+    return w.mainLoop(...)
+  end }
+  w.mainLoop = function(a, b, net)
     local co = coroutine.create(a)
     for _ = 1, w.cycles do
       local ok, e = coroutine.resume(co)
@@ -106,9 +145,13 @@ local function drone(opts)
       if not tostring(e):find("no more orders", 1, true) then error(e, 0) end
     end
     b()
-  end }
+  end
   env.os = setmetatable({
+    clock = function() return w.clock end,
+    startTimer = function() return 1 end, cancelTimer = function() end,
+    queueEvent = function(...) w.queued[#w.queued + 1] = { ... } end,
     pullEvent = function(want)
+      if w.depth > 0 then return coroutine.yield(want) end
       if want == "modem_message" or (want == nil and #w.inbox > 0) then
         local m = table.remove(w.inbox, 1)
         if not m then error("no more orders", 0) end   -- the harness stops here
@@ -123,6 +166,13 @@ local function drone(opts)
   -- opts.fails: the numbers of the flights that fail (a crash, a refusal)
   env.shell = { run = function(cmd)
     w.runs[#w.runs + 1] = cmd
+    if cmd:match("^fly %d+$") and w.depth > 0 then
+      -- a hold: fly keeps the height until its own word, "l", lands it
+      while true do
+        local ev, ch = env.os.pullEvent()
+        if ev == "char" and ch == "l" then break end
+      end
+    end
     return not (opts.fails and opts.fails[#w.runs])
   end }
   env.dofile = function(p)
@@ -289,13 +339,30 @@ check("then home", w.runs[3] == "fly ferry home", w.runs[3] or "nothing")
 
 print("a pickup that lands on something")
 local hailO = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-o", "alex")
-w = run(drone({ name = "pad", cycles = 1, height = 90,          -- 12.5 above where it should rest
-                inbox = { order(F.assign("j-o", hailO)) } }))
-local stO = saidOfType(w, "job.state")
-check("it calls the job off as obstructed", stO[#stO] and stO[#stO].state == "failed"
-  and tostring(stO[#stO].detail):find("obstructed", 1, true) ~= nil, stO[#stO] and stO[#stO].detail)
-check("and goes home - it is not in distress, just in the wrong place",
-  w.runs[2] == "fly ferry home" and #saidOfType(w, "unit.distress") == 0, w.runs[2])
+-- first landing: on something (90, where 77.5 is the ground); the second, at
+-- the customer's new spot, rests where it should
+local function heights(w) return (#w.runs <= 2) and 90 or 77.5 end
+w = run(drone({ name = "pad", cycles = 1, height = heights,
+                inbox = { order(F.assign("j-o", hailO)), order(F.go("j-o", "pocket-o2")) },
+                holdEvents = { { at = 20, order = order(F.relocate("j-o", 850, 71, -300, "pocket-o3")) } } }))
+local stO = {}
+for _, s in ipairs(saidOfType(w, "job.state")) do stO[#stO + 1] = s.state end
+check("obstructed: it says so and holds above instead of giving up",
+  table.concat(stO, " "):find("enroute relocate enroute waiting", 1, true) ~= nil, table.concat(stO, " "))
+check("the hold is 12 above where it came to rest", w.runs[2] == "fly 102", w.runs[2])
+check("given a new spot it sets down, then flies there", w.runs[3] == "fly land 850 71 -300", w.runs[3])
+check("and the ride carries on from there", w.runs[4] == "fly land 1200 340" and w.runs[5] == "fly ferry home",
+  tostring(w.runs[4]) .. " / " .. tostring(w.runs[5]))
+check("none of that is a distress", #saidOfType(w, "unit.distress") == 0)
+
+local hailT = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-t", "alex")
+w = run(drone({ name = "pad", cycles = 1, height = 90, inbox = { order(F.assign("j-t", hailT)) } }))
+local stT = saidOfType(w, "job.state")
+check("no new spot in two minutes: the job is dropped and charged",
+  stT[#stT] and stT[#stT].state == "failed" and tostring(stT[#stT].detail):find("job dropped, fare charged", 1, true) ~= nil,
+  stT[#stT] and stT[#stT].detail)
+check("it sets down and goes home", w.runs[2] == "fly 102" and w.runs[3] == "fly ferry home", tostring(w.runs[3]))
+check("after waiting the full two minutes", w.clock >= 120, w.clock)
 
 print("a flight that fails")
 local hailD = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-d", "alex")

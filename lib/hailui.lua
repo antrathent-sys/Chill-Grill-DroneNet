@@ -25,6 +25,7 @@ M.WORDS = {
   riding  = "IN TRANSIT",
   done    = "COMPLETE",
   failed  = "ABORTED",
+  relocate = "HOLDING ABOVE",
 }
 
 --- What a customer calls a craft: its class and its number. The passenger

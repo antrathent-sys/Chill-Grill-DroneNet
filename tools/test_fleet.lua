@@ -220,6 +220,9 @@ boardReq.board = true
 local ba = F.assign("j-b", boardReq)
 check("boarding travels in the order", ba.board == true)
 check("and means no pickup flight", F.legCommand("pickup", ba) == nil)
+local rel = F.relocate("j-1", 130.6, 64.2, 215.9, "r-1")
+check("a new spot is a valid message, in whole blocks", (F.check(rel)) and rel.px == 130 and rel.pz == 215)
+check("holding above is a job state", (F.check(F.state("j-1", "drone-1", "relocate", "held", "s-1"))))
 
 print("what a finished job leaves behind")
 local job = { id = "j-7", drone = "drone-1", who = "hail-41", pad = "pier", px = 100, pz = -50,

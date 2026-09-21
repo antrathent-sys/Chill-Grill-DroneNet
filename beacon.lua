@@ -43,6 +43,14 @@ local PERIOD = 2         -- seconds between packets
 local REST_GAP = 7.5
 local OBSTRUCTED = 4     -- blocks above the expected rest that count as on top of something
 local DISTRESS_EVERY = 15   -- packets between repeats of the distress call (30 s)
+-- An obstructed pickup climbs this far above where it came to rest and holds
+-- there while the customer finds somewhere clear. No new spot in
+-- RELOCATE_WAIT seconds, or a third obstructed landing, drops the job - and
+-- the base charges the fare.
+local SAFE_CLIMB = 12
+local RELOCATE_WAIT = 120
+local MAX_TRIES = 3
+local HOLD = "hold-for-a-new-spot"   -- not a fly command: the main loop's marker
 local PLAN_EVERY = 10    -- a route packet on the first and every this many
 local CHARGE_FE = 200    -- FE gained between packets that counts as charging
 
@@ -199,9 +207,10 @@ end
 
 -- Waits for something to fly and returns; the main loop runs it and then calls
 -- jobStep to work out what happens next.
-local function netLoop()
-  while true do
-    local _, _, ch, _, env = os.pullEvent("modem_message")
+-- Open one packet from the telemetry channel as an order for this drone, or
+-- return nil and say why not. Shared by netLoop and the hold above an
+-- obstructed landing, so both believe exactly the same things.
+local function openOrder(ch, env)
     local msg
     if ch == link.CHANNEL then run.heard = (run.heard or 0) + 1 end
     if ch == link.CHANNEL and type(env) == "table" and env.sl and env.d == SEC.DIR.BASE_TO_DRONE then
@@ -232,6 +241,13 @@ local function netLoop()
         msg = nil
       end
     end
+    return msg
+end
+
+local function netLoop()
+  while true do
+    local _, _, ch, _, env = os.pullEvent("modem_message")
+    local msg = openOrder(ch, env)
     if msg then
       if msg.type == "ops.fly" then
         if job then
@@ -292,11 +308,21 @@ local function jobStep(flew)
       local h = call(alt, "getHeight")
       local expect = job.py and (job.py - 1 + REST_GAP)
       if not job.pad and expect and h and h - expect > OBSTRUCTED then
-        announce("failed", string.format("landing zone obstructed - landed %d blocks above you",
-          math.floor(h - expect + 0.5)))
-        print("pickup obstructed - going home")
-        job.step = "home"
-        pending = F.legCommand("home", job)
+        job.tries = (job.tries or 0) + 1
+        local above = math.floor(h - expect + 0.5)
+        if job.tries >= MAX_TRIES then
+          announce("failed", "landing zone obstructed again - job dropped, fare charged")
+          print("pickup obstructed " .. job.tries .. " times - job dropped")
+          job.step = "home"
+          pending = F.legCommand("home", job)
+          return
+        end
+        -- climb clear and hold, while the customer finds somewhere clear
+        job.holdY = math.floor(h + SAFE_CLIMB)
+        job.step = "relocate"
+        announce("relocate", string.format("landing zone obstructed - %d above you, holding", above))
+        print("pickup obstructed - holding at Y " .. job.holdY .. " for a new spot")
+        pending = HOLD
         return
       end
       job.step = "waiting"
@@ -353,6 +379,58 @@ local function sendLoop()
   end
 end
 
+-- Hold above an obstructed landing until the customer sends a new spot, or
+-- RELOCATE_WAIT runs out. fly holds the height; this listens beside it. The
+-- hold is ended with fly's own word - "l", land here - never by stopping fly,
+-- which would leave the thrusters at their last command. Then the next leg
+-- goes to the new spot, or home if the time ran out.
+local function holdForSpot()
+  local target, timedOut
+  local deadline = os.clock() + RELOCATE_WAIT
+  local flew = true
+  local function hover() flew = shell.run("fly " .. tostring(job.holdY)) end
+  local function listen()
+    local asked = false
+    while true do
+      local timer = os.startTimer(1)
+      local ev = { os.pullEvent() }
+      if ev[1] ~= "timer" then pcall(os.cancelTimer, timer) end
+      if not asked then
+        if ev[1] == "modem_message" then
+          local msg = openOrder(ev[3], ev[5])
+          if msg and msg.type == "job.relocate" and msg.job == job.id then
+            target, asked = msg, true
+            print("new spot " .. tostring(msg.px) .. " " .. tostring(msg.pz) .. " - setting down first")
+            os.queueEvent("char", "l")
+          end
+        elseif os.clock() > deadline then
+          timedOut, asked = true, true
+          print("no new spot in " .. RELOCATE_WAIT .. " s - setting down")
+          os.queueEvent("char", "l")
+        end
+      end
+    end
+  end
+  parallel.waitForAny(hover, listen)
+  sealerAfterFlight()          -- fly moved the counter on
+  if not flew or not (target or timedOut) then
+    distress("hold above an obstructed landing failed")
+    announce("failed", "unit down at " .. here())
+    job = nil
+    return
+  end
+  if target then
+    job.px, job.py, job.pz, job.pad = target.px, target.py, target.pz, target.pad
+    job.step = "pickup"
+    announce("enroute", "to the new spot")
+    pending = F.legCommand("pickup", job)
+  else
+    announce("failed", "no new spot in 2 min - job dropped, fare charged")
+    job.step = "home"
+    pending = F.legCommand("home", job)
+  end
+end
+
 print(string.format("beacon: %s on %s channel %d, sealed%s", id, radio, link.CHANNEL,
   home and "" or " - home unknown (fly pad add home, or HOME_X/Z in fly.lua)"))
 print(string.format("F = fly, Q = stop  -  taking sealed orders on %s ch %d", radio, link.CHANNEL))
@@ -387,10 +465,14 @@ while true do
     local ordered = (pending ~= nil)
     local forJob = (job ~= nil)
     pending = nil
-    local flew = shell.run("fly " .. line)
-    sealerAfterFlight()     -- fly moved the counter on; start above it
-    if ordered then jobStep(flew and true or false) end
-    if ordered and not forJob and not flew then distress("ordered flight failed: fly " .. line) end
+    if line == HOLD and job then
+      holdForSpot()           -- queues the next leg itself
+    else
+      local flew = shell.run("fly " .. line)
+      sealerAfterFlight()     -- fly moved the counter on; start above it
+      if ordered then jobStep(flew and true or false) end
+      if ordered and not forJob and not flew then distress("ordered flight failed: fly " .. line) end
+    end
     line = pending
   end
   print("beacon resumes - F = fly, Q = stop")

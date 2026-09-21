@@ -67,7 +67,8 @@ F.PROTO = "dronenet"
 -- a job walks: assigned -> enroute (flying to the pad) -> waiting (docked at
 -- the pad, doors open) -> riding (flying to the destination) -> done. failed
 -- ends it from anywhere.
-F.STATES = { assigned = true, enroute = true, waiting = true, riding = true, done = true, failed = true }
+F.STATES = { assigned = true, enroute = true, waiting = true, riding = true, done = true, failed = true,
+             relocate = true }     -- could not land: holding above for a new spot
 F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["job.state"] = true, ["job.go"] = true, ["pad.stats"] = true,
             ["ops.fly"] = true, ["ops.ping"] = true, ["job.track"] = true,
@@ -75,7 +76,8 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["account.ask"] = true, ["account.info"] = true,
             ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true,
             ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true,
-            ["fare.ask"] = true, ["fare.quote"] = true, ["unit.distress"] = true }
+            ["fare.ask"] = true, ["fare.quote"] = true, ["unit.distress"] = true,
+            ["job.relocate"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -165,6 +167,9 @@ function F.check(m)
     if not num(m.fare) then return false, "no fare" end
   elseif m.type == "unit.distress" then
     if not (str(m.drone) and str(m.why)) then return false, "no unit or reason" end
+  elseif m.type == "job.relocate" then
+    if not str(m.job) then return false, "no job id" end
+    if not (num(m.px) and num(m.pz)) then return false, "no new spot" end
   elseif m.type == "account.info" then
     if not str(m.who) then return false, "no customer" end
     if not num(m.balance) then return false, "no balance" end
@@ -230,6 +235,15 @@ function F.assign(job, req)
            -- a unit already on station where the customer is: no pickup
            -- flight, they walk to it and press G
            board = req.board and true or nil }
+end
+
+--- A new pickup spot for a job whose unit could not land. The customer's
+-- terminal sends it to the base; the base sends it on to the unit, sealed.
+-- pad names the spot when it is a dock (the unit ferries to it then).
+function F.relocate(job, x, y, z, nonce, pad)
+  return { v = F.VERSION, type = "job.relocate", nonce = nonce, job = job,
+           px = num(x) and math.floor(x) or nil, py = num(y) and math.floor(y) or nil,
+           pz = num(z) and math.floor(z) or nil, pad = pad }
 end
 
 --- A unit that has gone down: a flight it was ordered to fly failed. Sent

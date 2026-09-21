@@ -677,7 +677,11 @@ end
 local function aborted(detail)
   frame("TRANSIT ABORTED", "")
   local d = tostring(detail or "")
-  if d:find("obstructed", 1, true) then
+  if d:find("job dropped", 1, true) then
+    at(2, 6, "job dropped", INK)
+    at(2, 8, "no clear spot in time,", AMBER)
+    at(2, 9, "so the fare is charged", AMBER)
+  elseif d:find("obstructed", 1, true) then
     at(2, 6, "landing zone obstructed", INK)
     at(2, 8, "move to open ground or a", AMBER)
     at(2, 9, "platform, then call again", AMBER)
@@ -690,6 +694,68 @@ local function aborted(detail)
   else
     at(2, 6, "the unit stopped early", INK)
     at(2, 8, d, DIM)
+  end
+end
+
+-- The unit could not land where they stood and is holding above. They go
+-- somewhere clear - or to a platform - and press ENT standing on it; the base
+-- sends the unit there. The unit keeps the time: two minutes, then it sets
+-- down, drops the job and the fare is charged. The clock here is a guide.
+local RELOCATE_WAIT = 120
+local function newSpot(jobId)
+  local deadline = os.clock() + RELOCATE_WAIT
+  local x, y, z = gps.locate(2)
+  local pad, pd
+  if x then pad, pd = nearestPlatform({ x = x, z = z }) end
+  if pad and pd > WALKABLE then pad = nil end
+  local function clockLine()
+    local left = math.max(0, deadline - os.clock())
+    at(2, 15, "time left", DIM)
+    at(12, 15, string.format("%d:%02d", math.floor(left / 60), math.floor(left % 60)), left < 30 and INK or AMBER)
+  end
+  local function draw()
+    local keysBar = { { "ENT", "HERE", true } }
+    if pad then keysBar[#keysBar + 1] = { "P", "PLATFORM" } end
+    frame("LANDING ZONE OBSTRUCTED", "unit holding above", keysBar)
+    at(2, 6, "move somewhere clear:", AMBER)
+    at(2, 7, "clear sky, level 9x9,", DIM)
+    at(2, 8, "no water, trees, roofs.", DIM)
+    at(2, 10, "stand on it, press ent", AMBER)
+    if pad then
+      at(2, 12, "nearest platform", DIM)
+      at(2, 13, string.format("%s  %d blocks", pad.name, math.floor(pd)), AMBER)
+    end
+    clockLine()
+    at(2, 16, "then the job is dropped", DIM)
+    at(2, 17, "and the fare charged", DIM)
+  end
+  flushInput()
+  draw()
+  local timer = os.startTimer(1)
+  while true do
+    local ev, a, b = os.pullEvent()
+    if ev == "timer" and a == timer then
+      if os.clock() >= deadline then return nil end
+      clockLine()
+      timer = os.startTimer(1)
+    elseif ev == "key" then
+      if a == keys.enter then
+        at(2, 10, "locating...           ", DIM)
+        local gx, gy, gz = gps.locate(2)
+        if gx then return { x = math.floor(gx), y = math.floor(gy), z = math.floor(gz) } end
+        local tx, ty, tz = askXYZ("NEW SPOT")
+        if tx then return { x = tx, y = ty, z = tz } end
+        draw()
+        timer = os.startTimer(1)
+      elseif a == keys.p and pad then
+        if walkTo(pad) then return { x = pad.x, y = pad.y, z = pad.z, name = pad.name } end
+        draw()
+        timer = os.startTimer(1)
+      end
+    elseif ev == "rednet_message" and type(b) == "table" and b.job == jobId
+           and b.type == "job.state" and b.state == "failed" and (F.check(b)) then
+      return nil, b
+    end
   end
 end
 
@@ -763,6 +829,21 @@ local function follow(job, from, name, route)
             startAway, eta, lastAway, lastAt = nil, nil, nil, nil   -- new leg, new gauge
           end
           if msg.state == "waiting" then aboard = true end
+          if msg.state == "relocate" then
+            local spot, failure = newSpot(job)
+            rideCanvas = nil
+            if spot then
+              say(F.relocate(job, spot.x, spot.y, spot.z, nonce(), spot.name))
+              pickup, zone = spot, nil
+              note("new spot " .. xyz(spot.x, spot.y, spot.z))
+            elseif failure then
+              aborted(failure.detail)
+              sleep(5)
+              result = "failed"
+              return
+            end
+            -- no spot and no word: the unit keeps the time and will say
+          end
           if msg.state == "done" then result = "done" return end
           if msg.state == "failed" then
             aborted(msg.detail)

@@ -911,6 +911,27 @@ function handle(from, msg, customer)
         for _, d in pairs(fleet) do if (F.available(d, os.clock())) then free = free + 1 end end
         pcall(rednet.send, from, F.ack("ping", "ops", true, free .. " free", nonce()), F.PROTO)
         log("ping from %s - answered, %d free", tostring(from), free)
+      elseif msg.type == "job.relocate" then
+        -- the unit could not land and is holding above: the customer has found
+        -- somewhere clear. Only the terminal that ordered the job may move it,
+        -- the same rule as job.go. A platform that is a dock is named, so the
+        -- unit ferries to it; anywhere else it lands at the coordinates.
+        local j = jobs[msg.job]
+        if not j then
+          -- nothing to do
+        elseif j.client and from ~= j.client then
+          log("ignored a new spot for %s from %s - not the caller", tostring(msg.job), tostring(from))
+        elseif j.state ~= "relocate" then
+          log("ignored a new spot for %s - it is %s, not holding", tostring(msg.job), tostring(j.state))
+        else
+          local known = msg.pad and padByName(msg.pad)
+          local pad = (known and known.kind == "dock") and known.name or nil
+          j.px, j.pz = msg.px, msg.pz
+          j.blocks = math.sqrt(((j.tx or msg.px) - msg.px) ^ 2 + ((j.tz or msg.pz) - msg.pz) ^ 2)
+          local sent, why = order(j.drone, F.relocate(j.id, msg.px, msg.py, msg.pz, nonce(), pad))
+          log(sent and ("%s: new spot %d %d for %s"):format(j.id, msg.px, msg.pz, tostring(j.drone))
+                   or ("new spot not sent: " .. tostring(why)))
+        end
       elseif msg.type == "job.go" then
         -- The customer is aboard. Only the terminal that ORDERED this job may
         -- say so: hails are broadcast in the clear, so anyone in radio range
@@ -946,10 +967,13 @@ function handle(from, msg, customer)
             j.rode = j.waited and (os.clock() - j.at - j.waited) or 0
             j.total = os.clock() - j.at
             j.outcome = msg.state
-            -- the fare, once, and only for a ride that actually finished
-            if msg.state == "done" and j.who and not j.charged then
+            -- the fare, once: for a ride that finished, and for one dropped
+            -- because the customer gave the unit nowhere it could land
+            local dropped = msg.state == "failed" and tostring(msg.detail or ""):find("job dropped", 1, true)
+            if (msg.state == "done" or dropped) and j.who and not j.charged then
               -- the DESTINATION decides a free ride; where they were picked up never does
               local fare, why = LEDGER.fare(j.blocks, j.toName, tariff)
+              if dropped then why = "dropped, no clear spot - " .. why end
               j.charged, j.fare = true, fare
               if fare > 0 then
                 local bal = post(j.who, "fare", -fare, why)
@@ -967,7 +991,8 @@ function handle(from, msg, customer)
             end
             if not j.logged then j.logged = writeJob(j) end
           end
-          if msg.state == "failed" and tostring(msg.detail or ""):find("obstructed", 1, true) then
+          if (msg.state == "relocate" or msg.state == "failed")
+             and tostring(msg.detail or ""):find("obstructed", 1, true) then
             incident(msg.drone, j, tostring(msg.detail), j.px, nil, j.pz, false)
           end
           if j.client then pcall(rednet.send, j.client, msg, F.PROTO) end

@@ -125,7 +125,14 @@ local function world(opts)
           msg.board, msg.px, msg.pz, msg.py = true, opts.near.x, opts.near.z, opts.near.y
         end
         reply(F.assign("j-1", msg))
-        if opts.fail then
+        if opts.relocate or opts.relocateTimeout then
+          -- it came down on something and is holding above
+          reply(F.state("j-1", "drone-1", "enroute", nil, "s-1"))
+          reply(F.state("j-1", "drone-1", "relocate", "landing zone obstructed - 9 above you, holding", "s-r"), 30)
+          if opts.relocateTimeout then
+            reply(F.state("j-1", "drone-1", "failed", "no new spot in 2 min - job dropped, fare charged", "s-x"), 400)
+          end
+        elseif opts.fail then
           reply(F.state("j-1", "drone-1", "enroute", nil, "s-1"))
           reply(F.state("j-1", "drone-1", "failed", opts.fail, "s-f"))
         elseif opts.near then
@@ -134,6 +141,10 @@ local function world(opts)
           reply(F.state("j-1", "drone-1", "enroute", nil, "s-1"))
           reply(F.state("j-1", "drone-1", "waiting", nil, "s-2"), 60)   -- the flight takes a while
         end
+      elseif msg.type == "job.relocate" then
+        w.relocated = msg
+        reply(F.state("j-1", "drone-1", "enroute", "to the new spot", "s-n"))
+        reply(F.state("j-1", "drone-1", "waiting", nil, "s-w"), 40)
       elseif msg.type == "job.go" then
         w.went = true
         reply(F.state("j-1", "drone-1", "riding", nil, "s-3"))
@@ -340,6 +351,26 @@ check("and what to do", has(ob, "MOVE TO OPEN GROUND OR A"))
 local down = run(world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter } },
                          fail = "unit down at 1500 80 300" }), "hail.lua", "kiosk")
 check("a unit down says so, and that the operator knows", has(down, "UNIT DOWN") and has(down, "IS ALERTED"))
+
+print("a unit that could not land")
+local rl = run(world({ relocate = true,
+  gpsPos = function(w) return w.moved and { 130, 64, 215 } or { 100, 64, 200 } end,
+  inputs = {
+    { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter },   -- place, landing zone, confirm
+    { key = KEYS.enter, when = function(w) if w.state == "relocate" then w.moved = true return true end end },
+    { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+check("it says the zone was obstructed and the unit is holding", has(rl, "LANDING ZONE OBSTRUCTED")
+  and has(rl, "UNIT HOLDING ABOVE"))
+check("with the two minutes and what happens after", has(rl, "TIME LEFT") and has(rl, "THEN THE JOB IS DROPPED"))
+check("ENT sends where they stand now", rl.relocated and rl.relocated.px == 130 and rl.relocated.pz == 215,
+  rl.relocated and (rl.relocated.px .. " " .. rl.relocated.pz))
+check("and the ride carries on from the new spot", rl.went == true and has(rl, "130 64 215"))
+local rt = run(world({ relocateTimeout = true, inputs = {
+    { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter },
+} }), "hail.lua", "kiosk")
+check("no new spot in time: dropped, and it says the fare is charged",
+  has(rt, "JOB DROPPED") and has(rt, "SO THE FARE IS CHARGED"))
 
 print("walking to a platform")
 local walk = run(world({ gpsPos = function(w) return w.walking and { 865, 70, 250 } or { 700, 64, 200 } end,
