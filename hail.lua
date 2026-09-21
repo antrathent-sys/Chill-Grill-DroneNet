@@ -373,44 +373,58 @@ local function topUp()
   local c = screen()
   if not c then return end
   local view = { who = me, balance = balance, state = "choose", spin = 0 }
-  local lastHere = 0
-  while true do
-    UI.topup(T, c, view)
-    c:flush(term)
-    -- While this screen is open, say where we are standing, a few seconds
-    -- apart. That is how the pay pad knows whose account to credit - it never
-    -- has to learn which PLAYER paid, only which terminal is on the spot.
-    if (view.state == "waiting" or view.state == "ready") and os.clock() - lastHere > 3 then
-      local x, y, z = gps.locate(2)
-      if x then say(F.here(x, y, z, nonce(), view.amount)) end
-      lastHere = os.clock()
-    end
-    local timer = os.startTimer(1)
-    local ev = { os.pullEvent() }
-    if ev[1] ~= "timer" then pcall(os.cancelTimer, timer) end
-    view.spin = (view.spin or 0) + 1
-    if ev[1] == "key" then
-      local key = ev[2]
-      if key == keys.q then return end
-      if view.state == "choose" and AMOUNTS[key] then
-        view.amount, view.state = AMOUNTS[key], "waiting"
-        say(F.creditArm(view.amount, nonce()))
-        view.since = os.clock()
+
+  -- While an amount is chosen, say where we are standing, a few seconds
+  -- apart. That is how the pay pad knows whose account to credit - it never
+  -- has to learn which PLAYER paid, only which terminal is on the spot.
+  -- It runs beside the screen, not inside it: gps.locate throws away every
+  -- event it is not waiting for, and in the screen's own loop that included
+  -- the Q meant to leave the page.
+  local function reportHere()
+    while true do
+      if view.state == "waiting" or view.state == "ready" then
+        local x, y, z = gps.locate(2)
+        if x then say(F.here(x, y, z, nonce(), view.amount)) end
+        sleep(3)
+      else
+        sleep(0.5)
       end
-    elseif ev[1] == "rednet_message" then
-      local msg = ev[3]
-      if type(msg) == "table" and (F.check(msg)) then
-        if msg.type == "till.open" then
-          view.state, view.amount = "ready", msg.amount
-        elseif msg.type == "credit.ok" then
-          balance, view.balance = msg.balance, msg.balance
-          view.got, view.state = msg.amount, "done"
-        elseif msg.type == "account.info" then
-          balance, view.balance = msg.balance, msg.balance
+    end
+  end
+
+  local function screenLoop()
+    while true do
+      UI.topup(T, c, view)
+      c:flush(term)
+      local timer = os.startTimer(1)
+      local ev = { os.pullEvent() }
+      if ev[1] ~= "timer" then pcall(os.cancelTimer, timer) end
+      view.spin = (view.spin or 0) + 1
+      if ev[1] == "key" then
+        local key = ev[2]
+        if key == keys.q then return end
+        if view.state == "choose" and AMOUNTS[key] then
+          view.amount, view.state = AMOUNTS[key], "waiting"
+          say(F.creditArm(view.amount, nonce()))
+          view.since = os.clock()
+        end
+      elseif ev[1] == "rednet_message" then
+        local msg = ev[3]
+        if type(msg) == "table" and (F.check(msg)) then
+          if msg.type == "till.open" then
+            view.state, view.amount = "ready", msg.amount
+          elseif msg.type == "credit.ok" then
+            balance, view.balance = msg.balance, msg.balance
+            view.got, view.state = msg.amount, "done"
+          elseif msg.type == "account.info" then
+            balance, view.balance = msg.balance, msg.balance
+          end
         end
       end
     end
   end
+
+  parallel.waitForAny(screenLoop, reportHere)
 end
 
 -- The menu: the places list, driven by the arrow keys. Returns x, y, z, name,

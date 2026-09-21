@@ -27,7 +27,7 @@ local COLOURS = { white = 1, orange = 2, brown = 4096, black = 32768, red = 1638
 local function world(opts)
   local w = { files = opts.files or {}, shown = {}, said = {}, inbox = {}, clock = 0,
               inputs = opts.inputs or {}, events = 0, state = "idle", rebooted = false,
-              label = opts.label, queued = {}, reads = {} }
+              label = opts.label, queued = {}, reads = {}, depth = 0 }
   local env = setmetatable({}, { __index = _G })
   local function show(s) if s and s ~= "" then w.shown[#w.shown + 1] = s end end
 
@@ -51,8 +51,49 @@ local function world(opts)
       elseif ev == "key" and a == KEYS.enter then w.reads[#w.reads + 1] = s return s end
     end
   end
-  env.sleep = function(t) w.clock = w.clock + (t or 0) end
-  env.gps = { locate = function() return 100, 64, 200 end }
+  env.sleep = function(t)
+    if w.depth > 0 then
+      local left = t or 0
+      repeat coroutine.yield("timer") left = left - 0.25 until left <= 0
+    else
+      w.clock = w.clock + (t or 0)
+    end
+  end
+  -- gps.locate as CC's behaves: it pulls events until it has a fix or times
+  -- out, and throws away everything else it sees - key presses included.
+  -- While it is busy, only inputs marked whileGps are delivered, so a script
+  -- can press a key exactly then.
+  env.gps = { locate = function(timeout)
+    w.gpsBusy = true
+    local deadline = w.clock + (timeout or 2)
+    while w.clock < deadline do env.os.pullEvent() end
+    w.gpsBusy = false
+    return 100, 64, 200
+  end }
+  -- parallel.waitForAny as CC runs it: every event goes to every coroutine
+  -- that is waiting for it, and the first to finish ends the lot
+  env.parallel = { waitForAny = function(...)
+    local cos, filters = {}, {}
+    for i, f in ipairs({ ... }) do cos[i] = coroutine.create(f) end
+    w.depth = w.depth + 1
+    local ev, first = {}, true
+    while true do
+      for i, co in ipairs(cos) do
+        if first or filters[i] == nil or filters[i] == ev[1] or ev[1] == "terminate" then
+          local ok, want = coroutine.resume(co, (table.unpack or unpack)(ev))
+          if not ok then w.depth = w.depth - 1 w.gpsBusy = false error(want, 0) end
+          if coroutine.status(co) == "dead" then
+            w.depth = w.depth - 1
+            w.gpsBusy = false          -- whatever the others were doing is abandoned
+            return i
+          end
+          filters[i] = want
+        end
+      end
+      first = false
+      ev = { w.nextEvent(nil) }
+    end
+  end }
   env.peripheral = {
     getNames = function() return opts.noradio and {} or { "back" } end,
     getType = function() return "modem" end,
@@ -97,6 +138,11 @@ local function world(opts)
   local function nextEvent(filter)
     w.events = w.events + 1
     if w.events > 2000 then error("runaway: 2000 events", 0) end
+    local pending = w.inputs[1]
+    if w.gpsBusy and not (pending and pending.whileGps) and #w.queued == 0 then
+      w.clock = w.clock + 0.25
+      return "timer", 1
+    end
     -- what is already in CC's queue comes first: a character that followed its
     -- key press, or an event the program queued itself
     if #w.queued > 0 then return (table.unpack or unpack)(table.remove(w.queued, 1)) end
@@ -133,6 +179,12 @@ local function world(opts)
     w.clock = w.clock + 0.25
     return "timer", 1
   end
+  w.nextEvent = nextEvent
+  -- inside parallel, a pull yields to the scheduler, as CC's does
+  local function pullRaw(f)
+    if w.depth > 0 then return coroutine.yield(f) end
+    return nextEvent(f)
+  end
   env.os = setmetatable({
     clock = function() w.clock = w.clock + 0.001 return w.clock end,
     epoch = function() return 1789867493000 + math.floor(w.clock * 1000) end,
@@ -140,11 +192,11 @@ local function world(opts)
     startTimer = function() return 1 end, cancelTimer = function() end,
     queueEvent = function(...) w.queued[#w.queued + 1] = { ... } end,
     pullEvent = function(f)
-      local ev = { nextEvent(f) }
+      local ev = { pullRaw(f) }
       if ev[1] == "terminate" and w.rawEvents ~= true then error("Terminated", 0) end
       return (table.unpack or unpack)(ev)
     end,
-    pullEventRaw = function(f) return nextEvent(f) end,
+    pullEventRaw = function(f) return pullRaw(f) end,
     getComputerLabel = function() return w.label end,
     setComputerLabel = function(l) w.label = l end,
     getComputerID = function() return 12 end,
@@ -246,6 +298,16 @@ check("two numbers are not enough - it asks for all three", has(typed, "NEED ALL
 check("the ride goes to x y z as typed", typed.request and typed.request.tx == 1200
   and typed.request.ty == 70 and typed.request.tz == 340)
 check("and the height goes with the fare question too", typed.fareAsked ~= nil)
+
+print("leaving the credit page")
+local credit = run(world({ inputs = {
+  { key = KEYS.t, char = "t" },                      -- the credit page
+  { key = KEYS.one, char = "1" },                    -- 64 spur: now it reports its position
+  { key = KEYS.q, char = "q", whileGps = true },     -- Q, pressed while GPS is listening
+  { key = KEYS.enter }, { key = KEYS.enter },        -- back on the list: a ride
+  { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+check("Q leaves the credit page even while GPS is busy", credit.request ~= nil, credit.err)
 
 print("a terminal with no pass")
 local nopass = world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter } } })
