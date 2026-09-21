@@ -62,33 +62,33 @@ both wait for the next free drone.
   depositor by hand to the flat fare and let the shutter alone decide when it
   can be paid. The flat fare is what makes that fallback work.
 
-## Leaving: people decide, not sensors
+## Leaving: a button on the dock, then a countdown
 
-Seat detection was the first idea, and it fails for groups. It can tell that
-a seat is taken, but not that everyone who paid is aboard, and a party of
-three may fill two seats and stand. So the signal comes from people, with a
-clock behind it, the way a bus works:
+Decided 2026-09-21 (Alex). Seat detection cannot tell that a whole group is
+aboard, and a button in the cabin was set aside in favour of this:
 
-- **A GO button in the cabin.** A button wired to a redstone input on the drone
-  computer. The beacon reads it only while the job is waiting to board, and
-  treats it exactly like a pocket's G. The last one aboard presses it. It is
-  physical, so only someone standing in the cabin can press it. Members get
-  it too, alongside G on the pocket.
-- **A departure clock at the station.** Once the fare is paid the monitor counts
-  down, 45 s to start with, and the drone leaves when it runs out. HOLD adds
-  30 s for someone still coming. The station is the job's client, so its go is
-  accepted by ops the same way a pocket's is today.
+- **A GO button on the dock**, wired to the station computer. Pressing it
+  starts a countdown on the monitor, 10 s to start with: long enough to walk
+  from the button into the cabin. At zero the station sends go, and ops
+  accepts it because the station is the job's client.
+- **Pressing it again restarts the countdown**, so a latecomer can hold the
+  shuttle.
+- **It only counts while a paid job's drone is latched there** and waiting to
+  board. The rest of the time the button does nothing.
+- **Nobody presses it:** two minutes after paying, the booking lapses. The
+  drone stays latched and charging at the dock, free for the next job, and
+  does not fly an empty trip. The fare is not refunded; it stays on the
+  station's account.
 - **One fare per trip, not per head.** The shuttle is hired, like a taxi. A
-  depositor cannot count people, and nobody should have to. Seats set the size
-  of the party.
+  depositor cannot count people, and the number of seats limits the group.
 
-A group that misses the clock has missed the bus. That is easier to explain
-than a sensor that is right most of the time.
+Members hailing from open ground have no dock to press, so G on the pocket
+stays their go. At a station they can use either.
 
 ## Open questions, settled in game
 
 1. **Monitor size.** The pocket screens are 26x20. A 2x2 advanced monitor at
    text scale 0.5 fits them with room to spare. Check that it reads from where
    a player stands.
-2. **The GO button's side** on each airframe, and that nothing else on that
-   side (the dock signal is on `back`) can press it by accident.
+2. **The countdown length.** 10 s is a guess. Time a walk from the button into
+   the seat, and add a little.
