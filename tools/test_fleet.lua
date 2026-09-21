@@ -181,6 +181,13 @@ check("typed coordinates as a name are just coordinates",
 check("open ground is no place", F.placeFor(known, nil, 5000, 5000) == nil)
 check("a name nobody knows falls back to where", F.placeFor(known, "narnia", 5000, 5000) == nil)
 
+print("places carry their height")
+check("y travels with a place", F.packPlaces({ { name = "home", x = 1, y = 70, z = 2 } }) == "home:1:2:70",
+  F.packPlaces({ { name = "home", x = 1, y = 70, z = 2 } }))
+check("and comes back", F.unpackPlaces("home:1:2:70")[1].y == 70)
+check("a place without one still reads", F.unpackPlaces("home:1:2")[1].y == nil
+  and F.unpackPlaces("home:1:2")[1].z == 2)
+
 print("a price before the ride")
 local ask = F.fareAsk({ x = 100, z = 200 }, { x = 1900, z = 370, name = "home" }, "n-fare")
 check("a fare question is a valid message", (F.check(ask)))

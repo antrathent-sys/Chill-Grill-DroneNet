@@ -182,7 +182,19 @@ local function spinner(y, text, n)
   at(3, y, text, DIM)
 end
 
+-- Drop whatever input is already queued. A command key arrives as a key
+-- event and then as its character, and without this, pressing C to type
+-- coordinates put a "c" at the start of the prompt.
+local function flushInput()
+  os.queueEvent("hail_flush")
+  while true do
+    local ev = os.pullEvent()
+    if ev == "hail_flush" then return end
+  end
+end
+
 local function ask(prompt)
+  flushInput()
   fg(DIM)
   term.write(prompt)
   fg(AMBER)
@@ -234,6 +246,23 @@ local function coords(s)
   if #n == 2 then return n[1], nil, n[2] end
   if #n >= 3 then return n[1], n[2], n[3] end
   return nil
+end
+
+-- Coordinates typed by the customer, all three, in F3's order. Height is
+-- where the descent starts braking, so a guess at it is not good enough.
+-- Blank goes back.
+local function askXYZ(title)
+  local note = "x y z, as F3 shows them"
+  while true do
+    frame(title, note)
+    at(2, 8, "e.g. 1200 70 340", DIM)
+    term.setCursorPos(2, 6)
+    local s = ask("> ")
+    if s == "" then return nil end
+    local x, y, z = coords(s)
+    if x and y and z then return math.floor(x), math.floor(y), math.floor(z) end
+    note = "need all three: x y z"
+  end
 end
 
 -- places.lua on this computer: either a pads-style table, or plain lines of
@@ -329,9 +358,7 @@ end
 local function whereAmI()
   local x, y, z = gps.locate(3)
   if x then return { x = math.floor(x), y = math.floor(y), z = math.floor(z) } end
-  frame("POSITION UNKNOWN", "no GPS - enter x z from F3")
-  term.setCursorPos(1, 6)
-  local px, py, pz = coords(ask("> "))
+  local px, py, pz = askXYZ("POSITION UNKNOWN")
   if not px then return nil end
   return { x = px, y = py, z = pz }
 end
@@ -392,11 +419,9 @@ end
 local function chooseDestination(from)
   local c = screen()
   if not c then
-    frame("ENTER COORDINATES", "x z, like 1200 340")
-    term.setCursorPos(1, 6)
-    local tx, ty, tz = coords(ask("> "))
+    local tx, ty, tz = askXYZ("ENTER COORDINATES")
     if not tx then return nil end
-    return tx, ty, tz, string.format("%d, %d", tx, tz)
+    return tx, ty, tz, string.format("%d %d %d", tx, ty, tz)
   end
 
   -- distances now, so the list is ordered by how far away things are
@@ -426,11 +451,9 @@ local function chooseDestination(from)
         topUp()
         canvas = nil
       elseif key == keys.c then
-        frame("ENTER COORDINATES", "x z, like 1200 340")
-        term.setCursorPos(1, 6)
-        local tx, ty, tz = coords(ask("> "))
+        local tx, ty, tz = askXYZ("ENTER COORDINATES")
         canvas = nil                      -- the text prompt scribbled over it
-        if tx then return tx, ty, tz, string.format("%d, %d", tx, tz) end
+        if tx then return tx, ty, tz, string.format("%d %d %d", tx, ty, tz) end
       end
       -- keep the selected row on screen
       if sel < top then top = sel end

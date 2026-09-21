@@ -27,7 +27,7 @@ local COLOURS = { white = 1, orange = 2, brown = 4096, black = 32768, red = 1638
 local function world(opts)
   local w = { files = opts.files or {}, shown = {}, said = {}, inbox = {}, clock = 0,
               inputs = opts.inputs or {}, events = 0, state = "idle", rebooted = false,
-              label = opts.label }
+              label = opts.label, queued = {}, reads = {} }
   local env = setmetatable({}, { __index = _G })
   local function show(s) if s and s ~= "" then w.shown[#w.shown + 1] = s end end
 
@@ -42,7 +42,15 @@ local function world(opts)
     setBackgroundColor = function() end, isColour = function() return true end, isColor = function() return true end,
     setPaletteColour = function() end, setCursorBlink = function() end, scroll = function() end,
   }
-  env.read = function() return "" end
+  -- read() the way CC's does: characters until Enter
+  env.read = function()
+    local s = ""
+    while true do
+      local ev, a = env.os.pullEvent()
+      if ev == "char" then s = s .. a
+      elseif ev == "key" and a == KEYS.enter then w.reads[#w.reads + 1] = s return s end
+    end
+  end
   env.sleep = function(t) w.clock = w.clock + (t or 0) end
   env.gps = { locate = function() return 100, 64, 200 end }
   env.peripheral = {
@@ -89,6 +97,17 @@ local function world(opts)
   local function nextEvent(filter)
     w.events = w.events + 1
     if w.events > 2000 then error("runaway: 2000 events", 0) end
+    -- what is already in CC's queue comes first: a character that followed its
+    -- key press, or an event the program queued itself
+    if #w.queued > 0 then return (table.unpack or unpack)(table.remove(w.queued, 1)) end
+    local typed = w.inputs[1]
+    if typed and typed.line and (not typed.when or typed.when(w)) then
+      table.remove(w.inputs, 1)
+      local keysIn = {}
+      for ch in typed.line:gmatch(".") do keysIn[#keysIn + 1] = { char = ch } end
+      keysIn[#keysIn + 1] = { key = KEYS.enter }
+      for i = #keysIn, 1, -1 do table.insert(w.inputs, 1, keysIn[i]) end
+    end
     if filter ~= "key" and filter ~= "char" and #w.inbox > 0 then
       local m = table.remove(w.inbox, 1)
       if m.type == "job.state" then w.state = m.state end
@@ -98,6 +117,10 @@ local function world(opts)
     if nxt and (not nxt.when or nxt.when(w)) then
       table.remove(w.inputs, 1)
       if nxt.terminate then return "terminate" end
+      if nxt.key and nxt.char then            -- a key that types: CC queues its char next
+        table.insert(w.queued, 1, { "char", nxt.char })
+        return "key", nxt.key, false
+      end
       if nxt.char then return "char", nxt.char end
       return "key", nxt.key, false
     end
@@ -115,6 +138,7 @@ local function world(opts)
     epoch = function() return 1789867493000 + math.floor(w.clock * 1000) end,
     time = function() return 12 end,
     startTimer = function() return 1 end, cancelTimer = function() end,
+    queueEvent = function(...) w.queued[#w.queued + 1] = { ... } end,
     pullEvent = function(f)
       local ev = { nextEvent(f) }
       if ev[1] == "terminate" and w.rawEvents ~= true then error("Terminated", 0) end
@@ -208,6 +232,33 @@ check("no operator words on a customer's screen",
   not has(w, "hail test") and not has(w, "ops ") and not has(w, "autorun"))
 local stats = w.files[".hailstats"] or ""
 check("the ride was counted on the pass", stats:find("rides", 1, true) ~= nil)
+
+print("typing coordinates")
+local typed = run(world({ inputs = {
+  { key = KEYS.c, char = "c" },            -- C on the list: a key, then its character
+  { line = "1200 340" },                   -- only two numbers
+  { line = "1200 70 340" },
+  { key = KEYS.enter },                    -- confirm
+  { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+check("the C that opened the prompt is not typed into it", typed.reads[1] == "1200 340", typed.reads[1])
+check("two numbers are not enough - it asks for all three", has(typed, "NEED ALL THREE"))
+check("the ride goes to x y z as typed", typed.request and typed.request.tx == 1200
+  and typed.request.ty == 70 and typed.request.tz == 340)
+check("and the height goes with the fare question too", typed.fareAsked ~= nil)
+
+print("a terminal with no pass")
+local nopass = world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter } } })
+local base = nopass.env.rednet.broadcast
+nopass.env.rednet.broadcast = function(msg)
+  if type(msg) == "table" and msg.type == "taxi.request" then
+    nopass.inbox[#nopass.inbox + 1] = F.ack("j-none", "ops", false, "no pass on this terminal", "r-1")
+    return
+  end
+  return base(msg)
+end
+run(nopass, "hail.lua", "kiosk")
+check("it is told why, not left waiting", has(nopass, "NO PASS ON THIS TERMINAL"))
 
 print("no shuttle answering")
 local quiet = world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter } } })

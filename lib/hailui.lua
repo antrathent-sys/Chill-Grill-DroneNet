@@ -81,14 +81,16 @@ end
 function M.places(T, c, view)
   local w, h = c.w, c.h
   c:clear()
-  T.masthead(c, 1, M.NAME, T.C.text, M.SUB)
+  -- row 2, never row 1: a letter cell drawn with swapped colours on the top
+  -- row would paint the screen's margin above it (see T.masthead)
+  local y = T.masthead(c, 2, M.NAME, T.C.text, M.SUB)
 
   -- one band says what the list is and what the account holds
   local owed = view.balance and view.balance < 0
-  T.band(c, 5, "DESTINATIONS", view.balance and M.money(view.balance) or nil,
+  T.band(c, y + 1, "DESTINATIONS", view.balance and M.money(view.balance) or nil,
          nil, owed and T.C.warn or T.C.text)
 
-  local top, bottom = 6, h - 2
+  local top, bottom = y + 2, h - 2
   local rows = bottom - top + 1
   local first = math.max(1, math.min(view.top or 1, math.max(1, #view.places - rows + 1)))
   for i = 0, rows - 1 do
@@ -100,8 +102,8 @@ function M.places(T, c, view)
   end
   if #view.places == 0 then
     local function mid(y, s, ink) c:text(math.max(1, math.floor((w - #s) / 2) + 1), y, s, ink) end
-    mid(10, "NO DESTINATIONS YET", T.C.text)
-    mid(12, "C  ENTER COORDINATES", T.C.faint)
+    mid(top + 4, "NO DESTINATIONS YET", T.C.text)
+    mid(top + 6, "C  ENTER COORDINATES", T.C.faint)
   end
 
   -- the arrows explain themselves once a row is lit, so the bar spends its
@@ -117,11 +119,11 @@ end
 function M.boot(T, c, view)
   local w, h = c.w, c.h
   c:clear()
-  local y = math.max(1, math.floor(h / 2) - 2)
-  T.masthead(c, y, M.NAME, T.C.text, M.SUB)
+  local y = math.max(1, math.floor(h / 2) - 3)
+  local after = T.masthead(c, y, M.NAME, T.C.text, M.SUB)
   -- a hairline, one sub-pixel tall, like the rules either side of the name
   local bw = math.max(6, w - 10)
-  M.hairbar(T, c, math.floor((w - bw) / 2) + 1, y + 5, bw, view.frac, T.C.accent)
+  M.hairbar(T, c, math.floor((w - bw) / 2) + 1, after + 1, bw, view.frac, T.C.accent)
   -- the build, in the corner, in the same grey as the rules: there for
   -- whoever looks for it, and not for anyone else
   if view.ver then c:text(2, h, "REV " .. tostring(view.ver):upper():sub(1, 7), T.C.rule) end
@@ -133,11 +135,11 @@ end
 function M.down(T, c, view)
   local w, h = c.w, c.h
   c:clear()
-  local y = math.max(1, math.floor(h / 2) - 3)
-  T.masthead(c, y, M.NAME, T.C.text, M.SUB)
+  local y = math.max(1, math.floor(h / 2) - 4)
+  local after = T.masthead(c, y, M.NAME, T.C.text, M.SUB)
   local function mid(row, s, ink) c:text(math.max(1, math.floor((w - #s) / 2) + 1), row, s, ink) end
-  mid(y + 5, "SERVICE SUSPENDED", T.C.warn)
-  mid(y + 7, "STAND BY", T.C.faint)
+  mid(after + 1, "SERVICE SUSPENDED", T.C.warn)
+  mid(after + 3, "STAND BY", T.C.faint)
 end
 
 -- -------------------------------------------------------------- the till ---

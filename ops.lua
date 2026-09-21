@@ -17,8 +17,8 @@
 --   ops credit <who> <n> put credit on an account by hand (spurs)
 --   ops till             what the till can see: the seat, the pad, the depositor
 --   ops place            the destinations customers can pick from
---   ops place add <name> <x> <z> [y] [dock]   add one (or move it); a pad
---                                         unless `dock` - a built facility
+--   ops place add <name> <x> <y> <z> [dock]   add one (or move it), in F3's
+--                                         order; a pad unless `dock`
 --   ops place del <name>                  take one off the list
 --
 -- It runs on the base computer and, just as happily, on an ender pocket
@@ -552,8 +552,9 @@ end
 if cmd == "place" then
   -- The destinations the pocket terminals offer. They live in pads.lua on this
   -- computer, the same file and format the drones use, so a place added here
-  -- shows up on every terminal the next time one asks. A destination only
-  -- needs x and z. A place is a PAD (somewhere safe to land) unless it is
+  -- shows up on every terminal the next time one asks. A destination needs
+  -- all three coordinates: y is the ground a landing brakes for, so it is
+  -- asked for rather than guessed. A place is a PAD (somewhere safe to land) unless it is
   -- added as a DOCK (a built facility the craft latches onto); a pickup at a
   -- dock also needs the drone to know it, which is `fly pad add <name>`
   -- standing on the spot.
@@ -561,18 +562,21 @@ if cmd == "place" then
   local list = P.load("pads.lua", fs) or {}
   local sub = (args[2] or "list"):lower()
   if sub == "add" then
-    local name, x, z, y = args[3], tonumber(args[4]), tonumber(args[5]), tonumber(args[6])
-    if not (name and x and z) then print("ops place add <name> <x> <z> [y] [dock|pad]") return end
-    local kind = ((y and args[7]) or (not y and args[6]) or "pad"):lower()
+    local name, x, y, z = args[3], tonumber(args[4]), tonumber(args[5]), tonumber(args[6])
+    if not (name and x and y and z) then
+      print("ops place add <name> <x> <y> <z> [dock|pad]")
+      print("  x y z as F3 shows them, standing on the landing spot")
+      return
+    end
+    local kind = (args[7] or "pad"):lower()
     local entry = { name = name:lower(), kind = kind,
-                    x = math.floor(x), z = math.floor(z), y = y and math.floor(y) or 64 }
+                    x = math.floor(x), y = math.floor(y), z = math.floor(z) }
     local ok, why = P.check(entry)
     if not ok then print("no: " .. tostring(why)) return end
     list = P.put(list, entry)
     local okW, whyW = P.save("pads.lua", list, fs)
-    print(okW and string.format("%s (%s) is at %d, %d", entry.name, entry.kind, entry.x, entry.z)
+    print(okW and string.format("%s (%s) is at %d %d %d", entry.name, entry.kind, entry.x, entry.y, entry.z)
                or ("could not save: " .. tostring(whyW)))
-    if okW and not y then print("no y given, so 64 - landings brake better with the real ground height") end
     return
   elseif sub == "del" then
     if not args[3] then print("ops place del <name>") return end
@@ -581,10 +585,10 @@ if cmd == "place" then
     print(okW and ("removed " .. args[3]:lower()) or "could not save pads.lua")
     return
   end
-  if #list == 0 then print("no places yet - ops place add <name> <x> <z>") return end
-  print(string.format("%-14s %-4s %8s %8s %6s", "PLACE", "KIND", "X", "Z", "Y"))
+  if #list == 0 then print("no places yet - ops place add <name> <x> <y> <z>") return end
+  print(string.format("%-14s %-4s %8s %5s %8s", "PLACE", "KIND", "X", "Y", "Z"))
   for _, p in ipairs(list) do
-    print(string.format("%-14s %-4s %8d %8d %6s", p.name, p.kind or "dock", p.x, p.z, p.y or "-"))
+    print(string.format("%-14s %-4s %8d %5d %8d", p.name, p.kind or "dock", p.x, p.y or 0, p.z))
   end
   print("")
   print("a drone lands at a pad and docks at a dock. terminals pick these up")
@@ -879,7 +883,10 @@ local function serve()
         msg = nil
       end
     elseif knownOnly and type(msg) == "table" and msg.type == "taxi.request" then
-      log("ignored a hail from a terminal with no pass (ops open takes them, for testing)")
+      log("refused a hail from a terminal with no pass (ops open takes them, for testing)")
+      -- and say so, or the terminal waits out its timeout and reports that
+      -- nothing answered, which sends people looking for the wrong fault
+      pcall(rednet.send, from, F.ack("j-none", "ops", false, "no pass on this terminal", nonce()), F.PROTO)
       msg = nil
     end
     local ok, err = pcall(handle, from, msg, who)
@@ -1107,7 +1114,13 @@ local function drawBoard()
     for _, line in ipairs(events) do print(line) end
     return list
   end
-  if not canvas then canvas = D.canvas(term.getSize()) end
+  if not canvas then
+    -- the kit names colours by role, and only means anything once its
+    -- palette is on the screen: without this the board came up in CC's
+    -- stock colours, brown text and a bright red bar
+    T.apply(term)
+    canvas = D.canvas(term.getSize())
+  end
   UI.board(T, canvas, {
     units = list, sel = sel, log = events, jobs = liveJobs(), refused = rejected,
     clock = textutils.formatTime(os.time(), true), hails = openToHails,

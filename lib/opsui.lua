@@ -35,7 +35,7 @@ end
 function M.board(T, c, view)
   local w, h = c.w, c.h
   c:clear()
-  local y = T.masthead(c, 1, "CONTROL", T.C.text)
+  local y = T.masthead(c, 2, "CONTROL", T.C.text)      -- never row 1: see T.masthead
 
   -- a status strip under the masthead: the things that are true right now,
   -- abbreviated rather than truncated when the screen is narrow

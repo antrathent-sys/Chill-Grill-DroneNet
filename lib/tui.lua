@@ -161,14 +161,60 @@ T.FONT = {
   ["/"] = "001,001,010,100,100",
 }
 
+-- The masthead face: 5x7, squared, one sub-pixel strokes. At 3x5 there was
+-- no room for a letter to be anything but a blob (CINDER came out jagged in
+-- game); at 5x7 the letters are clean and the corners can be square, which is
+-- the Imperial look. The 3x5 face above stays for the big ETA digits, where
+-- it is drawn at scale 2 and width matters more than finesse.
+T.FONT7 = {
+  A = "11111,10001,10001,11111,10001,10001,10001",
+  B = "11110,10001,10001,11110,10001,10001,11110",
+  C = "11111,10000,10000,10000,10000,10000,11111",
+  D = "11110,10001,10001,10001,10001,10001,11110",
+  E = "11111,10000,10000,11110,10000,10000,11111",
+  F = "11111,10000,10000,11110,10000,10000,10000",
+  G = "11111,10000,10000,10111,10001,10001,11111",
+  H = "10001,10001,10001,11111,10001,10001,10001",
+  I = "11111,00100,00100,00100,00100,00100,11111",
+  J = "00001,00001,00001,00001,00001,10001,11111",
+  K = "10001,10010,10100,11000,10100,10010,10001",
+  L = "10000,10000,10000,10000,10000,10000,11111",
+  M = "10001,11011,10101,10101,10001,10001,10001",
+  N = "10001,11001,11001,10101,10011,10011,10001",
+  O = "11111,10001,10001,10001,10001,10001,11111",
+  P = "11111,10001,10001,11111,10000,10000,10000",
+  Q = "11111,10001,10001,10001,10101,10011,11111",
+  R = "11111,10001,10001,11111,10100,10010,10001",
+  S = "11111,10000,10000,11111,00001,00001,11111",
+  T = "11111,00100,00100,00100,00100,00100,00100",
+  U = "10001,10001,10001,10001,10001,10001,11111",
+  V = "10001,10001,10001,10001,10001,01010,00100",
+  W = "10001,10001,10001,10101,10101,11011,10001",
+  X = "10001,10001,01010,00100,01010,10001,10001",
+  Y = "10001,10001,01010,00100,00100,00100,00100",
+  Z = "11111,00001,00010,00100,01000,10000,11111",
+  ["0"] = "11111,10001,10011,10101,11001,10001,11111",
+  ["1"] = "00100,01100,00100,00100,00100,00100,01110",
+  ["2"] = "11111,00001,00001,11111,10000,10000,11111",
+  ["3"] = "11111,00001,00001,01111,00001,00001,11111",
+  ["4"] = "10001,10001,10001,11111,00001,00001,00001",
+  ["5"] = "11111,10000,10000,11111,00001,00001,11111",
+  ["6"] = "11111,10000,10000,11111,10001,10001,11111",
+  ["7"] = "11111,00001,00010,00100,00100,00100,00100",
+  ["8"] = "11111,10001,10001,11111,10001,10001,11111",
+  ["9"] = "11111,10001,10001,11111,00001,00001,11111",
+  [" "] = "00000,00000,00000,00000,00000,00000,00000",
+  ["-"] = "00000,00000,00000,11111,00000,00000,00000",
+}
+
 -- How far a word in the block font advances, in sub-pixels: each glyph's own
 -- width plus a one-pixel gap. Most glyphs are three wide; a few are not.
-function T.headlinePx(text, scale)
-  scale = scale or 1
+function T.headlinePx(text, scale, font)
+  scale, font = scale or 1, font or T.FONT
   text = tostring(text):upper()
   local px = 0
   for i = 1, #text do
-    local g = T.FONT[text:sub(i, i)] or T.FONT[" "]
+    local g = font[text:sub(i, i)] or font[" "]
     px = px + (#g:match("^[^,]+") + 1) * scale
   end
   return px
@@ -176,14 +222,16 @@ end
 
 -- Draw text in the block font. x, y are CELL coordinates; the word occupies
 -- two rows at scale 1. Returns the width in cells.
-function T.headline(c, x, y, text, col, scale)
-  scale = scale or 1
+-- Draw text in a block font (T.FONT unless another is given). x, y are CELL
+-- coordinates. Returns the width in cells.
+function T.headline(c, x, y, text, col, scale, font)
+  scale, font = scale or 1, font or T.FONT
   local px = (x - 1) * 2 + 1
   local py = (y - 1) * 3 + 1
   text = tostring(text):upper()
   local ox = 0
   for i = 1, #text do
-    local g = T.FONT[text:sub(i, i)] or T.FONT[" "]
+    local g = font[text:sub(i, i)] or font[" "]
     local gw = #g:match("^[^,]+")
     local row = 0
     for line in g:gmatch("[^,]+") do
@@ -213,23 +261,27 @@ end
 
 -- A masthead: the word in the block font with rules either side, two rows
 -- tall. What a screen uses when its title should carry weight.
+-- A masthead: the word in the 5x7 face with a double hairline either side,
+-- three rows tall, and an optional line under it. Returns the first free row.
+-- The hairlines sit one sub-pixel either side of the letters' middle and stop
+-- a cell short of the screen's edges: the lower one falls on the bottom third
+-- of a cell, which CC draws by swapping colours, and an edge cell drawn that
+-- way paints the screen's margin grey. For the same reason a masthead never
+-- goes on row 1: some letter cells need swapped colours too, and on the top
+-- row their light background shows in the margin above as a stray mark.
 function T.masthead(c, y, title, col, sub)
   local w = c.w
-  local cells = math.ceil(T.headlinePx(title) / 2)
+  local cells = math.ceil(T.headlinePx(title, 1, T.FONT7) / 2)
   local x = math.max(1, math.floor((w - cells) / 2) + 1)
-  T.headline(c, x, y, title, col or T.C.text)
-  -- A double hairline either side of the word, one sub-pixel above and one
-  -- below its middle. Never ON the middle: that is the bottom third of a
-  -- cell, which CC can only draw by swapping the colours, and then the
-  -- screen's margin takes the rule's grey and boxes the name in.
+  T.headline(c, x, y, title, col or T.C.text, 1, T.FONT7)
   local top = (y - 1) * 3 + 1
-  local rightPx = (x + cells) * 2
-  for _, py in ipairs({ top + 1, top + 3 }) do
-    if x > 2 then c:line(1, py, (x - 2) * 2, py, T.C.rule) end
-    if rightPx < w * 2 then c:line(rightPx, py, w * 2, py, T.C.rule) end
+  local leftEnd, rightStart, rightEnd = (x - 2) * 2, (x + cells) * 2, (w - 1) * 2
+  for _, py in ipairs({ top + 1, top + 5 }) do
+    if leftEnd > 3 then c:line(3, py, leftEnd, py, T.C.rule) end
+    if rightStart < rightEnd then c:line(rightStart, py, rightEnd, py, T.C.rule) end
   end
-  if sub then c:text(math.max(1, math.floor((w - #sub) / 2) + 1), y + 2, sub, T.C.faint) end
-  return y + (sub and 3 or 2)
+  if sub then c:text(math.max(1, math.floor((w - #sub) / 2) + 1), y + 3, sub, T.C.faint) end
+  return y + (sub and 4 or 3)
 end
 
 T.SPIN = { "|", "/", "-", "\\" }

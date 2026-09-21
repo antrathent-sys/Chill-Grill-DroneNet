@@ -252,7 +252,11 @@ function F.packPlaces(list)
   local out = {}
   for _, p in ipairs(list or {}) do
     if type(p) == "table" and p.name and p.x and p.z then
-      out[#out + 1] = string.format("%s:%d:%d", tostring(p.name):gsub("[|:]", ""), math.floor(p.x), math.floor(p.z))
+      -- name:x:z, then :y when the place has one - height is where a landing
+      -- starts braking, so it travels with the place
+      local entry = string.format("%s:%d:%d", tostring(p.name):gsub("[|:]", ""), math.floor(p.x), math.floor(p.z))
+      if p.y then entry = entry .. ":" .. math.floor(p.y) end
+      out[#out + 1] = entry
     end
   end
   return table.concat(out, "|")
@@ -261,8 +265,8 @@ end
 function F.unpackPlaces(text)
   local out = {}
   for chunk in tostring(text or ""):gmatch("[^|]+") do
-    local name, x, z = chunk:match("^([^:]+):(-?%d+):(-?%d+)$")
-    if name then out[#out + 1] = { name = name, x = tonumber(x), z = tonumber(z) } end
+    local name, x, z, y = chunk:match("^([^:]+):(-?%d+):(-?%d+):?(-?%d*)$")
+    if name then out[#out + 1] = { name = name, x = tonumber(x), z = tonumber(z), y = tonumber(y) } end
   end
   return out
 end
