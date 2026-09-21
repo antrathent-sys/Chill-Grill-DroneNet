@@ -2242,6 +2242,20 @@ local function nextLeg()
       end
       print(string.format("drop at %.1f,%.1f Y %.1f: let go of %s%s", pos.x, pos.z, alt.getHeight(),
         table.concat(L.stickers, " + "), #kept > 0 and (" - STILL HOLDING " .. table.concat(kept, " + ")) or ""))
+      -- One line per silo in .drops - "sticker x y z 1|0" - for the beacon to
+      -- report to the base's cargo ledger once the flight is over. A file
+      -- that cannot be written costs the record, never the flight.
+      pcall(function()
+        local h = fs.open(".drops", "a")
+        if not h then return end
+        for _, n in ipairs(L.stickers) do
+          local still = false
+          for _, k in ipairs(kept) do if k == n then still = true end end
+          h.write(string.format("%s %d %d %d %d\n", n, math.floor(pos.x), math.floor(alt.getHeight()),
+            math.floor(pos.z), still and 0 or 1))
+        end
+        h.close()
+      end)
     else
       print("action: " .. tostring(L.what) .. " (flown empty - nothing released)")
     end

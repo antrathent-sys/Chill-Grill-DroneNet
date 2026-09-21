@@ -245,7 +245,7 @@ local function memHandle(path, mode)
 end
 _G.fs = {
   open = function(path, mode)
-    if memFiles[path] ~= nil or (type(path) == "string" and (path:match("%.ctr$") or path == "cal.lua")) then
+    if memFiles[path] ~= nil or (type(path) == "string" and (path:match("%.ctr$") or path == "cal.lua" or path == ".drops")) then
       return memHandle(path, mode)
     end
     return {
@@ -651,6 +651,10 @@ if os.getenv("HARNESS_LOG") then
   local df = io.open(os.getenv("HARNESS_LOG") .. ".drops", "w")
   for _, d in ipairs(sim.drops) do df:write(string.format("%s %.2f %.2f %.2f\n", d.name, d.x, d.z, d.h)) end
   df:close()
+  -- and what fly itself wrote down for the beacon to report
+  local ff = io.open(os.getenv("HARNESS_LOG") .. ".flydrops", "w")
+  ff:write(memFiles[".drops"] or "")
+  ff:close()
 end
 
 -- what fly cal wrote, for the harness to check

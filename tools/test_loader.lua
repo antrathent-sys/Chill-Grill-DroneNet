@@ -213,6 +213,30 @@ check("an inverted face rests ON, the action switches it off and back",
   ok and sets[1] == true and sets[2] == false and sets[3] == true, table.concat((function()
     local t = {} for i, v in ipairs(sets) do t[i] = tostring(v) end return t end)(), ","))
 
+print("counting what went in")
+local ccfg = L.check(station({ silo = { left = "create:item_vault_0", right = "create:item_vault_1" },
+                               intake = "minecraft:chest_0" }))
+check("the silos and the intake to count from are kept", ccfg and ccfg.silo.right == "create:item_vault_1"
+  and ccfg.intake == "minecraft:chest_0")
+check("a fill that watches the intake is also where it counts from",
+  L.check(station({ fill = { intake = "minecraft:barrel_0" } })).intake == "minecraft:barrel_0")
+bad({ silo = 7 }, "a silo that is not a peripheral name is refused")
+w = world()
+local planC = L.plan(ccfg, 10)
+local counted, before
+w.io.beforeFill = function() before = w.t end
+w.io.manifest = function() counted = w.t return { left = { ["minecraft:cobblestone"] = 10 } }, "read from the silos" end
+ok = L.run(ccfg, planC, w.io)
+asm = firstOn(w, "redstone_relay_2:top")
+check("counted once the fill is done, while the silos are still blocks", ok and before and counted and asm
+  and before < counted and counted <= asm.t and planC.manifest.left["minecraft:cobblestone"] == 10)
+check("...and says how", planC.counted == "read from the silos")
+w = world()
+w.io.manifest = function() return { left = {} }, "read from the silos" end
+ok, whyR, at = L.run(ccfg, L.plan(ccfg, 10), w.io)
+check("silos that count empty call it off before anything is assembled", not ok and at == "fill"
+  and tostring(whyR):find("empty", 1, true) and onCount(w, "redstone_relay_2:top") == 0, whyR)
+
 print("the drone's messages")
 local m = F.stick("load-1", { "Create_Sticker_0", "Create_Sticker_1" }, true, "n-1")
 check("a stick order is a valid message", (F.check(m)))

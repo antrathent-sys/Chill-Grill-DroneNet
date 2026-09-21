@@ -122,6 +122,20 @@ function L.check(c)
     if not out.stick[s]:match("^[%w_:%.%-]+$") then return nil, "bad sticker name " .. out.stick[s] end
   end
 
+  -- where what went in is counted, for cargo.csv: each silo while it is still
+  -- a block (a wired modem beside each bay), or else the intake it came from
+  if c.silo ~= nil then
+    if str(c.silo) then
+      out.silo = { left = c.silo }
+    elseif type(c.silo) == "table" then
+      out.silo = {}
+      for _, s in ipairs(L.BAYS) do if str(c.silo[s]) then out.silo[s] = c.silo[s] end end
+    else
+      return nil, "silo names the vault in each bay: { left = \"create:item_vault_0\", ... }"
+    end
+  end
+  out.intake = (str(c.intake) and c.intake) or (type(c.fill) == "table" and str(c.fill.intake) and c.fill.intake) or nil
+
   -- how a fill is known to be done: a fixed time, the silos' own count, the
   -- intake emptying, or a signal (a threshold switch or comparator)
   local f = c.fill
@@ -258,6 +272,12 @@ end
 --   liftoff(args) -> ok, why      the drone flies this
 --   say(step, text)               progress, for the screen
 --   stopped() -> bool             optional: the operator called it off
+--   beforeFill(plan)              optional: just before the fill (the intake
+--                                 is counted here)
+--   manifest(plan) -> m, how      optional: what is in the silos now, as
+--                                 { [side] = { item = count } }, and how it
+--                                 was counted. Kept as plan.manifest; silos
+--                                 that count empty call the load off.
 -- Returns ok, why, the step it ended on. Whatever happens, the relay faces
 -- end at rest, and a lift that went up comes down again.
 function L.run(cfg, plan, io)
@@ -334,6 +354,7 @@ function L.run(cfg, plan, io)
     pause(cfg.wait.place)
 
     step = "fill"
+    if io.beforeFill then io.beforeFill(plan) end
     local f = cfg.fill
     if f.secs then
       say(string.format("filling - %gs", f.secs))
@@ -363,6 +384,19 @@ function L.run(cfg, plan, io)
         return num(v) and v >= f.level, "signal " .. tostring(v)
       end, "no full signal")
       pause(f.settle)
+    end
+
+    -- count what went in while the silos are still blocks: after assembly
+    -- they are physics objects and nothing can read them
+    if io.manifest then
+      local m, how = io.manifest(plan)
+      if m then
+        local total = 0
+        for _, items in pairs(m) do for _, c in pairs(items) do total = total + c end end
+        if total == 0 then error({ why = "the silos are empty (" .. tostring(how) .. ")" }, 0) end
+        plan.manifest, plan.counted = m, how
+        say(string.format("%d items in (%s)", total, tostring(how)))
+      end
     end
 
     step = "assemble"

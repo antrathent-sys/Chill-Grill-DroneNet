@@ -41,6 +41,7 @@ local function base(opts)
   w.files[".fleetkeys"] = "drone-1=" .. KEYHEX .. "\n"
   w.files["pads.lua"] = 'return { { name = "home", x = 1892, y = 91, z = 365, kind = "dock" } }'
   if opts.station ~= false then w.files["station.lua"] = STATION:format(opts.station or "{ secs = 5 }") end
+  for k, v in pairs(opts.files or {}) do w.files[k] = v end
   local drone = opts.drone or {}
   local env = setmetatable({}, { __index = _G })
   local function out(s) w.printed[#w.printed + 1] = tostring(s) end
@@ -83,7 +84,9 @@ local function base(opts)
   -- Lua 5.1's cannot, so pcall here runs the function as a coroutine and
   -- passes its yields up
   env.pcall = function(fn, ...)
-    local co = coroutine.create(fn)
+    -- a C function (os.date) cannot be a coroutine in 5.1, and never yields
+    local okCo, co = pcall(coroutine.create, fn)
+    if not okCo then return pcall(fn, ...) end
     local res = pack(coroutine.resume(co, ...))
     while coroutine.status(co) ~= "dead" do
       local back = pack(coroutine.yield(unpack(res, 2, res.n)))
@@ -153,6 +156,14 @@ local function base(opts)
     local n = "redstone_relay_" .. i
     if n ~= opts.norelay then periph[n] = relay(n) end
   end
+  -- opts.vaults: { [peripheral name] = { item = count } }, the silos as blocks
+  for name, items in pairs(opts.vaults or {}) do
+    periph[name] = { type = "create:item_vault", m = { list = function()
+      local l, i = {}, 0
+      for n, c in pairs(items) do i = i + 1 l[i] = { name = n, count = c } end
+      return l
+    end } }
+  end
   if opts.intake then
     periph["minecraft:chest_0"] = { type = "minecraft:chest", m = {
       list = function()
@@ -171,11 +182,22 @@ local function base(opts)
       return periph[n].m[m](...)
     end,
   }
-  env.rednet = { open = function() end, broadcast = function() end, send = function() end, isOpen = function() return true end }
+  env.rednet = { open = function() end, broadcast = function() end, send = function() end, isOpen = function() return true end,
+    receive = function(proto)
+      while true do
+        local _, from, msg, p = env.os.pullEvent("rednet_message")
+        if proto == nil or p == proto then return from, msg, p end
+      end
+    end }
   env.redstone = { setOutput = function() end, getAnalogInput = function() return 0 end,
                    getSides = function() return { "top", "bottom", "left", "right", "front", "back" } end }
   env.keys = setmetatable({ x = 45, q = 16, enter = 28, y = 21 }, { __index = function() return 0 end })
-  env.term = { getSize = function() return 51, 19 end }
+  -- the board draws; here every drawing call does nothing
+  local nothing = function() end
+  env.term = setmetatable({ getSize = function() return 51, 19 end, isColour = function() return true end },
+    { __index = function() return nothing end })
+  env.colours = setmetatable({}, { __index = function() return 1 end })
+  env.colors = env.colours
   env.textutils = { formatTime = function() return "12:00" end }
 
   -- the event loop
@@ -215,6 +237,8 @@ local function base(opts)
       ev = pack(coroutine.yield())
     end
   end }
+  -- opts.later: { { t, message } } the drone sends, sealed, at time t
+  for _, l in ipairs(opts.later or {}) do w.later[#w.later + 1] = { at = l[1], body = l[2] } end
   for _, k in ipairs(opts.keysAt or {}) do w.later[#w.later + 1] = { at = k[1], ev = { "key", env.keys[k[2]] } } end
 
   -- what CC would deliver next: something queued, else the next thing due
@@ -359,6 +383,58 @@ check("a load names its own liftoff: two silos, two drops", w.err == nil and #fl
   and fl[1].args == "deliver pier and market" and has(w, "2 silos"), w.err or (fl[1] and fl[1].args))
 w = base({ args = { "load", "run", "drone-1", "1000", "deliver;", "x" } }):run()
 check("a liftoff that is not a fly command is refused before anything moves", has(w, "liftoff:") and #w.sets == 0)
+
+print("the cargo ledger")
+local SILOS = '{ secs = 5 }, silo = { left = "create:item_vault_0", right = "create:item_vault_1" }'
+local SILO_VAULTS = { ["create:item_vault_0"] = { ["minecraft:cobblestone"] = 2500 },
+                      ["create:item_vault_1"] = { ["minecraft:cobblestone"] = 2400, ["minecraft:iron_ingot"] = 100 } }
+w = base({ args = { "load", "run", "drone-1", "5000", "deliver", "pier", "and", "market" }, station = SILOS,
+           vaults = { ["create:item_vault_0"] = { ["minecraft:cobblestone"] = 2500 },
+                      ["create:item_vault_1"] = { ["minecraft:cobblestone"] = 2400, ["minecraft:iron_ingot"] = 100 } } }):run()
+local csv = w.files["cargo.csv"] or ""
+check("each silo is read before it is assembled and written to cargo.csv", w.err == nil
+  and csv:find("left,Create_Sticker_0,minecraft:cobblestone,2500,pier,loaded", 1, true)
+  and csv:find("right,Create_Sticker_1,minecraft:iron_ingot,100,market,loaded", 1, true), w.err or csv)
+check("...under the header, and says so", csv:sub(1, 4) == "when" and has(w, "written to cargo.csv")
+  and has(w, "left: 2500 cobblestone -> pier"), w.text)
+local files = w.files
+w = base({ args = { "cargo" }, files = { ["cargo.csv"] = files["cargo.csv"] } }):run()
+check("ops cargo: the load, each silo's items and where it is going", w.err == nil and has(w, "drone-1")
+  and has(w, "2500 cobblestone") and has(w, "-> pier: on board") and has(w, "-> market: on board"), w.err or w.text)
+local C = dofile(DIR .. "/../lib/cargo.lua")
+local loadId = C.parse(files["cargo.csv"])[1].load
+local dropped = files["cargo.csv"] .. C.dropRow(1, loadId, "drone-1", "left", "Create_Sticker_0", "pier", true, 100, 80, 50) .. "\n"
+w = base({ args = { "cargo" }, files = { ["cargo.csv"] = dropped } }):run()
+check("...and once the drone reports the drop, where it was let go", has(w, "-> pier: DELIVERED at 100 80 50")
+  and has(w, "-> market: on board"), w.text)
+-- the board running: the drone's sealed drop report lands in cargo.csv
+w = base({ args = {}, files = { ["cargo.csv"] = files["cargo.csv"] }, keysAt = { { 12, "q" } },
+           later = { { 5, F.dropped("drone-1", "Create_Sticker_1", true, 20.4, 80, 30.9, "d-drop") },
+                     { 6, F.dropped("drone-1", "Create_Sticker_0", false, 100, 80, 50, "d-drop2") } } }):run()
+local after = C.parse(w.files["cargo.csv"] or "")
+local rDrop = after[#after - 1]
+check("the board writes a drop report against its load", w.err == nil and rDrop and rDrop.state == "delivered"
+  and rDrop.load == loadId and rDrop.silo == "right" and rDrop.dest == "market" and rDrop.x == 20 and rDrop.z == 30,
+  w.err or (rDrop and (rDrop.state .. " " .. rDrop.load)))
+check("...and a sticker that stayed out as held", after[#after].state == "held" and after[#after].silo == "left")
+w = base({ args = {}, keysAt = { { 8, "q" } },
+           later = { { 5, F.dropped("drone-1", "Create_Sticker_0", true, 1, 2, 3, "d-drop3") } } }):run()
+check("the board runs with no cargo.csv yet and starts one", w.err == nil and (w.files["cargo.csv"] or ""):find("delivered", 1, true)
+  ~= nil, w.err)
+w = base({ args = { "load", "run", "drone-1", "1000" }, station = SILOS,
+           vaults = { ["create:item_vault_0"] = {} } }):run()
+check("silos that are empty call it off before assembling, and nothing is written", has(w, "called off at fill")
+  and has(w, "empty") and onCount(w, "redstone_relay_2:top") == 0 and w.files["cargo.csv"] == nil, w.text)
+w = base({ args = { "load", "run", "drone-1" }, station = '{ intake = "minecraft:chest_0", settle = 1 }', intake = 640,
+           intakeLeft = function(ww)
+             local placed = firstOn(ww, "redstone_relay_0:top")
+             return (placed and ww.clock >= placed.t + 2) and 0 or 640
+           end }):run()
+check("no silo to read: what left the intake is written instead", w.err == nil
+  and (w.files["cargo.csv"] or ""):find("left,Create_Sticker_0,minecraft:cobblestone,640,,loaded", 1, true), w.err or w.files["cargo.csv"])
+w = base({ args = { "load", "run", "drone-1", "1000" } }):run()
+check("nothing to count from: still written, marked not counted", (w.files["cargo.csv"] or ""):find(",?,0,", 1, true)
+  and has(w, "not counted"), w.files["cargo.csv"])
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end

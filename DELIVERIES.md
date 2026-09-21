@@ -99,6 +99,30 @@ split evenly, so the drone carries about the same either side. Place, fill
 and assemble run before the drone arrives. A failure anywhere calls the load
 off with the lift down and every face at rest, and says where it stopped.
 
+## The cargo ledger (built 2026-09-22)
+
+What was loaded and where it went is `cargo.csv` on the base
+(lib/cargo.lua), appended like the other records:
+
+- **Loaded.** Once the fill is done, while the silos are still blocks, the
+  station reads each one (CC sees a placed vault as an inventory: set `silo`
+  in station.lua to the vault's peripheral name - a wired modem on a block
+  beside each bay). One row per item per silo, with where that silo is going
+  from the load's `deliver ...`. Silos that count empty call the load off.
+  With no silo readable it counts what left the intake instead, which cannot
+  tell two silos apart. A Smart Observer cannot do this: it only gives a
+  signal for one filtered item.
+- **Delivered.** fly writes each silo it let go of to `.drops` on the drone;
+  after the flight the beacon reports them to the base, sealed, and keeps a
+  copy in `.drops.log`. The board writes a `delivered` row with where (or
+  `held` if the sticker stayed out). The board has to be running to record
+  it; the drone's copy stays either way.
+- `ops cargo [n]` joins the two: each load, each silo's items, and whether it
+  was delivered and where.
+
+Unverified in game: that a vault placed fresh each load comes back under the
+same peripheral name on the modem beside it.
+
 ## What changes in the code (small)
 
 - `lib/fleet.lua`: a job gets a kind, one of `ride`, `parcel` or `restock`. It

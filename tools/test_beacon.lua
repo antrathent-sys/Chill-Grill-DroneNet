@@ -177,6 +177,8 @@ local function drone(opts)
   -- opts.fails: the numbers of the flights that fail (a crash, a refusal)
   env.shell = { run = function(cmd)
     w.runs[#w.runs + 1] = cmd
+    -- opts.dropsOnRun: what fly writes to .drops during this flight
+    if opts.dropsOnRun then w.files[".drops"] = opts.dropsOnRun end
     if cmd:match("^fly %d+$") and w.depth > 0 then
       -- a hold: fly keeps the height until its own word, "l", lands it
       while true do
@@ -433,6 +435,21 @@ check("unstick retracts it again", #stk == 2 and stk[2].ok == true and w.stuckOu
 w = run(drone({ name = "base_pad", cycles = 1, stickers = { "Create_Sticker_0" },
                 inbox = { { raw = true, msg = order(F.stick("load-5", { "Create_Sticker_0" }, true, "ops-s6")) } } }))
 check("an unsealed stick order is not obeyed", w.stuckOut.Create_Sticker_0 == false and #saidOfType(w, "unit.stuck") == 0)
+
+print("reporting what a delivery let go of")
+w = run(drone({ name = "base_pad", cycles = 1, inbox = { order(F.flyCommand("deliver pier and market", "ops-d1")) },
+                dropsOnRun = "Create_Sticker_0 100 80 50 1\nCreate_Sticker_1 20 80 30 0\n" }))
+local dr = saidOfType(w, "unit.dropped")
+check("after the flight each silo let go of goes to the base, sealed", #dr == 2 and dr[1].sticker == "Create_Sticker_0"
+  and dr[1].ok == true and dr[1].x == 100 and dr[1].y == 80 and dr[1].z == 50 and w.refused == 0, #dr .. " sent")
+check("a sticker still out afterwards is reported as still holding", dr[2] and dr[2].ok == false)
+check("the file is cleared, and a copy kept on the drone", w.files[".drops"] == nil
+  and tostring(w.files[".drops.log"]):find("Create_Sticker_1 20 80 30 0", 1, true) ~= nil)
+w = run(drone({ name = "base_pad", files = { [".drops"] = "Create_Sticker_0 5 70 6 1\n" } }))
+dr = saidOfType(w, "unit.dropped")
+check("drops from a flight flown at the shell are reported when the beacon starts", #dr == 1 and dr[1].x == 5)
+w = run(drone({ name = "base_pad", files = { [".drops"] = "garbage line\n" } }))
+check("a line that is not a drop is not reported", #saidOfType(w, "unit.dropped") == 0)
 
 print("refusals")
 w = run(drone({ nokey = true }))

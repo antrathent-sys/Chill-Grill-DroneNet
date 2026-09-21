@@ -516,6 +516,12 @@ def main(argv=None):
                     miss = _m.hypot(hit[0][1] - wx, hit[0][2] - wz) if hit else None
                     tok = tok and miss is not None and miss < 3
                     notes.append("%s %s" % (n, "not let go" if miss is None else "%.1f off" % miss))
+                # fly's own record, one "sticker x y z 1" line per silo let go
+                flyrec = []
+                if os.path.exists(logpath + ".flydrops"):
+                    flyrec = [l.split() for l in open(logpath + ".flydrops", encoding="utf-8") if l.strip()]
+                tok = tok and len(flyrec) == len(want) and all(r[4] == "1" for r in flyrec)
+                notes.append("fly recorded %d" % len(flyrec))
                 ok = ok and tok
                 extra = "; ".join(notes) if want else ("%d let go of" % len(got_drops))
             if env.get("HDG_CHECK"):

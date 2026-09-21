@@ -61,6 +61,9 @@
 --                  stickers, "Create_Sticker_0,Create_Sticker_1"; the loading
 --                  station has lifted silos up against them)
 --   unit.stuck    job drone ok [why] [detail] nonce         drone-> ops
+--   unit.dropped  drone sticker ok x y z nonce              drone-> ops
+--                 (sealed: a delivery let go of this sticker's silo here;
+--                  ok = false means the sticker was still out afterwards)
 -- A nonce is "<who>-<counter>" and never repeats for that sender: a customer
 -- leaning on the button must not launch two drones (COMMAND.md:139-142).
 
@@ -82,7 +85,8 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true,
             ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true,
             ["fare.ask"] = true, ["fare.quote"] = true, ["unit.distress"] = true,
-            ["job.relocate"] = true, ["unit.stick"] = true, ["unit.stuck"] = true }
+            ["job.relocate"] = true, ["unit.stick"] = true, ["unit.stuck"] = true,
+            ["unit.dropped"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -179,6 +183,9 @@ function F.check(m)
     if not str(m.job) then return false, "no job id" end
     if not (str(m.stickers) and m.stickers:match("^[%w_:%.%-,]+$")) then return false, "bad sticker list" end
     if type(m.on) ~= "boolean" then return false, "extend or retract?" end
+  elseif m.type == "unit.dropped" then
+    if not (str(m.drone) and str(m.sticker)) then return false, "no unit or sticker" end
+    if type(m.ok) ~= "boolean" then return false, "no verdict" end
   elseif m.type == "unit.stuck" then
     if not (str(m.job) and str(m.drone)) then return false, "no job or drone" end
     if type(m.ok) ~= "boolean" then return false, "no verdict" end
@@ -295,6 +302,13 @@ end
 function F.stuck(job, drone, ok, why, detail, nonce)
   return { v = F.VERSION, type = "unit.stuck", nonce = nonce, job = job, drone = drone,
            ok = ok and true or false, why = why, detail = detail }
+end
+
+--- A silo let go of on a delivery, and where.
+function F.dropped(drone, sticker, ok, x, y, z, nonce)
+  return { v = F.VERSION, type = "unit.dropped", nonce = nonce, drone = drone, sticker = sticker,
+           ok = ok and true or false, x = num(x) and math.floor(x) or nil,
+           y = num(y) and math.floor(y) or nil, z = num(z) and math.floor(z) or nil }
 end
 
 function F.flyCommand(args, nonce)

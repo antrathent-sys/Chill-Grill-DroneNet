@@ -178,6 +178,26 @@ local function say(msg)
   local ok, env = pcall(sealer().seal, msg)
   if ok and env then pcall(peripheral.call, radio, "transmit", link.CHANNEL, link.CHANNEL, env) end
 end
+-- A delivery leaves .drops behind: one line per silo it let go of, written
+-- by fly at the drop ("sticker x y z 1|0"). Each goes to the base, sealed,
+-- for its cargo ledger, and a copy stays here in .drops.log.
+local function reportDrops()
+  if not fs.exists(".drops") then return end
+  local h = fs.open(".drops", "r")
+  local text = h and h.readAll() or ""
+  if h then h.close() end
+  for line in text:gmatch("[^\n]+") do
+    local n, x, y, z, ok = line:match("^(%S+) (%-?%d+) (%-?%d+) (%-?%d+) ([01])$")
+    if n then
+      say(F.dropped(id, n, ok == "1", tonumber(x), tonumber(y), tonumber(z), myNonce()))
+      print(string.format("reported %s %s at %s %s %s", n, ok == "1" and "dropped" or "STILL HELD", x, y, z))
+    end
+  end
+  local keep = fs.open(".drops.log", "a")
+  if keep then keep.write(text) keep.close() end
+  fs.delete(".drops")
+end
+
 local function announce(state, detail)
   if job then say(F.state(job.id, id, state, detail, myNonce())) end
 end
@@ -471,6 +491,7 @@ end
 print(string.format("beacon: %s on %s channel %d, sealed%s", id, radio, link.CHANNEL,
   home and "" or " - home unknown (fly pad add home, or HOME_X/Z in fly.lua)"))
 print(string.format("F = fly, Q = stop  -  taking sealed orders on %s ch %d", radio, link.CHANNEL))
+reportDrops()                 -- from a delivery flown from the shell, before this started
 while true do
   local choice
   pending = nil
@@ -507,6 +528,7 @@ while true do
     else
       local flew = shell.run("fly " .. line)
       sealerAfterFlight()     -- fly moved the counter on; start above it
+      reportDrops()           -- a delivery says what it let go of, and where
       if ordered then jobStep(flew and true or false) end
       if ordered and not forJob and not flew then distress("ordered flight failed: fly " .. line) end
     end

@@ -44,6 +44,14 @@ return {
   -- settle = 2 waits that long after, for items still on a belt or in a funnel
   fill = { secs = 30 },
 
+  -- counting what went in, for the cargo ledger (cargo.csv, `ops cargo`):
+  -- the vault in each bay, read while it is still a block - a wired modem on
+  -- a block beside each bay, switched on, gives its name. With no silo named,
+  -- the intake is counted before and after the fill instead, which cannot
+  -- tell two silos apart.
+  -- silo = { left = "create:item_vault_0", right = "create:item_vault_1" },
+  -- intake = "minecraft:chest_0",
+
   -- a deployer clicking each Physics Assembler (redstone alone does nothing to
   -- one, and each click toggles, so it must fire once)
   assemble = {

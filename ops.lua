@@ -25,6 +25,8 @@
 --   ops load ...         the loading station at the dock: silos placed, filled,
 --                        assembled, lifted to the drone, stuck on, lift off.
 --                        `ops load` alone lists its commands (station.lua)
+--   ops cargo [n]        the last n loads: what went into each silo and where
+--                        each one was dropped (cargo.csv)
 --
 -- It runs on the base computer and, just as happily, on an ender pocket
 -- computer: the board lays itself out for 26 columns and keeps the keys that
@@ -326,6 +328,35 @@ incident = function(drone, j, why, x, y, z, alert)
   end
 end
 local rejected = 0
+
+-- ------------------------------------------------------------------ cargo ---
+-- What went into each silo and where each silo went: cargo.csv, appended
+-- (lib/cargo.lua has the columns). `ops load run` writes what it loaded; the
+-- drone's report of each drop is written as it arrives; `ops cargo` joins the
+-- two. The drone keeps its own copy of its drops in .drops.log.
+local CARGO_FILE = "cargo.csv"
+local CARGO
+do
+  local okC, c = pcall(dofile, "lib/cargo.lua")
+  if okC and type(c) == "table" then CARGO = c end
+end
+local function cargoRows()
+  if not (CARGO and fs.exists(CARGO_FILE)) then return {} end
+  local h = fs.open(CARGO_FILE, "r")
+  local text = h and h.readAll() or ""
+  if h then h.close() end
+  return CARGO.parse(text)
+end
+local function cargoWrite(lines)
+  if not CARGO or #lines == 0 then return false end
+  local fresh = not fs.exists(CARGO_FILE)
+  local h = fs.open(CARGO_FILE, "a")
+  if not h then return false end
+  if fresh then h.writeLine(CARGO.HEADER) end
+  for _, l in ipairs(lines) do h.writeLine(l) end
+  h.close()
+  return true
+end
 
 do
   local okP, P = pcall(dofile, "lib/pads.lua")
@@ -783,7 +814,8 @@ if cmd == "load" then
     local id, whyW = pickWho(who, dockPad)
     if not id then print("ops: " .. tostring(whyW)) return end
     if whyW then print(whyW) end
-    local loadId = "load-" .. nonce()
+    -- short and unique on this base: the id on the drone's orders and in cargo.csv
+    local loadId = "L" .. tostring(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time())
     handle = function(_, body)
       if body.type == "unit.stuck" and body.drone == id and body.job == loadId then
         os.queueEvent("ops_stuck", body)
@@ -845,6 +877,14 @@ if cmd == "load" then
     if not confirm("run it? the station's machines move") then print("nothing fired") return end
     print("X calls it off (the lift comes back down)")
     local t0, stop = os.clock(), false
+    -- counting what goes in, for cargo.csv: each silo while it is still a
+    -- block, or else what left the intake during the fill
+    local function tallyOf(inv)
+      local okL, list = pcall(peripheral.call, inv, "list")
+      if not (okL and type(list) == "table" and CARGO) then return nil end
+      return CARGO.tally(list)
+    end
+    local before
     local io = {
       set = setFace, sleep = sleep, now = os.clock, count = countOf, input = inputOf,
       docked = function()
@@ -866,6 +906,22 @@ if cmd == "load" then
       end,
       say = function(step, text) print(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text)) end,
       stopped = function() return stop end,
+      beforeFill = function() before = cfg.intake and tallyOf(cfg.intake) or nil end,
+      manifest = function(p)
+        if cfg.silo then
+          local m, all = {}, true
+          for _, side in ipairs(p.sides) do
+            local t = cfg.silo[side] and tallyOf(cfg.silo[side])
+            if t then m[side] = t else all = false end
+          end
+          if all then return m, "read from the silos" end
+        end
+        local after = before and tallyOf(cfg.intake)
+        if after then
+          return { [#p.sides == 1 and p.sides[1] or "both"] = CARGO.diff(before, after) }, "what left the intake"
+        end
+        return nil
+      end,
     }
     local ok, why, at
     parallel.waitForAny(receive, function() ok, why, at = LOAD.run(cfg, plan, io) end, function()
@@ -874,6 +930,33 @@ if cmd == "load" then
         if k == keys_api.x and not stop then stop = true print("calling it off...") end
       end
     end)
+    -- the silos are on the drone from the stick on, whatever happened after
+    if (ok or at == "retract" or at == "liftoff") and CARGO then
+      local okDL, DL = pcall(dofile, "lib/deliver.lua")
+      local dest = CARGO.destinations(okDL and DL or nil, cfg.liftoff, plan.stickers)
+      local m, silos = plan.manifest or {}, {}
+      if m.both then
+        local where, seen = {}, {}
+        for _, n in ipairs(plan.stickers) do
+          if dest[n] and not seen[dest[n]] then seen[dest[n]] = true where[#where + 1] = dest[n] end
+        end
+        local both = table.concat(plan.stickers, "+")
+        dest[both] = table.concat(where, " / ")
+        silos[1] = { silo = table.concat(plan.sides, "+"), sticker = both, items = m.both }
+      else
+        for i, side in ipairs(plan.sides) do
+          silos[#silos + 1] = { silo = side, sticker = plan.stickers[i], items = m[side] or {} }
+        end
+      end
+      local when = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()
+      if cargoWrite(CARGO.loadedRows(when, loadId, id, silos, dest)) then
+        for _, s in ipairs(silos) do
+          print(string.format("  %s: %s -> %s", s.silo, CARGO.describe(s.items, 4),
+            dest[s.sticker] ~= "" and dest[s.sticker] or "no destination"))
+        end
+        print("written to " .. CARGO_FILE .. (plan.manifest and "" or " (not counted: set silo or intake in station.lua)"))
+      end
+    end
     if ok then
       print(string.format("loaded in %.0f s%s", os.clock() - t0, cfg.liftoff and "" or
         (" - " .. id .. " is ready: ops fly " .. id .. " <command> when you are")))
@@ -885,6 +968,29 @@ if cmd == "load" then
   end
 
   for _, u in ipairs(usage) do print(u) end
+  return
+end
+
+if cmd == "cargo" then
+  -- what was loaded, and where it went: the newest n loads from cargo.csv
+  if not CARGO then print("lib/cargo.lua is missing - run startup") return end
+  local loads = CARGO.summary(cargoRows(), tonumber(args[2]) or 10)
+  if #loads == 0 then print("nothing loaded yet - ops load run writes " .. CARGO_FILE) return end
+  for _, ld in ipairs(loads) do
+    local okD, stamp = pcall(os.date, "%m-%d %H:%M", ld.when)
+    print(string.format("%s  %s  %s", okD and stamp or tostring(ld.when), ld.load, ld.drone))
+    for _, s in ipairs(ld.silos) do
+      local drop = s.drops[#s.drops]
+      local fate = "on board"
+      if drop and drop.state == "delivered" then
+        fate = "DELIVERED at " .. coords(drop.x, drop.y, drop.z)
+      elseif drop then
+        fate = "STILL HELD after the drop at " .. coords(drop.x, drop.y, drop.z)
+      end
+      print(string.format("  %-6s %s", s.silo, CARGO.describe(s.items, 4)))
+      print(string.format("         -> %s: %s", s.dest ~= "" and s.dest or "no destination", fate))
+    end
+  end
   return
 end
 
@@ -1093,7 +1199,8 @@ print(string.format("%s  %d customer key%s%s",
 -- rednet are someone pretending to be a drone: a "failed" or "done" for
 -- another customer's ride would free its unit mid-flight, a false distress
 -- would send the operator out for nothing.
-local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true }
+local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true,
+                     ["unit.dropped"] = true }
 
 function handle(from, msg, customer)
   do
@@ -1267,6 +1374,16 @@ function handle(from, msg, customer)
           end
         end
         log("%s %s%s", msg.drone, msg.state, msg.detail and (" - " .. msg.detail) or "")
+      elseif msg.type == "unit.dropped" then
+        -- a silo let go of on a delivery: which load it was, and where
+        local load, silo, dest
+        if CARGO then load, silo, dest = CARGO.openFor(cargoRows(), msg.drone, msg.sticker) end
+        if CARGO then
+          cargoWrite({ CARGO.dropRow(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(),
+            load or "?", msg.drone, silo or "?", msg.sticker, dest or "", msg.ok, msg.x, msg.y, msg.z) })
+        end
+        log("%s %s %s at %s", msg.drone, msg.ok and "dropped" or "STILL HOLDS",
+          load and (tostring(silo) .. " silo of " .. load) or msg.sticker, coords(msg.x, msg.y, msg.z))
       elseif msg.type == "unit.distress" then
         local f = fleet[msg.drone] or {}
         fleet[msg.drone] = f
