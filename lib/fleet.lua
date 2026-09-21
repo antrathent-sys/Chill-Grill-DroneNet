@@ -74,7 +74,8 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["places.ask"] = true, ["places.list"] = true,
             ["account.ask"] = true, ["account.info"] = true,
             ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true,
-            ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true }
+            ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true,
+            ["fare.ask"] = true, ["fare.quote"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -158,6 +159,10 @@ function F.check(m)
   elseif m.type == "job.track" then
     if not str(m.job) then return false, "no job id" end
     if not (num(m.x) and num(m.z)) then return false, "no position" end
+  elseif m.type == "fare.ask" then
+    if not (num(m.px) and num(m.pz) and num(m.tx) and num(m.tz)) then return false, "no route" end
+  elseif m.type == "fare.quote" then
+    if not num(m.fare) then return false, "no fare" end
   elseif m.type == "account.info" then
     if not str(m.who) then return false, "no customer" end
     if not num(m.balance) then return false, "no balance" end
@@ -263,6 +268,29 @@ function F.unpackPlaces(text)
 end
 
 function F.placesAsk(nonce) return { v = F.VERSION, type = "places.ask", nonce = nonce } end
+
+--- What would this ride cost? Asked from the confirm screen, before anyone
+-- is charged anything. The base answers with fare.quote, naming this ask's
+-- nonce in `re` so the terminal knows which question it answers.
+function F.fareAsk(from, dest, nonce)
+  return { v = F.VERSION, type = "fare.ask", nonce = nonce, px = from.x, pz = from.z,
+           tx = dest.x, tz = dest.z, toName = dest.name }
+end
+
+function F.fareQuote(fare, why, nonce, re)
+  return { v = F.VERSION, type = "fare.quote", nonce = nonce, fare = math.floor(fare or 0),
+           why = why, re = re }
+end
+
+--- How far a ride really goes, and to which known place: the destination is
+-- resolved exactly as dispatch resolves it (F.placeFor), so a quote is worked
+-- out on the same distance the charge at the end will be.
+function F.quoteBlocks(list, ask)
+  local dest = F.placeFor(list, ask.toName, ask.tx, ask.tz)
+  local tx, tz = ask.tx, ask.tz
+  if dest then tx, tz = dest.x, dest.z end
+  return math.sqrt((tx - ask.px) ^ 2 + (tz - ask.pz) ^ 2), dest and dest.name or nil
+end
 function F.accountAsk(nonce) return { v = F.VERSION, type = "account.ask", nonce = nonce } end
 
 function F.accountInfo(who, balance, rides, nonce, fare)

@@ -751,6 +751,12 @@ function handle(from, msg, customer)
           local b = LEDGER.balances(ledgerRows())[who] or { balance = 0, rides = 0 }
           pcall(rednet.send, from, F.accountInfo(who, b.balance, b.rides, nonce()), F.PROTO)
         end
+      elseif msg.type == "fare.ask" then
+        -- a price for the confirm screen: the same destination rules and the
+        -- same tariff as the charge at the end, so the quote is the fare
+        local blocks, toName = F.quoteBlocks(pads, msg)
+        local fare, why = LEDGER.fare(blocks, toName, tariff)
+        pcall(rednet.send, from, F.fareQuote(fare, why, nonce(), msg.nonce), F.PROTO)
       elseif msg.type == "job.cancel" then
         local who = customer or msg.who
         local gone = who and QUEUE.removeWho(waiting, who)

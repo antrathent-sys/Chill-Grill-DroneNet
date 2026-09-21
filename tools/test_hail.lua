@@ -61,6 +61,9 @@ local function world(opts)
       if type(msg) ~= "table" then return end
       if msg.type == "places.ask" then reply(F.placesList(places, "p-" .. #w.said))
       elseif msg.type == "account.ask" then reply(F.accountInfo("alex", 500, 3, "a-" .. #w.said))
+      elseif msg.type == "fare.ask" then
+        w.fareAsked = msg
+        reply(F.fareQuote(opts.fare or 13, "flat fare", "q-" .. #w.said, msg.nonce))
       elseif msg.type == "taxi.request" then
         w.request = msg
         reply(F.assign("j-1", msg))
@@ -188,16 +191,19 @@ end
 print("a ride on a customer's pass")
 local w = run(world({ inputs = ride() }), "hail.lua", "kiosk")
 check("it ran until the player stopped pressing keys", w.err == "script over", w.err)
-check("the places list drew (the canvas helper exists)", has(w, "WHERE TO?"))
+check("the places list drew (the canvas helper exists)", has(w, "SELECT DESTINATION"))
 check("Q did not leave the list", w.request ~= nil)
 -- the list is nearest first: market (766 blocks), then home (1799)
 check("it asked for the second place on the list", w.request and w.request.toName == "home", w.request and w.request.toName)
 check("from where the player stood", w.request and w.request.px == 100 and w.request.pz == 200)
 check("the confirm screen asked with one key", has(w, "CONFIRM"))
+check("it asked the base for the price first", w.fareAsked and w.fareAsked.toName == "home")
+check("and showed it before anything was requested", has(w, "FARE") and has(w, "13 SPUR"))
 check("the ride screen drew while it came", has(w, "ON STATION"))
 check("G sent the shuttle off", w.went == true)
-check("it arrived", has(w, "ARRIVED"))
-check("and came round to the list again", select(2, w.text:upper():gsub("WHERE TO%?", "")) >= 2)
+check("it arrived", has(w, "TRANSIT COMPLETE"))
+check("with a receipt naming the unit by its class", has(w, "LAMBDA-1"))
+check("and came round to the list again", select(2, w.text:upper():gsub("SELECT DESTINATION", "")) >= 2)
 check("no operator words on a customer's screen",
   not has(w, "hail test") and not has(w, "ops ") and not has(w, "autorun"))
 local stats = w.files[".hailstats"] or ""
@@ -211,7 +217,7 @@ quiet.env.rednet.broadcast = function(msg)      -- places and balance, but no sh
   return answer(msg)
 end
 run(quiet, "hail.lua", "kiosk")
-check("it says so in customer's words", has(quiet, "service may be closed"))
+check("it says so in customer's words", has(quiet, "out of range"))
 check("and does not tell them to type a command", not has(quiet, "hail test"))
 
 print("the kiosk around it")
@@ -222,7 +228,7 @@ check("the label comes back from .pass", k.label == "alex", k.label)
 check("the boot screen shows the name and no debug",
   k.shown[1] and not has(k, "pulling") and not has(k, "role"))
 check("the ride still works under it", k.went == true)
-check("when it stops, it goes out of service", has(k, "OUT OF SERVICE"))
+check("when it stops, the service is suspended", has(k, "SERVICE SUSPENDED"))
 check("writes what happened for the base", (k.files[".crash"] or ""):find("script over", 1, true) ~= nil)
 check("and starts again", k.rebooted == true)
 

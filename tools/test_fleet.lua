@@ -181,6 +181,18 @@ check("typed coordinates as a name are just coordinates",
 check("open ground is no place", F.placeFor(known, nil, 5000, 5000) == nil)
 check("a name nobody knows falls back to where", F.placeFor(known, "narnia", 5000, 5000) == nil)
 
+print("a price before the ride")
+local ask = F.fareAsk({ x = 100, z = 200 }, { x = 1900, z = 370, name = "home" }, "n-fare")
+check("a fare question is a valid message", (F.check(ask)))
+check("and so is the answer", (F.check(F.fareQuote(13, "flat fare", "n-q", "n-fare"))))
+check("an answer names the question", F.fareQuote(13, "x", "n-q", "n-fare").re == "n-fare")
+check("a question with no route is refused", not F.check({ v = F.VERSION, type = "fare.ask", nonce = "x" }))
+local blocks, toName = F.quoteBlocks(known, ask)
+check("a quote goes to the place itself, not to what was typed",
+  toName == "home" and math.abs(blocks - math.sqrt(1792 ^ 2 + 165 ^ 2)) < 0.01, blocks)
+local openBlocks, openName = F.quoteBlocks(known, { px = 0, pz = 0, tx = 300, tz = 400 })
+check("open ground is quoted by distance, with no place", openBlocks == 500 and openName == nil)
+
 print("what a finished job leaves behind")
 local job = { id = "j-7", drone = "drone-1", who = "hail-41", pad = "pier", px = 100, pz = -50,
               tx = 1200, tz = 340, blocks = 1104.7, waited = 62.4, rode = 48.25, total = 190,

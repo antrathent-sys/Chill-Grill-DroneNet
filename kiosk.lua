@@ -6,7 +6,7 @@
 --     is no secret on it worth taking except the customer's own key, which only
 --     ever speaks for them;
 --   * no shell - Ctrl+T does nothing, and if the program stops for any reason
---     the pass shows OUT OF SERVICE and starts again;
+--     the pass shows SERVICE SUSPENDED and starts again;
 --   * no debug on screen - a boot screen with the name and a filling line, and
 --     what went wrong (if anything) written to .crash, for `provision` to show
 --     when the pass comes back to the base.
@@ -58,7 +58,7 @@ local function draw(screenName, view)
     term.setBackgroundColour(colours.black)
     term.clear()
     term.setCursorPos(math.max(1, math.floor(w / 2) - 3), math.floor(h / 2))
-    term.write(screenName == "down" and "OUT OF SERVICE" or "SHUTTLE")
+    term.write(screenName == "down" and "SERVICE SUSPENDED" or "CINDER")
   end
 end
 

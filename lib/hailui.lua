@@ -11,20 +11,54 @@
 
 local M = {}
 
-M.NAME = "SHUTTLE"                 -- what the mastheads say
-M.SUB = "CHILL GRILL SHUTTLE SVC"   -- and the line under the first one
+M.NAME = "CINDER"                  -- what the mastheads say
+M.SUB = "TRANSIT DIRECTORATE"       -- and the line under the first one
+M.BRANCH = "TRANSIT"                -- the right-hand end of the slim header
 
+-- One word for each thing, in the Directorate's voice: terse, formal, and a
+-- shade less friendly than a transit company would be.
 M.WORDS = {
-  queued  = "IN THE QUEUE",
-  -- kept short: the UNIT box is 13 characters wide and the masthead has
-  -- already said SHUTTLE
+  queued  = "HOLDING",
   calling = "REQUESTED",
   enroute = "INBOUND",
   waiting = "ON STATION",
   riding  = "IN TRANSIT",
-  done    = "ARRIVED",
-  failed  = "ENDED",
+  done    = "COMPLETE",
+  failed  = "ABORTED",
 }
+
+--- What a customer calls a craft: its class and its number. The passenger
+-- craft are Lambdas, so drone-1 is LAMBDA-1; anything named otherwise is
+-- shown as it is.
+function M.unitName(id)
+  if type(id) ~= "string" or id == "" then return nil end
+  local n = id:lower():match("^drone%-(%d+)$")
+  return n and ("LAMBDA-" .. n) or id:upper()
+end
+
+--- The slim header for screens with work on them: the name at the left, the
+-- branch at the right, a hairline between. The full masthead is kept for the
+-- boot and the home list; everywhere else the screen's own content is the
+-- heaviest thing on it.
+function M.header(T, c, label)
+  local w = c.w
+  label = tostring(label or M.BRANCH):upper()
+  c:text(1, 1, M.NAME, T.C.text)
+  local lx = w - #label + 1
+  c:text(lx, 1, label, T.C.faint)
+  local x0, x1 = #M.NAME + 2, lx - 2
+  if x1 >= x0 then c:line((x0 - 1) * 2 + 1, 2, x1 * 2, 2, T.C.rule) end
+end
+
+--- A progress line one sub-pixel tall: the track in the rule grey, the part
+-- done in ink. Cells x .. x+w-1 on row y.
+function M.hairbar(T, c, x, y, w, frac, ink)
+  local py = (y - 1) * 3 + 2
+  local px0, px1 = (x - 1) * 2 + 1, (x - 1 + w) * 2
+  c:line(px0, py, px1, py, T.C.rule)
+  local fill = math.floor((px1 - px0 + 1) * math.max(0, math.min(1, frac or 0)))
+  if fill > 0 then c:line(px0, py, px0 + fill - 1, py, ink or T.C.accent) end
+end
 
 -- spurs, as people say them: the ledger's own formatting, kept here so the
 -- screen and the base never disagree about what a number means
@@ -48,8 +82,8 @@ function M.places(T, c, view)
   local w, h = c.w, c.h
   c:clear()
   T.masthead(c, 1, M.NAME, T.C.text, M.SUB)
-  c:text(1, 4, "WHERE TO?", T.C.text)
-  c:text(1, 5, string.format("AT %d, %d", view.from.x, view.from.z), T.C.faint)
+  c:text(1, 4, "SELECT DESTINATION", T.C.text)
+  c:text(1, 5, string.format("LOC %d, %d", view.from.x, view.from.z), T.C.faint)
   if view.balance then
     local owed = view.balance < 0
     c:text(w - 11, 5, string.format("%11s", M.money(view.balance)), owed and T.C.warn or T.C.text)
@@ -66,9 +100,11 @@ function M.places(T, c, view)
             (first + i) == view.sel)
     end
   end
-  if #view.places == 0 then c:text(2, top + 1, "NONE KNOWN - PRESS C", T.C.faint) end
+  if #view.places == 0 then c:text(2, top + 1, "NONE ON RECORD - PRESS C", T.C.faint) end
 
-  T.keys(c, h, { { "UP/DN", "PICK", true }, { "ENT", "GO" }, { "C", "XZ" }, { "T", "TOP UP" } })
+  -- the arrows explain themselves once a row is lit, so the bar spends its
+  -- 26 columns on the keys nobody would guess: credit and typed coordinates
+  T.keys(c, h, { { "ENT", "GO", true }, { "T", "CREDIT" }, { "C", "XZ" } })
   return rows
 end
 
@@ -83,12 +119,7 @@ function M.boot(T, c, view)
   T.masthead(c, y, M.NAME, T.C.text, M.SUB)
   -- a hairline, one sub-pixel tall, like the rules either side of the name
   local bw = math.max(6, w - 10)
-  local x0 = math.floor((w - bw) / 2) + 1
-  local py = (y + 5 - 1) * 3 + 2
-  local px0, px1 = (x0 - 1) * 2 + 1, (x0 - 1 + bw) * 2
-  c:line(px0, py, px1, py, T.C.rule)
-  local fill = math.floor((px1 - px0 + 1) * math.max(0, math.min(1, view.frac or 0)))
-  if fill > 0 then c:line(px0, py, px0 + fill - 1, py, T.C.accent) end
+  M.hairbar(T, c, math.floor((w - bw) / 2) + 1, y + 5, bw, view.frac, T.C.accent)
   -- the build, in the corner, in the same grey as the rules: there for
   -- whoever looks for it, and not for anyone else
   if view.ver then c:text(2, h, "REV " .. tostring(view.ver):upper():sub(1, 7), T.C.rule) end
@@ -103,8 +134,8 @@ function M.down(T, c, view)
   local y = math.max(1, math.floor(h / 2) - 3)
   T.masthead(c, y, M.NAME, T.C.text, M.SUB)
   local function mid(row, s, ink) c:text(math.max(1, math.floor((w - #s) / 2) + 1), row, s, ink) end
-  mid(y + 5, "OUT OF SERVICE", T.C.warn)
-  mid(y + 7, "BACK IN A MOMENT", T.C.faint)
+  mid(y + 5, "SERVICE SUSPENDED", T.C.warn)
+  mid(y + 7, "STAND BY", T.C.faint)
 end
 
 -- -------------------------------------------------------------- the till ---
@@ -112,30 +143,30 @@ end
 function M.topup(T, c, view)
   local w, h = c.w, c.h
   c:clear()
-  T.masthead(c, 1, "CREDIT", T.C.text)
-  local r = T.section(c, 4, "ACCOUNT")
+  M.header(T, c, "CREDIT")
+  local r = T.section(c, 3, "ACCOUNT")
   c:text(2, r, tostring(view.who or "ANONYMOUS"):upper():sub(1, w - 2), T.C.text)
   c:text(2, r + 1, M.money(view.balance or 0), (view.balance or 0) < 0 and T.C.warn or T.C.text)
 
-  r = T.section(c, 8, "TOP UP")
+  r = T.section(c, 7, "ADD CREDIT")
   if view.state == "ready" then
     c:text(2, r, "TILL OPEN", T.C.ok)
-    c:text(2, r + 1, "PAY " .. M.money(view.amount) .. " NOW", T.C.text)
-    c:text(2, r + 3, "IT CREDITS YOU AS", T.C.faint)
+    c:text(2, r + 1, "DEPOSIT " .. M.money(view.amount) .. " NOW", T.C.text)
+    c:text(2, r + 3, "CREDITED TO", T.C.faint)
     c:text(2, r + 4, tostring(view.who or ""):upper():sub(1, w - 2), T.C.text)
     T.keys(c, h, { { "Q", "BACK" } })
   elseif view.state == "waiting" then
-    c:text(2, r, "GO TO THE TILL", T.C.text)
-    c:text(2, r + 1, "AND SIT DOWN", T.C.text)
-    c:text(2, r + 3, "PAYING " .. M.money(view.amount), T.C.faint)
-    c:text(2, r + 4, "IT OPENS WHEN YOU DO", T.C.faint)
+    c:text(2, r, "PROCEED TO THE TILL", T.C.text)
+    c:text(2, r + 1, "AND BE SEATED", T.C.text)
+    c:text(2, r + 3, "AMOUNT " .. M.money(view.amount), T.C.faint)
+    c:text(2, r + 4, "IT OPENS WHEN YOU ARE", T.C.faint)
     T.keys(c, h, { { "Q", "BACK" } })
   elseif view.state == "done" then
-    c:text(2, r, "PAID " .. M.money(view.got or 0), T.C.ok)
+    c:text(2, r, "RECEIVED " .. M.money(view.got or 0), T.C.ok)
     c:text(2, r + 2, "BALANCE " .. M.money(view.balance or 0), T.C.text)
     T.keys(c, h, { { "Q", "BACK" } })
   else
-    c:text(2, r, "HOW MUCH?", T.C.text)
+    c:text(2, r, "SELECT AMOUNT", T.C.text)
     c:text(2, r + 2, "1  64 SPUR  (1 COG)", T.C.faint)
     c:text(2, r + 3, "2  512 SPUR (8 COG)", T.C.faint)
     c:text(2, r + 4, "3  4096 SPUR (1 SUN)", T.C.faint)
@@ -155,30 +186,40 @@ function M.ride(T, c, view)
   local frac = away and (1 - away / start) or 0
   if view.state == "waiting" or view.state == "done" then frac = 1 end
   local failed = view.state == "failed"
+  local here = view.state == "waiting"
 
-  T.masthead(c, 1, M.NAME, T.C.text)
+  M.header(T, c)
 
-  -- UNIT and its status
+  -- UNIT: which craft, and what it is doing
   local r = T.section(c, 3, "UNIT")
-  c:text(2, r, tostring(view.unit or (view.place and ("No " .. view.place .. " IN LINE")) or "ASSIGNING")
-           :upper():sub(1, w - 10), T.C.text)
-  c:text(w - 7, r, (view.state == "waiting" and "HERE" or clock(view.eta)), T.C.text)
-  c:text(2, r + 1, (M.WORDS[view.state] or "STANDING BY"):sub(1, w - 10),
-         failed and T.C.warn or (view.state == "waiting" and T.C.ok or T.C.accent))
-  c:text(w - 7, r + 1, view.state == "riding" and "TO GO" or "OUT", T.C.faint)
+  local unit = M.unitName(view.unit)
+    or (view.place and ("QUEUE POSITION " .. view.place)) or "ASSIGNING"
+  c:text(2, r, unit:sub(1, w - 2), T.C.text)
+  c:text(2, r + 1, (M.WORDS[view.state] or "STANDING BY"):sub(1, w - 2),
+         failed and T.C.warn or (here and T.C.ok or T.C.accent))
 
-  -- RANGE, the number the customer actually wants, with its bar
-  r = T.section(c, 6, "RANGE")
+  -- The number the customer is actually waiting on, in the big type, the way
+  -- a departures board shows minutes. HERE once the unit is on station.
+  local label = view.state == "queued" and "EST. WAIT"
+    or (view.state == "riding" and "TO DESTINATION" or "ARRIVAL")
+  r = T.section(c, 7, label)
+  -- no estimate yet: the dashes are drawn quiet, so they read as waiting
+  -- rather than as a number
+  T.headline(c, 2, r, here and "HERE" or clock(view.eta),
+             here and T.C.ok or (view.eta and T.C.text or T.C.rule), 2)
+
+  -- RANGE, quieter: how far, and a hairline for how much of it is done
+  r = T.section(c, 12, "RANGE")
   local num = away and tostring(math.floor(away)) or "----"
   c:text(2, r, num, T.C.text)
   c:text(2 + #num + 1, r, "BLOCKS", T.C.faint)
   c:text(w - 4, r, string.format("%3d%%", math.floor(frac * 100 + 0.5)), T.C.faint)
-  T.bar(c, 2, r + 1, w - 2, frac, failed and T.C.warn or T.C.accent, T.C.panel)
+  M.hairbar(T, c, 2, r + 1, w - 2, frac, failed and T.C.warn or T.C.accent)
 
   -- LOG, only when it is wanted: a scrolling transcript is the least Imperial
   -- thing on the screen, so it is off unless the customer presses L
   if view.log and view.showLog then
-    local logY, logBottom = 9, h - 1
+    local logY, logBottom = 16, h - 1
     r = T.section(c, logY, "LOG")
     local log = view.log
     local rows = logBottom - logY
@@ -192,8 +233,8 @@ function M.ride(T, c, view)
     c:text(2, h - 2, tostring(view.detail):upper():sub(1, w - 2), T.C.warn)
   end
 
-  if view.state == "waiting" then
-    T.keys(c, h, { { "G", "BOARD", true }, { "L", "LOG" }, { "Q", "ABORT" } })
+  if here then
+    T.keys(c, h, { { "G", "DEPART", true }, { "L", "LOG" }, { "Q", "ABORT" } })
   else
     T.keys(c, h, { { "L", "LOG" }, { "Q", "ABORT" } })
   end

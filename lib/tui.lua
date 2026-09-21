@@ -126,10 +126,13 @@ T.FONT = {
   D = "110,101,101,101,110", E = "111,100,110,100,111", F = "111,100,110,100,100",
   G = "011,100,101,101,011", H = "101,101,111,101,101", I = "111,010,010,010,111",
   J = "001,001,001,101,010", K = "101,110,100,110,101", L = "100,100,100,100,111",
-  M = "101,111,111,101,101", N = "101,111,111,111,101", O = "010,101,101,101,010",
+  -- M, N and W are wider than the rest: at three pixels a diagonal has
+  -- nowhere to go, and N came out as a second M (CINDER read CIMDER)
+  M = "10001,11011,10101,10001,10001", N = "1001,1101,1011,1001,1001",
+  O = "010,101,101,101,010",
   P = "110,101,110,100,100", Q = "010,101,101,111,011", R = "110,101,110,101,101",
   S = "011,100,010,001,110", T = "111,010,010,010,010", U = "101,101,101,101,011",
-  V = "101,101,101,101,010", W = "101,101,111,111,101", X = "101,101,010,101,101",
+  V = "101,101,101,101,010", W = "10001,10001,10101,11011,10001", X = "101,101,010,101,101",
   Y = "101,101,010,010,010", Z = "111,001,010,100,111",
   ["0"] = "111,101,101,101,111", ["1"] = "010,110,010,010,111",
   ["2"] = "111,001,111,100,111", ["3"] = "111,001,111,001,111",
@@ -141,31 +144,46 @@ T.FONT = {
   ["/"] = "001,001,010,100,100",
 }
 
+-- How far a word in the block font advances, in sub-pixels: each glyph's own
+-- width plus a one-pixel gap. Most glyphs are three wide; a few are not.
+function T.headlinePx(text, scale)
+  scale = scale or 1
+  text = tostring(text):upper()
+  local px = 0
+  for i = 1, #text do
+    local g = T.FONT[text:sub(i, i)] or T.FONT[" "]
+    px = px + (#g:match("^[^,]+") + 1) * scale
+  end
+  return px
+end
+
 -- Draw text in the block font. x, y are CELL coordinates; the word occupies
 -- two rows at scale 1. Returns the width in cells.
 function T.headline(c, x, y, text, col, scale)
   scale = scale or 1
   local px = (x - 1) * 2 + 1
   local py = (y - 1) * 3 + 1
-  local adv = 4 * scale
   text = tostring(text):upper()
+  local ox = 0
   for i = 1, #text do
     local g = T.FONT[text:sub(i, i)] or T.FONT[" "]
+    local gw = #g:match("^[^,]+")
     local row = 0
     for line in g:gmatch("[^,]+") do
-      for gx = 1, 3 do
+      for gx = 1, gw do
         if line:sub(gx, gx) == "1" then
           for sy = 0, scale - 1 do
             for sx = 0, scale - 1 do
-              c:pix(px + (i - 1) * adv + (gx - 1) * scale + sx, py + row * scale + sy, col or T.C.text)
+              c:pix(px + ox + (gx - 1) * scale + sx, py + row * scale + sy, col or T.C.text)
             end
           end
         end
       end
       row = row + 1
     end
+    ox = ox + (gw + 1) * scale
   end
-  return math.ceil(#text * adv / 2)
+  return math.ceil(ox / 2)
 end
 
 -- A caption with a rule running out to both edges.
@@ -180,7 +198,7 @@ end
 -- tall. What a screen uses when its title should carry weight.
 function T.masthead(c, y, title, col, sub)
   local w = c.w
-  local cells = math.ceil(#tostring(title) * 4 / 2)
+  local cells = math.ceil(T.headlinePx(title) / 2)
   local x = math.max(1, math.floor((w - cells) / 2) + 1)
   T.headline(c, x, y, title, col or T.C.text)
   -- rules to the left and right of the word, on the middle row of the two

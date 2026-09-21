@@ -138,6 +138,13 @@ local function at(x, y, s, c)
   term.write(tostring(s):upper():sub(1, W - x + 1))   -- capitals, like the drawn screens
 end
 
+-- a labelled line: the label quiet, the value in the body colour
+local function field(y, label, value, ink)
+  at(1, y, string.rep(" ", W))
+  at(1, y, label, DIM)
+  at(11, y, value, ink or AMBER)
+end
+
 local function rule(y, c)
   if y < 1 or y > H then return end
   term.setCursorPos(1, y)
@@ -154,13 +161,13 @@ local function frame(title, note, keyBar)
   canvas, rideCanvas = nil, nil       -- this clear just made both of them wrong
   if D and T and UI then
     local c = D.canvas(W, H)
-    T.masthead(c, 1, UI.NAME, T.C.text)
+    UI.header(T, c)
     if title then c:text(1, 3, tostring(title):upper():sub(1, W), T.C.text) end
     if note and note ~= "" then c:text(1, 4, tostring(note):upper():sub(1, W), T.C.faint) end
     if keyBar then T.keys(c, H, keyBar) end
     c:flush(term)
   else
-    at(1, 1, "CHILL GRILL SHUTTLE", AMBER)
+    at(1, 1, "CINDER TRANSIT", AMBER)
     rule(2)
     if title then at(1, 3, title, AMBER) end
     if note then at(1, 4, note, DIM) end
@@ -209,7 +216,7 @@ end
 local radio = findRadio()
 while not radio do
   if KIOSK then
-    frame("NO RADIO", "this pass needs its modem")
+    frame("NO SIGNAL", "this pass needs its modem")
   else
     print("hail: this computer has no wireless modem, so it cannot call anyone.")
     print("      Checking again every 5 s.")
@@ -260,6 +267,7 @@ end
 
 local places = localPlaces()
 local balance                    -- what the base last said, or nil if unknown
+local lastFare, lastUnit         -- what the last ride cost, and which unit flew it
 
 -- What the base thinks this customer is worth. Cheap, so it is asked for
 -- whenever the main screen is about to be drawn.
@@ -270,10 +278,32 @@ local function askBalance(secs)
     local _, msg = rednet.receive(F.PROTO, (secs or 1) - (os.clock() - t0))
     if type(msg) == "table" and msg.type == "account.info" and (F.check(msg)) then
       balance = msg.balance
+      if msg.fare then lastFare = msg.fare end
       return balance
     end
   end
   return balance
+end
+
+-- What the base will charge for a ride: its own tariff and the same sum it
+-- charges at the end, so the price on the confirm screen is the price. nil
+-- when nothing answers in time.
+local function askFare(from, tx, tz, name)
+  local ask = F.fareAsk(from, { x = tx, z = tz, name = name }, nonce())
+  say(ask)
+  local t0 = os.clock()
+  while os.clock() - t0 < 1.5 do
+    local _, msg = rednet.receive(F.PROTO, 1.5 - (os.clock() - t0))
+    if type(msg) == "table" and msg.type == "fare.quote" and msg.re == ask.nonce and (F.check(msg)) then
+      return msg.fare, msg.why
+    end
+  end
+  return nil
+end
+
+local function money(spurs)
+  if spurs == 0 then return "no charge" end
+  return UI and UI.money(spurs) or (tostring(spurs) .. " spur")
 end
 
 -- Ask ops for its pads and fold them in. Whatever has arrived by the deadline
@@ -299,7 +329,7 @@ end
 local function whereAmI()
   local x, y, z = gps.locate(3)
   if x then return { x = math.floor(x), y = math.floor(y), z = math.floor(z) } end
-  frame("WHERE ARE YOU?", "no GPS - read it off F3")
+  frame("POSITION UNKNOWN", "no GPS - enter x z from F3")
   term.setCursorPos(1, 6)
   local px, py, pz = coords(ask("> "))
   if not px then return nil end
@@ -362,7 +392,7 @@ end
 local function chooseDestination(from)
   local c = screen()
   if not c then
-    frame("WHERE TO?", "coordinates, like 1200 340")
+    frame("ENTER COORDINATES", "x z, like 1200 340")
     term.setCursorPos(1, 6)
     local tx, ty, tz = coords(ask("> "))
     if not tx then return nil end
@@ -396,7 +426,7 @@ local function chooseDestination(from)
         topUp()
         canvas = nil
       elseif key == keys.c then
-        frame("WHERE TO?", "coordinates, like 1200 340")
+        frame("ENTER COORDINATES", "x z, like 1200 340")
         term.setCursorPos(1, 6)
         local tx, ty, tz = coords(ask("> "))
         canvas = nil                      -- the text prompt scribbled over it
@@ -429,18 +459,19 @@ local function follow(job, from, name)
     -- the map when there is something to draw, the words when there is not
     if not drawRide({ away = away, state = state, unit = drone, spin = n,
                       start = startAway, eta = eta, log = log, showLog = showLog }) then
-      frame("TAXI: " .. tostring(name):upper(), drone and ("unit " .. drone) or "finding a unit")
-      at(1, 6, state == "enroute" and "on its way to you"
-            or state == "waiting" and "HERE - get aboard"
-            or state == "riding" and "flying you there"
-            or "calling a taxi", INK)
+      frame("TRANSIT: " .. tostring(name):upper(),
+            drone and ("unit " .. (UI and UI.unitName(drone) or drone)) or "assigning a unit")
+      at(1, 6, state == "enroute" and "unit inbound"
+            or state == "waiting" and "on station - board now"
+            or state == "riding" and "in transit"
+            or "requesting unit", INK)
       if away then at(1, 7, string.format("%d blocks away", math.floor(away))) end
       if state == "waiting" then
         rule(9)
-        at(1, 10, "PRESS  G  TO GO", INK)
+        at(1, 10, "PRESS  G  TO DEPART", INK)
         rule(11)
       end
-      at(1, H - 1, "Q gives up", DIM)
+      at(1, H - 1, "Q aborts", DIM)
       spinner(H, state:upper(), n)
     end
     n = n + 1
@@ -466,6 +497,7 @@ local function follow(job, from, name)
           lastAway, lastAt = away, os.clock()
         elseif msg.type == "job.state" then
           state, drone = msg.state, msg.drone or drone
+          lastUnit = drone
           note((UI and UI.WORDS[msg.state] or msg.state) ..
                (msg.detail and (" - " .. tostring(msg.detail)) or ""))
           if msg.state == "riding" or msg.state == "enroute" then
@@ -474,8 +506,8 @@ local function follow(job, from, name)
           if msg.state == "waiting" then aboard = true end
           if msg.state == "done" then return "done" end
           if msg.state == "failed" then
-            frame("RIDE ENDED", "")
-            at(1, 6, "ended early", INK)
+            frame("TRANSIT ABORTED", "")
+            at(1, 6, "the unit stopped early", INK)
             at(1, 7, tostring(msg.detail), DIM)
             sleep(4)
             return "failed"
@@ -508,9 +540,15 @@ local function oneRide(tx, ty, tz, name)
   name = name or string.format("%d, %d", tx, tz)
   local away = dist(from, tx, tz)
 
-  frame("CONFIRM", name, { { "ENT", "CALL", true }, { "ANY", "BACK" } })
-  at(1, 6, string.format("%d blocks", math.floor(away)), AMBER)
-  if balance then at(1, 7, "balance " .. (UI and UI.money(balance) or tostring(balance)), DIM) end
+  -- The price before the promise: the distance, what the base will charge,
+  -- and what is on the account. The fare line fills in when the base answers.
+  lastFare, lastUnit = nil, nil
+  frame("CONFIRM", name, { { "ENT", "REQUEST", true }, { "ANY", "BACK" } })
+  field(6, "distance", string.format("%d blocks", math.floor(away)))
+  field(7, "fare", "quoting", DIM)
+  if balance then field(8, "balance", money(balance), balance < 0 and INK or AMBER) end
+  local quoted = askFare(from, tx, tz, name)
+  field(7, "fare", quoted and money(quoted) or "unavailable", quoted and AMBER or DIM)
   if keyPress() ~= keys.enter then return end
 
   stats.requests = (stats.requests or 0) + 1
@@ -519,11 +557,11 @@ local function oneRide(tx, ty, tz, name)
   local req = F.request(from, { x = tx, z = tz, y = ty, name = name }, nonce(), me)
   say(req)
 
-  frame("CALLING", name)
+  frame("REQUESTING UNIT", name)
   local job, t0, refused, heard, n = nil, os.clock(), nil, false, 0
   local place, wait
   while os.clock() - t0 < 15 and not job and not refused do
-    spinner(H, "asking the base", n)
+    spinner(H, "awaiting dispatch", n)
     n = n + 1
     local timer = os.startTimer(0.25)
     local ev = { os.pullEvent() }
@@ -548,7 +586,7 @@ local function oneRide(tx, ty, tz, name)
   while place and not job do
     if not drawRide({ state = "queued", place = place, eta = wait, spin = n, log = log,
                       showLog = false, away = nil, start = 1 }) then
-      frame("IN THE QUEUE", string.format("No %d, about %d:%02d", place, math.floor((wait or 0) / 60),
+      frame("HOLDING", string.format("position %d, about %d:%02d", place, math.floor((wait or 0) / 60),
         math.floor((wait or 0) % 60)))
     end
     n = n + 1
@@ -573,13 +611,13 @@ local function oneRide(tx, ty, tz, name)
   if not job then
     F.record(stats, "failure")
     save()
-    frame("NO SHUTTLE", "")
-    at(1, 6, refused or (heard and "the base sent nobody" or "nothing came back"), INK)
+    frame("NO UNIT", "")
+    at(1, 6, refused or (heard and "no unit was dispatched" or "no response"), INK)
     if not (refused or heard) then
       if KIOSK then
         -- a customer has never heard of ops, and cannot type a command
-        at(1, 8, "the service may be closed,", DIM)
-        at(1, 9, "or you are out of range", DIM)
+        at(1, 8, "service suspended, or you", DIM)
+        at(1, 9, "are out of range", DIM)
       else
         at(1, 8, "is ops running, and are", DIM)
         at(1, 9, "you in radio range?", DIM)
@@ -594,12 +632,17 @@ local function oneRide(tx, ty, tz, name)
   askBalance(1.5)                 -- the fare lands as the ride ends
   if how == "done" then
     F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(), blocks = away })
-    frame("ARRIVED", name)
-    at(1, 6, "thanks for flying", AMBER)
-    if balance then at(1, 8, "balance " .. (UI and UI.money(balance) or tostring(balance)), DIM) end
+    -- the end of the ride is the part people remember, so it says exactly
+    -- what happened: which unit, what it cost, what is left
+    frame("TRANSIT COMPLETE", name)
+    local fare = lastFare or quoted
+    if lastUnit then field(6, "unit", UI and UI.unitName(lastUnit) or lastUnit) end
+    if fare then field(7, "fare", money(fare)) end
+    if balance then field(8, "balance", money(balance), balance < 0 and INK or AMBER) end
+    at(1, 10, "compliance appreciated", DIM)
   else
     F.record(stats, "failure")
-    frame("RIDE ENDED", how)
+    frame("TRANSIT ABORTED", how)
   end
   save()
   sleep(3)
@@ -661,8 +704,8 @@ askBalance(1)
 save()
 
 while true do
-  frame("SHUTTLE", string.format("%d rides from this unit", stats.rides or 0))
-  at(1, 6, "ENTER  call a shuttle", INK)
+  frame("TRANSIT", string.format("%d transits from this unit", stats.rides or 0))
+  at(1, 6, "ENTER  request a unit", INK)
   at(1, 7, "R      refresh places", DIM)
   at(1, 8, "Q      stop", DIM)
   at(1, 10, string.format("%d places known", #places), DIM)
