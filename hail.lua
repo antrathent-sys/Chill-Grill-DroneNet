@@ -314,17 +314,18 @@ local function askBalance(secs)
   return balance
 end
 
--- What the base will charge for a ride: its own tariff and the same sum it
--- charges at the end, so the price on the confirm screen is the price. nil
--- when nothing answers in time.
-local function askFare(from, tx, tz, name)
+-- Ask the base about a ride before anything is promised: what it will cost
+-- (its own tariff, the same sum it charges at the end) and whether a free
+-- unit is already on station near the customer. Returns the answer, or nil
+-- when nothing comes back in time.
+local function askQuote(from, tx, tz, name)
   local ask = F.fareAsk(from, { x = tx, z = tz, name = name }, nonce())
   say(ask)
   local t0 = os.clock()
   while os.clock() - t0 < 1.5 do
     local _, msg = rednet.receive(F.PROTO, 1.5 - (os.clock() - t0))
     if type(msg) == "table" and msg.type == "fare.quote" and msg.re == ask.nonce and (F.check(msg)) then
-      return msg.fare, msg.why
+      return msg
     end
   end
   return nil
@@ -479,35 +480,157 @@ end
 -- ------------------------------------------------------------------- ride ---
 -- Follow one job to its end, drawing where the shuttle is. Returns "done",
 -- "failed" or "gave up".
-local function follow(job, from, name)
-  local aboard, state, drone, away = false, "calling", nil, nil
+-- ----------------------------------------------------------- safety ---
+-- Coordinates as F3 shows them. Every screen of an order shows them.
+local function xyz(x, y, z)
+  if not (x and z) then return "unknown" end
+  return y and string.format("%d %d %d", math.floor(x), math.floor(y), math.floor(z))
+            or string.format("%d %d", math.floor(x), math.floor(z))
+end
+
+local LZ_R = 4            -- blocks round the spot a unit needs clear: 9x9
+local AT_PLATFORM = 6     -- this close to a known platform counts as on it
+local WALKABLE = 250      -- a platform further than this is not worth offering
+
+-- The nearest known landing platform (the base's places), and how far.
+local function nearestPlatform(pos)
+  local best, bd
+  for _, p in ipairs(places) do
+    local d = dist(pos, p.x, p.z)
+    if not bd or d < bd then best, bd = p, d end
+  end
+  return best, bd
+end
+
+-- Walk to a platform, with the distance counting down. GPS runs beside the
+-- screen, not in it, so no key press is lost while it listens. Returns true
+-- once they are there and press ENT, false if they go back.
+local function walkTo(pad)
+  local d
+  local function draw()
+    frame("PROCEED TO PLATFORM", pad.name, { { "ENT", "ARRIVED", true }, { "ANY", "BACK" } })
+    field(6, "platform", xyz(pad.x, pad.y, pad.z))
+    field(7, "distance", d and string.format("%d blocks", math.floor(d)) or "locating", d and AMBER or DIM)
+    if d and d <= AT_PLATFORM then
+      at(2, 9, "on the platform", AMBER)
+    else
+      at(2, 9, "walk to it, then press ent", DIM)
+    end
+  end
+  local result
+  local function screen()
+    draw()
+    while true do
+      local ev, key = os.pullEvent()
+      if ev == "hail_where" then draw()
+      elseif ev == "key" then
+        if key == keys.enter then
+          if d and d <= AT_PLATFORM then result = true return end
+        else
+          result = false return
+        end
+      end
+    end
+  end
+  local function track()
+    while true do
+      local x, _, z = gps.locate(2)
+      if x then d = dist({ x = x, z = z }, pad.x, pad.z) end
+      os.queueEvent("hail_where")
+      sleep(1)
+    end
+  end
+  flushInput()
+  parallel.waitForAny(screen, track)
+  return result
+end
+
+-- Before a unit is called to open ground: where it will come down, what the
+-- spot needs, and a platform instead if there is one. Returns the pickup -
+-- where they stand, or a platform - or nil to go back.
+local function landingZone(from)
+  local pad, pd = nearestPlatform(from)
+  if pad and pd <= AT_PLATFORM then
+    -- already on a known platform: known good, nothing to check
+    return { x = pad.x, y = pad.y or from.y, z = pad.z, name = pad.name }
+  end
+  if pad and pd > WALKABLE then pad = nil end
+  local keysBar = { { "ENT", "CLEAR", true } }
+  if pad then keysBar[#keysBar + 1] = { "P", "PLATFORM" } end
+  keysBar[#keysBar + 1] = { "ANY", "BACK" }
+  frame("LANDING ZONE", xyz(from.x, from.y, from.z), keysBar)
+  at(2, 6, "the unit lands where you", AMBER)
+  at(2, 7, "stand. before you call:", AMBER)
+  at(2, 9, "- clear sky above", DIM)
+  at(2, 10, "- level ground, 9x9", DIM)
+  at(2, 11, "- no water, trees, roofs", DIM)
+  at(2, 12, "- then step 5 blocks back", DIM)
+  if pad then
+    at(2, 14, "nearest platform", DIM)
+    at(2, 15, string.format("%s  %d blocks", pad.name, math.floor(pd)), AMBER)
+  end
+  local key = keyPress()
+  if key == keys.enter then return from end
+  if key == keys.p and pad then
+    if walkTo(pad) then return { x = pad.x, y = pad.y or from.y, z = pad.z, name = pad.name } end
+  end
+  return nil
+end
+
+-- What went wrong, in the Directorate's words, and what to do about it.
+local function aborted(detail)
+  frame("TRANSIT ABORTED", "")
+  local d = tostring(detail or "")
+  if d:find("obstructed", 1, true) then
+    at(2, 6, "landing zone obstructed", INK)
+    at(2, 8, "move to open ground or a", AMBER)
+    at(2, 9, "platform, then call again", AMBER)
+  elseif d:find("unit down", 1, true) then
+    at(2, 6, "unit down", INK)
+    at(2, 8, "the operator has its", AMBER)
+    at(2, 9, "position and is alerted", AMBER)
+    local where = d:match("at%s+(%-?%d+%s+%-?%d+%s+%-?%d+)")
+    if where then field(11, "position", where) end
+  else
+    at(2, 6, "the unit stopped early", INK)
+    at(2, 8, d, DIM)
+  end
+end
+
+local function follow(job, from, name, route)
+  route = route or {}
+  local pickup = route.pickup or from
+  local dest = route.to
+  local aboard, state, drone, away = route.board and true or false, "calling", nil, nil
   local n, t0 = 0, os.clock()
   local here, showLog = nil, false
   local startAway, eta, lastAway, lastAt = nil, nil, nil, nil
+  local zone                           -- how far the customer is from the pickup spot
   local log = {}
   local function note(line)
     log[#log + 1] = string.format("%s %s", textutils.formatTime(os.time(), true), line)
     while #log > 6 do table.remove(log, 1) end
   end
-  note("unit requested")
+  note(route.board and "unit on station nearby" or "unit requested")
   rideCanvas = nil                    -- a fresh canvas per ride
+  local result
+
+  local function loop()
   while true do
-    if os.clock() - t0 > (aboard and 600 or 300) then return "gave up" end
-    -- the map when there is something to draw, the words when there is not
+    if os.clock() - t0 > (aboard and 600 or 300) then result = "gave up" return end
     if not drawRide({ away = away, state = state, unit = drone, spin = n,
-                      start = startAway, eta = eta, log = log, showLog = showLog }) then
+                      start = startAway, eta = eta, log = log, showLog = showLog,
+                      from = pickup, to = dest, zone = (state ~= "riding") and zone or nil,
+                      board = route.board, zoneR = LZ_R }) then
       frame("TRANSIT: " .. tostring(name):upper(),
             drone and ("unit " .. (UI and UI.unitName(drone) or drone)) or "assigning a unit")
       at(1, 6, state == "enroute" and "unit inbound"
             or state == "waiting" and "on station - board now"
             or state == "riding" and "in transit"
             or "requesting unit", INK)
-      if away then at(1, 7, string.format("%d blocks away", math.floor(away))) end
-      if state == "waiting" then
-        rule(9)
-        at(1, 10, "PRESS  G  TO DEPART", INK)
-        rule(11)
-      end
+      at(1, 7, "from " .. xyz(pickup.x, pickup.y, pickup.z), DIM)
+      if dest then at(1, 8, "to   " .. xyz(dest.x, dest.y, dest.z), DIM) end
+      if state == "waiting" then at(1, 10, "PRESS  G  TO DEPART", INK) end
       at(1, H - 1, "Q aborts", DIM)
       spinner(H, state:upper(), n)
     end
@@ -519,7 +642,10 @@ local function follow(job, from, name)
       local msg = ev[3]
       if type(msg) == "table" and msg.job == job and (F.check(msg)) then
         if msg.type == "job.track" then
-          drone, away = msg.drone or drone, dist(from, msg.x, msg.z)
+          -- range to wherever the unit is going now: the pickup, then the
+          -- destination
+          local target = (state == "riding" and dest) or pickup
+          drone, away = msg.drone or drone, dist(target, msg.x, msg.z)
           here = { x = msg.x, z = msg.z }
           -- how fast the gap is closing, so the screen can say how long is
           -- left. Smoothed, because one slow tick should not swing the number.
@@ -541,13 +667,12 @@ local function follow(job, from, name)
             startAway, eta, lastAway, lastAt = nil, nil, nil, nil   -- new leg, new gauge
           end
           if msg.state == "waiting" then aboard = true end
-          if msg.state == "done" then return "done" end
+          if msg.state == "done" then result = "done" return end
           if msg.state == "failed" then
-            frame("TRANSIT ABORTED", "")
-            at(1, 6, "the unit stopped early", INK)
-            at(1, 7, tostring(msg.detail), DIM)
-            sleep(4)
-            return "failed"
+            aborted(msg.detail)
+            sleep(5)
+            result = "failed"
+            return
           end
         end
       end
@@ -559,11 +684,29 @@ local function follow(job, from, name)
         say(F.go(job, nonce()))
         state = "riding"
       elseif ch == "q" then
-        return "gave up"
+        result = "gave up"
+        return
       end
     end
     if ev[1] ~= "timer" then pcall(os.cancelTimer, timer) end
   end
+  end
+
+  -- Where the customer is against the pickup spot, every couple of seconds,
+  -- beside the screen (gps.locate would eat key presses inside it). The ride
+  -- screen warns them while they are inside the landing zone.
+  local function watchZone()
+    while true do
+      if state ~= "riding" and state ~= "done" then
+        local x, _, z = gps.locate(1)
+        if x then zone = dist({ x = x, z = z }, pickup.x, pickup.z) end
+      end
+      sleep(2)
+    end
+  end
+
+  parallel.waitForAny(loop, watchZone)
+  return result
 end
 
 -- one ride, start to finish
@@ -574,29 +717,56 @@ local function oneRide(tx, ty, tz, name)
     tx, ty, tz, name = chooseDestination(from)
     if not tx then return end
   end
-  name = name or string.format("%d, %d", tx, tz)
-  local away = dist(from, tx, tz)
+  name = name or xyz(tx, ty, tz)
+  local to = { x = tx, y = ty, z = tz }
 
-  -- The price before the promise: the distance, what the base will charge,
-  -- and what is on the account. The fare line fills in when the base answers.
+  -- First ask the base: the fare, and whether a unit is already on station
+  -- nearby. If one is, there is no landing to arrange - they walk to it.
+  frame("CHECKING", name)
+  at(2, 6, "consulting the directorate", DIM)
+  local quote = askQuote(from, tx, tz, name)
+  local near = quote and quote.near
+  local pickup = from
+  if not near then
+    pickup = landingZone(from)
+    if not pickup then return end
+    if pickup.name then quote = askQuote(pickup, tx, tz, name) or quote end
+  end
+
+  -- The price before the promise, and where from and to, in coordinates.
   lastFare, lastUnit = nil, nil
   frame("CONFIRM", name, { { "ENT", "REQUEST", true }, { "ANY", "BACK" } })
-  field(6, "distance", string.format("%d blocks", math.floor(away)))
-  field(7, "fare", "quoting", DIM)
-  if balance then field(8, "balance", money(balance), balance < 0 and INK or AMBER) end
-  local quoted = askFare(from, tx, tz, name)
-  field(7, "fare", quoted and money(quoted) or "unavailable", quoted and AMBER or DIM)
+  if near then
+    local unitAt = quote.nplace and quote.nplace:upper() or xyz(quote.nx, quote.ny, quote.nz)
+    field(6, "from", "unit at " .. unitAt)
+    field(7, "to", xyz(tx, ty, tz))
+    field(8, "distance", string.format("%d blocks", math.floor(dist({ x = quote.nx, z = quote.nz }, tx, tz))))
+  else
+    field(6, "from", pickup.name and (pickup.name:upper()) or xyz(pickup.x, pickup.y, pickup.z))
+    if pickup.name then at(11, 7, xyz(pickup.x, pickup.y, pickup.z), DIM) end
+    field(pickup.name and 8 or 7, "to", xyz(tx, ty, tz))
+    field(pickup.name and 9 or 8, "distance", string.format("%d blocks", math.floor(dist(pickup, tx, tz))))
+  end
+  local row = near and 9 or (pickup.name and 10 or 9)
+  field(row, "fare", quote and money(quote.fare) or "unavailable", quote and AMBER or DIM)
+  if balance then field(row + 1, "balance", money(balance), balance < 0 and INK or AMBER) end
+  if near then
+    at(2, row + 3, "unit on station nearby", AMBER)
+    at(2, row + 4, "walk over, board, press g", DIM)
+  end
   if keyPress() ~= keys.enter then return end
 
   stats.requests = (stats.requests or 0) + 1
   -- the name goes too: the base checks it against its own places, which is
   -- how a ride home is known to be free
-  local req = F.request(from, { x = tx, z = tz, y = ty, name = name }, nonce(), me)
+  local req = F.request(pickup, { x = tx, z = tz, y = ty, name = name }, nonce(), me)
   say(req)
 
   frame("REQUESTING UNIT", name)
+  field(6, "from", xyz(pickup.x, pickup.y, pickup.z))
+  field(7, "to", xyz(tx, ty, tz))
   local job, t0, refused, heard, n = nil, os.clock(), nil, false, 0
-  local place, wait
+  local place, wait, assigned
   while os.clock() - t0 < 15 and not job and not refused do
     spinner(H, "awaiting dispatch", n)
     n = n + 1
@@ -606,7 +776,7 @@ local function oneRide(tx, ty, tz, name)
       local msg = ev[3]
       if type(msg) == "table" then heard = true end
       if type(msg) == "table" and msg.nonce == req.nonce and msg.type == "job.assign" then
-        job = msg.job
+        job, assigned = msg.job, msg
       elseif type(msg) == "table" and msg.type == "job.queued" then
         -- nobody free: we are in the line, and the wait screen takes over
         place, wait = msg.place, msg.wait
@@ -622,7 +792,7 @@ local function oneRide(tx, ty, tz, name)
   -- shuttle is assigned or the customer gives up
   while place and not job do
     if not drawRide({ state = "queued", place = place, eta = wait, spin = n, log = log,
-                      showLog = false, away = nil, start = 1 }) then
+                      showLog = false, away = nil, start = 1, from = pickup, to = to }) then
       frame("HOLDING", string.format("position %d, about %d:%02d", place, math.floor((wait or 0) / 60),
         math.floor((wait or 0) % 60)))
     end
@@ -634,7 +804,7 @@ local function oneRide(tx, ty, tz, name)
       local msg = ev[3]
       if type(msg) == "table" and (F.check(msg)) then
         if msg.type == "job.queued" then place, wait = msg.place, msg.wait
-        elseif msg.type == "job.assign" and msg.nonce == req.nonce then job = msg.job
+        elseif msg.type == "job.assign" and msg.nonce == req.nonce then job, assigned = msg.job, msg
         elseif msg.type == "job.ack" and msg.ok == false then
           refused, place = tostring(msg.why), nil
         end
@@ -665,21 +835,32 @@ local function oneRide(tx, ty, tz, name)
     return
   end
 
-  local how = follow(job, from, name)
+  -- the base has the last word on where the pickup is: a platform's own
+  -- record, or the unit that is already standing nearby
+  local board = assigned and assigned.board
+  if assigned and assigned.px and assigned.pz then
+    pickup = { x = assigned.px, y = assigned.py or pickup.y, z = assigned.pz, name = pickup.name }
+  end
+  local how = follow(job, from, name, { pickup = pickup, to = to, board = board })
   askBalance(1.5)                 -- the fare lands as the ride ends
   if how == "done" then
-    F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(), blocks = away })
+    F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(),
+      blocks = dist(pickup, tx, tz) })
     -- the end of the ride is the part people remember, so it says exactly
-    -- what happened: which unit, what it cost, what is left
+    -- what happened: which unit, from and to where, what it cost, what is left
     frame("TRANSIT COMPLETE", name)
-    local fare = lastFare or quoted
+    local fare = lastFare or (quote and quote.fare)
     if lastUnit then field(6, "unit", UI and UI.unitName(lastUnit) or lastUnit) end
-    if fare then field(7, "fare", money(fare)) end
-    if balance then field(8, "balance", money(balance), balance < 0 and INK or AMBER) end
-    at(1, 10, "compliance appreciated", DIM)
-  else
+    field(7, "from", xyz(pickup.x, pickup.y, pickup.z))
+    field(8, "to", xyz(tx, ty, tz))
+    if fare then field(9, "fare", money(fare)) end
+    if balance then field(10, "balance", money(balance), balance < 0 and INK or AMBER) end
+    at(1, 12, "compliance appreciated", DIM)
+  elseif how ~= "failed" then
     F.record(stats, "failure")
     frame("TRANSIT ABORTED", how)
+  else
+    F.record(stats, "failure")
   end
   save()
   sleep(3)

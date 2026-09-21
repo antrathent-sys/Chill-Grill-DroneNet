@@ -182,6 +182,16 @@ end
 
 -- --------------------------------------------------------------- the ride ---
 -- view = { unit, state, away, start, eta, log = {...}, detail, spin }
+local function xyz(p)
+  if not (p and p.x and p.z) then return "UNKNOWN" end
+  if p.y then return string.format("%d %d %d", math.floor(p.x), math.floor(p.y), math.floor(p.z)) end
+  return string.format("%d %d", math.floor(p.x), math.floor(p.z))
+end
+
+-- view = { state, unit, away, start, eta, log, showLog, spin, place,
+--          from = {x,y,z}, to = {x,y,z},     the order, in coordinates
+--          zone = n, zoneR = n,              customer's distance from the pickup spot
+--          board = true }                    walk to a unit already on station
 function M.ride(T, c, view)
   local w, h = c.w, c.h
   c:clear()
@@ -191,46 +201,79 @@ function M.ride(T, c, view)
   if view.state == "waiting" or view.state == "done" then frac = 1 end
   local failed = view.state == "failed"
   local here = view.state == "waiting"
+  local zoneR = view.zoneR or 4
 
   M.header(T, c)
 
-  -- UNIT: which craft, and what it is doing
-  local r = T.section(c, 3, "UNIT")
+  -- UNIT: which craft, and what it is doing, on one line
+  T.band(c, 3, "UNIT")
   local unit = M.unitName(view.unit)
     or (view.place and ("QUEUE POSITION " .. view.place)) or "ASSIGNING"
-  c:text(2, r, unit:sub(1, w - 2), T.C.text)
-  c:text(2, r + 1, (M.WORDS[view.state] or "STANDING BY"):sub(1, w - 2),
-         failed and T.C.warn or (here and T.C.ok or T.C.accent))
+  local word = M.WORDS[view.state] or "STANDING BY"
+  c:text(2, 4, unit:sub(1, w - #word - 3), T.C.text)
+  c:text(w - #word, 4, word, failed and T.C.warn or (here and T.C.ok or T.C.accent))
 
-  -- The number the customer is actually waiting on, in the big type, the way
-  -- a departures board shows minutes. HERE once the unit is on station.
-  local label = view.state == "queued" and "EST. WAIT"
-    or (view.state == "riding" and "TO DESTINATION" or "ARRIVAL")
-  r = T.section(c, 7, label)
-  -- no estimate yet: the dashes are drawn quiet, so they read as waiting
-  -- rather than as a number
-  T.headline(c, 2, r, here and "HERE" or clock(view.eta),
-             here and T.C.ok or (view.eta and T.C.text or T.C.rule), 2)
+  -- ROUTE: the order in coordinates, from the first screen to the last
+  T.band(c, 5, "ROUTE")
+  c:text(2, 6, "FROM", T.C.faint)
+  c:text(7, 6, xyz(view.from):sub(1, w - 7), T.C.text)
+  c:text(2, 7, "TO", T.C.faint)
+  c:text(7, 7, xyz(view.to):sub(1, w - 7), T.C.text)
 
-  -- RANGE, quieter: how far, and a hairline for how much of it is done
-  r = T.section(c, 12, "RANGE")
-  local num = away and tostring(math.floor(away)) or "----"
-  c:text(2, r, num, T.C.text)
-  c:text(2 + #num + 1, r, "BLOCKS", T.C.faint)
-  c:text(w - 4, r, string.format("%3d%%", math.floor(frac * 100 + 0.5)), T.C.faint)
-  M.hairbar(T, c, 2, r + 1, w - 2, frac, failed and T.C.warn or T.C.accent)
+  -- The number the customer is waiting on, in the big type: the ETA, HERE
+  -- once it is on station, or - walking to a unit already standing nearby -
+  -- how far they have left to go.
+  local label, big, ink
+  if view.board and view.state ~= "riding" then
+    label = "WALK TO UNIT"
+    big = view.zone and tostring(math.floor(view.zone)) or "--"
+    ink = (view.zone and view.zone <= zoneR) and T.C.ok or (view.zone and T.C.text or T.C.rule)
+  elseif here then
+    label, big, ink = "ARRIVAL", "HERE", T.C.ok
+  else
+    label = view.state == "queued" and "EST. WAIT" or (view.state == "riding" and "TO DESTINATION" or "ARRIVAL")
+    big, ink = clock(view.eta), view.eta and T.C.text or T.C.rule
+  end
+  T.band(c, 8, label)
+  T.headline(c, 2, 9, big, ink, 2)
 
-  -- LOG, only when it is wanted: a scrolling transcript is the least Imperial
-  -- thing on the screen, so it is off unless the customer presses L
+  -- RANGE, quieter: how far, and a hairline for how much of it is done.
+  -- Not while walking to a unit that is already there: the big number is
+  -- the range then.
+  if not (view.board and view.state ~= "riding") then
+    T.band(c, 13, "RANGE")
+    local num = away and tostring(math.floor(away)) or "----"
+    c:text(2, 14, num, T.C.text)
+    c:text(2 + #num + 1, 14, "BLOCKS", T.C.faint)
+    c:text(w - 4, 14, string.format("%3d%%", math.floor(frac * 100 + 0.5)), T.C.faint)
+    M.hairbar(T, c, 2, 15, w - 2, frac, failed and T.C.warn or T.C.accent)
+  end
+
   if view.log and view.showLog then
-    local logY, logBottom = 16, h - 1
-    r = T.section(c, logY, "LOG")
+    -- LOG, only when it is wanted: the least Imperial thing on the screen
     local log = view.log
-    local rows = logBottom - logY
+    local rows = h - 17
     local first = math.max(1, #log - rows + 1)
-    for i = first, #log do
-      c:text(2, r + (i - first), tostring(log[i]):upper():sub(1, w - 2),
-             (i == #log) and T.C.text or T.C.faint)
+    for k = first, #log do
+      c:text(2, 17 + (k - first), tostring(log[k]):upper():sub(1, w - 2),
+             (k == #log) and T.C.text or T.C.faint)
+    end
+  elseif view.board and view.state ~= "riding" and view.zone then
+    if view.zone <= zoneR then
+      c:text(2, 17, "ALONGSIDE", T.C.ok)
+      c:text(2, 18, "BOARD, THEN PRESS G", T.C.faint)
+    else
+      c:text(2, 17, "UNIT ON STATION NEARBY", T.C.text)
+      c:text(2, 18, "WALK OVER, BOARD, PRESS G", T.C.faint)
+    end
+  elseif view.zone and view.state ~= "riding" and not here then
+    -- the pickup: keep the customer out of where the unit is coming down
+    if view.zone < zoneR + 1 then
+      c:text(2, 17, "STAND CLEAR OF THE ZONE", T.C.warn)
+      c:text(2, 18, string.format("YOU ARE %d FROM THE SPOT", math.floor(view.zone)), T.C.faint)
+    else
+      c:text(2, 17, "ZONE CLEAR", T.C.ok)
+      c:text(2, 18, string.format("YOU ARE %d FROM THE SPOT", math.floor(view.zone)), T.C.faint)
     end
   end
   if failed and view.detail then
@@ -242,8 +285,6 @@ function M.ride(T, c, view)
   else
     T.keys(c, h, { { "L", "LOG" }, { "Q", "ABORT" } })
   end
-  -- no spinner here: the ETA and the status already show the screen is live,
-  -- and the corner is where the longest key bar ends
   return c
 end
 

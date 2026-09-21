@@ -20,6 +20,8 @@
 --   ops place add <name> <x> <y> <z> [dock]   add one (or move it), in F3's
 --                                         order; a pad unless `dock`
 --   ops place del <name>                  take one off the list
+--   ops sos [n]          the last n incidents: every unit that went down or
+--                        silent, with where it was, for recovery
 --
 -- It runs on the base computer and, just as happily, on an ender pocket
 -- computer: the board lays itself out for 26 columns and keeps the keys that
@@ -273,6 +275,53 @@ local function log(fmt, ...)
   while #events > 8 do table.remove(events, 1) end
   return line
 end
+
+-- -------------------------------------------------------------- incidents ---
+-- Every flight that ends badly, and every unit that goes silent mid-job, is
+-- written to incidents.csv with where the unit was, so it can be recovered.
+-- The newest one nobody has acknowledged stands across the top of the board
+-- until A is pressed. `ops sos` lists them. One row per episode: a unit still
+-- calling updates its alert rather than adding rows.
+local INCIDENTS = "incidents.csv"
+local INCIDENT_HEADER = "when,drone,job,customer,x,y,z,why"
+local BOARD_NEAR = 24         -- blocks: a free unit this close is walked to, not flown in
+local alerts = {}             -- unacknowledged: { drone, x, y, z, why }
+
+local function coords(x, y, z)
+  if type(x) ~= "number" or type(z) ~= "number" then return "position unknown" end
+  return string.format("%d %d %d", math.floor(x), math.floor(type(y) == "number" and y or 0), math.floor(z))
+end
+
+incident = function(drone, j, why, x, y, z, alert)
+  local f = fleet[drone] or {}
+  x, y, z = x or f.x, y or f.y, z or f.z
+  if alert ~= false then
+    for _, a in ipairs(alerts) do
+      if a.drone == drone then
+        a.x, a.y, a.z = x or a.x, y or a.y, z or a.z
+        if a.why == "distress signal" then a.why = why end
+        return
+      end
+    end
+  end
+  local function cell(v) return (tostring(v == nil and "" or v):gsub("[,\r\n]", " ")) end
+  local function whole(v) return type(v) == "number" and tostring(math.floor(v)) or "" end
+  local line = table.concat({ cell(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()),
+    cell(drone), cell(j and j.id), cell(j and j.who), whole(x), whole(y), whole(z), cell(why) }, ",")
+  local fresh = not fs.exists(INCIDENTS)
+  local h = fs.open(INCIDENTS, "a")
+  if h then
+    if fresh then h.writeLine(INCIDENT_HEADER) end
+    h.writeLine(line)
+    h.close()
+  end
+  if alert ~= false then
+    alerts[#alerts + 1] = { drone = drone, x = x, y = y, z = z, why = why }
+    log("DISTRESS %s at %s: %s", drone, coords(x, y, z), why)
+  else
+    log("incident %s at %s: %s", drone, coords(x, y, z), why)
+  end
+end
 local rejected = 0
 
 do
@@ -284,6 +333,8 @@ local function padByName(name)
   return nil
 end
 
+local incident            -- defined once log() exists, below
+
 local function note(d)
   local id = d.id
   fleet[id] = fleet[id] or {}
@@ -293,6 +344,14 @@ local function note(d)
   f.phase, f.mode = d.phase, d.mode
   f.docked = (d.dock == 1) or d.phase == "docked"
   f.energy, f.spd = d.energy, d.spd
+  -- a unit whose telemetry reads sos is down: a base that restarted, or
+  -- missed the distress call itself, still finds out from the next packet
+  if d.phase == "sos" and not f.sos then
+    f.sos = true
+    incident(id, nil, "distress signal", d.x, d.y, d.z)
+  elseif d.phase ~= "sos" then
+    f.sos = nil
+  end
   if f.docked and f.job and jobs[f.job] and jobs[f.job].state == "done" then f.job = nil end
 end
 
@@ -391,6 +450,20 @@ local function dispatch(req, from)
     pcall(rednet.send, from, F.queued(place, secs, nonce()), F.PROTO)
     log("%s queued at %d (%s free: %s)", tostring(req.who or from), place, "none", tostring(why))
     return nil, "queued " .. place
+  end
+  -- a free unit already on station near the customer: no pickup flight, they
+  -- walk to it and press G. The ride starts from where it stands.
+  do
+    local nid, nd = F.nearUnit(fleet, req.px, req.pz, os.clock(), BOARD_NEAR)
+    if nid then
+      id = nid
+      req.board = true
+      req.px, req.pz = math.floor(nd.x), math.floor(nd.z)
+      local at = F.placeFor(pads, nil, nd.x, nd.z, 8)
+      pickupName = at and at.name or pickupName
+      req.pad = nil
+      log("%s is on station near %s - boarding there", nid, tostring(req.who or from))
+    end
   end
   local job = "j-" .. tostring(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()) .. "-" .. id
   jobs[job] = { id = job, drone = id, pad = pickupName, toName = req.toName, px = req.px, pz = req.pz,
@@ -546,6 +619,29 @@ if cmd == "free" then
   end
   print(had and (who .. " was on " .. tostring(had) .. " - cleared") or (who .. " was already free"))
   print("(ops in watch mode keeps its own list; restart it there if it still says busy)")
+  return
+end
+
+if cmd == "sos" then
+  -- every unit that went down or went silent, newest last, with where it was
+  if not fs.exists(INCIDENTS) then print("no incidents - nothing has gone down") return end
+  local h = fs.open(INCIDENTS, "r")
+  local rows = {}
+  while true do
+    local line = h.readLine()
+    if not line then break end
+    if line ~= INCIDENT_HEADER and line ~= "" then rows[#rows + 1] = line end
+  end
+  h.close()
+  local n = tonumber(args[2]) or 10
+  print(string.format("%-11s %-9s %-22s %s", "WHEN", "UNIT", "WHERE (X Y Z)", "WHAT"))
+  for i = math.max(1, #rows - n + 1), #rows do
+    local when, drone, _, _, x, y, z, why = rows[i]:match("^([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),([^,]*),(.*)$")
+    local t = tonumber(when)
+    local okD, stamp = pcall(os.date, "%m-%d %H:%M", t)
+    print(string.format("%-11s %-9s %-22s %s", okD and stamp or tostring(when), tostring(drone),
+      (x ~= "" and (x .. " " .. y .. " " .. z)) or "unknown", tostring(why)))
+  end
   return
 end
 
@@ -726,8 +822,19 @@ print(string.format("%s  %d customer key%s%s",
 
 -- One message. Kept separate so serve can run it under pcall: a single
 -- malformed packet must never be able to stop ops answering customers.
+-- What only a drone may say. Those arrive sealed on the telemetry channel,
+-- where handle is called with no rednet sender. The same types by plain
+-- rednet are someone pretending to be a drone: a "failed" or "done" for
+-- another customer's ride would free its unit mid-flight, a false distress
+-- would send the operator out for nothing.
+local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true }
+
 function handle(from, msg, customer)
   do
+    if type(msg) == "table" and from ~= nil and DRONE_ONLY[msg.type] then
+      log("ignored a %s by plain radio from %s - drones speak sealed", tostring(msg.type), tostring(from))
+      msg = nil
+    end
     if type(msg) == "table" and (F.check(msg)) then
       if msg.type == "taxi.request" then
         -- a proven name beats a claimed one
@@ -758,9 +865,19 @@ function handle(from, msg, customer)
       elseif msg.type == "fare.ask" then
         -- a price for the confirm screen: the same destination rules and the
         -- same tariff as the charge at the end, so the quote is the fare
+        -- a free unit already on station nearby: the customer walks to it,
+        -- and the ride - and so the fare - starts from where it stands
+        local nid, nd = F.nearUnit(fleet, msg.px, msg.pz, os.clock(), BOARD_NEAR)
+        local near
+        if nid then
+          local at = F.placeFor(pads, nil, nd.x, nd.z, 8)
+          near = { unit = nid, x = math.floor(nd.x), y = type(nd.y) == "number" and math.floor(nd.y) or nil,
+                   z = math.floor(nd.z), place = at and at.name or nil }
+          msg.px, msg.pz = nd.x, nd.z
+        end
         local blocks, toName = F.quoteBlocks(pads, msg)
         local fare, why = LEDGER.fare(blocks, toName, tariff)
-        pcall(rednet.send, from, F.fareQuote(fare, why, nonce(), msg.nonce), F.PROTO)
+        pcall(rednet.send, from, F.fareQuote(fare, why, nonce(), msg.nonce, near), F.PROTO)
       elseif msg.type == "job.cancel" then
         local who = customer or msg.who
         local gone = who and QUEUE.removeWho(waiting, who)
@@ -850,12 +967,20 @@ function handle(from, msg, customer)
             end
             if not j.logged then j.logged = writeJob(j) end
           end
+          if msg.state == "failed" and tostring(msg.detail or ""):find("obstructed", 1, true) then
+            incident(msg.drone, j, tostring(msg.detail), j.px, nil, j.pz, false)
+          end
           if j.client then pcall(rednet.send, j.client, msg, F.PROTO) end
           if msg.state == "done" or msg.state == "failed" then
             if fleet[msg.drone] then fleet[msg.drone].job = nil end
           end
         end
         log("%s %s%s", msg.drone, msg.state, msg.detail and (" - " .. msg.detail) or "")
+      elseif msg.type == "unit.distress" then
+        local f = fleet[msg.drone] or {}
+        fleet[msg.drone] = f
+        f.sos = true
+        incident(msg.drone, f.job and jobs[f.job] or nil, msg.why, msg.x, msg.y, msg.z)
       elseif msg.type == "pad.stats" then
         padStats[msg.pad] = msg
       end
@@ -1055,6 +1180,7 @@ local function watchdog()
       -- drone stayed "on a job" long after it had been flown home by hand.
       if type(j) == "table" and j.state ~= "done" and j.state ~= "failed"
          and now - (j.updated or j.at) > JOB_SILENT then
+        incident(j.drone, j, "silent " .. JOB_SILENT .. "s mid-job - last seen here")
         finish(j, "nothing heard for " .. JOB_SILENT .. "s")
       end
       if type(j) == "table" and j.state == "assigned" then
@@ -1125,6 +1251,7 @@ local function drawBoard()
     units = list, sel = sel, log = events, jobs = liveJobs(), refused = rejected,
     clock = textutils.formatTime(os.time(), true), hails = openToHails,
     till = LEDGER.money(takings), queue = #waiting,
+    alert = alerts[#alerts],
     arming = (tillOwner()) or nil,
     shut = lockedNow,
   })
@@ -1161,6 +1288,9 @@ local function keys()
       if key == keys_api.down then sel = math.min(math.max(#list, 1), sel + 1)
       elseif key == keys_api.up then sel = math.max(1, sel - 1)
       elseif key == keys_api.q then return
+      elseif key == keys_api.a and #alerts > 0 then
+        local a = table.remove(alerts)
+        log("acknowledged: %s at %s", a.drone, coords(a.x, a.y, a.z))
       elseif key == keys_api.p and who then
         local sent, why = order(who, F.flyCommand("pads", nonce()))
         log(sent and ("poked %s"):format(who) or ("poke failed: " .. tostring(why)))

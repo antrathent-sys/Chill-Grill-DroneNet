@@ -54,7 +54,7 @@ local function drone(opts)
     modem_ender = { type = "modem", m = {
       isWireless = function() return true end,
       transmit = function(ch, _, msg) w.sent[#w.sent + 1] = { ch = ch, msg = msg } end } },
-    altitude_sensor_0 = { type = "altitude_sensor", m = { getHeight = function() return 98.5 end } },
+    altitude_sensor_0 = { type = "altitude_sensor", m = { getHeight = function() return opts.height or 98.5 end } },
     modular_accumulator_0 = { type = "modular_accumulator", m = acc },
     vector_thruster_5 = { type = "vector_thruster", m = thr },
     docking_connector_0 = { type = "docking_connector", m = { getConnectedName = function() return opts.name or "" end } },
@@ -120,7 +120,11 @@ local function drone(opts)
     getComputerLabel = function() return opts.label or "drone-1" end,
     getComputerID = function() return 7 end,
   }, { __index = os })
-  env.shell = { run = function(cmd) w.runs[#w.runs + 1] = cmd return true end }
+  -- opts.fails: the numbers of the flights that fail (a crash, a refusal)
+  env.shell = { run = function(cmd)
+    w.runs[#w.runs + 1] = cmd
+    return not (opts.fails and opts.fails[#w.runs])
+  end }
   env.dofile = function(p)
     if p == "lib/seclink.lua" then return S end
     return dofile(DIR .. "/../" .. p)
@@ -274,12 +278,53 @@ check("so the customer hears every step: " .. table.concat(st9, " "),
 
 print("collected from where the customer stands, not just a pad")
 local hail = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-1", "alex")
-w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-7", hail)), order(F.go("j-7", "pocket-2")) } }))
+-- resting where it should: the customer's ground (70) plus the rest gap
+w = run(drone({ name = "pad", cycles = 1, height = 77.5,
+                inbox = { order(F.assign("j-7", hail)), order(F.go("j-7", "pocket-2")) } }))
 check("it lands beside the customer", w.runs[1] == "fly land 812 71 -344", w.runs[1] or "nothing")
 check("then flies them to the destination", w.runs[2] == "fly land 1200 340", w.runs[2] or "nothing")
 check("then home", w.runs[3] == "fly ferry home", w.runs[3] or "nothing")
 
 
+
+print("a pickup that lands on something")
+local hailO = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-o", "alex")
+w = run(drone({ name = "pad", cycles = 1, height = 90,          -- 12.5 above where it should rest
+                inbox = { order(F.assign("j-o", hailO)) } }))
+local stO = saidOfType(w, "job.state")
+check("it calls the job off as obstructed", stO[#stO] and stO[#stO].state == "failed"
+  and tostring(stO[#stO].detail):find("obstructed", 1, true) ~= nil, stO[#stO] and stO[#stO].detail)
+check("and goes home - it is not in distress, just in the wrong place",
+  w.runs[2] == "fly ferry home" and #saidOfType(w, "unit.distress") == 0, w.runs[2])
+
+print("a flight that fails")
+local hailD = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-d", "alex")
+local hailD2 = F.request({ x = 900, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-d2", "sam")
+w = run(drone({ name = "pad", cycles = 1, fails = { [1] = true }, velocity = { x = 1, y = 0, z = 0 },
+                inbox = { order(F.assign("j-d", hailD)), order(F.assign("j-e", hailD2)) } }))
+local sos = saidOfType(w, "unit.distress")
+check("it signals distress, with where it is", #sos >= 1 and sos[1].why == "pickup flight failed"
+  and sos[1].x == 1892 and sos[1].z == 365, sos[1] and (sos[1].why .. " " .. tostring(sos[1].x)))
+local stD = saidOfType(w, "job.state")
+check("the customer hears the unit is down, and where", stD[#stD] and stD[#stD].state == "failed"
+  and tostring(stD[#stD].detail):find("unit down at 1892", 1, true) ~= nil, stD[#stD] and stD[#stD].detail)
+check("it does not try to fly home by itself", #w.runs == 1, #w.runs)
+local tD = tlm(w)
+check("every packet after reads sos", tD[#tD] and tD[#tD].phase == "sos", tD[#tD] and tD[#tD].phase)
+local acksD = saidOfType(w, "job.ack")
+check("and it takes no new customer until the base sends it somewhere",
+  acksD[#acksD] and acksD[#acksD].ok == false and tostring(acksD[#acksD].why):find("unit down", 1, true) ~= nil,
+  acksD[#acksD] and acksD[#acksD].why)
+
+print("a unit already where the customer is")
+local near = F.request({ x = 1890, y = 92, z = 366 }, { x = 1200, z = 340 }, "pocket-b", "alex")
+near.board = true
+w = run(drone({ name = "base_pad", cycles = 1,
+                inbox = { order(F.assign("j-b", near)), order(F.go("j-b", "pocket-b2")) } }))
+local stB = {}
+for _, s in ipairs(saidOfType(w, "job.state")) do stB[#stB + 1] = s.state end
+check("no pickup flight: on station at once, then the ride, then home",
+  w.runs[1] == "fly land 1200 340" and table.concat(stB, " "):sub(1, 7) == "waiting", (w.runs[1] or "nothing") .. " / " .. table.concat(stB, " "))
 
 print("refusals")
 w = run(drone({ nokey = true }))

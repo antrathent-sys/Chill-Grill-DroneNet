@@ -59,6 +59,17 @@ function M.board(T, c, view)
   if (view.refused or 0) > 0 and wide then
     c:text(w - 12, y + 1, string.format("%4d REFUSED", view.refused), T.C.warn)
   end
+  -- a unit down takes the strip over until someone acknowledges it: where
+  -- it is, first, because that is what the operator needs to go and get it
+  if view.alert then
+    local a = view.alert
+    local where = (type(a.x) == "number" and type(a.z) == "number")
+      and string.format("%d %d %d", math.floor(a.x), math.floor(type(a.y) == "number" and a.y or 0), math.floor(a.z))
+      or "POSITION UNKNOWN"
+    local text = string.format(" DISTRESS %s  %s  %s", tostring(a.drone):upper(), where, tostring(a.why):upper())
+    c:text(1, y + 1, string.rep(" ", w), T.C.text, T.C.warn)
+    c:text(1, y + 1, text:sub(1, w), T.C.text, T.C.warn)
+  end
 
   -- the fleet, and the log under or beside it
   local top = y + 2
@@ -132,7 +143,9 @@ function M.board(T, c, view)
 
   local keys = view.keys
   if not keys then
-    if wide then
+    if view.alert then
+      keys = { { "A", "ACKNOWLEDGE", true }, { "F", "FLY" }, { "Q", "QUIT" } }
+    elseif wide then
       keys = { { "UP/DN", "PICK", true }, { "F", "FLY" }, { "P", "POKE" },
                { "R", "FREE" }, { "Q", "QUIT" } }
     else

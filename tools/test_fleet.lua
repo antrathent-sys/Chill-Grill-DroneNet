@@ -200,6 +200,27 @@ check("a quote goes to the place itself, not to what was typed",
 local openBlocks, openName = F.quoteBlocks(known, { px = 0, pz = 0, tx = 300, tz = 400 })
 check("open ground is quoted by distance, with no place", openBlocks == 500 and openName == nil)
 
+print("safety")
+local fl = {
+  ["drone-1"] = { seen = 100, docked = true, x = 1892, z = 365 },
+  ["drone-2"] = { seen = 100, docked = true, x = 5000, z = 5000 },
+  ["drone-3"] = { seen = 100, docked = false, phase = "sos", x = 1890, z = 366 },
+}
+local nid, _, ndist = F.nearUnit(fl, 1880, 360, 101, 24)
+check("a free unit on station nearby is found", nid == "drone-1" and ndist < 24, tostring(nid))
+check("one far away is not", F.nearUnit(fl, 3000, 3000, 101, 24) == nil)
+check("a unit in distress is never available", not F.available(fl["drone-3"], 101))
+local dm = F.distress("drone-1", "pickup flight failed", 1892.7, 91.2, 365.4, "d-1")
+check("a distress call is a valid message, with whole coordinates", (F.check(dm)) and dm.x == 1892 and dm.z == 365)
+check("and needs a reason", not F.check({ v = F.VERSION, type = "unit.distress", nonce = "x", drone = "drone-1" }))
+local nq = F.fareQuote(13, "flat fare", "q-1", "a-1", { unit = "drone-1", x = 1892, y = 91, z = 365, place = "home" })
+check("a quote can say a unit is on station nearby", nq.near == "drone-1" and nq.nplace == "home" and (F.check(nq)))
+local boardReq = F.request({ x = 1890, y = 92, z = 366 }, { x = 1200, z = 340 }, "b-1")
+boardReq.board = true
+local ba = F.assign("j-b", boardReq)
+check("boarding travels in the order", ba.board == true)
+check("and means no pickup flight", F.legCommand("pickup", ba) == nil)
+
 print("what a finished job leaves behind")
 local job = { id = "j-7", drone = "drone-1", who = "hail-41", pad = "pier", px = 100, pz = -50,
               tx = 1200, tz = 340, blocks = 1104.7, waited = 62.4, rode = 48.25, total = 190,

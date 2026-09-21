@@ -75,7 +75,7 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["account.ask"] = true, ["account.info"] = true,
             ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true,
             ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true,
-            ["fare.ask"] = true, ["fare.quote"] = true }
+            ["fare.ask"] = true, ["fare.quote"] = true, ["unit.distress"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -163,6 +163,8 @@ function F.check(m)
     if not (num(m.px) and num(m.pz) and num(m.tx) and num(m.tz)) then return false, "no route" end
   elseif m.type == "fare.quote" then
     if not num(m.fare) then return false, "no fare" end
+  elseif m.type == "unit.distress" then
+    if not (str(m.drone) and str(m.why)) then return false, "no unit or reason" end
   elseif m.type == "account.info" then
     if not str(m.who) then return false, "no customer" end
     if not num(m.balance) then return false, "no balance" end
@@ -224,7 +226,18 @@ end
 function F.assign(job, req)
   return { v = F.VERSION, type = "job.assign", nonce = req.nonce, job = job,
            pad = req.pad, px = req.px, py = req.py, pz = req.pz,
-           tx = req.tx, tz = req.tz, ty = req.ty }
+           tx = req.tx, tz = req.tz, ty = req.ty,
+           -- a unit already on station where the customer is: no pickup
+           -- flight, they walk to it and press G
+           board = req.board and true or nil }
+end
+
+--- A unit that has gone down: a flight it was ordered to fly failed. Sent
+-- sealed by the drone, with where it is, so someone can go and get it.
+function F.distress(drone, why, x, y, z, nonce)
+  return { v = F.VERSION, type = "unit.distress", nonce = nonce, drone = drone, why = why,
+           x = num(x) and math.floor(x) or nil, y = num(y) and math.floor(y) or nil,
+           z = num(z) and math.floor(z) or nil }
 end
 
 function F.ack(job, drone, ok, why, nonce)
@@ -281,9 +294,30 @@ function F.fareAsk(from, dest, nonce)
            tx = dest.x, tz = dest.z, toName = dest.name }
 end
 
-function F.fareQuote(fare, why, nonce, re)
-  return { v = F.VERSION, type = "fare.quote", nonce = nonce, fare = math.floor(fare or 0),
-           why = why, re = re }
+function F.fareQuote(fare, why, nonce, re, near)
+  local q = { v = F.VERSION, type = "fare.quote", nonce = nonce, fare = math.floor(fare or 0),
+              why = why, re = re }
+  -- a free unit already on station near the customer: they can walk to it
+  if type(near) == "table" and str(near.unit) then
+    q.near, q.nx, q.ny, q.nz, q.nplace = near.unit, near.x, near.y, near.z, near.place
+  end
+  return q
+end
+
+--- An available unit within `within` blocks of x, z, nearest first: the one
+-- a customer standing there can simply walk to. Returns id, its record and
+-- the distance, or nil.
+function F.nearUnit(fleet, x, z, now, within, maxAge)
+  if not (num(x) and num(z)) then return nil end
+  local best, bestD
+  for id, d in pairs(fleet or {}) do
+    if (F.available(d, now, maxAge)) and num(d.x) and num(d.z) then
+      local dist = math.sqrt((d.x - x) ^ 2 + (d.z - z) ^ 2)
+      if dist <= (within or 24) and (not bestD or dist < bestD) then best, bestD = id, dist end
+    end
+  end
+  if best then return best, fleet[best], bestD end
+  return nil
 end
 
 --- How far a ride really goes, and to which known place: the destination is
@@ -383,6 +417,7 @@ function F.available(d, now, maxAge)
   if type(d) ~= "table" then return false, "unknown" end
   if d.job then return false, "on job " .. tostring(d.job) end
   if not num(d.seen) or now - d.seen > (maxAge or 15) then return false, "no telemetry" end
+  if d.phase == "sos" then return false, "in distress" end
   if not d.docked then return false, "flying" end
   return true
 end
@@ -416,6 +451,7 @@ end
 
 function F.legCommand(step, m)
   if step == "pickup" then
+    if m.board then return nil end        -- already where the customer is
     -- A named DOCK: ferry to it and latch on. Anywhere else - a landing pad
     -- included - land beside the customer. ops only names docks, so a job
     -- never asks a craft to latch onto a field.

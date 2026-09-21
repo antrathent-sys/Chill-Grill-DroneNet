@@ -36,6 +36,13 @@ local link = dofile("lib/link.lua")
 local SEC = dofile("lib/seclink.lua")
 local F = dofile("lib/fleet.lua")
 local PERIOD = 2         -- seconds between packets
+-- How high the altimeter reads above the block a resting craft stands on:
+-- fly.lua's DOCK_GAP, measured (70.5 over a pad at 63). A pickup that comes to
+-- rest much higher than the customer's own ground has landed ON something - a
+-- roof, a tree - and is no place to board, so the job is called off.
+local REST_GAP = 7.5
+local OBSTRUCTED = 4     -- blocks above the expected rest that count as on top of something
+local DISTRESS_EVERY = 15   -- packets between repeats of the distress call (30 s)
 local PLAN_EVERY = 10    -- a route packet on the first and every this many
 local CHARGE_FE = 200    -- FE gained between packets that counts as charging
 
@@ -113,7 +120,10 @@ local function status()
   run.lastFE = stored
   if x and vx == 0 and vy == 0 and vz == 0 then run.frozen = run.frozen + 1 else run.frozen = 0 end
   local docked = (type(name) == "string" and name ~= "") or charging or run.frozen >= 2
-  local s = { t = os.clock(), phase = docked and "docked" or "idle", h = h or py, e = 0,
+  -- in distress the phase says so on every packet, so the base's board shows
+  -- it and a base that restarts still finds out
+  local phase = run.sos and "sos" or (docked and "docked" or "idle")
+  local s = { t = os.clock(), phase = phase, h = h or py, e = 0,
               x = x, z = z, vx = vx, vz = vz, vv = vy }
   return s, { energy = energy }, { pct = fe }, { connected = docked }
 end
@@ -163,6 +173,30 @@ local function announce(state, detail)
   if job then say(F.state(job.id, id, state, detail, myNonce())) end
 end
 
+-- Where the craft is now, as a person going to fetch it would want it.
+local function position()
+  local x, y, z = pose()
+  local h = call(alt, "getHeight")
+  return x, h or y, z
+end
+local function here()
+  local x, y, z = position()
+  if not x then return "position unknown" end
+  return string.format("%d %d %d", math.floor(x), math.floor(y), math.floor(z))
+end
+
+-- A flight that was ordered has failed: a crash, a tumble, a launch that
+-- never got off the pad. Say so now, with where it is, and keep saying it
+-- (sendLoop repeats it, and every telemetry packet reads "sos") until the
+-- base sends it somewhere again. It does NOT try to fly home on its own:
+-- after a crash, the operator decides.
+local function distress(why)
+  run.sos = why
+  local x, y, z = position()
+  say(F.distress(id, why, x, y, z, myNonce()))
+  print("DISTRESS: " .. why .. " at " .. here())
+end
+
 -- Waits for something to fly and returns; the main loop runs it and then calls
 -- jobStep to work out what happens next.
 local function netLoop()
@@ -204,6 +238,8 @@ local function netLoop()
           say(F.ack(job.id, id, false, "carrying someone", myNonce()))
         else
           pending = F.flyArgs(msg.args)
+          if run.sos then print("distress cleared by the base's order") end
+          run.sos = nil
           say(F.ack("ops", id, true, nil, myNonce()))
           print("")
           print("ops says: fly " .. tostring(pending))
@@ -212,8 +248,19 @@ local function netLoop()
       elseif msg.type == "job.assign" then
         if job then
           say(F.ack(msg.job, id, false, "already on " .. job.id, myNonce()))
+        elseif run.sos then
+          say(F.ack(msg.job, id, false, "unit down: " .. run.sos, myNonce()))
+        elseif msg.board then
+          -- already on station where the customer is: they walk to it
+          job = { id = msg.job, pad = msg.pad, tx = msg.tx, tz = msg.tz, ty = msg.ty,
+                  px = msg.px, py = msg.py, pz = msg.pz, step = "waiting", board = true }
+          say(F.ack(msg.job, id, true, nil, myNonce()))
+          print("")
+          print("taxi job " .. job.id .. ": boarding here")
+          announce("waiting", "on station - board here")
         else
-          job = { id = msg.job, pad = msg.pad, tx = msg.tx, tz = msg.tz, ty = msg.ty, step = "pickup" }
+          job = { id = msg.job, pad = msg.pad, tx = msg.tx, tz = msg.tz, ty = msg.ty,
+                  px = msg.px, py = msg.py, pz = msg.pz, step = "pickup" }
           say(F.ack(msg.job, id, true, nil, myNonce()))
           pending = F.legCommand("pickup", msg)
           print("")
@@ -240,18 +287,38 @@ local function jobStep(flew)
   if not job then return end
   if job.step == "pickup" then
     if flew then
+      -- landed somewhere, but where? A pickup at open ground that came to rest
+      -- well above the customer's own ground is on top of something
+      local h = call(alt, "getHeight")
+      local expect = job.py and (job.py - 1 + REST_GAP)
+      if not job.pad and expect and h and h - expect > OBSTRUCTED then
+        announce("failed", string.format("landing zone obstructed - landed %d blocks above you",
+          math.floor(h - expect + 0.5)))
+        print("pickup obstructed - going home")
+        job.step = "home"
+        pending = F.legCommand("home", job)
+        return
+      end
       job.step = "waiting"
       announce("waiting", "docked at " .. tostring(job.pad))
       print("waiting at " .. tostring(job.pad) .. " for the passenger to press G")
     else
-      announce("failed", "could not reach " .. tostring(job.pad))
+      distress("pickup flight failed")
+      announce("failed", "unit down at " .. here())
       job = nil
     end
   elseif job.step == "ride" then
-    if flew then announce("done", "landed") else announce("failed", "the ride stopped early") end
-    job.step = "home"
-    pending = F.legCommand("home", job)
+    if flew then
+      announce("done", "landed")
+      job.step = "home"
+      pending = F.legCommand("home", job)
+    else
+      distress("transit flight failed")
+      announce("failed", "unit down at " .. here())
+      job = nil
+    end
   elseif job.step == "home" then
+    if not flew then distress("return flight failed") end
     job = nil
   end
 end
@@ -269,6 +336,9 @@ local function sendLoop()
     send(link.packet(id, run.seq, s, mon, fuel, dock, 0, 0, nil, "idle"))
     if run.seq == 1 or run.seq % PLAN_EVERY == 0 then
       send(link.planPacket(id, run.seq, nil, 0, home, "idle", s))
+    end
+    if run.sos and run.seq % DISTRESS_EVERY == 0 then
+      send(F.distress(id, run.sos, s.x, s.h, s.z, myNonce()))
     end
     local w = term.getSize()
     local _, y = term.getCursorPos()
@@ -315,10 +385,12 @@ while true do
   -- home. jobStep queues the next one, so keep going while it does.
   while line and line:match("%S") do
     local ordered = (pending ~= nil)
+    local forJob = (job ~= nil)
     pending = nil
     local flew = shell.run("fly " .. line)
     sealerAfterFlight()     -- fly moved the counter on; start above it
     if ordered then jobStep(flew and true or false) end
+    if ordered and not forJob and not flew then distress("ordered flight failed: fly " .. line) end
     line = pending
   end
   print("beacon resumes - F = fly, Q = stop")

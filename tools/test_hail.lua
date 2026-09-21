@@ -18,7 +18,7 @@ S.ROOT = ROOT .. "/"
 local F = dofile(ROOT .. "/lib/fleet.lua")
 
 local KEYS = { enter = 28, up = 200, down = 208, pageUp = 201, pageDown = 209,
-               q = 16, t = 20, c = 46, g = 34, l = 38, one = 2, two = 3, three = 4 }
+               q = 16, t = 20, c = 46, g = 34, l = 38, p = 25, one = 2, two = 3, three = 4 }
 local COLOURS = { white = 1, orange = 2, brown = 4096, black = 32768, red = 16384,
                   grey = 128, lightGrey = 256 }
 
@@ -27,7 +27,8 @@ local COLOURS = { white = 1, orange = 2, brown = 4096, black = 32768, red = 1638
 local function world(opts)
   local w = { files = opts.files or {}, shown = {}, said = {}, inbox = {}, clock = 0,
               inputs = opts.inputs or {}, events = 0, state = "idle", rebooted = false,
-              label = opts.label, queued = {}, reads = {}, depth = 0 }
+              label = opts.label, queued = {}, reads = {}, depth = 0,
+              gpsPos = opts.gpsPos, later = {} }
   local env = setmetatable({}, { __index = _G })
   local function show(s) if s and s ~= "" then w.shown[#w.shown + 1] = s end end
 
@@ -68,7 +69,9 @@ local function world(opts)
     local deadline = w.clock + (timeout or 2)
     while w.clock < deadline do env.os.pullEvent() end
     w.gpsBusy = false
-    return 100, 64, 200
+    local p = w.gpsPos or { 100, 64, 200 }
+    if type(p) == "function" then p = p(w) end
+    return p[1], p[2], p[3]
   end }
   -- parallel.waitForAny as CC runs it: every event goes to every coroutine
   -- that is waiting for it, and the first to finish ends the lot
@@ -102,7 +105,10 @@ local function world(opts)
 
   -- the base: answers exactly the questions ops answers, the way ops does
   local places = { { name = "home", x = 1892, z = 365 }, { name = "market", x = 865, z = 248 } }
-  local function reply(msg) w.inbox[#w.inbox + 1] = msg end
+  local function reply(msg, after)
+    if after then w.later[#w.later + 1] = { at = w.events + after, msg = msg }
+    else w.inbox[#w.inbox + 1] = msg end
+  end
   env.rednet = {
     open = function() end,
     broadcast = function(msg)
@@ -112,12 +118,22 @@ local function world(opts)
       elseif msg.type == "account.ask" then reply(F.accountInfo("alex", 500, 3, "a-" .. #w.said))
       elseif msg.type == "fare.ask" then
         w.fareAsked = msg
-        reply(F.fareQuote(opts.fare or 13, "flat fare", "q-" .. #w.said, msg.nonce))
+        reply(F.fareQuote(opts.fare or 13, "flat fare", "q-" .. #w.said, msg.nonce, opts.near))
       elseif msg.type == "taxi.request" then
         w.request = msg
+        if opts.near then
+          msg.board, msg.px, msg.pz, msg.py = true, opts.near.x, opts.near.z, opts.near.y
+        end
         reply(F.assign("j-1", msg))
-        reply(F.state("j-1", "drone-1", "enroute", nil, "s-1"))
-        reply(F.state("j-1", "drone-1", "waiting", nil, "s-2"))
+        if opts.fail then
+          reply(F.state("j-1", "drone-1", "enroute", nil, "s-1"))
+          reply(F.state("j-1", "drone-1", "failed", opts.fail, "s-f"))
+        elseif opts.near then
+          reply(F.state("j-1", "drone-1", "waiting", "on station - board here", "s-2"))
+        else
+          reply(F.state("j-1", "drone-1", "enroute", nil, "s-1"))
+          reply(F.state("j-1", "drone-1", "waiting", nil, "s-2"), 60)   -- the flight takes a while
+        end
       elseif msg.type == "job.go" then
         w.went = true
         reply(F.state("j-1", "drone-1", "riding", nil, "s-3"))
@@ -137,7 +153,10 @@ local function world(opts)
 
   local function nextEvent(filter)
     w.events = w.events + 1
-    if w.events > 2000 then error("runaway: 2000 events", 0) end
+    if w.events > 8000 then error("runaway: 8000 events", 0) end
+    for k = #w.later, 1, -1 do                -- replies whose time has come
+      if w.events >= w.later[k].at then table.insert(w.inbox, table.remove(w.later, k).msg) end
+    end
     local pending = w.inputs[1]
     if w.gpsBusy and not (pending and pending.whileGps) and #w.queued == 0 then
       w.clock = w.clock + 0.25
@@ -258,8 +277,9 @@ local function ride()
   return {
     { key = KEYS.q },
     { key = KEYS.down },
-    { key = KEYS.enter },
-    { key = KEYS.enter },
+    { key = KEYS.enter },                    -- the place
+    { key = KEYS.enter },                    -- landing zone: clear
+    { key = KEYS.enter },                    -- confirm
     { char = "g", when = function(w) return w.state == "waiting" end },
   }
 end
@@ -285,11 +305,63 @@ check("no operator words on a customer's screen",
 local stats = w.files[".hailstats"] or ""
 check("the ride was counted on the pass", stats:find("rides", 1, true) ~= nil)
 
+print("the landing zone")
+check("before calling to open ground it shows the landing zone", has(w, "LANDING ZONE"))
+check("with the checklist", has(w, "CLEAR SKY ABOVE") and has(w, "LEVEL GROUND, 9X9"))
+check("and where the unit will come down", has(w, "100 64 200"))
+check("the route is on the ride screen in coordinates", has(w, "FROM") and has(w, "1892 365"))
+check("the receipt says from and to", has(w, "COMPLIANCE APPRECIATED") and has(w, "100 64 200"))
+
+print("stand clear")
+local close = run(world({ inputs = ride(), gpsPos = { 101, 64, 201 } }), "hail.lua", "kiosk")
+check("inside the landing zone while it comes in: stand clear", has(close, "STAND CLEAR OF THE ZONE"))
+local back = run(world({ inputs = ride(), gpsPos = function(w)
+  return w.request and { 108, 64, 200 } or { 100, 64, 200 }
+end }), "hail.lua", "kiosk")
+check("standing back: zone clear", has(back, "ZONE CLEAR"))
+
+print("a unit already on station nearby")
+local nb = run(world({ near = { unit = "drone-1", x = 1890, y = 98, z = 366, place = "home" },
+                       gpsPos = { 1880, 92, 360 }, inputs = {
+  { key = KEYS.enter },                    -- home, the nearest place
+  { key = KEYS.enter },                    -- confirm: no landing zone to check
+  { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+check("no landing zone to check", not has(nb, "LANDING ZONE"))
+check("it says so at confirm", has(nb, "UNIT ON STATION NEARBY") and has(nb, "UNIT AT HOME"))
+check("the ride screen says walk to it", has(nb, "WALK TO UNIT"))
+check("and G takes it from there", nb.went == true)
+
+print("a pickup that could not land")
+local ob = run(world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter } },
+                       fail = "landing zone obstructed - landed 9 blocks above you" }), "hail.lua", "kiosk")
+check("it says the zone was obstructed", has(ob, "LANDING ZONE OBSTRUCTED"))
+check("and what to do", has(ob, "MOVE TO OPEN GROUND OR A"))
+local down = run(world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter } },
+                         fail = "unit down at 1500 80 300" }), "hail.lua", "kiosk")
+check("a unit down says so, and that the operator knows", has(down, "UNIT DOWN") and has(down, "IS ALERTED"))
+
+print("walking to a platform")
+local walk = run(world({ gpsPos = function(w) return w.walking and { 865, 70, 250 } or { 700, 64, 200 } end,
+  inputs = {
+  { key = KEYS.down },                     -- home is second nearest from here
+  { key = KEYS.enter },
+  { key = KEYS.p, char = "p" },            -- the nearest platform: market
+  { key = KEYS.enter, when = function(w) w.walking = true return w.events > 40 end },
+  { key = KEYS.enter, when = function(w) return w.events > 80 end },   -- arrived
+  { key = KEYS.enter },                    -- confirm
+  { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+check("it guides them to the platform", has(walk, "PROCEED TO PLATFORM"))
+check("and the pickup is the platform", walk.request and walk.request.pad == "market"
+  and walk.request.px == 865, walk.request and tostring(walk.request.pad))
+
 print("typing coordinates")
 local typed = run(world({ inputs = {
   { key = KEYS.c, char = "c" },            -- C on the list: a key, then its character
   { line = "1200 340" },                   -- only two numbers
   { line = "1200 70 340" },
+  { key = KEYS.enter },                    -- landing zone: clear
   { key = KEYS.enter },                    -- confirm
   { char = "g", when = function(w) return w.state == "waiting" end },
 } }), "hail.lua", "kiosk")
@@ -304,13 +376,13 @@ local credit = run(world({ inputs = {
   { key = KEYS.t, char = "t" },                      -- the credit page
   { key = KEYS.one, char = "1" },                    -- 64 spur: now it reports its position
   { key = KEYS.q, char = "q", whileGps = true },     -- Q, pressed while GPS is listening
-  { key = KEYS.enter }, { key = KEYS.enter },        -- back on the list: a ride
+  { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter },   -- back on the list: a ride
   { char = "g", when = function(w) return w.state == "waiting" end },
 } }), "hail.lua", "kiosk")
 check("Q leaves the credit page even while GPS is busy", credit.request ~= nil, credit.err)
 
 print("a terminal with no pass")
-local nopass = world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter } } })
+local nopass = world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter } } })
 local base = nopass.env.rednet.broadcast
 nopass.env.rednet.broadcast = function(msg)
   if type(msg) == "table" and msg.type == "taxi.request" then
@@ -323,7 +395,7 @@ run(nopass, "hail.lua", "kiosk")
 check("it is told why, not left waiting", has(nopass, "NO PASS ON THIS TERMINAL"))
 
 print("no shuttle answering")
-local quiet = world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter } } })
+local quiet = world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter } } })
 local answer = quiet.env.rednet.broadcast
 quiet.env.rednet.broadcast = function(msg)      -- places and balance, but no shuttle
   if type(msg) == "table" and msg.type == "taxi.request" then quiet.said[#quiet.said + 1] = msg return end
@@ -345,7 +417,7 @@ check("when it stops, the service is suspended", has(k, "SERVICE SUSPENDED"))
 check("writes what happened for the base", (k.files[".crash"] or ""):find("script over", 1, true) ~= nil)
 check("and starts again", k.rebooted == true)
 
-local t = world({ inputs = { { terminate = true }, { key = KEYS.down }, { key = KEYS.enter }, { key = KEYS.enter },
+local t = world({ inputs = { { terminate = true }, { key = KEYS.down }, { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter },
                              { char = "g", when = function(w) return w.state == "waiting" end } },
                   files = { [".pass"] = "alex\n" } })
 t.rawEvents = true
