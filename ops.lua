@@ -818,6 +818,12 @@ local function lock()
         log("till shut")
       else
         log("till open for %s at %s", tostring(who), LEDGER.money(amount))
+        -- tell their terminal, so it can stop saying "go and pay" and start
+        -- saying "pay now" - the difference between a hint and an instruction
+        local p = present[who]
+        if p and p.client then
+          pcall(rednet.send, p.client, F.tillOpen(who, amount, nonce()), F.PROTO)
+        end
       end
     end
     sleep(0.4)

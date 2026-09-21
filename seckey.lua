@@ -10,6 +10,9 @@
 -- Customers get their own keys, so a shuttle is ordered by someone you issued
 -- a terminal to and not by anyone in radio range:
 --   seckey cust new alex   make a customer key, keep it in .custkeys, hand it over
+--                          NAME IT AFTER THEIR MINECRAFT USERNAME: the till
+--                          reads the name of whoever sits in the Create Seat,
+--                          and the two only line up if they match
 --   seckey cust list       who has one
 --   seckey cust drop alex  forget it - that terminal can no longer order
 -- and on the customer's pocket:
@@ -122,6 +125,7 @@ if cmd == "cust" then
       writeText(disks[1] .. "/" .. CUSTNAME, hex .. "\n")
       print("written to the floppy in " .. disks[1] .. ".")
       print("On their pocket:  seckey cust set disk   then  label set " .. id)
+      print("(use their Minecraft username as the id, so the seat at the till agrees)")
     else
       print("on their pocket, type:")
       print("seckey cust set " .. hex:sub(1, 16) .. " " .. hex:sub(17, 32) .. " " .. hex:sub(33, 48) .. " " .. hex:sub(49, 64))

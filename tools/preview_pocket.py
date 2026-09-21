@@ -72,7 +72,7 @@ end
 FRAMES = [
     dict(screen="places", sel=2, away=0, state="calling", spin=0, start=1, eta=0, balance=416),
     dict(screen="topup", state="choose", balance=-56, amount=0, spin=1, away=0, start=1, eta=0),
-    dict(screen="ride", away=1332, state="enroute", spin=1, start=1670, eta=47),
+    dict(screen="topup", state="ready", balance=-56, amount=512, spin=2, away=0, start=1, eta=0),
     dict(screen="ride", away=392, state="riding", spin=0, start=1456, eta=38),
 ]
 
@@ -152,7 +152,7 @@ def main():
     except Exception:
         font = ImageFont.load_default()
 
-    labels = ["choosing a destination", "putting credit on", "a long way off", "carrying you"]
+    labels = ["choosing a destination", "how much", "till open, pay now", "carrying you"]
     imgs = [draw_frame(f, a.scale, font, labels[i]) for i, f in enumerate(frames)]
     pad = 10
     sheet = Image.new("RGB", (sum(i.width for i in imgs) + pad * (len(imgs) + 1),

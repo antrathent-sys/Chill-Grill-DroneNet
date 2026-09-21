@@ -82,11 +82,17 @@ function M.topup(T, c, view)
   c:text(2, r + 1, M.money(view.balance or 0), (view.balance or 0) < 0 and T.C.warn or T.C.text)
 
   r = T.section(c, 8, "TOP UP")
-  if view.state == "waiting" then
-    c:text(2, r, "PAY " .. M.money(view.amount) .. " AT", T.C.text)
-    c:text(2, r + 1, "THE DEPOSITOR", T.C.text)
-    c:text(2, r + 3, "IT CREDITS YOU WHEN", T.C.faint)
-    c:text(2, r + 4, "THE MONEY GOES IN", T.C.faint)
+  if view.state == "ready" then
+    c:text(2, r, "TILL OPEN", T.C.ok)
+    c:text(2, r + 1, "PAY " .. M.money(view.amount) .. " NOW", T.C.text)
+    c:text(2, r + 3, "IT CREDITS YOU AS", T.C.faint)
+    c:text(2, r + 4, tostring(view.who or ""):upper():sub(1, w - 2), T.C.text)
+    T.keys(c, h, { { "Q", "BACK" } })
+  elseif view.state == "waiting" then
+    c:text(2, r, "GO TO THE TILL", T.C.text)
+    c:text(2, r + 1, "AND SIT DOWN", T.C.text)
+    c:text(2, r + 3, "PAYING " .. M.money(view.amount), T.C.faint)
+    c:text(2, r + 4, "IT OPENS WHEN YOU DO", T.C.faint)
     T.keys(c, h, { { "Q", "BACK" } })
   elseif view.state == "done" then
     c:text(2, r, "PAID " .. M.money(view.got or 0), T.C.ok)

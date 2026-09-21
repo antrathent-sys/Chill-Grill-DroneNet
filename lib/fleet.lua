@@ -70,7 +70,8 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["ops.fly"] = true, ["ops.ping"] = true, ["job.track"] = true,
             ["places.ask"] = true, ["places.list"] = true,
             ["account.ask"] = true, ["account.info"] = true,
-            ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true }
+            ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true,
+            ["till.open"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -160,6 +161,8 @@ function F.check(m)
     if m.amount ~= nil and not num(m.amount) then return false, "bad amount" end
   elseif m.type == "credit.arm" then
     if not num(m.amount) or m.amount <= 0 then return false, "bad amount" end
+  elseif m.type == "till.open" then
+    if not (str(m.who) and num(m.amount)) then return false, "bad till" end
   elseif m.type == "credit.ok" then
     if not (str(m.who) and num(m.amount) and num(m.balance)) then return false, "bad credit" end
   elseif m.type == "places.list" then
@@ -282,6 +285,11 @@ function F.seatName(line)
   if #name > 16 then return nil, "too long for a name" end
   if not name:match("^[%w_]+$") then return nil, "not a plain name" end
   return name
+end
+
+function F.tillOpen(who, amount, nonce)
+  return { v = F.VERSION, type = "till.open", nonce = nonce, who = who,
+           amount = math.floor(amount or 0) }
 end
 
 function F.creditOk(who, amount, balance, nonce)

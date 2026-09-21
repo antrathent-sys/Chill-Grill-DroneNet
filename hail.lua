@@ -268,7 +268,7 @@ local function topUp()
     -- While this screen is open, say where we are standing, a few seconds
     -- apart. That is how the pay pad knows whose account to credit - it never
     -- has to learn which PLAYER paid, only which terminal is on the spot.
-    if view.state == "waiting" and os.clock() - lastHere > 3 then
+    if (view.state == "waiting" or view.state == "ready") and os.clock() - lastHere > 3 then
       local x, y, z = gps.locate(2)
       if x then say(F.here(x, y, z, nonce(), view.amount)) end
       lastHere = os.clock()
@@ -288,7 +288,9 @@ local function topUp()
     elseif ev[1] == "rednet_message" then
       local msg = ev[3]
       if type(msg) == "table" and (F.check(msg)) then
-        if msg.type == "credit.ok" then
+        if msg.type == "till.open" then
+          view.state, view.amount = "ready", msg.amount
+        elseif msg.type == "credit.ok" then
           balance, view.balance = msg.balance, msg.balance
           view.got, view.state = msg.amount, "done"
         elseif msg.type == "account.info" then
