@@ -281,7 +281,8 @@ local function localPlaces()
     if ok and type(t) == "table" then
       for _, p in ipairs(t) do
         if type(p) == "table" and p.name and tonumber(p.x) and tonumber(p.z) then
-          out[#out + 1] = { name = tostring(p.name), x = tonumber(p.x), z = tonumber(p.z), y = tonumber(p.y) }
+          out[#out + 1] = { name = tostring(p.name), x = tonumber(p.x), z = tonumber(p.z), y = tonumber(p.y),
+                            own = true }
         end
       end
     end
@@ -289,7 +290,7 @@ local function localPlaces()
   end
   for line in text:gmatch("[^\r\n]+") do
     local name, x, z = line:match("^%s*([%w_%- ]-)%s+(-?%d+)%s+(-?%d+)%s*$")
-    if name and name ~= "" then out[#out + 1] = { name = name, x = tonumber(x), z = tonumber(z) } end
+    if name and name ~= "" then out[#out + 1] = { name = name, x = tonumber(x), z = tonumber(z), own = true } end
   end
   return out
 end
@@ -366,6 +367,13 @@ end
 
 local function dist(a, bx, bz) return math.sqrt((bx - a.x) ^ 2 + (bz - a.z) ^ 2) end
 
+-- Coordinates as F3 shows them. Every screen of an order shows them.
+local function xyz(x, y, z)
+  if not (x and z) then return "unknown" end
+  return y and string.format("%d %d %d", math.floor(x), math.floor(y), math.floor(z))
+            or string.format("%d %d", math.floor(x), math.floor(z))
+end
+
 -- Putting money on the account: pick an amount, then pay a depositor. The
 -- base arms itself for THIS customer when we say so, because a depositor
 -- cannot tell it who paid - it only reports that someone did.
@@ -431,6 +439,80 @@ end
 -- The menu: the places list, driven by the arrow keys. Returns x, y, z, name,
 -- or nil if they backed out. Falling back to a typed prompt when the screen
 -- kit is missing means a pocket with no lib/display.lua still works.
+-- ------------------------------------------------------- your places ---
+-- A customer's own destinations, saved on the pass in places.lua. They sit
+-- above the base's on the list, only this pass has them, and provisioning
+-- keeps the file through every update.
+local NAME_MAX = 12
+
+local function saveOwnPlaces()
+  local out = { "-- places saved on this pass: the customer's own, not the base's", "return {" }
+  for _, p in ipairs(places) do
+    if p.own then
+      out[#out + 1] = string.format("  { name = %q, x = %d, y = %d, z = %d },",
+        p.name, math.floor(p.x), math.floor(p.y or 64), math.floor(p.z))
+    end
+  end
+  out[#out + 1] = "}"
+  local h = fs.open(PLACES, "w")
+  if not h then return false end
+  h.write(table.concat(out, "\n") .. "\n")
+  h.close()
+  return true
+end
+
+local function placeNamed(name)
+  for _, p in ipairs(places) do
+    if tostring(p.name):lower() == tostring(name):lower() then return p end
+  end
+  return nil
+end
+
+-- Save a position as one of the customer's own places. Asks for a short name;
+-- blank goes back. Returns the saved place, or nil.
+local function savePlace(pos, title)
+  local note = "name it, " .. NAME_MAX .. " letters max"
+  while true do
+    frame(title or "SAVE PLACE", note)
+    field(6, "position", xyz(pos.x, pos.y, pos.z))
+    at(2, 8, "e.g. house, farm, mine", DIM)
+    term.setCursorPos(2, 10)
+    local name = ask("> ")
+    name = name and name:gsub("^%s+", ""):gsub("%s+$", ""):lower() or ""
+    if name == "" then return nil end
+    if #name > NAME_MAX or not name:match("^[%w _%-]+$") then
+      note = "letters, digits, space, - or _"
+    elseif placeNamed(name) then
+      note = "that name is taken"
+    else
+      local p = { name = name, x = math.floor(pos.x), y = pos.y and math.floor(pos.y) or nil,
+                  z = math.floor(pos.z), own = true }
+      places[#places + 1] = p
+      saveOwnPlaces()
+      frame("PLACE SAVED", name)
+      field(6, "position", xyz(p.x, p.y, p.z))
+      at(2, 8, "it is on your list now", DIM)
+      sleep(1.5)
+      return p
+    end
+  end
+end
+
+-- Forget one of the customer's own places, after a yes.
+local function deletePlace(p)
+  frame("DELETE PLACE", p.name, { { "ENT", "DELETE", true }, { "ANY", "KEEP" } })
+  field(6, "position", xyz(p.x, p.y, p.z))
+  if keyPress() ~= keys.enter then return false end
+  for k, q in ipairs(places) do
+    if q == p or (q.own and q.name == p.name) then table.remove(places, k) break end
+  end
+  saveOwnPlaces()
+  return true
+end
+
+-- The menu: the places list, driven by the arrow keys. Returns x, y, z, name,
+-- or nil if they backed out. Falling back to a typed prompt when the screen
+-- kit is missing means a pocket with no lib/display.lua still works.
 local function chooseDestination(from)
   local c = screen()
   if not c then
@@ -439,17 +521,25 @@ local function chooseDestination(from)
     return tx, ty, tz, string.format("%d %d %d", tx, ty, tz)
   end
 
-  -- distances now, so the list is ordered by how far away things are
-  local list = {}
-  for _, p in ipairs(places) do
-    list[#list + 1] = { name = p.name, x = p.x, y = p.y, z = p.z, dist = dist(from, p.x, p.z) }
+  -- the customer's own places first, then the base's, each nearest first
+  local function build()
+    local own, base = {}, {}
+    for _, p in ipairs(places) do
+      local e = { name = p.name, x = p.x, y = p.y, z = p.z, own = p.own, src = p, dist = dist(from, p.x, p.z) }
+      if p.own then own[#own + 1] = e else base[#base + 1] = e end
+    end
+    local function near(a, b) return a.dist < b.dist end
+    table.sort(own, near)
+    table.sort(base, near)
+    for _, e in ipairs(base) do own[#own + 1] = e end
+    return own
   end
-  table.sort(list, function(a, b) return a.dist < b.dist end)
+  local list = build()
 
-  local sel, top = 1, 1
+  local sel, top, rows = 1, 1, 1
   while true do
-    local rows = UI.places(T, c, { places = list, sel = sel, top = top, from = from,
-                                   balance = balance })
+    c = screen()
+    rows, top = UI.places(T, c, { places = list, sel = sel, top = top, from = from, balance = balance })
     c:flush(term)
     local ev, key = os.pullEvent()
     if ev == "key" then
@@ -469,10 +559,22 @@ local function chooseDestination(from)
         local tx, ty, tz = askXYZ("ENTER COORDINATES")
         canvas = nil                      -- the text prompt scribbled over it
         if tx then return tx, ty, tz, string.format("%d %d %d", tx, ty, tz) end
+      elseif key == keys.s then
+        -- where they stand now, not where they stood when the list opened
+        local x, y, z = gps.locate(2)
+        local pos = x and { x = x, y = y, z = z } or from
+        local saved = savePlace(pos)
+        canvas = nil
+        list = build()
+        if saved then
+          for k, e in ipairs(list) do if e.src == saved then sel = k end end
+        end
+      elseif key == keys.d and list[sel] and list[sel].own then
+        deletePlace(list[sel].src)
+        canvas = nil
+        list = build()
+        sel = math.max(1, math.min(sel, #list))
       end
-      -- keep the selected row on screen
-      if sel < top then top = sel end
-      if sel > top + rows - 1 then top = sel - rows + 1 end
     end
   end
 end
@@ -481,12 +583,6 @@ end
 -- Follow one job to its end, drawing where the shuttle is. Returns "done",
 -- "failed" or "gave up".
 -- ----------------------------------------------------------- safety ---
--- Coordinates as F3 shows them. Every screen of an order shows them.
-local function xyz(x, y, z)
-  if not (x and z) then return "unknown" end
-  return y and string.format("%d %d %d", math.floor(x), math.floor(y), math.floor(z))
-            or string.format("%d %d", math.floor(x), math.floor(z))
-end
 
 local LZ_R = 4            -- blocks round the spot a unit needs clear: 9x9
 local AT_PLATFORM = 6     -- this close to a known platform counts as on it
@@ -856,6 +952,20 @@ local function oneRide(tx, ty, tz, name)
     if fare then field(9, "fare", money(fare)) end
     if balance then field(10, "balance", money(balance), balance < 0 and INK or AMBER) end
     at(1, 12, "compliance appreciated", DIM)
+    -- a destination typed as coordinates can be kept for next time
+    if not placeNamed(name) then
+      at(2, 14, "S  save this place", AMBER)
+      flushInput()
+      local timer = os.startTimer(8)
+      while true do
+        local ev, a = os.pullEvent()
+        if ev == "timer" and a == timer then break end
+        if ev == "key" then
+          if a == keys.s then savePlace({ x = tx, y = ty, z = tz }, "SAVE DESTINATION") end
+          break
+        end
+      end
+    end
   elseif how ~= "failed" then
     F.record(stats, "failure")
     frame("TRANSIT ABORTED", how)

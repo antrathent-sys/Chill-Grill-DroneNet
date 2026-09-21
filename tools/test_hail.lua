@@ -18,7 +18,7 @@ S.ROOT = ROOT .. "/"
 local F = dofile(ROOT .. "/lib/fleet.lua")
 
 local KEYS = { enter = 28, up = 200, down = 208, pageUp = 201, pageDown = 209,
-               q = 16, t = 20, c = 46, g = 34, l = 38, p = 25, one = 2, two = 3, three = 4 }
+               q = 16, t = 20, c = 46, g = 34, l = 38, p = 25, s = 31, d = 32, one = 2, two = 3, three = 4 }
 local COLOURS = { white = 1, orange = 2, brown = 4096, black = 32768, red = 16384,
                   grey = 128, lightGrey = 256 }
 
@@ -364,6 +364,8 @@ local typed = run(world({ inputs = {
   { key = KEYS.enter },                    -- landing zone: clear
   { key = KEYS.enter },                    -- confirm
   { char = "g", when = function(w) return w.state == "waiting" end },
+  { key = KEYS.s, char = "s", when = function(w) return w.state == "done" end },   -- the receipt's offer
+  { line = "spot" },
 } }), "hail.lua", "kiosk")
 check("the C that opened the prompt is not typed into it", typed.reads[1] == "1200 340", typed.reads[1])
 check("two numbers are not enough - it asks for all three", has(typed, "NEED ALL THREE"))
@@ -380,6 +382,55 @@ local credit = run(world({ inputs = {
   { char = "g", when = function(w) return w.state == "waiting" end },
 } }), "hail.lua", "kiosk")
 check("Q leaves the credit page even while GPS is busy", credit.request ~= nil, credit.err)
+
+check("the receipt offers to keep a typed destination", has(typed, "SAVE THIS PLACE"))
+check("and keeps it, height and all", (typed.files["places.lua"] or ""):find('name = "spot", x = 1200, y = 70, z = 340', 1, true) ~= nil,
+  typed.files["places.lua"])
+
+print("your own places")
+local sv = run(world({ gpsPos = { 321, 70, -45 }, inputs = {
+  { key = KEYS.s, char = "s" },            -- save where I stand
+  { line = "home" },                       -- taken: the base has a home
+  { line = "house" },
+} }), "hail.lua", "kiosk")
+check("a name the base already uses is refused", has(sv, "THAT NAME IS TAKEN"))
+check("S saves where they stand, with its height", (sv.files["places.lua"] or ""):find('name = "house", x = 321, y = 70, z = -45', 1, true) ~= nil,
+  sv.files["places.lua"])
+check("and the C that opened it was not typed into the name", not (sv.files["places.lua"] or ""):find('"shouse"', 1, true))
+check("it is listed first, under its own band", has(sv, "YOUR PLACES") and has(sv, "HOUSE"))
+local del = run(world({ files = { ["places.lua"] = 'return {\n  { name = "farm", x = 150, y = 66, z = 210 },\n}\n' },
+  inputs = {
+    { key = KEYS.d, char = "d" },          -- farm is first and selected
+    { key = KEYS.enter },                  -- yes, delete
+} }), "hail.lua", "kiosk")
+check("D on your own place deletes it, after a yes", has(del, "DELETE PLACE")
+  and not (del.files["places.lua"] or ""):find("farm", 1, true), del.files["places.lua"])
+
+print("nothing is called before it exists")
+-- a helper deleted in a refactor (screen) and one defined below its first
+-- caller (xyz) both passed a syntax check and would have crashed in a
+-- customer's hand; this finds either kind before a test even runs it
+local function readSrc(p) local h = io.open(ROOT .. "/" .. p, "r") local s = h:read("*a") h:close() return s end
+for _, file in ipairs({ "hail.lua", "kiosk.lua" }) do
+  local lines = {}
+  for l in (readSrc(file) .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = l end
+  local defined = {}
+  for i, l in ipairs(lines) do
+    local name = l:match("^local function ([%w_]+)")
+    if name and not defined[name] then defined[name] = i end
+  end
+  local early = {}
+  for name, at in pairs(defined) do
+    for i = 1, at - 1 do
+      local code = lines[i]:gsub("%-%-.*$", "")
+      if code:find("[^%w_%.:]" .. name .. "%s*%(") or code:find("^" .. name .. "%s*%(") then
+        early[#early + 1] = name .. " (line " .. i .. ", defined at " .. at .. ")"
+        break
+      end
+    end
+  end
+  check(file .. ": every local function is defined above its first use", #early == 0, table.concat(early, "; "))
+end
 
 print("a terminal with no pass")
 local nopass = world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter } } })

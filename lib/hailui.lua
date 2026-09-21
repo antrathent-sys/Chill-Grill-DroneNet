@@ -78,38 +78,62 @@ end
 -- --------------------------------------------------------------- the list ---
 -- view = { places = { {name, dist}, ... }, sel = n, top = n, from = {x,z} }
 -- Returns how many rows fitted, so the caller can page by the same number.
+-- view = { places = { {name, dist, own}, ... }, sel = n, top = n, balance }
+-- The customer's own places come first (the caller orders them so), under
+-- their own band; the base's follow under DESTINATIONS. Returns how many rows
+-- fit, and the scroll position that keeps the selected row on screen.
 function M.places(T, c, view)
   local w, h = c.w, c.h
   c:clear()
-  -- row 2, never row 1: a letter cell drawn with swapped colours on the top
-  -- row would paint the screen's margin above it (see T.masthead)
   local y = T.masthead(c, 2, M.NAME, T.C.text, M.SUB)
+  local places = view.places or {}
 
-  -- one band says what the list is and what the account holds
+  -- the display, band by band
+  local lines, selLine = {}, 1
+  local hasOwn = places[1] and places[1].own
+  local balance = view.balance and M.money(view.balance) or nil
   local owed = view.balance and view.balance < 0
-  T.band(c, y + 1, "DESTINATIONS", view.balance and M.money(view.balance) or nil,
-         nil, owed and T.C.warn or T.C.text)
+  if hasOwn then lines[#lines + 1] = { band = "YOUR PLACES", right = balance } end
+  local baseBand = false
+  for k, p in ipairs(places) do
+    if not p.own and not baseBand then
+      lines[#lines + 1] = { band = "DESTINATIONS", right = (not hasOwn) and balance or nil }
+      baseBand = true
+    end
+    lines[#lines + 1] = { item = p, index = k }
+    if k == view.sel then selLine = #lines end
+  end
+  if #places == 0 then lines[#lines + 1] = { band = "DESTINATIONS", right = balance } end
 
-  local top, bottom = y + 2, h - 2
+  local top, bottom = y + 1, h - 3
   local rows = bottom - top + 1
-  local first = math.max(1, math.min(view.top or 1, math.max(1, #view.places - rows + 1)))
-  for i = 0, rows - 1 do
-    local p = view.places[first + i]
-    if p then
-      T.row(c, 1, top + i, w, p.name:upper(), string.format("%d", math.floor(p.dist or 0)),
-            (first + i) == view.sel)
+  local first = view.top or 1
+  if selLine < first then first = selLine end
+  if selLine - 1 >= 1 and lines[selLine - 1].band and selLine - 1 < first then first = selLine - 1 end
+  if selLine > first + rows - 1 then first = selLine - rows + 1 end
+  first = math.max(1, math.min(first, math.max(1, #lines - rows + 1)))
+  for r = 0, rows - 1 do
+    local line = lines[first + r]
+    if line and line.band then
+      T.band(c, top + r, line.band, line.right, nil, owed and T.C.warn or T.C.text)
+    elseif line then
+      local p = line.item
+      T.row(c, 1, top + r, w, p.name:upper(), string.format("%d", math.floor(p.dist or 0)), line.index == view.sel)
     end
   end
-  if #view.places == 0 then
-    local function mid(y, s, ink) c:text(math.max(1, math.floor((w - #s) / 2) + 1), y, s, ink) end
+  if #places == 0 then
+    local function mid(yy, s, ink) c:text(math.max(1, math.floor((w - #s) / 2) + 1), yy, s, ink) end
     mid(top + 4, "NO DESTINATIONS YET", T.C.text)
     mid(top + 6, "C  ENTER COORDINATES", T.C.faint)
   end
 
-  -- the arrows explain themselves once a row is lit, so the bar spends its
-  -- width on the keys nobody would guess: credit and typed coordinates
+  -- two bands of keys: saving your own places above, the ride below
+  local sel = places[view.sel or 1]
+  local mine = { { "S", "SAVE HERE" } }
+  if sel and sel.own then mine[#mine + 1] = { "D", "DELETE" } end
+  T.keys(c, h - 1, mine)
   T.keys(c, h, { { "ENT", "GO", true }, { "T", "CREDIT" }, { "C", "XZ" } })
-  return rows
+  return rows, first
 end
 
 -- --------------------------------------------------------------- the boot ---
