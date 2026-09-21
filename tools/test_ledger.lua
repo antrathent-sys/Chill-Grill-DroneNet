@@ -55,6 +55,15 @@ check("but not long ones", (L.fare(400, "market", t2)) > 0)
 check("a tariff of nonsense falls back to the default",
   (L.fare(1000, "market", L.tariff({ perBlock = "lots" }))) == (L.fare(1000, "market")))
 
+print("a flat fare, if you would rather")
+local flat = L.tariff({ flat = 6, freeTo = { "home" } })
+check("the same for a short hop", (L.fare(200, "market", flat)) == 6, L.fare(200, "market", flat))
+check("and for a long one", (L.fare(7000, "market", flat)) == 6)
+check("free places are still free", (L.fare(7000, "home", flat)) == 0)
+check("it says why", select(2, L.fare(500, "market", flat)) == "flat fare")
+check("zero means charge by distance", (L.fare(1000, "market", L.tariff({ flat = 0 })))
+  == (L.fare(1000, "market")))
+
 print("money as people say it")
 check("spurs", L.money(30) == "30 SPUR", L.money(30))
 check("cogs", L.money(128) == "2.0 COG", L.money(128))

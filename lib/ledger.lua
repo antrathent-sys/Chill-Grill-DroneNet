@@ -74,6 +74,11 @@ end
 -- climb and the descent (which cost the same whether the leg is 200 blocks or
 -- 2000), and the places that are free to travel TO.
 L.TARIFF = {
+  -- A flat fare, if you want one: every ride costs the same whatever the
+  -- distance. Simple to explain and simple to price - a tenth of a cog is 6
+  -- spurs, since a cog is 64. Set it and the rate below stops being used.
+  flat = 0,             -- spurs a ride (0 = charge by distance instead)
+
   perBlock = 0.08,      -- spurs a block: a 1,000-block hop is 80, about a cog
   minimum = 20,         -- every ride costs at least this
   freeTo = { home = true },
@@ -103,6 +108,7 @@ function L.fare(blocks, dest, tariff)
   local to = tostring(dest or ""):lower()
   if tariff.freeTo and tariff.freeTo[to] then return 0, "free to " .. to end
   if (tariff.freeUnder or 0) > 0 and blocks < tariff.freeUnder then return 0, "short hop" end
+  if (tariff.flat or 0) > 0 then return math.floor(tariff.flat), "flat fare" end
   local raw = blocks * (tariff.perBlock or 0)
   if raw < (tariff.minimum or 0) then return math.floor(tariff.minimum or 0), "minimum fare" end
   return math.floor(raw + 0.5), string.format("%d blocks", math.floor(blocks))

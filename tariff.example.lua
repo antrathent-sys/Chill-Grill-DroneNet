@@ -3,9 +3,16 @@
 -- a sun. Every value is optional; anything missing keeps the default in
 -- lib/ledger.lua.
 return {
-  -- The rate. A 1,000-block hop at 0.08 costs 80 spurs, about a cog and a
-  -- quarter. Flights measured on 2026-09-20 average 2,140 blocks a minute of
-  -- cruise, so this is roughly 5 cogs for a minute in the air.
+  -- A FLAT FARE: every ride costs the same, whatever the distance. A cog is
+  -- 64 spurs, so a tenth of a cog is 6. Easy to explain, easy to price, and
+  -- nobody has to work out what their trip will cost before taking it. Set
+  -- this to 0 to charge by distance with the two settings below instead.
+  flat = 6,
+
+  -- Charging by distance, used only when flat = 0. A 1,000-block hop at 0.08
+  -- costs 80 spurs, about a cog and a quarter; flights measured on 2026-09-20
+  -- average 2,140 blocks a minute of cruise, so that is roughly 5 cogs for a
+  -- minute in the air.
   perBlock = 0.08,
 
   -- Every ride costs at least this, because the climb and the descent take
