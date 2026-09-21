@@ -4,10 +4,11 @@
 -- lib/ledger.lua.
 return {
   -- A FLAT FARE: every ride costs the same, whatever the distance. A cog is
-  -- 64 spurs, so a tenth of a cog is 6. Easy to explain, easy to price, and
-  -- nobody has to work out what their trip will cost before taking it. Set
-  -- this to 0 to charge by distance with the two settings below instead.
-  flat = 6,
+  -- 64 spurs, so a fifth of a cog is 12.8, taken as 13. Easy to explain, easy
+  -- to price, and nobody has to work out what a trip will cost before taking
+  -- it. A 512-spur top-up is about 39 rides. Set this to 0 to charge by
+  -- distance with the two settings below instead.
+  flat = 13,
 
   -- Charging by distance, used only when flat = 0. A 1,000-block hop at 0.08
   -- costs 80 spurs, about a cog and a quarter; flights measured on 2026-09-20
