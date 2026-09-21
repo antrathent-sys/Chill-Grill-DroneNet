@@ -466,6 +466,7 @@ local function oneRide(tx, ty, tz, name)
 
   frame("CALLING", name)
   local job, t0, refused, heard, n = nil, os.clock(), nil, false, 0
+  local place, wait
   while os.clock() - t0 < 15 and not job and not refused do
     spinner(H, "asking the base", n)
     n = n + 1
@@ -476,11 +477,42 @@ local function oneRide(tx, ty, tz, name)
       if type(msg) == "table" then heard = true end
       if type(msg) == "table" and msg.nonce == req.nonce and msg.type == "job.assign" then
         job = msg.job
+      elseif type(msg) == "table" and msg.type == "job.queued" then
+        -- nobody free: we are in the line, and the wait screen takes over
+        place, wait = msg.place, msg.wait
+        break
       elseif type(msg) == "table" and msg.type == "job.ack" and msg.ok == false then
         refused = tostring(msg.why)
       end
     end
     if ev[1] ~= "timer" then pcall(os.cancelTimer, timer) end
+  end
+
+  -- waiting in the line: the same screen, saying where we stand, until a
+  -- shuttle is assigned or the customer gives up
+  while place and not job do
+    if not drawRide({ state = "queued", place = place, eta = wait, spin = n, log = log,
+                      showLog = false, away = nil, start = 1 }) then
+      frame("IN THE QUEUE", string.format("No %d, about %d:%02d", place, math.floor((wait or 0) / 60),
+        math.floor((wait or 0) % 60)))
+    end
+    n = n + 1
+    local timer = os.startTimer(0.25)
+    local ev = { os.pullEvent() }
+    if ev[1] ~= "timer" then pcall(os.cancelTimer, timer) end
+    if ev[1] == "rednet_message" then
+      local msg = ev[3]
+      if type(msg) == "table" and (F.check(msg)) then
+        if msg.type == "job.queued" then place, wait = msg.place, msg.wait
+        elseif msg.type == "job.assign" and msg.nonce == req.nonce then job = msg.job
+        elseif msg.type == "job.ack" and msg.ok == false then
+          refused, place = tostring(msg.why), nil
+        end
+      end
+    elseif ev[1] == "char" and tostring(ev[2]):lower() == "q" then
+      say(F.cancel(nonce()))
+      place = nil
+    end
   end
 
   if not job then

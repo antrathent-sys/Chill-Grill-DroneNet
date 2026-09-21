@@ -44,6 +44,7 @@
 
 local F = dofile("lib/fleet.lua")
 local LEDGER = dofile("lib/ledger.lua")
+local QUEUE = dofile("lib/queue.lua")
 local SEC = dofile("lib/seclink.lua")
 local link = dofile("lib/link.lua")
 -- the screen, the same kit the customer's terminal uses; ops still runs
@@ -219,6 +220,10 @@ local function shout(msg) pcall(rednet.broadcast, msg, F.PROTO) end
 -- ------------------------------------------------------------- the fleet ----
 -- Built from telemetry alone: a drone exists the moment a packet of its opens.
 local fleet, pads, jobs, padStats = {}, {}, {}, {}
+-- Everyone waiting for a shuttle, in the order they asked. Nothing is promised
+-- to anyone until a drone is actually free - see lib/queue.lua for the rules,
+-- which are four sentences long on purpose.
+local waiting = {}
 -- nonces live in their OWN table. They were sharing `jobs`, whose values are
 -- job records, and fleet.fresh does arithmetic on every value it finds while
 -- ageing them out: the first hail after a job existed crashed ops with
@@ -321,8 +326,23 @@ local function dispatch(req, from)
   local pad = (req.pad and padByName(req.pad)) or { name = req.pad, x = req.px, y = req.py, z = req.pz }
   local id, why = F.pick(fleet, pad, os.clock())
   if not id then
-    reply(from, F.ack("j-none", "ops", false, why, nonce()))
-    return nil, why
+    -- nobody free: take a place in the line rather than turning them away
+    local stranded = false
+    if req.who then
+      local b = LEDGER.balances(ledgerRows())[req.who]
+      stranded = (b and b.balance < 0) and (tostring(req.toName or ""):lower() == "home")
+    end
+    local place = QUEUE.add(waiting, { who = req.who or tostring(from), nonce = req.nonce,
+      px = req.px, pz = req.pz, tx = req.tx, tz = req.tz, toName = req.toName,
+      pad = req.pad, at = os.clock(), client = from, priority = stranded })
+    if not place then
+      reply(from, F.ack("j-none", "ops", false, "you are already in the queue", nonce()))
+      return nil, "already waiting"
+    end
+    local secs = QUEUE.wait(waiting, place, 0, nil)
+    pcall(rednet.send, from, F.queued(place, secs, nonce()), F.PROTO)
+    log("%s queued at %d (%s free: %s)", tostring(req.who or from), place, "none", tostring(why))
+    return nil, "queued " .. place
   end
   local job = "j-" .. tostring(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()) .. "-" .. id
   jobs[job] = { id = job, drone = id, pad = pad.name, toName = req.toName, px = req.px, pz = req.pz,
@@ -632,6 +652,10 @@ function handle(from, msg, customer)
           local b = LEDGER.balances(ledgerRows())[who] or { balance = 0, rides = 0 }
           pcall(rednet.send, from, F.accountInfo(who, b.balance, b.rides, nonce()), F.PROTO)
         end
+      elseif msg.type == "job.cancel" then
+        local who = customer or msg.who
+        local gone = who and QUEUE.removeWho(waiting, who)
+        if gone then log("%s left the queue", tostring(who)) end
       elseif msg.type == "here" then
         -- a terminal saying where it is. Only a SEALED one counts: an
         -- unsealed "here" is just someone claiming to be somewhere.
@@ -854,6 +878,43 @@ local function till()
   end
 end
 
+-- A shuttle has come free. Take whoever the queue says, from where the shuttle
+-- actually is - which is why this runs on release and not when someone asks.
+local function serveQueue()
+  while true do
+    if #waiting > 0 then
+      for _, e in ipairs(QUEUE.expire(waiting, os.clock())) do
+        log("%s waited too long and was dropped", tostring(e.who))
+        if e.client then
+          pcall(rednet.send, e.client, F.ack("j-none", "ops", false, "nobody came free", nonce()), F.PROTO)
+        end
+      end
+    end
+    if #waiting > 0 then
+      -- the first free drone takes the pick made from where IT is
+      for id, f in pairs(fleet) do
+        if #waiting > 0 and (F.available(f, os.clock())) then
+          local e, i = QUEUE.pick(waiting, { x = f.x, z = f.z })
+          if e then
+            QUEUE.removeAt(waiting, i)
+            local ok, job = dispatch({ v = F.VERSION, type = "taxi.request", nonce = e.nonce,
+              pad = e.pad, px = e.px, py = e.py, pz = e.pz, tx = e.tx, tz = e.tz,
+              toName = e.toName, who = e.who }, e.client)
+            log("%s off the queue -> %s", tostring(e.who), tostring(ok or job))
+          end
+        end
+      end
+      -- and everyone still waiting is told where they now stand
+      for i, e in ipairs(waiting) do
+        if e.client then
+          pcall(rednet.send, e.client, F.queued(i, QUEUE.wait(waiting, i, 0, nil), nonce()), F.PROTO)
+        end
+      end
+    end
+    sleep(3)
+  end
+end
+
 -- Where the taxi is, sent to the customer while their job is live. They hold
 -- no keys and cannot read telemetry themselves, so this is the only way their
 -- terminal can say how far away it is.
@@ -943,7 +1004,7 @@ local function drawBoard()
   UI.board(T, canvas, {
     units = list, sel = sel, log = events, jobs = liveJobs(), refused = rejected,
     clock = textutils.formatTime(os.time(), true), hails = openToHails,
-    till = LEDGER.money(takings),
+    till = LEDGER.money(takings), queue = #waiting,
     arming = (tillOwner()) or nil,
     shut = lockedNow,
   })
@@ -1004,5 +1065,5 @@ local function keys()
   end
 end
 
-parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, draw, keys)
+parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, serveQueue, draw, keys)
 print("ops stopped")

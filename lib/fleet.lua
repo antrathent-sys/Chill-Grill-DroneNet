@@ -34,6 +34,9 @@
 --   job.go        job nonce                                pad  -> drone
 --   pad.stats     pad rides requests failures lastRide     pad  -> ops
 --   ops.fly       args nonce                                ops  -> drone
+--   job.queued    place wait nonce                           ops  -> customer
+--                 (nobody is free; you are Nth, about `wait` seconds)
+--   job.cancel    nonce                                     customer -> ops
 --   job.track     job drone x z [eta] nonce                  ops  -> customer
 --                 (where the taxi is, a few times a second-ish, so the
 --                  terminal can show how far away it is)
@@ -71,7 +74,7 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["places.ask"] = true, ["places.list"] = true,
             ["account.ask"] = true, ["account.info"] = true,
             ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true,
-            ["till.open"] = true }
+            ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -150,6 +153,8 @@ function F.check(m)
   elseif m.type == "job.state" then
     if not (str(m.job) and str(m.drone)) then return false, "no job or drone" end
     if not F.STATES[m.state] then return false, "state " .. tostring(m.state) end
+  elseif m.type == "job.queued" then
+    if not num(m.place) then return false, "no place in the queue" end
   elseif m.type == "job.track" then
     if not str(m.job) then return false, "no job id" end
     if not (num(m.x) and num(m.z)) then return false, "no position" end
@@ -286,6 +291,13 @@ function F.seatName(line)
   if not name:match("^[%w_]+$") then return nil, "not a plain name" end
   return name
 end
+
+function F.queued(place, wait, nonce)
+  return { v = F.VERSION, type = "job.queued", nonce = nonce,
+           place = math.floor(place or 0), wait = math.floor(wait or 0) }
+end
+
+function F.cancel(nonce) return { v = F.VERSION, type = "job.cancel", nonce = nonce } end
 
 function F.tillOpen(who, amount, nonce)
   return { v = F.VERSION, type = "till.open", nonce = nonce, who = who,

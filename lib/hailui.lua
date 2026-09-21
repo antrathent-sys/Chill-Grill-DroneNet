@@ -15,6 +15,7 @@ M.NAME = "SHUTTLE"                 -- what the mastheads say
 M.SUB = "CHILL GRILL SHUTTLE SVC"   -- and the line under the first one
 
 M.WORDS = {
+  queued  = "IN THE QUEUE",
   -- kept short: the UNIT box is 13 characters wide and the masthead has
   -- already said SHUTTLE
   calling = "REQUESTED",
@@ -124,7 +125,8 @@ function M.ride(T, c, view)
 
   -- UNIT and its status
   local r = T.section(c, 3, "UNIT")
-  c:text(2, r, tostring(view.unit or "ASSIGNING"):upper():sub(1, w - 10), T.C.text)
+  c:text(2, r, tostring(view.unit or (view.place and ("No " .. view.place .. " IN LINE")) or "ASSIGNING")
+           :upper():sub(1, w - 10), T.C.text)
   c:text(w - 7, r, (view.state == "waiting" and "HERE" or clock(view.eta)), T.C.text)
   c:text(2, r + 1, (M.WORDS[view.state] or "STANDING BY"):sub(1, w - 10),
          failed and T.C.warn or (view.state == "waiting" and T.C.ok or T.C.accent))

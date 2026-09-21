@@ -42,13 +42,12 @@ function M.board(T, c, view)
   local wide = w >= 46
   local strip
   if wide then
-    strip = string.format("%s   %d UNIT%s   %d JOB%s   %s",
+    strip = string.format("%s   %d UNIT%s   %d JOB%s   %d WAITING",
       view.clock or "--:--", #view.units, #view.units == 1 and "" or "S",
-      view.jobs or 0, (view.jobs or 0) == 1 and "" or "S",
-      view.hails and "HAILS OPEN" or "HAILS CLOSED")
+      view.jobs or 0, (view.jobs or 0) == 1 and "" or "S", view.queue or 0)
   else
-    strip = string.format("%s  %dU  %dJ  %s", view.clock or "--:--",
-      #view.units, view.jobs or 0, view.hails and "OPEN" or "SHUT")
+    strip = string.format("%s  %dU  %dJ  %dQ", view.clock or "--:--",
+      #view.units, view.jobs or 0, view.queue or 0)
   end
   c:text(1, y + 1, strip:sub(1, w), T.C.faint)
   -- the till: what has come in today, and whether someone is mid-payment
