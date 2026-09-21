@@ -722,3 +722,10 @@ shape that follows from what already exists:
 Worth building after the shuttle service is running: it shares the telemetry
 format, the screens and the queue's idea of what is nearby, and it is the
 first thing here that other people would use.
+
+**Deliveries: parcels from depots, restocks between docks.** Designed in
+[DELIVERIES.md](DELIVERIES.md): a delivery is a shuttle job carrying a box.
+One vault per drone, held by a sticker. Docks fill and empty it; anywhere else
+the drone drops it. Five in-game tests come before any code, and the first two
+(sticker holds a vault in flight, funnel reaches a vault on a docked drone)
+decide the design.
