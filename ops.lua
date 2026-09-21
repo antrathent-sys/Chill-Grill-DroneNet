@@ -140,6 +140,8 @@ local function ledgerRows()
   return (LEDGER.parse(text))
 end
 
+local takings = 0        -- what has come in since ops started, for the board
+
 local function post(who, kind, amount, note)
   local new = not fs.exists(LEDGER_FILE)
   local h = fs.open(LEDGER_FILE, new and "w" or "a")
@@ -148,6 +150,7 @@ local function post(who, kind, amount, note)
   local when = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()
   h.writeLine(LEDGER.row(when, who, kind, amount, note))
   h.close()
+  if amount < 0 then takings = takings - amount end   -- fares are takings too
   return LEDGER.balanceOf(ledgerRows(), who)
 end
 local function writeJob(j)
@@ -813,6 +816,7 @@ local function drawBoard()
   UI.board(T, canvas, {
     units = list, sel = sel, log = events, jobs = liveJobs(), refused = rejected,
     clock = textutils.formatTime(os.time(), true), hails = openToHails,
+    till = LEDGER.money(takings), arming = armed and armed.who or nil,
   })
   canvas:flush(term)
   return list

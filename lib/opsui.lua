@@ -51,6 +51,11 @@ function M.board(T, c, view)
       #view.units, view.jobs or 0, view.hails and "OPEN" or "SHUT")
   end
   c:text(1, y + 1, strip:sub(1, w), T.C.faint)
+  -- the till: what has come in today, and whether someone is mid-payment
+  if view.till then
+    local line = view.arming and ("ARMED " .. view.arming) or ("TILL " .. view.till)
+    c:text(math.max(1, w - #line), y + 1, line, view.arming and T.C.accent or T.C.faint)
+  end
   if (view.refused or 0) > 0 and wide then
     c:text(w - 12, y + 1, string.format("%4d REFUSED", view.refused), T.C.warn)
   end
