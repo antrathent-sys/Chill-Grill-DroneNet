@@ -40,6 +40,7 @@ return {
     "lib/display.lua", "lib/state.lua", "lib/screens.lua",
     "lib/db.lua", "stickers.lua",
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
+    "lib/loader.lua", "station.example.lua",
     "ops.lua", "lib/opsui.lua", "lib/tui.lua", "lib/display.lua",
     "lib/ledger.lua", "lib/queue.lua", "tariff.example.lua",
     -- making customers' passes: provision copies these onto each one

@@ -8,7 +8,8 @@
 -- for the flight and carries on afterwards - and Q stops it.
 --
 -- It also takes orders from the base over the radio: an ops.fly command from
--- the admin panel, or a taxi job from a customer by way of ops. An order is
+-- the admin panel, a taxi job from a customer by way of ops, or - docked at the
+-- loading station - stick the silos the station has lifted up to it. An order is
 -- SEALED with this drone's own key (lib/seclink.lua, direction BASE_TO_DRONE)
 -- on the same channel the telemetry goes out on. That seal is the whole
 -- security model now that the fleet flies without cables: only the base, which
@@ -205,6 +206,36 @@ local function distress(why)
   print("DISTRESS: " .. why .. " at " .. here())
 end
 
+-- The loading station has lifted silos up against these stickers: extend them
+-- (retract, for on = false). Only latched on a dock or at rest - in the air
+-- there is nothing to hold - and never while carrying someone. The answer
+-- says what each sticker reports; "touching" is Create's own check and may
+-- not see a block on another physics object, so it is information, not the
+-- verdict. The verdict is whether every sticker ended where it was asked.
+local function stickFor(msg)
+  if job then return false, "carrying someone" end
+  local name = call(dockP, "getConnectedName")
+  if not ((type(name) == "string" and name ~= "") or run.frozen >= 2) then return false, "not docked" end
+  local names = F.stickers(msg)
+  if #names == 0 then return false, "no stickers named" end
+  for _, n in ipairs(names) do
+    local isOne = false
+    for _, t in ipairs({ peripheral.getType(n) }) do if t == "Create_Sticker" then isOne = true end end
+    if not isOne then return false, n .. " is not a sticker on this drone" end
+  end
+  local want = msg.on ~= false
+  for _, n in ipairs(names) do pcall(peripheral.call, n, want and "extend" or "retract") end
+  sleep(0.25)
+  local parts, ok = {}, true
+  for _, n in ipairs(names) do
+    local okE, ext = pcall(peripheral.call, n, "isExtended")
+    local okA, att = pcall(peripheral.call, n, "isAttachedToBlock")
+    if not (okE and ext == want) then ok = false end
+    parts[#parts + 1] = n .. ((okE and ext) and " out" or " in") .. ((okA and att) and " touching" or "")
+  end
+  return ok, (not ok) and "a sticker did not move" or nil, table.concat(parts, ", ")
+end
+
 -- Waits for something to fly and returns; the main loop runs it and then calls
 -- jobStep to work out what happens next.
 -- Open one packet from the telemetry channel as an order for this drone, or
@@ -284,6 +315,12 @@ local function netLoop()
           announce("enroute", "on the way to " .. tostring(job.pad))
           return
         end
+      elseif msg.type == "unit.stick" then
+        local okS, whyS, detail = stickFor(msg)
+        print("")
+        print(string.format("stickers %s: %s", msg.on ~= false and "out" or "in", okS and "done" or tostring(whyS)))
+        if detail then print("  " .. detail) end
+        say(F.stuck(msg.job, id, okS, whyS, detail, myNonce()))
       elseif msg.type == "job.go" and job and job.step == "waiting" and msg.job == job.id then
         job.step = "ride"
         pending = F.legCommand("ride", job)

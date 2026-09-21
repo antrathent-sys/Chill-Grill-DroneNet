@@ -22,6 +22,9 @@
 --   ops place del <name>                  take one off the list
 --   ops sos [n]          the last n incidents: every unit that went down or
 --                        silent, with where it was, for recovery
+--   ops load ...         the loading station at the dock: silos placed, filled,
+--                        assembled, lifted to the drone, stuck on, lift off.
+--                        `ops load` alone lists its commands (station.lua)
 --
 -- It runs on the base computer and, just as happily, on an ender pocket
 -- computer: the board lays itself out for 26 columns and keeps the keys that
@@ -622,6 +625,257 @@ if cmd == "free" then
   return
 end
 
+if cmd == "load" then
+  -- The loading station at the dock (lib/loader.lua; its layout is station.lua
+  -- on this computer). Its relays are on THIS computer's network - a cable, or
+  -- Redstone Links from relays here - and the drone's part of a load goes to
+  -- it sealed, the same way every other order does.
+  local LOAD = dofile("lib/loader.lua")
+  local sub = (args[2] or ""):lower()
+  local usage = {
+    "ops load                      the station: bays, relays, waits, what a silo holds",
+    "ops load plan [items] [stack] how a load is carried (items: the intake's, if set)",
+    "ops load test <action> [side] fire one action's relay: place assemble lift retract",
+    "ops load stick <drone> [side] the drone extends its sticker(s), nothing else moves",
+    "ops load unstick <drone> [side]   ...and retracts them: drops what they hold",
+    "ops load run <drone|any> [items] [stack]   a whole load, synced with the drone",
+  }
+  if not fs.exists("station.lua") then
+    print("no station.lua here: copy station.example.lua to station.lua and fill it in")
+    for _, u in ipairs(usage) do print(u) end
+    return
+  end
+  local okF, raw = pcall(dofile, "station.lua")
+  local cfg, whyC = LOAD.check(okF and raw or nil)
+  if not cfg then print("station.lua: " .. tostring(okF and whyC or raw)) return end
+
+  local function confirm(q)
+    write(q .. " [y/N] ")
+    local a = read()
+    return type(a) == "string" and a:lower():sub(1, 1) == "y"
+  end
+  local function setFace(face, on)
+    if face.relay then
+      if not peripheral.isPresent(face.relay) then return false, "not on this computer's network" end
+      return pcall(peripheral.call, face.relay, "setOutput", face.side, on)
+    end
+    return pcall(redstone.setOutput, face.side, on)
+  end
+  local function inputOf(face)
+    local okI, v
+    if face.relay then okI, v = pcall(peripheral.call, face.relay, "getAnalogInput", face.side)
+    else okI, v = pcall(redstone.getAnalogInput, face.side) end
+    return okI and v or nil
+  end
+  local function countOf(inv)
+    local okL, list = pcall(peripheral.call, inv, "list")
+    if not (okL and type(list) == "table") then return nil end
+    local n = 0
+    for _, it in pairs(list) do n = n + (it.count or 0) end
+    return n
+  end
+  -- what is waiting in the intake: items, stacks (by item, each at its own
+  -- stack size) and the smallest stack size among them
+  local function intake()
+    local inv = cfg.fill.intake
+    if not inv then return nil end
+    local okL, list = pcall(peripheral.call, inv, "list")
+    if not (okL and type(list) == "table") then return nil end
+    local byName, maxOf = {}, {}
+    for slot, it in pairs(list) do
+      byName[it.name] = (byName[it.name] or 0) + it.count
+      if not maxOf[it.name] then
+        local okD, d = pcall(peripheral.call, inv, "getItemDetail", slot)
+        maxOf[it.name] = okD and type(d) == "table" and d.maxCount or 64
+      end
+    end
+    local rows, smallest = {}, nil
+    for name, c in pairs(byName) do
+      rows[#rows + 1] = { count = c, max = maxOf[name] }
+      smallest = math.min(smallest or maxOf[name], maxOf[name])
+    end
+    local items, stacks = LOAD.stacksOf(rows)
+    return items, stacks, smallest
+  end
+  -- items and stacks from the command line, or else from the intake
+  local function sized(iItems, iStack)
+    local items, stack = tonumber(args[iItems]), tonumber(args[iStack])
+    if items then return items, stack end
+    local n, stacks, smallest = intake()
+    if not n then return nil, "how many items? (or set fill.intake in station.lua so it can count)" end
+    if n == 0 then return nil, "the intake " .. cfg.fill.intake .. " is empty" end
+    return n, smallest, stacks
+  end
+  local function faces(act, sides)
+    local t = {}
+    for _, face in ipairs(LOAD.facesFor(cfg[act], sides)) do t[#t + 1] = LOAD.describeIO(face) end
+    return #t > 0 and table.concat(t, ", ") or "(none)"
+  end
+
+  if sub == "" then
+    print(string.format("station: %d bay%s (%s), dock %s", #cfg.bays, #cfg.bays == 1 and "" or "s",
+      table.concat(cfg.bays, " + "), tostring(cfg.dock or "(any)")))
+    print(string.format("a silo holds %d stacks: %d of a 64-stack item; the station takes %d",
+      cfg.capacity, cfg.capacity * 64, LOAD.maxItems(cfg, 64)))
+    for _, act in ipairs({ "place", "assemble", "lift", "retract" }) do
+      print(string.format("  %-9s %s", act, faces(act, cfg.bays)))
+    end
+    for _, face in ipairs(LOAD.allFaces(cfg)) do
+      if face.relay and not peripheral.isPresent(face.relay) then
+        print("  MISSING: " .. face.relay .. " is not on this computer's network")
+      end
+    end
+    local st = {}
+    for _, s in ipairs(cfg.bays) do st[#st + 1] = s .. " " .. cfg.stick[s] end
+    print("  stickers  " .. table.concat(st, ", "))
+    local w = cfg.wait
+    print(string.format("  waits     place %g, assemble %g, lift %g, stick %g, retract %g s; fill max %g, dock max %g s",
+      w.place, w.assemble, w.lift, w.stick, w.retract, w.fill, w.dock))
+    print("  liftoff   " .. (cfg.liftoff and ("fly " .. cfg.liftoff) or "(none - the drone stays, loaded)"))
+    print("")
+    for _, u in ipairs(usage) do print(u) end
+    return
+  end
+
+  if sub == "plan" then
+    local items, stack, stacks = sized(3, 4)
+    if not items then print(stack) return end
+    local plan, whyP = LOAD.plan(cfg, items, stack, stacks)
+    if not plan then print("does not fit: " .. whyP) return end
+    print(string.format("%d items, %d stacks: %d silo%s (%s), %d%% full", plan.items, plan.stacks, plan.silos,
+      plan.silos == 1 and "" or "s", table.concat(plan.sides, " + "), plan.full))
+    for _, l in ipairs(LOAD.describe(cfg, plan)) do print("  " .. l) end
+    return
+  end
+
+  if sub == "test" then
+    local act, side = (args[3] or ""):lower(), args[4] and args[4]:lower()
+    if not LOAD.ACTIONS[act] then print(usage[3]) return end
+    local list = LOAD.facesFor(cfg[act], side and { side } or cfg.bays)
+    if #list == 0 then print("no relay face for " .. act .. (side and (" " .. side) or "")) return end
+    print(act .. " fires: " .. faces(act, side and { side } or cfg.bays))
+    if not confirm("fire it? the machines move") then print("nothing fired") return end
+    for _, face in ipairs(list) do
+      local okS, whyS = setFace(face, not face.invert)
+      if not okS then print(LOAD.describeIO(face) .. ": " .. tostring(whyS)) end
+    end
+    local held = false
+    for _, face in ipairs(list) do held = held or face.hold end
+    if held then
+      write("held on - ENT to let go ")
+      read()
+    else
+      sleep(cfg.pulse)
+    end
+    for _, face in ipairs(list) do setFace(face, face.invert and true or false) end
+    print("done - all back at rest")
+    return
+  end
+
+  if sub == "stick" or sub == "unstick" or sub == "run" then
+    local who = args[3]
+    if not who then print(sub == "run" and usage[6] or usage[4]) return end
+    local dockPad = cfg.dock and padByName(cfg.dock)
+    if cfg.dock and not dockPad then print("warning: no place called " .. cfg.dock .. " - ops place add it") end
+    print("listening 3 s so the board is current...")
+    parallel.waitForAny(receive, function() sleep(3) end)
+    local id, whyW = pickWho(who, dockPad)
+    if not id then print("ops: " .. tostring(whyW)) return end
+    if whyW then print(whyW) end
+    local loadId = "load-" .. nonce()
+    handle = function(_, body)
+      if body.type == "unit.stuck" and body.drone == id and body.job == loadId then
+        os.queueEvent("ops_stuck", body)
+      end
+    end
+    -- the drone's half: stick (or let go), and wait for its sealed answer
+    local function stick(names, on)
+      local okO, whyO = order(id, F.stick(loadId, names, on, nonce()))
+      if not okO then return false, whyO end
+      local timer = os.startTimer(10)
+      while true do
+        local ev, a = os.pullEvent()
+        if ev == "ops_stuck" then
+          if a.detail then print("        " .. id .. ": " .. tostring(a.detail)) end
+          return a.ok, a.why
+        elseif ev == "timer" and a == timer then
+          return false, "no answer in 10 s - is beacon running on " .. id .. "?"
+        end
+      end
+    end
+
+    if sub ~= "run" then
+      local side = args[4] and args[4]:lower()
+      local names = {}
+      for _, s in ipairs(side and { side } or cfg.bays) do
+        if cfg.stick[s] then names[#names + 1] = cfg.stick[s] end
+      end
+      if #names == 0 then print("no sticker for " .. tostring(side)) return end
+      local on = (sub == "stick")
+      if not on then print("Retracting drops whatever those stickers hold.") end
+      if not confirm(string.format("%s %s on %s?", on and "extend" or "retract", table.concat(names, " + "), id)) then
+        print("nothing sent")
+        return
+      end
+      local ok, why
+      parallel.waitForAny(receive, function() ok, why = stick(names, on) end)
+      print(ok and (id .. ": done") or (id .. ": " .. tostring(why)))
+      return
+    end
+
+    local items, stack, stacks = sized(4, 5)
+    if not items then print(stack) return end
+    local plan, whyP = LOAD.plan(cfg, items, stack, stacks)
+    if not plan then print("does not fit: " .. whyP) return end
+    print(string.format("%s: %d items, %d stacks, %d silo%s (%s)", id, plan.items, plan.stacks, plan.silos,
+      plan.silos == 1 and "" or "s", table.concat(plan.sides, " + ")))
+    for _, l in ipairs(LOAD.describe(cfg, plan)) do print("  " .. l) end
+    if not confirm("run it? the station's machines move") then print("nothing fired") return end
+    print("X calls it off (the lift comes back down)")
+    local t0, stop = os.clock(), false
+    local io = {
+      set = setFace, sleep = sleep, now = os.clock, count = countOf, input = inputOf,
+      docked = function()
+        local f = fleet[id]
+        if not (f and f.seen) or os.clock() - f.seen > 15 then return false, id .. " not heard from" end
+        if not f.docked then return false, id .. " is not docked" end
+        if dockPad and f.x then
+          local d = math.sqrt((f.x - dockPad.x - 0.5) ^ 2 + (f.z - dockPad.z - 0.5) ^ 2)
+          if d > 4 then return false, string.format("%s is docked %d blocks from %s", id, d, dockPad.name) end
+        end
+        return true
+      end,
+      stick = function(names) return stick(names, true) end,
+      liftoff = function(line2)
+        local seen, sent, whySent = orderAndWait(id, F.flyCommand(line2, nonce()), 6)
+        if not sent then return false, whySent end
+        if not seen then return false, "no answer" end
+        return seen.ok, seen.why
+      end,
+      say = function(step, text) print(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text)) end,
+      stopped = function() return stop end,
+    }
+    local ok, why, at
+    parallel.waitForAny(receive, function() ok, why, at = LOAD.run(cfg, plan, io) end, function()
+      while true do
+        local _, k = os.pullEvent("key")
+        if k == keys_api.x and not stop then stop = true print("calling it off...") end
+      end
+    end)
+    if ok then
+      print(string.format("loaded in %.0f s%s", os.clock() - t0, cfg.liftoff and "" or
+        (" - " .. id .. " is ready: ops fly " .. id .. " <command> when you are")))
+    else
+      print(string.format("called off at %s: %s", tostring(at), tostring(why)))
+      if at == "retract" or at == "liftoff" then print("the silos are stuck to " .. id .. " - unstick to drop them") end
+    end
+    return
+  end
+
+  for _, u in ipairs(usage) do print(u) end
+  return
+end
+
 if cmd == "sos" then
   -- every unit that went down or went silent, newest last, with where it was
   if not fs.exists(INCIDENTS) then print("no incidents - nothing has gone down") return end
@@ -827,7 +1081,7 @@ print(string.format("%s  %d customer key%s%s",
 -- rednet are someone pretending to be a drone: a "failed" or "done" for
 -- another customer's ride would free its unit mid-flight, a false distress
 -- would send the operator out for nothing.
-local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true }
+local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true }
 
 function handle(from, msg, customer)
   do

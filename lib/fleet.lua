@@ -56,6 +56,11 @@
 --   ops.ping      nonce                                     anyone -> ops
 --                 (answered with a job.ack, so a customer can tell "the base
 --                  cannot hear me" from "the base has no drone free")
+--   unit.stick    job stickers on nonce                      ops  -> drone
+--                 (sealed: extend - or with on = false retract - these
+--                  stickers, "Create_Sticker_0,Create_Sticker_1"; the loading
+--                  station has lifted silos up against them)
+--   unit.stuck    job drone ok [why] [detail] nonce         drone-> ops
 -- A nonce is "<who>-<counter>" and never repeats for that sender: a customer
 -- leaning on the button must not launch two drones (COMMAND.md:139-142).
 
@@ -77,7 +82,7 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true,
             ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true,
             ["fare.ask"] = true, ["fare.quote"] = true, ["unit.distress"] = true,
-            ["job.relocate"] = true }
+            ["job.relocate"] = true, ["unit.stick"] = true, ["unit.stuck"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -170,6 +175,13 @@ function F.check(m)
   elseif m.type == "job.relocate" then
     if not str(m.job) then return false, "no job id" end
     if not (num(m.px) and num(m.pz)) then return false, "no new spot" end
+  elseif m.type == "unit.stick" then
+    if not str(m.job) then return false, "no job id" end
+    if not (str(m.stickers) and m.stickers:match("^[%w_:%.%-,]+$")) then return false, "bad sticker list" end
+    if type(m.on) ~= "boolean" then return false, "extend or retract?" end
+  elseif m.type == "unit.stuck" then
+    if not (str(m.job) and str(m.drone)) then return false, "no job or drone" end
+    if type(m.ok) ~= "boolean" then return false, "no verdict" end
   elseif m.type == "account.info" then
     if not str(m.who) then return false, "no customer" end
     if not num(m.balance) then return false, "no balance" end
@@ -262,6 +274,27 @@ end
 function F.state(job, drone, state, detail, nonce)
   return { v = F.VERSION, type = "job.state", nonce = nonce or (job .. "-" .. state),
            job = job, drone = drone, state = state, detail = detail }
+end
+
+--- The loading station's silos are up against these stickers: extend them
+-- (on = false retracts). names is a list of peripheral names on the drone.
+function F.stick(job, names, on, nonce)
+  return { v = F.VERSION, type = "unit.stick", nonce = nonce, job = job,
+           stickers = table.concat(names, ","), on = on ~= false }
+end
+
+--- The sticker list out of a unit.stick, as a list of names.
+function F.stickers(m)
+  local out = {}
+  for n in tostring(m and m.stickers or ""):gmatch("[^,]+") do out[#out + 1] = n end
+  return out
+end
+
+--- The drone's answer: ok when every sticker ended where it was asked to be.
+-- detail says what each one reports, for the operator.
+function F.stuck(job, drone, ok, why, detail, nonce)
+  return { v = F.VERSION, type = "unit.stuck", nonce = nonce, job = job, drone = drone,
+           ok = ok and true or false, why = why, detail = detail }
 end
 
 function F.flyCommand(args, nonce)

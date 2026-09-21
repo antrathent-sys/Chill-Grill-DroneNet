@@ -63,6 +63,16 @@ local function drone(opts)
     docking_connector_0 = { type = "docking_connector", m = { getConnectedName = function() return opts.name or "" end } },
   }
   periph.modem_0 = { type = "modem", m = { isWireless = function() return false end } }
+  -- opts.stickers: names of Create Stickers on the craft, all retracted
+  w.stuckOut = {}
+  for _, n in ipairs(opts.stickers or {}) do
+    w.stuckOut[n] = false
+    periph[n] = { type = "Create_Sticker", m = {
+      extend = function() local was = w.stuckOut[n] w.stuckOut[n] = true return not was end,
+      retract = function() local was = w.stuckOut[n] w.stuckOut[n] = false return was end,
+      isExtended = function() return w.stuckOut[n] end,
+      isAttachedToBlock = function() return false end } }
+  end
   if opts.nowire then periph.modem_0 = nil end
   if opts.noradio then periph.modem_ender = nil end
   env.peripheral = {
@@ -93,7 +103,8 @@ local function drone(opts)
   }
   env.term = { getSize = function() return 39, 13 end, getCursorPos = function() return 1, 5 end,
                setCursorPos = function() end, clearLine = function() end, write = function() end }
-  env.sleep = function() coroutine.yield() end
+  -- a pause inside the order listener runs outside any coroutine here
+  env.sleep = function() if coroutine.running() then coroutine.yield() end end
   -- the send loop runs `cycles` packets, then the key watcher gets the next key
   -- send a few packets, then whichever of the other two has something to do:
   -- an order if one is queued (net), else the keyboard
@@ -392,6 +403,36 @@ local stB = {}
 for _, s in ipairs(saidOfType(w, "job.state")) do stB[#stB + 1] = s.state end
 check("no pickup flight: on station at once, then the ride, then home",
   w.runs[1] == "fly land 1200 340" and table.concat(stB, " "):sub(1, 7) == "waiting", (w.runs[1] or "nothing") .. " / " .. table.concat(stB, " "))
+
+print("the loading station's silos")
+w = run(drone({ name = "base_pad", cycles = 1, stickers = { "Create_Sticker_0", "Create_Sticker_1" },
+                inbox = { order(F.stick("load-1", { "Create_Sticker_0" }, true, "ops-s1")) } }))
+local stk = saidOfType(w, "unit.stuck")
+check("docked: the named sticker goes out, and only that one", w.stuckOut.Create_Sticker_0 == true
+  and w.stuckOut.Create_Sticker_1 == false)
+check("it answers sealed: stuck, for that load", #stk == 1 and stk[1].ok == true and stk[1].job == "load-1"
+  and w.refused == 0, stk[1] and tostring(stk[1].why))
+check("...saying what the sticker reports", stk[1] and tostring(stk[1].detail):find("Create_Sticker_0 out", 1, true) ~= nil,
+  stk[1] and stk[1].detail)
+check("nothing flies", #w.runs == 0)
+w = run(drone({ velocity = { x = 2, y = 0, z = 0 }, cycles = 1, stickers = { "Create_Sticker_0" },
+                inbox = { order(F.stick("load-2", { "Create_Sticker_0" }, true, "ops-s2")) } }))
+stk = saidOfType(w, "unit.stuck")
+check("not docked: refused, the sticker stays in", w.stuckOut.Create_Sticker_0 == false and stk[1]
+  and stk[1].ok == false and stk[1].why == "not docked", stk[1] and stk[1].why)
+w = run(drone({ name = "base_pad", cycles = 1, stickers = { "Create_Sticker_0" },
+                inbox = { order(F.stick("load-3", { "modem_0" }, true, "ops-s3")) } }))
+stk = saidOfType(w, "unit.stuck")
+check("a name that is not a sticker is refused", stk[1] and stk[1].ok == false
+  and tostring(stk[1].why):find("not a sticker", 1, true) ~= nil, stk[1] and stk[1].why)
+w = run(drone({ name = "base_pad", cycles = 1, stickers = { "Create_Sticker_0" },
+                inbox = { order(F.stick("load-4", { "Create_Sticker_0" }, true, "ops-s4")),
+                          order(F.stick("load-4", { "Create_Sticker_0" }, false, "ops-s5")) } }))
+stk = saidOfType(w, "unit.stuck")
+check("unstick retracts it again", #stk == 2 and stk[2].ok == true and w.stuckOut.Create_Sticker_0 == false)
+w = run(drone({ name = "base_pad", cycles = 1, stickers = { "Create_Sticker_0" },
+                inbox = { { raw = true, msg = order(F.stick("load-5", { "Create_Sticker_0" }, true, "ops-s6")) } } }))
+check("an unsealed stick order is not obeyed", w.stuckOut.Create_Sticker_0 == false and #saidOfType(w, "unit.stuck") == 0)
 
 print("refusals")
 w = run(drone({ nokey = true }))

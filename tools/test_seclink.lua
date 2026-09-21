@@ -133,6 +133,23 @@ local afterReboot = s2.seal({ i = 4 }).n
 check("after a reboot it starts past the reserved block", afterReboot == S.RESERVE + 1, afterReboot)
 for _ = 1, S.RESERVE do s2.seal({}) end
 check("crossing the block writes the next mark first", tonumber(files["c.ctr"]) >= s2.n, files["c.ctr"])
+-- two senders alive at once on one computer, sharing the file: the ops board
+-- and an `ops load` beside it. Whatever order they seal in, the drone must be
+-- able to open every packet: the counter it sees only ever rises.
+files["d.ctr"] = nil
+local board = S.sender(K1, "drone-1", 2, "d.ctr")
+local rxD = S.receiver()
+local function opens(e) return rxD.open(e, function() return K1 end, 2) ~= nil end
+local okAll = opens(board.seal({ a = 1 }))
+local loader = S.sender(K1, "drone-1", 2, "d.ctr")
+for _ = 1, 3 do okAll = opens(loader.seal({ b = 1 })) and okAll end
+okAll = opens(board.seal({ a = 2 })) and okAll        -- the board again, after the load
+okAll = opens(loader.seal({ b = 2 })) and okAll
+check("two senders sharing a counter file never go backwards", okAll)
+board.seal({ a = 3 })             -- the load has finished; the board is on its own again
+local n0 = board.n
+board.seal({ a = 4 })
+check("...and one sender alone does not skip ahead of itself", board.n == n0 + 1, board.n - n0)
 local up = S.sender(K1, "drone-1", 1, nil)
 local down = S.sender(K1, "drone-1", 2, nil)
 check("same counter, other direction: different nonce", up.seal({ a = 1 }).c ~= down.seal({ a = 1 }).c)

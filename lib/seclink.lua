@@ -235,6 +235,14 @@ function S.sender(key, id, dir, ctrPath)
 
   --- Seal a flat table. Adds ts (ms, UTC). Returns the envelope, or nil and why.
   function o.seal(t)
+    -- Another sender on this computer sharing the file (the ops board and an
+    -- `ops load` beside it; fly and beacon on a drone) may have reserved past
+    -- us. Start above whatever it wrote, or every packet we send from here on
+    -- is refused as a replay. Our own mark in the file is not a jump.
+    if ctrPath then
+      local now = tonumber(readAll(ctrPath) or "")
+      if now and now ~= o.mark and now > o.n then o.n, o.mark = now, now end
+    end
     if o.n + 1 > o.mark and not reserve() then return nil, "cannot persist the counter" end
     o.n = o.n + 1
     local body = {}

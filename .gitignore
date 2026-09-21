@@ -12,6 +12,7 @@ __pycache__/
 /cal.lua
 /tune.lua
 /devices.lua
+/station.lua
 .devstate
 .dronekey
 .dronekey.ctr

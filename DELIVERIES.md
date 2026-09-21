@@ -76,6 +76,29 @@ apart and reuse the vault (unproven). The vault's cost goes in the parcel fare.
   itself when stock falls below it. Those jobs only run while nobody is
   waiting for a ride or a parcel, because customers come first.
 
+## The loading station (built 2026-09-22)
+
+`ops load` on the base runs the station at the dock (lib/loader.lua; the
+layout is `station.lua`, copied from `station.example.lua`). One Redstone
+Relay face per action:
+
+| Step | What | Done when |
+|---|---|---|
+| place | a silo in each bay the load needs | `wait.place` |
+| fill | the auto loader fills them | a fixed time, the intake emptying, the silos' count, or a signal; `wait.fill` at most |
+| assemble | a deployer clicks each Physics Assembler | `wait.assemble` |
+| dock | the drone latched on the station's dock | telemetry says docked there; `wait.dock` at most |
+| lift | the lifter takes the silos up to the drone | `wait.lift` |
+| stick | the drone extends its stickers (sealed order) | the drone answers |
+| retract | the lifter comes down | `wait.retract` |
+| liftoff | the drone flies `liftoff`, if set | the drone acks |
+
+A 3x1 silo holds 60 stacks (Create's `vaultCapacity`, 20 per block): 3,840 of
+a 64-stack item, 7,680 across both bays. One silo goes in `single`; two are
+split evenly, so the drone carries about the same either side. Place, fill
+and assemble run before the drone arrives. A failure anywhere calls the load
+off with the lift down and every face at rest, and says where it stopped.
+
 ## What changes in the code (small)
 
 - `lib/fleet.lua`: a job gets a kind, one of `ride`, `parcel` or `restock`. It
