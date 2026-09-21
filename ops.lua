@@ -13,6 +13,7 @@
 --   ops jobs [n]         the last n rides and what they cost in time
 --   ops account [who]    balances, or one customer's history
 --   ops credit <who> <n> put credit on an account by hand (spurs)
+--   ops till             what the till can see: the seat, the pad, the depositor
 --
 -- It runs on the base computer and, just as happily, on an ender pocket
 -- computer: the board lays itself out for 26 columns and keeps the keys that
@@ -142,6 +143,23 @@ local armed, depositor
 -- that about itself. Set the spot in tariff.lua as payPad = { x=, z=, r= }.
 local present, payPad = {}, nil
 local PAD_RADIUS, PRESENCE_AGE = 2, 15
+-- The seat. Create's "Entity Name" display source writes whoever is sitting in
+-- a Create Seat onto a Display Link; CC:C Bridge's target block hands that text
+-- to us. It is the only thing in this modpack that names a real player to a
+-- computer, and it needs no card, no terminal and no admin - the customer just
+-- sits down to pay. Build: seat at the till, display link aimed at it, source
+-- "Entity Name", target a CC:C Bridge target block on the network.
+local seat
+for _, nm in ipairs(peripheral.getNames()) do
+  if peripheral.getType(nm) == "create_target" then seat = nm end
+end
+
+local function whoIsSitting()
+  if not seat then return nil end
+  local ok, line = pcall(peripheral.call, seat, "getLine", 1)
+  if not ok then return nil end
+  return (F.seatName(line))
+end
 for _, nm in ipairs(peripheral.getNames()) do
   if peripheral.getType(nm) == "Numismatics_Depositor" then depositor = nm end
 end
@@ -451,6 +469,20 @@ if cmd == "free" then
   return
 end
 
+if cmd == "till" then
+  print("depositor: " .. (depositor or "none found (Numismatics_Depositor)"))
+  print("seat     : " .. (seat or "none found (CC:C Bridge target block, type create_target)"))
+  if seat then
+    local okS, line = pcall(peripheral.call, seat, "getLine", 1)
+    print("  reading: " .. (okS and ("\"" .. tostring(line) .. "\" -> " ..
+      tostring(F.seatName(line) or "not a name")) or "could not read it"))
+  end
+  print("pay pad  : " .. (payPad and string.format("%d, %d r%d default %s", payPad.x, payPad.z, payPad.r,
+    LEDGER.money(payPad.amount)) or "not set (tariff.lua payPad = { x=, z=, r=, amount= })"))
+  print("side     : " .. DEPOSIT_SIDE .. " (redstone in)")
+  return
+end
+
 if cmd == "account" then
   local rows = ledgerRows()
   local who = args[2]
@@ -732,12 +764,26 @@ local function till()
   while true do
     local ev, side = os.pullEvent("redstone")
     if redstone.getInput(DEPOSIT_SIDE) then
-      -- the pay pad first: whoever is standing on it owns this payment
+      -- Three ways to know whose money this is, in order of how sure they
+      -- are: somebody sitting in the seat (a real player name from the game
+      -- itself), a terminal standing on the pay pad (an account that proved
+      -- itself), then an armed top-up (a claim made a minute ago).
+      local sitting = whoIsSitting()
       local padWho, padAmount, padWhy
       if payPad then
         padWho, padAmount, padWhy = F.onPad(present, payPad, os.clock(), payPad.r, PRESENCE_AGE)
       end
-      if padWho then
+      if sitting then
+        local amount = math.floor((padWho == sitting and padAmount) or (armed and armed.who == sitting and armed.amount)
+                                  or (payPad and payPad.amount) or 512)
+        local bal = post(sitting, "credit", amount, "seat")
+        log("%s paid %s in the seat - balance %s", sitting, LEDGER.money(amount), LEDGER.money(bal or 0))
+        local p = present[sitting]
+        if p and p.client then
+          pcall(rednet.send, p.client, F.creditOk(sitting, amount, bal or 0, nonce()), F.PROTO)
+        end
+        armed = nil
+      elseif padWho then
         local amount = math.floor(padAmount or payPad.amount)
         local bal = post(padWho, "credit", amount, "pay pad")
         log("%s paid %s on the pad - balance %s", padWho, LEDGER.money(amount), LEDGER.money(bal or 0))
@@ -851,7 +897,8 @@ local function drawBoard()
     units = list, sel = sel, log = events, jobs = liveJobs(), refused = rejected,
     clock = textutils.formatTime(os.time(), true), hails = openToHails,
     till = LEDGER.money(takings),
-    arming = (payPad and (F.onPad(present, payPad, os.clock(), payPad.r, PRESENCE_AGE))) or
+    arming = whoIsSitting() or
+             (payPad and (F.onPad(present, payPad, os.clock(), payPad.r, PRESENCE_AGE))) or
              (armed and armed.who) or nil,
   })
   canvas:flush(term)

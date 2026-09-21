@@ -101,6 +101,16 @@ none, _, whyPad = F.onPad(present, PAD, 1002)
 check("a stale report does not count", none == nil and whyPad:match("nobody"), whyPad)
 check("nobody at all says so", select(3, F.onPad({}, PAD, 1002)):match("nobody"))
 
+print("a name read off the seat")
+check("a plain name", F.seatName("alex") == "alex")
+check("trimmed", F.seatName("  alex  ") == "alex")
+check("colour codes stripped", F.seatName("\194\1676alex") == "alex", tostring(F.seatName("\194\1676alex")))
+local none, whyName = F.seatName("")
+check("an empty seat is not a customer", none == nil and whyName == "seat empty")
+check("nothing longer than a name can be", (F.seatName(string.rep("a", 17))) == nil)
+check("a decorated nickname is refused", (F.seatName("[VIP] alex")) == nil)
+check("and so is nothing at all", (F.seatName(nil)) == nil)
+
 print("one hail per caller at a time")
 local rate = {}
 check("first hail goes through", (F.rateOk(rate, "pocket-1", 100, 20)))

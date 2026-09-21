@@ -27,3 +27,10 @@ return {
   -- the default credit for a payment whose terminal did not name one.
   payPad = { x = 1892, z = 368, r = 2, amount = 512 },
 }
+
+-- A better till than the pay pad, if you build it: a Create Seat where the
+-- customer sits to pay, a Display Link aimed at the seat with its source set
+-- to "Entity Name", and a CC:C Bridge target block for the link to write to.
+-- The base then reads the player's own name off that block when the depositor
+-- fires - no card, no terminal, no admin, and it works for someone who has
+-- never bought a pocket computer. `ops till` says whether it can see one.

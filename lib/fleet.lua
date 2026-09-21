@@ -269,6 +269,21 @@ function F.onPad(present, pad, now, radius, maxAge)
   return nil, nil, count .. " terminals on the pad"
 end
 
+-- A name read off a Create Display Link through CC:C Bridge's target block.
+-- It is whatever Minecraft would render above the player's head, so it can
+-- carry team colours, nicknames and stray spaces - and it is the one thing in
+-- this modpack that names a real player to a computer. Anything that is not a
+-- plain name is refused rather than turned into an account.
+function F.seatName(line)
+  if type(line) ~= "string" then return nil, "no reading" end
+  local name = line:gsub("\194\167%x", "")          -- strip colour codes
+  name = name:match("^%s*(.-)%s*$")
+  if name == "" then return nil, "seat empty" end
+  if #name > 16 then return nil, "too long for a name" end
+  if not name:match("^[%w_]+$") then return nil, "not a plain name" end
+  return name
+end
+
 function F.creditOk(who, amount, balance, nonce)
   return { v = F.VERSION, type = "credit.ok", nonce = nonce, who = who,
            amount = math.floor(amount or 0), balance = math.floor(balance or 0) }
