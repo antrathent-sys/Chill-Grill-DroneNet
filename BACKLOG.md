@@ -729,3 +729,9 @@ One vault per drone, held by a sticker. Docks fill and empty it; anywhere else
 the drone drops it. Five in-game tests come before any code, and the first two
 (sticker holds a vault in flight, funnel reaches a vault on a docked drone)
 decide the design.
+
+**Walk-up stations, so anyone can use it.** Designed in
+[STATIONS.md](STATIONS.md). At a dock, a touch monitor and a depositor: pick a
+listed place, CALL a drone for free, pay once it is in, go. The station is its
+own account, so a walk-up needs no identity at all. Members keep their pocket
+computers and ride anywhere to anywhere.

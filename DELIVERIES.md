@@ -3,6 +3,8 @@
 A delivery is a shuttle job with a box in place of a passenger. It uses the
 same queue, dispatch, watchdog, job record and ledger as a ride. Written
 2026-09-21, nothing built yet. This replaces the package parts of COMMAND.md.
+Who can send, and how they pay, is in [STATIONS.md](STATIONS.md): anyone can
+walk up to a depot and pay coins, and members with a pocket computer have more.
 
 ## Where a delivery can start and end
 
