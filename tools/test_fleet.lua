@@ -171,9 +171,12 @@ print("what a finished job leaves behind")
 local job = { id = "j-7", drone = "drone-1", who = "hail-41", pad = "pier", px = 100, pz = -50,
               tx = 1200, tz = 340, blocks = 1104.7, waited = 62.4, rode = 48.25, total = 190,
               outcome = "done" }
+job.fare = 6
 local row = F.jobRow(job, 1789867493)
 check("one line, in the header order", row ==
-  "j-7,1789867493,drone-1,hail-41,pier,100,-50,1200,340,1104,62.4,48.2,190.0,done", row)
+  "j-7,1789867493,drone-1,hail-41,pier,100,-50,1200,340,1104,62.4,48.2,190.0,6,done", row)
+check("a ride nobody was charged for records a zero fare",
+  F.jobRow({ id = "j-9", outcome = "done" }, 1):match(",0,done$") ~= nil, F.jobRow({ id = "j-9" }, 1))
 check("a comma in a name cannot break the file",
   F.jobRow({ id = "j,8", drone = "d", outcome = "done" }, 1):match("^j 8,"), F.jobRow({ id = "j,8" }, 1))
 local rows = F.jobRows(F.JOB_HEADER .. "\n" .. row .. "\n" .. F.jobRow(

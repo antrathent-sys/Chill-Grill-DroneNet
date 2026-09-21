@@ -380,7 +380,11 @@ end
 -- places earn) are all sums over rows, and `upload joblog.csv` puts it in the
 -- repo where it can be read with a spreadsheet or a script. A key/value store
 -- would only make that harder.
-F.JOB_HEADER = "id,at,drone,customer,pickup,px,pz,tx,tz,blocks,waited,rode,total,outcome"
+-- `fare` is what the ride actually earned, in spurs. It is on the ride record
+-- and not only in the ledger because the interesting question later is what a
+-- day WOULD have earned at a different price, and that needs the distance and
+-- the fare on the same line.
+F.JOB_HEADER = "id,at,drone,customer,pickup,px,pz,tx,tz,blocks,waited,rode,total,fare,outcome"
 
 local function csvSafe(v)
   return (tostring(v == nil and "" or v):gsub("[,\r\n]", " "))
@@ -397,6 +401,7 @@ function F.jobRow(j, at)
     string.format("%.1f", j.waited or 0),      -- from assigned to the customer aboard
     string.format("%.1f", j.rode or 0),        -- from aboard to landed
     string.format("%.1f", j.total or 0),       -- assigned to free again
+    string.format("%d", math.floor(j.fare or 0)),
     csvSafe(j.outcome or j.state or "?"),
   }, ",")
 end

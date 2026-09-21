@@ -571,6 +571,13 @@ if cmd == "jobs" then
   print(string.format("%d rides, %d finished, %d failed, %d blocks carried",
     sum.jobs, sum.done, sum.failed, sum.blocks))
   print(string.format("average wait %.0fs, average ride %.0fs", sum.avgWait, sum.avgRide))
+  local earned, far = 0, 0
+  for _, r in ipairs(rows) do
+    earned = earned + (tonumber(r.fare) or 0)
+    far = far + (tonumber(r.blocks) or 0)
+  end
+  print(string.format("earned %s over %d blocks (%s a ride)", LEDGER.money(earned), far,
+    LEDGER.money(sum.done > 0 and (earned / sum.done) or 0)))
   local places = {}
   for where, n in pairs(sum.byPlace) do places[#places + 1] = { where, n } end
   table.sort(places, function(a, b) return a[2] > b[2] end)
@@ -723,7 +730,7 @@ function handle(from, msg, customer)
             -- the fare, once, and only for a ride that actually finished
             if msg.state == "done" and j.who and not j.charged then
               local fare, why = LEDGER.fare(j.blocks, j.toName or j.pad, tariff)
-              j.charged = true
+              j.charged, j.fare = true, fare
               if fare > 0 then
                 local bal = post(j.who, "fare", -fare, why)
                 log("%s charged %s (%s)", j.who, LEDGER.money(fare), LEDGER.money(bal or 0))
