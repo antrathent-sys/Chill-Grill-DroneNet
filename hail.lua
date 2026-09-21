@@ -261,10 +261,21 @@ local function topUp()
   local c = screen()
   if not c then return end
   local view = { who = me, balance = balance, state = "choose", spin = 0 }
+  local lastHere = 0
   while true do
     UI.topup(T, c, view)
     c:flush(term)
+    -- While this screen is open, say where we are standing, a few seconds
+    -- apart. That is how the pay pad knows whose account to credit - it never
+    -- has to learn which PLAYER paid, only which terminal is on the spot.
+    if view.state == "waiting" and os.clock() - lastHere > 3 then
+      local x, y, z = gps.locate(2)
+      if x then say(F.here(x, y, z, nonce(), view.amount)) end
+      lastHere = os.clock()
+    end
+    local timer = os.startTimer(1)
     local ev = { os.pullEvent() }
+    if ev[1] ~= "timer" then pcall(os.cancelTimer, timer) end
     view.spin = (view.spin or 0) + 1
     if ev[1] == "key" then
       local key = ev[2]
@@ -272,6 +283,7 @@ local function topUp()
       if view.state == "choose" and AMOUNTS[key] then
         view.amount, view.state = AMOUNTS[key], "waiting"
         say(F.creditArm(view.amount, nonce()))
+        view.since = os.clock()
       end
     elseif ev[1] == "rednet_message" then
       local msg = ev[3]

@@ -119,7 +119,14 @@ local LEDGER_FILE, TARIFF_FILE = "ledger.csv", "tariff.lua"
 local tariff = LEDGER.TARIFF
 do
   local okT, t = pcall(dofile, TARIFF_FILE)
-  if okT and type(t) == "table" then tariff = LEDGER.tariff(t) end
+  if okT and type(t) == "table" then
+    tariff = LEDGER.tariff(t)
+    if type(t.payPad) == "table" and tonumber(t.payPad.x) and tonumber(t.payPad.z) then
+      payPad = { x = tonumber(t.payPad.x), z = tonumber(t.payPad.z),
+                 r = tonumber(t.payPad.r) or PAD_RADIUS,
+                 amount = tonumber(t.payPad.amount) or 512 }
+    end
+  end
 end
 
 -- The till's state lives up here with the rest of the money: `handle` arms a
@@ -128,6 +135,13 @@ end
 local ARM_WINDOW = 60          -- seconds a customer has to actually pay
 local DEPOSIT_SIDE = "back"    -- where the depositor's pulse arrives
 local armed, depositor
+-- The pay pad. A customer's terminal says where it is standing; whoever is on
+-- the pad when the depositor fires gets the credit. This sidesteps the thing
+-- Numismatics will not tell us - which PLAYER paid - by not needing to know:
+-- the question becomes which account is present, and a terminal can prove
+-- that about itself. Set the spot in tariff.lua as payPad = { x=, z=, r= }.
+local present, payPad = {}, nil
+local PAD_RADIUS, PRESENCE_AGE = 2, 15
 for _, nm in ipairs(peripheral.getNames()) do
   if peripheral.getType(nm) == "Numismatics_Depositor" then depositor = nm end
 end
@@ -569,6 +583,12 @@ function handle(from, msg, customer)
           local b = LEDGER.balances(ledgerRows())[who] or { balance = 0, rides = 0 }
           pcall(rednet.send, from, F.accountInfo(who, b.balance, b.rides, nonce()), F.PROTO)
         end
+      elseif msg.type == "here" then
+        -- a terminal saying where it is. Only a SEALED one counts: an
+        -- unsealed "here" is just someone claiming to be somewhere.
+        if customer then
+          present[customer] = { x = msg.x, z = msg.z, at = os.clock(), amount = msg.amount, client = from }
+        end
       elseif msg.type == "credit.arm" then
         -- "I am about to put money in a depositor": remember who, so the
         -- redstone pulse can be credited to them. The depositor itself cannot
@@ -712,7 +732,21 @@ local function till()
   while true do
     local ev, side = os.pullEvent("redstone")
     if redstone.getInput(DEPOSIT_SIDE) then
-      if armed and os.clock() - armed.at <= ARM_WINDOW then
+      -- the pay pad first: whoever is standing on it owns this payment
+      local padWho, padAmount, padWhy
+      if payPad then
+        padWho, padAmount, padWhy = F.onPad(present, payPad, os.clock(), payPad.r, PRESENCE_AGE)
+      end
+      if padWho then
+        local amount = math.floor(padAmount or payPad.amount)
+        local bal = post(padWho, "credit", amount, "pay pad")
+        log("%s paid %s on the pad - balance %s", padWho, LEDGER.money(amount), LEDGER.money(bal or 0))
+        local p = present[padWho]
+        if p and p.client then
+          pcall(rednet.send, p.client, F.creditOk(padWho, amount, bal or 0, nonce()), F.PROTO)
+        end
+        armed = nil
+      elseif armed and os.clock() - armed.at <= ARM_WINDOW then
         local bal = post(armed.who, "credit", armed.amount, "depositor")
         log("%s paid %s - balance %s", armed.who, LEDGER.money(armed.amount), LEDGER.money(bal or 0))
         if armed.client then
@@ -720,7 +754,7 @@ local function till()
         end
         armed = nil
       else
-        log("a payment arrived with nobody armed for it - credit by hand")
+        log("payment with no owner: %s - credit by hand", padWhy or "nobody armed")
       end
       sleep(0.5)      -- one pulse is one payment
     end
@@ -816,7 +850,9 @@ local function drawBoard()
   UI.board(T, canvas, {
     units = list, sel = sel, log = events, jobs = liveJobs(), refused = rejected,
     clock = textutils.formatTime(os.time(), true), hails = openToHails,
-    till = LEDGER.money(takings), arming = armed and armed.who or nil,
+    till = LEDGER.money(takings),
+    arming = (payPad and (F.onPad(present, payPad, os.clock(), payPad.r, PRESENCE_AGE))) or
+             (armed and armed.who) or nil,
   })
   canvas:flush(term)
   return list

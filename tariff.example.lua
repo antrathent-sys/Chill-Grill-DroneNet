@@ -18,4 +18,12 @@ return {
 
   -- Rides shorter than this are free. 0 turns it off.
   freeUnder = 0,
+
+  -- The pay pad: the block a customer stands on to put credit on. Their
+  -- terminal reports where it is while the credit screen is open, and whoever
+  -- is on the pad when the depositor fires gets the money - so nothing has to
+  -- work out which PLAYER paid. Two terminals on the pad at once is refused
+  -- rather than guessed at. r is how far off the spot still counts, amount is
+  -- the default credit for a payment whose terminal did not name one.
+  payPad = { x = 1892, z = 368, r = 2, amount = 512 },
 }

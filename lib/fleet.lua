@@ -44,6 +44,11 @@
 --   account.info  who balance rides owed nonce               ops -> customer
 --   credit.arm    amount nonce                               customer -> ops
 --                 (I am about to pay this much at a depositor - watch for it)
+--   here          x y z [amount] nonce                      customer -> ops
+--                 (my terminal is standing at this spot, right now). The pay
+--                 pad works on this alone: whoever is ON the pad when the
+--                 depositor fires is who gets the credit, so nothing has to
+--                 identify the PLAYER at all - only which account is present.
 --   credit.ok     who amount balance nonce                   ops -> customer
 --   ops.ping      nonce                                     anyone -> ops
 --                 (answered with a job.ack, so a customer can tell "the base
@@ -65,7 +70,7 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["ops.fly"] = true, ["ops.ping"] = true, ["job.track"] = true,
             ["places.ask"] = true, ["places.list"] = true,
             ["account.ask"] = true, ["account.info"] = true,
-            ["credit.arm"] = true, ["credit.ok"] = true }
+            ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -150,6 +155,9 @@ function F.check(m)
   elseif m.type == "account.info" then
     if not str(m.who) then return false, "no customer" end
     if not num(m.balance) then return false, "no balance" end
+  elseif m.type == "here" then
+    if not (num(m.x) and num(m.z)) then return false, "no position" end
+    if m.amount ~= nil and not num(m.amount) then return false, "bad amount" end
   elseif m.type == "credit.arm" then
     if not num(m.amount) or m.amount <= 0 then return false, "bad amount" end
   elseif m.type == "credit.ok" then
@@ -232,6 +240,33 @@ end
 
 function F.creditArm(amount, nonce)
   return { v = F.VERSION, type = "credit.arm", nonce = nonce, amount = math.floor(amount or 0) }
+end
+
+-- "I am standing here": the whole pay-pad mechanism.
+function F.here(x, y, z, nonce, amount)
+  return { v = F.VERSION, type = "here", nonce = nonce,
+           x = math.floor(x or 0), y = y and math.floor(y), z = math.floor(z or 0), amount = amount }
+end
+
+-- Which of the terminals reporting themselves is on the pad. Returns the
+-- name, or nil and why: two people on one pad is ambiguous, and guessing
+-- would put someone else's money on the wrong account.
+--   present = { [who] = { x, z, at, amount } }
+function F.onPad(present, pad, now, radius, maxAge)
+  radius, maxAge = radius or 2, maxAge or 15
+  local found, count = nil, 0
+  for who, p in pairs(present or {}) do
+    if num(p.x) and num(p.z) and (now - (p.at or 0)) <= maxAge then
+      local d = math.sqrt((p.x - pad.x) ^ 2 + (p.z - pad.z) ^ 2)
+      if d <= radius then
+        count = count + 1
+        found = { who = who, dist = d, amount = p.amount }
+      end
+    end
+  end
+  if count == 1 then return found.who, found.amount end
+  if count == 0 then return nil, nil, "nobody on the pad" end
+  return nil, nil, count .. " terminals on the pad"
 end
 
 function F.creditOk(who, amount, balance, nonce)

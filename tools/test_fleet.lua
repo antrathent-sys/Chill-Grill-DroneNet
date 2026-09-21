@@ -83,6 +83,24 @@ check("and the ask is too", (F.check(F.placesAsk("n-2"))))
 check("a name with a separator in it cannot break the packing",
   F.unpackPlaces(F.packPlaces({ { name = "a:b|c", x = 1, z = 2 } }))[1].name == "abc")
 
+print("the pay pad: who is standing on it")
+local PAD = { x = 100, z = -50 }
+check("a here message checks out", (F.check(F.here(100, 70, -50, "n-1", 512))))
+check("without a position it is refused", why({ v = 1, type = "here", nonce = "a" }) == "no position")
+local present = { alex = { x = 100.4, z = -50.2, at = 1000, amount = 512 } }
+local who, amount = F.onPad(present, PAD, 1002)
+check("one terminal on the pad is that terminal", who == "alex" and amount == 512, tostring(who))
+present.sam = { x = 140, z = -50, at = 1002 }
+check("someone across the yard does not count", (F.onPad(present, PAD, 1002)) == "alex")
+present.sam = { x = 101, z = -51, at = 1002 }
+local none, _, whyPad = F.onPad(present, PAD, 1002)
+check("two on the pad is refused, not guessed", none == nil and whyPad:match("2 terminals"), whyPad)
+present.sam = nil
+present.alex.at = 900
+none, _, whyPad = F.onPad(present, PAD, 1002)
+check("a stale report does not count", none == nil and whyPad:match("nobody"), whyPad)
+check("nobody at all says so", select(3, F.onPad({}, PAD, 1002)):match("nobody"))
+
 print("one hail per caller at a time")
 local rate = {}
 check("first hail goes through", (F.rateOk(rate, "pocket-1", 100, 20)))
