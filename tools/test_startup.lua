@@ -370,15 +370,63 @@ for role, list in pairs(realMan) do
     end
   end
 end
+-- startup.lua draws hail's boot screen on a quiet boot, from these, under
+-- pcall: only a computer that autoruns hail boots quietly, so what matters is
+-- that every role carrying hail carries them too (checked just below)
+local BOOT_SCREEN = { ["lib/display.lua"] = true, ["lib/tui.lua"] = true, ["lib/hailui.lua"] = true }
 for _, n in ipairs(realMan.common) do
   local src = readFile(ROOT .. n) or ""
   for dep in src:gmatch('dofile%s*,?%s*%(?%s*"([%w_/%.%-]+%.lua)"') do
     local inCommon = false
     for _, c in ipairs(realMan.common) do if c == dep then inCommon = true end end
-    if all[dep] and not inCommon then gaps[#gaps + 1] = "common:" .. n .. " needs " .. dep end
+    local optional = (n == "startup.lua" and BOOT_SCREEN[dep])
+    if all[dep] and not inCommon and not optional then gaps[#gaps + 1] = "common:" .. n .. " needs " .. dep end
   end
 end
 check("every role carries what its programs load", #gaps == 0, table.concat(gaps, "; "))
+local bootGaps = {}
+for role, list in pairs(realMan) do
+  local has, hail = {}, false
+  for _, n in ipairs(list) do has[n] = true if n == "hail.lua" then hail = true end end
+  if hail then
+    for dep in pairs(BOOT_SCREEN) do if not has[dep] then bootGaps[#bootGaps + 1] = role .. " lacks " .. dep end end
+  end
+end
+check("every role that runs hail can draw its boot screen", #bootGaps == 0, table.concat(bootGaps, "; "))
+
+print("a customer's program boots quietly")
+-- .autorun = hail at power-on: the boot screen, the update behind it, then
+-- hail as a customer sees it - no 3 s wait, nothing printed
+local function quietWorld(clock)
+  local q = world({ files = { [".autorun"] = "hail" } })
+  local e = q.env
+  e.os = setmetatable({ clock = function() return clock end }, { __index = e.os })
+  e.colours = { black = 32768, white = 1 }
+  e.term = { getSize = function() return 26, 20 end, setCursorPos = function() end,
+             blit = function() q.drew = (q.drew or 0) + 1 end, write = function() end,
+             clear = function() end, setBackgroundColour = function() end,
+             setTextColour = function() end, setPaletteColour = function() end,
+             nativePaletteColour = function() return 0 end }
+  e.loadfile = function(path, _, env)
+    q.loaded = path
+    return function(...)
+      q.hailArgs = { ... }
+      error("Terminated", 0)                 -- the developer presses Ctrl+T
+    end
+  end
+  e._G = e
+  return q
+end
+local qb = quietWorld(1)
+run(qb)
+check("no 3 s wait", qb.waits == 0 and not printedHas(qb, "in 3 s"))
+check("hail runs as the customer sees it", qb.loaded == "hail.lua" and qb.hailArgs and qb.hailArgs[1] == "kiosk")
+check("the update still ran, into the log instead of onto the screen",
+  (qb.files[".startup.log"] or ""):find("role", 1, true) ~= nil and not printedHas(qb, "role:"))
+check("Ctrl+T gives the developer a shell", printedHas(qb, "starts it again"))
+local later = quietWorld(60)
+run(later)
+check("`startup` typed later is the developer's boot again", printedHas(later, "in 3 s"))
 
 print("per-drone tuning from the repo")
 local TUNE = "return { YAW_MAX_LEAN = 0.6 }"

@@ -18,6 +18,12 @@
 -- (press any key to get the shell instead) and restarts the command if it
 -- crashes or ends. `fly` is refused: a drone must never take off by itself
 -- because a chunk reloaded.
+--
+-- A customer's program (hail) boots differently: straight into the CINDER
+-- boot screen, the update running quietly behind its loading line, then the
+-- program - no 3 s wait and no file list. What startup would have printed
+-- goes to .startup.log. Ctrl+T is the way to the shell. Running `startup` by
+-- hand later is the developer's boot again, output and all.
 local REPO   = "antrathent-sys/Chill-Grill-DroneNet"
 local BRANCH = "main"
 local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua", "paste.lua", "preflight.lua",
@@ -44,6 +50,68 @@ local INSTALLED_FILE = ".installed"  -- the files startup put here, one per line
 local MANIFEST = "manifest.lua"
 local HOLD_FILE = ".hold"            -- the side to raise at every boot
 local HOLD_SIDES = { top = true, bottom = true, left = true, right = true, front = true, back = true }
+
+-- ------------------------------------------------------------- quiet boot
+-- Decided before anything prints: a customer's program, at power-on (not a
+-- `startup` typed later), with no arguments.
+local QUIET = { hail = true }
+local BOOT_LOG = ".startup.log"
+local quietCmd = nil
+if select("#", ...) == 0 and os.clock() < 10 and fs.exists(AUTORUN_FILE) then
+  local f = fs.open(AUTORUN_FILE, "r")
+  local c = f and f.readAll() or ""
+  if f then f.close() end
+  c = c:gsub("^%s+", ""):gsub("%s+$", "")
+  if QUIET[c:match("^(%S+)") or ""] then quietCmd = c end
+end
+
+-- Everything below prints through this. On a quiet boot it writes the log.
+local print = print
+local bootLog = nil
+if quietCmd then
+  if fs.exists(BOOT_LOG) then fs.delete(BOOT_LOG) end
+  bootLog = fs.open(BOOT_LOG, "w")
+  print = function(...)
+    local t = {}
+    for i = 1, select("#", ...) do t[#t + 1] = tostring((select(i, ...))) end
+    if bootLog then
+      pcall(bootLog.write, table.concat(t, " ") .. "\n")
+      if bootLog.flush then pcall(bootLog.flush) end
+    end
+  end
+end
+
+-- The boot screen, drawn from the libraries already on this computer (the
+-- update may replace them; this boot keeps the ones it started with).
+-- frac is how far the loading line has filled.
+local bootDraw = function() end
+if quietCmd then
+  local okD, D = pcall(dofile, "lib/display.lua")
+  local okT, T = pcall(dofile, "lib/tui.lua")
+  local okU, UI = pcall(dofile, "lib/hailui.lua")
+  if okD and okT and okU and type(D) == "table" and type(T) == "table"
+     and type(UI) == "table" and UI.boot then
+    T.apply(term)
+    local ver = nil
+    if fs.exists(".commit") then
+      local f = fs.open(".commit", "r")
+      ver = f and f.readLine()
+      if f then f.close() end
+    end
+    bootDraw = function(frac)
+      local w, h = term.getSize()
+      local c = D.canvas(w, h)
+      UI.boot(T, c, { frac = frac, ver = ver })
+      c:flush(term)
+    end
+  else
+    bootDraw = function()
+      term.setBackgroundColour(colours.black)
+      term.clear()
+    end
+  end
+  bootDraw(0)
+end
 
 local function isFlight(cmd)
   return cmd == "fly" or cmd:match("^fly%s") ~= nil
@@ -330,6 +398,7 @@ local function update(roleRequest)
   end
 
   local ref = latestSha()
+  bootDraw(0.1)
   if ref then
     print("pulling commit " .. ref:sub(1, 7))
   else
@@ -381,7 +450,8 @@ local function update(roleRequest)
   end
 
   local updated, unchanged, failed = {}, {}, {}
-  for _, name in ipairs(wanted) do
+  for i, name in ipairs(wanted) do
+    bootDraw(0.1 + 0.85 * i / math.max(1, #wanted))
     local body, err = fetch(ref, name)
     if not body or #body == 0 then
       failed[#failed + 1] = name .. " (" .. tostring(err or "empty") .. ")"
@@ -468,6 +538,40 @@ end
 local okU, errU = pcall(update, roleRequest)
 if not okU then print("startup: update failed - " .. tostring(errU)) end
 if roleRequest then return end
+
+-- ------------------------------------------------------ quiet boot: go
+-- Straight into the program as a customer sees it (`hail kiosk`). A crash
+-- is noted in the log and it starts again behind the boot screen; Ctrl+T
+-- is the developer's way out, to a shell in ordinary colours.
+if quietCmd then
+  bootDraw(1)
+  if bootLog then pcall(bootLog.close) bootLog = nil end
+  local prog = quietCmd:match("^(%S+)")
+  while true do
+    local env = setmetatable({ shell = shell, multishell = multishell }, { __index = _G })
+    local fn, lerr = loadfile(prog .. ".lua", nil, env)
+    local ok, err
+    if fn then ok, err = pcall(fn, "kiosk") else ok, err = false, lerr end
+    if not ok and tostring(err) == "Terminated" then
+      for i = 0, 15 do
+        pcall(term.setPaletteColour, 2 ^ i, term.nativePaletteColour(2 ^ i))
+      end
+      term.setBackgroundColour(colours.black)
+      term.setTextColour(colours.white)
+      term.clear()
+      term.setCursorPos(1, 1)
+      _G.print(prog .. " stopped - `startup` starts it again")
+      return
+    end
+    local h = fs.open(BOOT_LOG, "a")
+    if h then
+      h.write(prog .. (ok and " ended" or (" stopped: " .. tostring(err))) .. " - restarting\n")
+      h.close()
+    end
+    bootDraw(1)
+    sleep(2)
+  end
+end
 
 -- ---------------------------------------------------------------- autorun
 local cmd = readLocal(AUTORUN_FILE)
