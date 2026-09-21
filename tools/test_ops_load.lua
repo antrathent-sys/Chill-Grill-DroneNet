@@ -353,6 +353,12 @@ local fl = ordersOf(w, "ops.fly")
 check("with a liftoff: the drone is flown last", w.err == nil and #fl == 1 and fl[1].args == "ferry pier"
   and has(w, "loaded in"), w.err or w.text)
 STATION = liftoffStation
+w = base({ args = { "load", "run", "drone-1", "5000", "deliver", "pier", "and", "market" } }):run()
+fl = ordersOf(w, "ops.fly")
+check("a load names its own liftoff: two silos, two drops", w.err == nil and #fl == 1
+  and fl[1].args == "deliver pier and market" and has(w, "2 silos"), w.err or (fl[1] and fl[1].args))
+w = base({ args = { "load", "run", "drone-1", "1000", "deliver;", "x" } }):run()
+check("a liftoff that is not a fly command is refused before anything moves", has(w, "liftoff:") and #w.sets == 0)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end

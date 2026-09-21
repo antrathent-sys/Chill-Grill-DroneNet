@@ -128,8 +128,9 @@ any code:
 3. **The packer: works (2026-09-22).** The vault is filled while it is still a
    block, then assembled into its own sub-level. Still to see: the sticker
    grabbing it straight off the packer.
-4. **Flying loaded:** every tune so far was flown empty. Fly a full box on its
-   own before carrying anyone's goods. One change per flight.
+4. **Flying loaded: proven (2026-09-22).** `fly deliver` now needs a payload
+   (a sticker that is out) unless `empty` is added, lets go of the silo at the
+   drop, and with two silos aboard `deliver A and B` drops one at each.
 5. **Drop accuracy:** measure where the box lands against where it was aimed,
    from 10 to 20 blocks up.
 

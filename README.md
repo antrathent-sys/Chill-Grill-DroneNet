@@ -263,7 +263,9 @@ fly go <x> <z> [y]          climb to y (default +25), cruise to x z, brake, hold
 fly dock [<x> <y> <z>] [cruiseY] cruise to the pad (default: home), settle, descend and dock
 fly land [<x> <y> <z> [cruiseY]] descend where you are, or fly there first; no pad
 fly undock [y]              release the connector once thrust is up, then hold y
-fly deliver <x> <y> <z> [cruiseY] [to <pad> | to <x> <padY> <z>]  the round trip: undock, fly out, drop, come home (or to that pad), dock
+fly deliver <x> <y> <z> [cruiseY] [and <x> <y> <z>] [to <pad> | to <x> <padY> <z>] [empty]
+                            the round trip: undock, fly out, drop the silo, come home (or to that pad), dock;
+                            needs a payload unless `empty`; `and` drops a second silo at a second place
 fly spin <y> <deg>          hold y, then yaw <deg> and back
 ```
 
@@ -280,9 +282,21 @@ three legs and flies them back to back:
 ```
 cruise  to x,z at cruiseY      (undocking first, because it starts on the pad)
 hover   down to y over x,z     hold still there for DROP_HOLD seconds
-action  drop                   nothing is carried yet; the hook is there and named
+action  drop                   retract the sticker(s): the silo falls
 dock    back to where it started
 ```
+
+**A delivery needs a payload** (2026-09-22, after silo flights were proven).
+Before anything spins up, fly looks for Create Stickers that are out - each
+one is holding a silo the loading station stuck on - and refuses to leave
+without one. `empty` anywhere in the command flies the trip with nothing
+aboard, as a test. With two silos aboard, `fly deliver A and B` drops one at
+each: cruise, hover and drop at A, the same at B, then dock. The first drop
+lets go of the first sticker by name (`Create_Sticker_0`), the last drop of
+whatever is left; more drops than silos is refused on the ground. A place
+name works for any drop. The grammar and the assignment are
+`lib/deliver.lua`, tested by `tools/run_deliver_test.py`; the mock flies one
+drop, two drops, and both refusals.
 
 **Home is the pad in `CFG.HOME_X/Y/Z`**, block coordinates and pad Y straight
 off F3 - not wherever the craft happened to be standing when the command was
@@ -516,7 +530,8 @@ python tools/run_attitude_test.py      lib/attitude.lua, 18 cases incl. singular
 python tools/run_fleet_test.py         lib/fleet.lua, 128 cases
 python tools/run_beacon_test.py        beacon.lua incl. taking orders, 65 cases
 python tools/run_loader_test.py        lib/loader.lua: silo sizes, splits, whole loads, 60 cases
-python tools/run_ops_load_test.py      ops load against a pretend drone, 28 cases
+python tools/run_ops_load_test.py      ops load against a pretend drone, 30 cases
+python tools/run_deliver_test.py       lib/deliver.lua: the deliver grammar, which silo drops where
 ```
 
 Set `SPEAKER=1` on the mock harness to attach a speaker and see which notes a

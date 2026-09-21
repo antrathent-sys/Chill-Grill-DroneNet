@@ -638,7 +638,8 @@ if cmd == "load" then
     "ops load test <action> [side] fire one action's relay: place assemble lift retract",
     "ops load stick <drone> [side] the drone extends its sticker(s), nothing else moves",
     "ops load unstick <drone> [side]   ...and retracts them: drops what they hold",
-    "ops load run <drone|any> [items] [stack]   a whole load, synced with the drone",
+    "ops load run <drone|any> [items] [stack] [fly command]   a whole load, synced",
+    "   with the drone; the fly command is its liftoff: deliver pier and market",
   }
   if not fs.exists("station.lua") then
     print("no station.lua here: copy station.example.lua to station.lua and fill it in")
@@ -823,6 +824,17 @@ if cmd == "load" then
       return
     end
 
+    -- the liftoff for this load, after the numbers: a fly command
+    for i = 4, #args do
+      if not tonumber(args[i]) then
+        local line2 = table.concat({ (table.unpack or unpack)(args, i) }, " ")
+        local okA, whyA = F.flyArgs(line2)
+        if not okA then print("liftoff: " .. whyA) return end
+        cfg.liftoff = okA
+        for j = #args, i, -1 do args[j] = nil end
+        break
+      end
+    end
     local items, stack, stacks = sized(4, 5)
     if not items then print(stack) return end
     local plan, whyP = LOAD.plan(cfg, items, stack, stacks)

@@ -28,7 +28,7 @@ return {
     "fly.lua", "kill.lua", "preflight.lua", "probe.lua", "mixcal.lua", "docktest.lua",
     "stickers.lua", "chimes.lua", "beacon.lua",
     "lib/attitude.lua", "lib/mixer.lua", "lib/chime.lua", "lib/rs.lua",
-    "lib/mission.lua", "lib/db.lua",
+    "lib/mission.lua", "lib/db.lua", "lib/deliver.lua",
   },
 
   -- the redstone slave computer on an airframe (startup autorun rsio)

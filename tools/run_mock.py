@@ -87,7 +87,8 @@ SELFTEST = [
     # release nothing, then cruise home and dock. Every leg is an ordinary
     # flight; the only new code is what decides the next one.
     ("deliver", ["deliver", "100", "80", "50", "90"],
-     {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;0.5,0.5"},
+     {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;0.5,0.5",
+      "STICKERS": "Create_Sticker_0:1", "DROP_CHECK": "Create_Sticker_0@100.5,50.5"},
      # it comes home from the drop height, so the approach passes down through
      # the lock window and the magnet takes hold during align - the same
      # ending as "dock grabs early", reached honestly
@@ -95,9 +96,25 @@ SELFTEST = [
       "climb", "cruise", "brake", "align", "docked"]),
     # the same round trip ending on another pad: `to x padY z` docks there,
     # the home pad untouched (the mock's second pad sits at 20.5,30.5)
-    ("deliver to", ["deliver", "100", "80", "50", "90", "to", "20", "70", "30"],
-     {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5"},
+    ("deliver to", ["deliver", "100", "80", "50", "90", "to", "20", "70", "30", "empty"],
+     {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5", "DROP_CHECK": ""},
      "reaches 20.5 30.5"),
+    # a delivery needs a payload: with no sticker out it never leaves the dock
+    ("deliver needs a payload", ["deliver", "100", "80", "50", "90"],
+     {"TMAX": "30", "START_DOCKED": "1", "STICKERS": "Create_Sticker_0:0"}, []),
+    # two silos, two places: the first silo at the first, the second at the
+    # second, then home
+    ("deliver two drops", ["deliver", "100", "80", "50", "90", "and", "20", "80", "30"],
+     {"TMAX": "400", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5;0.5,0.5",
+      "STICKERS": "Create_Sticker_0:1,Create_Sticker_1:1",
+      "DROP_CHECK": "Create_Sticker_0@100.5,50.5;Create_Sticker_1@20.5,30.5"},
+     # the second drop is close to home: the way back climbs and the magnet
+     # takes hold during align, as in "deliver"
+     ["climb", "cruise", "brake", "hold", "fly", "climb", "cruise", "brake", "hold", "fly",
+      "climb", "align", "docked"]),
+    # more drops than silos is refused on the ground
+    ("two drops, one silo", ["deliver", "100", "80", "50", "90", "and", "20", "80", "30"],
+     {"TMAX": "30", "START_DOCKED": "1", "STICKERS": "Create_Sticker_0:1,Create_Sticker_1:0"}, []),
     ("quad fly", ["50"], {"TMAX": "40", "QUAD": "1"}, ["fly"]),
     # CRUISE_AIM_TAU smooths the aimed cruise lean; the attitude aim must
     # still fly the cruise (triad_check: level heading, aimq share)
@@ -126,7 +143,7 @@ SELFTEST = [
     ("border refuses", ["go", "100", "50", "90"], {"TMAX": "30", "TUNE": "return { WORLD_BORDER = 200 }"}, []),
     ("border allows", ["go", "100", "50", "90"], {"TMAX": "90", "TUNE": "return { WORLD_BORDER = 400 }"},
      ["climb", "cruise", "brake", "hold"]),
-    ("border checks every leg", ["deliver", "100", "80", "50", "90"],
+    ("border checks every leg", ["deliver", "100", "80", "50", "90", "empty"],
      {"TMAX": "30", "START_DOCKED": "1", "LEGS": "100.5,50.5;0.5,0.5", "TUNE": "return { WORLD_BORDER = 240 }"}, []),
     # a tune.lua on the craft overrides CFG: a 40 deg cruise lean cap (the
     # cap never goes below 30) must show in the log - untuned, the mock
@@ -264,7 +281,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -479,6 +496,28 @@ def main(argv=None):
                 tok = miss <= float(env["LAND_CHECK"])
                 ok = ok and tok
                 extra = "touched down %.1f blocks from the spot" % miss
+            if env.get("DROP_CHECK") is not None:
+                # "name@x,z;name@x,z": each let go of within 3 blocks of
+                # its drop, and nothing else let go of at all
+                import math as _m
+                got_drops = []
+                if os.path.exists(logpath + ".drops"):
+                    for line in open(logpath + ".drops", encoding="utf-8"):
+                        if line.strip():
+                            n, x, z, _h = line.split()
+                            got_drops.append((n, float(x), float(z)))
+                want = [w for w in env["DROP_CHECK"].split(";") if w]
+                tok = len(got_drops) == len(want)
+                notes = []
+                for w in want:
+                    n, xz = w.split("@")
+                    wx, wz = [float(v) for v in xz.split(",")]
+                    hit = [g for g in got_drops if g[0] == n]
+                    miss = _m.hypot(hit[0][1] - wx, hit[0][2] - wz) if hit else None
+                    tok = tok and miss is not None and miss < 3
+                    notes.append("%s %s" % (n, "not let go" if miss is None else "%.1f off" % miss))
+                ok = ok and tok
+                extra = "; ".join(notes) if want else ("%d let go of" % len(got_drops))
             if env.get("HDG_CHECK"):
                 import csv as _csv
                 with open(logpath, encoding="utf-8") as fh:

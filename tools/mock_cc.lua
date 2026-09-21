@@ -480,6 +480,26 @@ if os.getenv("TELEM") then
     open = function(ch) sim.telemOpen = sim.telemOpen or {} sim.telemOpen[#sim.telemOpen + 1] = ch end,
   })
 end
+-- STICKERS="Create_Sticker_0:1,Create_Sticker_1:0" puts Create Stickers on
+-- the craft, 1 = out (holding a silo). Every retract of one that was out is
+-- a drop, recorded with where the craft was, for DROP_CHECK.
+sim.drops = {}
+if os.getenv("STICKERS") then
+  for nm, st in string.gmatch(os.getenv("STICKERS"), "([%w_]+):(%d)") do
+    local out = (st == "1")
+    add(nm, "Create_Sticker", {
+      isExtended = function() return out end,
+      isAttachedToBlock = function() return false end,
+      extend = function() local was = out out = true return not was end,
+      retract = function()
+        local was = out
+        out = false
+        if was then sim.drops[#sim.drops + 1] = { name = nm, x = sim.x, z = sim.z, h = sim.h } end
+        return was
+      end,
+    })
+  end
+end
 -- RADIO_AT runs get one modem of each kind on the craft
 if os.getenv("RADIO_AT") then
   add("modem_wired", "modem", { isWireless = function() return false end })
@@ -625,6 +645,13 @@ end
 local out = io.open(os.getenv("HARNESS_LOG") or "harness_flightlog", "w")
 for _, l in ipairs(logLines) do out:write(l, "\n") end
 out:close()
+
+-- the drops: "name x z h" per line
+if os.getenv("HARNESS_LOG") then
+  local df = io.open(os.getenv("HARNESS_LOG") .. ".drops", "w")
+  for _, d in ipairs(sim.drops) do df:write(string.format("%s %.2f %.2f %.2f\n", d.name, d.x, d.z, d.h)) end
+  df:close()
+end
 
 -- what fly cal wrote, for the harness to check
 if memFiles["cal.lua"] and os.getenv("HARNESS_LOG") then

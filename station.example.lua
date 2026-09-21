@@ -66,6 +66,7 @@ return {
   wait = { place = 2, assemble = 2, lift = 3, stick = 2, retract = 3, fill = 120, dock = 300 },
 
   -- what the drone flies once loaded; leave it out and it stays on the dock,
-  -- loaded, until you send it (ops fly drone-1 ferry pier)
-  -- liftoff = "ferry pier",
+  -- loaded, until you send it. A load can name its own after the item count:
+  -- ops load run drone-1 5000 deliver pier and market   (a silo at each)
+  -- liftoff = "deliver pier",
 }

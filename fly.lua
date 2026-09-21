@@ -20,7 +20,9 @@
 --                                docked (telemetry keeps running), so load or unload there and
 --                                `fly ferry home` brings it back.
 -- fly deliver <x> <y> <z>     -> the round trip, starting docked: undock, fly to x z, hover at y,
---                                release (nothing to release yet), fly home, dock. Home is the pad
+--                                let go of the silo, fly home, dock. Needs a payload (a sticker
+--                                that is out) unless `empty` is added; `... and <x> <y> <z>` drops
+--                                a second silo at a second place (lib/deliver.lua). Home is the pad
 --                                in CFG.HOME_X/Y/Z. `fly dock` with no coordinates goes there too.
 -- fly land                    -> descend where you are, detect touchdown, cut thrust. No pad, no recharge.
 -- fly land <x> <y> <z> [cruiseY] -> fly to x z, then land there. y is the GROUND altitude at the
@@ -1952,48 +1954,65 @@ else
     -- The whole round trip in one command, which is the point: a dynamics
     -- change is worth judging over undock, cruise, descent, hover, cruise
     -- back and dock, not over whichever single leg happened to be flown.
-    local dx, dy, dz
-    if arg[2] and not tonumber(arg[2]) then
-      -- a pad name: drop over that pad rather than at typed coordinates
-      local pad = PAD.named(arg[2])
-      dx, dy, dz = pad.x, pad.y, pad.z
-      goal = tonumber(arg[3]) or pad.cruiseY or CFG.CRUISE_Y
-    else
-      dx = tonumber(arg[2]) or error("deliver needs <x> <y> <z> or a pad name", 0)
-      dy = tonumber(arg[3]) or error("deliver needs <x> <y> <z> or a pad name", 0)
-      dz = tonumber(arg[4]) or error("deliver needs <x> <y> <z> or a pad name", 0)
-      goal = tonumber(arg[5]) or CFG.CRUISE_Y
+    -- One drop, or one per silo aboard: `deliver A and B` drops the first
+    -- silo at A and the second at B, then docks (lib/deliver.lua has the
+    -- grammar and which silo goes where).
+    local okD, DL = pcall(dofile, "lib/deliver.lua")
+    if not (okD and type(DL) == "table") then error("lib/deliver.lua is missing - run `startup` to update", 0) end
+    local spec = DL.parse(arg)
+    -- The payload: each sticker that is out is holding a silo (the loading
+    -- station extends them against the silos it lifts). Looked for before
+    -- anything spins up, so a delivery with nothing aboard - or fewer silos
+    -- than drops - never leaves the dock. `empty` flies it as a test.
+    local held = {}
+    for _, n in ipairs(peripheral.getNames()) do
+      for _, t in ipairs({ peripheral.getType(n) }) do
+        if t == "Create_Sticker" then
+          local okE, out = pcall(peripheral.call, n, "isExtended")
+          if okE and out == true then held[#held + 1] = n end
+        end
+      end
     end
+    local release = DL.assign(#spec.drops, held, spec.empty)
+    local drops, padCruise = {}, nil
+    for i, d in ipairs(spec.drops) do
+      if d.place then
+        -- a place name: drop over it rather than at typed coordinates
+        local pad = PAD.named(d.place)
+        drops[i] = { x = pad.x, y = pad.y, z = pad.z }
+        if i == 1 then padCruise = pad.cruiseY end
+      else
+        drops[i] = d
+      end
+    end
+    goal = spec.cruiseY or padCruise or CFG.CRUISE_Y
     -- Home is the home PAD, not wherever the craft is standing: a mission
     -- launched from the wrong place still comes back to the right one.
     -- `... to <pad>` or `... to <x> <y> <z>` docks somewhere else at the end
     -- instead - a depot run, a one-off pad, a test - and leaves the home pad
     -- exactly as it is.
     local hp
-    for i = 2, #arg do
-      if arg[i] == "to" then
-        if arg[i + 1] and not tonumber(arg[i + 1]) then
-          hp = PAD.dock(arg[i + 1])
-        else
-          local tx, ty, tz = tonumber(arg[i + 1]), tonumber(arg[i + 2]), tonumber(arg[i + 3])
-          if not (tx and ty and tz) then error("deliver ... to <pad>   or   to <x> <padY> <z>", 0) end
-          hp = { name = "typed", x = tx, y = ty, z = tz }
-        end
-        break
-      end
+    if spec.to and spec.to.place then
+      hp = PAD.dock(spec.to.place)
+    elseif spec.to then
+      hp = { name = "typed", x = spec.to.x, y = spec.to.y, z = spec.to.z }
     end
     hp = hp or PAD.home()
     home = { x = blockCentre(hp.x), z = blockCentre(hp.z), padY = hp.y }
-    legs = {
-      { leg = "cruise", x = blockCentre(dx), z = blockCentre(dz), y = goal, undock = true },
-      { leg = "hover",  x = blockCentre(dx), z = blockCentre(dz), y = dy },
-      { leg = "action", what = "drop" },
-      -- no cruise leg home: the dock leg climbs, cruises and brakes on its
-      -- own, which is the same path `fly dock` flies and the one with hours
-      -- of logs behind it.
-      { leg = "dock",   x = home.x, z = home.z, padY = home.padY, y = goal,
-        trimX = hp.trimX, trimZ = hp.trimZ },
-    }
+    legs = {}
+    for i, d in ipairs(drops) do
+      local cx, cz = blockCentre(d.x), blockCentre(d.z)
+      legs[#legs + 1] = { leg = "cruise", x = cx, z = cz, y = goal, undock = (i == 1) }
+      legs[#legs + 1] = { leg = "hover",  x = cx, z = cz, y = d.y }
+      legs[#legs + 1] = { leg = "action", what = "drop", stickers = release[i] }
+      print(string.format("drop %d: %.0f,%.0f at Y %.0f - %s", i, d.x, d.z, d.y,
+        #release[i] > 0 and ("lets go of " .. table.concat(release[i], " + ")) or "flown empty"))
+    end
+    -- no cruise leg home: the dock leg climbs, cruises and brakes on its
+    -- own, which is the same path `fly dock` flies and the one with hours
+    -- of logs behind it.
+    legs[#legs + 1] = { leg = "dock", x = home.x, z = home.z, padY = home.padY, y = goal,
+                        trimX = hp.trimX, trimZ = hp.trimZ }
     mode = "deliver"
   elseif arg[1] == "spin" then
     -- pure yaw practice: hover at Y, then rotate about the thrust axis
@@ -2211,9 +2230,21 @@ local function nextLeg()
   local L = legs[legIdx]
   -- Actions happen between legs, instantly, and then we move on.
   while L and L.leg == "action" do
-    -- Nothing is carried yet. The hook is here and named, so when there is a
-    -- payload the change is this line and nothing else.
-    print("action: " .. tostring(L.what) .. " (no payload fitted - nothing released)")
+    if L.what == "drop" and L.stickers and #L.stickers > 0 then
+      -- Let go: a retracted sticker loses its weld and the silo falls. One
+      -- that is still out afterwards is still holding, and the silo comes
+      -- home with the craft.
+      local kept = {}
+      for _, n in ipairs(L.stickers) do
+        pcall(peripheral.call, n, "retract")
+        local okE, out = pcall(peripheral.call, n, "isExtended")
+        if not okE or out ~= false then kept[#kept + 1] = n end
+      end
+      print(string.format("drop at %.1f,%.1f Y %.1f: let go of %s%s", pos.x, pos.z, alt.getHeight(),
+        table.concat(L.stickers, " + "), #kept > 0 and (" - STILL HOLDING " .. table.concat(kept, " + ")) or ""))
+    else
+      print("action: " .. tostring(L.what) .. " (flown empty - nothing released)")
+    end
     chime.play(L.what == "drop" and "drop" or "ready", true)
     legIdx = legIdx + 1
     L = legs[legIdx]
