@@ -75,12 +75,7 @@ local function loadCusts()
 end
 
 local function saveCusts(keys)
-  local ids = {}
-  for id in pairs(keys) do ids[#ids + 1] = id end
-  table.sort(ids)
-  local out = { "# Shuttle customer keys - one line per terminal you issued.\n" }
-  for _, id in ipairs(ids) do out[#out + 1] = id .. "=" .. SEC.keyHex(keys[id]) .. "\n" end
-  writeText(CUSTS, table.concat(out))
+  writeText(CUSTS, SEC.formatFleetKeys(keys, SEC.CUST_HEADER))
 end
 
 local function loadFleet()

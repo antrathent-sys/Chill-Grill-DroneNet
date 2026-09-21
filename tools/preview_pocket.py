@@ -40,7 +40,11 @@ function(root, w, h, frames)
   local out = {}
   for _, fr in ipairs(frames) do
     local c = D.canvas(w, h)
-    if fr.screen == "topup" then
+    if fr.screen == "boot" then
+      UI.boot(T, c, { frac = fr.frac, ver = fr.ver })
+    elseif fr.screen == "down" then
+      UI.down(T, c, {})
+    elseif fr.screen == "topup" then
       UI.topup(T, c, { who = "alex", balance = fr.balance, amount = fr.amount,
                        state = fr.state, got = fr.got, spin = fr.spin or 0 })
     elseif fr.screen == "places" then
@@ -74,6 +78,13 @@ FRAMES = [
     dict(screen="topup", state="choose", balance=-56, amount=0, spin=1, away=0, start=1, eta=0),
     dict(screen="topup", state="ready", balance=-56, amount=512, spin=2, away=0, start=1, eta=0),
     dict(screen="ride", away=392, state="riding", spin=0, start=1456, eta=38),
+]
+
+# what a customer's pass shows before and instead of the service (kiosk.lua)
+BOOT_FRAMES = [
+    dict(screen="boot", frac=0.4, ver="8f3c2a1"),
+    dict(screen="boot", frac=1.0, ver="8f3c2a1"),
+    dict(screen="down"),
 ]
 
 # A teletext cell is a 2x3 grid of sub-pixels: bit 1 top-left, 2 top-right,
@@ -130,7 +141,10 @@ def main():
     ap.add_argument("out", nargs="?", default=os.path.join(HERE, "pocket.png"))
     ap.add_argument("--size", default="26x20")
     ap.add_argument("--scale", type=int, default=14)
+    ap.add_argument("--boot", action="store_true",
+                    help="the pass starting up and out of service, instead of a ride")
     a = ap.parse_args()
+    frames_in = BOOT_FRAMES if a.boot else FRAMES
     w, h = (int(v) for v in a.size.lower().split("x"))
 
     L = LuaRuntime(unpack_returned_tuples=True, encoding=None)
@@ -139,7 +153,7 @@ def main():
     lua_frames = "{" + ",".join(
         "{" + ",".join("%s=%s" % (k, ("true" if v is True else "false" if v is False
                                       else repr(v).replace("'", '"')))
-                       for k, v in f.items()) + "}" for f in FRAMES) + "}"
+                       for k, v in f.items()) + "}" for f in frames_in) + "}"
     blob, pal = L.eval(RENDER)(ROOT.replace("\\", "/").encode(), w, h,
                                L.eval(lua_frames.encode()))
     frames = blob.split(b"\1")
@@ -152,7 +166,8 @@ def main():
     except Exception:
         font = ImageFont.load_default()
 
-    labels = ["choosing a destination", "how much", "till open, pay now", "carrying you"]
+    labels = (["starting", "started", "out of service"] if a.boot else
+              ["choosing a destination", "how much", "till open, pay now", "carrying you"])
     imgs = [draw_frame(f, a.scale, font, labels[i]) for i, f in enumerate(frames)]
     pad = 10
     sheet = Image.new("RGB", (sum(i.width for i in imgs) + pad * (len(imgs) + 1),

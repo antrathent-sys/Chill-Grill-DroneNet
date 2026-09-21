@@ -42,12 +42,15 @@ return {
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
     "ops.lua", "lib/opsui.lua", "lib/tui.lua", "lib/display.lua",
     "lib/ledger.lua", "lib/queue.lua", "tariff.example.lua",
+    -- making customers' passes: provision copies these onto each one
+    "provision.lua", "lib/provision.lua", "kiosk.lua", "hail.lua", "lib/hailui.lua",
   },
 
   -- a customer terminal standing at a pad: it calls a taxi and counts its own use
   pad = { "taxipad.lua" },
 
-  -- the portable terminal (an advanced wireless pocket computer)
-  -- the portable terminal: hail, plus the canvas it draws its map with
+  -- Alex's own portable terminal, for trying hail as a developer. Customers'
+  -- passes are NOT made from this: `provision` on the base writes them, with
+  -- kiosk.lua as their startup and no updater or token on them at all.
   pocket = { "hail.lua", "lib/display.lua", "lib/hailui.lua", "lib/tui.lua" },
 }

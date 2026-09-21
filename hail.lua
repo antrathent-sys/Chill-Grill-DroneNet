@@ -56,6 +56,11 @@ if T then T.apply(term) end
 
 local args = { ... }
 local sub = (args[1] or ""):lower()
+-- `hail kiosk` is how a customer's pass runs it (kiosk.lua writes nothing
+-- else): straight to the places list and round again after every ride, with
+-- no way back to the shell and none of the operator's words.
+local KIOSK = (sub == "kiosk")
+if KIOSK then args, sub = {}, "" end
 local STATS, PLACES = ".hailstats", "places.lua"
 
 local me = (os.getComputerLabel and os.getComputerLabel()) or ("hail-" .. tostring(os.getComputerID()))
@@ -70,27 +75,6 @@ if sub == "stats" then
   return
 end
 
--- ------------------------------------------------------------------ radio ---
--- Waits rather than exits: under `startup autorun hail` an exit is a restart
--- loop, and a pocket computer can lose its modem to a player at any moment.
-local function findRadio()
-  for _, nm in ipairs(peripheral.getNames()) do
-    if peripheral.getType(nm) == "modem" then
-      local ok, wireless = pcall(peripheral.call, nm, "isWireless")
-      if ok and wireless then return nm end
-    end
-  end
-  return nil
-end
-
-local radio = findRadio()
-while not radio do
-  print("hail: this computer has no wireless modem, so it cannot call anyone.")
-  print("      Checking again every 5 s.")
-  sleep(5)
-  radio = findRadio()
-end
-rednet.open(radio)
 
 local seq = 0
 local function nonce()
@@ -114,13 +98,34 @@ local function save()
 end
 
 -- ------------------------------------------------------------------ paint ---
--- Imperial: amber on black, hard rules, no rounded anything. A pocket screen
--- is 26x20, so every line is cut to fit and nothing wraps.
+-- The text screens use the same kit as the drawn ones: lib/tui.lua recolours
+-- these slots, so AMBER is the light grey body text, DIM the quieter grey,
+-- INK the dark red that marks the thing to act on. A pocket screen is 26x20,
+-- so every line is cut to fit and nothing wraps.
 local W, H = term.getSize()
-local AMBER = colours and colours.orange or 2
+local AMBER = colours and colours.white or 1
 local DIM = colours and colours.brown or 4096
 local PAPER = colours and colours.black or 32768
-local INK = colours and colours.white or 1
+local INK = colours and colours.red or 16384
+
+-- One canvas for the list and the till, one for the ride, made on first use
+-- and dropped whenever a text screen has drawn over them (a canvas only
+-- writes the rows it thinks have changed). nil when the kit is missing, and
+-- then every caller falls back to text.
+local canvas, rideCanvas
+local function screen()
+  if not (D and T and UI) then return nil end
+  if not canvas then canvas = D.canvas(W, H) end
+  return canvas
+end
+
+local function drawRide(view)
+  if not (D and T and UI) then return false end
+  if not rideCanvas then rideCanvas = D.canvas(W, H) end
+  UI.ride(T, rideCanvas, view)
+  rideCanvas:flush(term)
+  return true
+end
 
 local colour = term.isColour and term.isColour()
 local function fg(c) if colour then term.setTextColour(c) end end
@@ -130,7 +135,7 @@ local function at(x, y, s, c)
   if y < 1 or y > H then return end
   term.setCursorPos(x, y)
   fg(c or AMBER)
-  term.write(tostring(s):sub(1, W - x + 1))
+  term.write(tostring(s):upper():sub(1, W - x + 1))   -- capitals, like the drawn screens
 end
 
 local function rule(y, c)
@@ -140,30 +145,80 @@ local function rule(y, c)
   term.write(string.rep("-", W))
 end
 
-local function frame(title, note)
+-- A text screen: the masthead in the block font, a title, a quieter note
+-- under it, and the key bar along the bottom - the same pieces, in the same
+-- places, as the drawn screens. Content goes on from row 6.
+local function frame(title, note, keyBar)
   bg(PAPER)
   term.clear()
-  at(1, 1, "CHILL GRILL SHUTTLE", AMBER)
-  rule(2)
-  if title then at(1, 3, title, INK) end
-  if note then at(1, 4, note, DIM) end
+  canvas, rideCanvas = nil, nil       -- this clear just made both of them wrong
+  if D and T and UI then
+    local c = D.canvas(W, H)
+    T.masthead(c, 1, UI.NAME, T.C.text)
+    if title then c:text(1, 3, tostring(title):upper():sub(1, W), T.C.text) end
+    if note and note ~= "" then c:text(1, 4, tostring(note):upper():sub(1, W), T.C.faint) end
+    if keyBar then T.keys(c, H, keyBar) end
+    c:flush(term)
+  else
+    at(1, 1, "CHILL GRILL SHUTTLE", AMBER)
+    rule(2)
+    if title then at(1, 3, title, AMBER) end
+    if note then at(1, 4, note, DIM) end
+  end
   fg(AMBER)
 end
 
 -- the scrolling slash, one character, turned by hand
 local SPIN = { "|", "/", "-", "\\" }
 local function spinner(y, text, n)
-  at(1, y, SPIN[(n % 4) + 1] .. " " .. text, AMBER)
+  at(1, y, SPIN[(n % 4) + 1], INK)
+  at(3, y, text, DIM)
 end
 
 local function ask(prompt)
-  fg(AMBER)
+  fg(DIM)
   term.write(prompt)
-  fg(INK)
-  local said = read()
   fg(AMBER)
+  local said = read()
   return said
 end
+
+-- One fresh key press, ignoring a key still held from the screen before. On
+-- a customer's pass terminate arrives as an ordinary event (kiosk.lua), even
+-- to a filtered pull, so it is skipped like anything else that is not a key.
+local function keyPress()
+  while true do
+    local ev, key, held = os.pullEvent("key")
+    if ev == "key" and not held then return key end
+  end
+end
+
+-- ------------------------------------------------------------------ radio ---
+-- Waits rather than exits: under `startup autorun hail` an exit is a restart
+-- loop, and a pocket computer can lose its modem to a player at any moment.
+local function findRadio()
+  for _, nm in ipairs(peripheral.getNames()) do
+    if peripheral.getType(nm) == "modem" then
+      local ok, wireless = pcall(peripheral.call, nm, "isWireless")
+      if ok and wireless then return nm end
+    end
+  end
+  return nil
+end
+
+local radio = findRadio()
+while not radio do
+  if KIOSK then
+    frame("NO RADIO", "this pass needs its modem")
+  else
+    print("hail: this computer has no wireless modem, so it cannot call anyone.")
+    print("      Checking again every 5 s.")
+  end
+  sleep(5)
+  radio = findRadio()
+end
+rednet.open(radio)
+
 
 -- ----------------------------------------------------------------- places ---
 local function coords(s)
@@ -335,7 +390,7 @@ local function chooseDestination(from)
       elseif key == keys.enter and list[sel] then
         local p = list[sel]
         return p.x, p.y, p.z, p.name
-      elseif key == keys.q then
+      elseif key == keys.q and not KIOSK then
         return nil
       elseif key == keys.t then
         topUp()
@@ -453,12 +508,10 @@ local function oneRide(tx, ty, tz, name)
   name = name or string.format("%d, %d", tx, tz)
   local away = dist(from, tx, tz)
 
-  frame("CONFIRM", name)
-  at(1, 6, string.format("%d blocks", math.floor(away)), INK)
-  at(1, 8, "ENTER to call")
-  at(1, 9, "anything else goes back", DIM)
-  term.setCursorPos(1, 11)
-  if ask("> ") ~= "" then return end
+  frame("CONFIRM", name, { { "ENT", "CALL", true }, { "ANY", "BACK" } })
+  at(1, 6, string.format("%d blocks", math.floor(away)), AMBER)
+  if balance then at(1, 7, "balance " .. (UI and UI.money(balance) or tostring(balance)), DIM) end
+  if keyPress() ~= keys.enter then return end
 
   stats.requests = (stats.requests or 0) + 1
   -- the name goes too: the base checks it against its own places, which is
@@ -523,9 +576,15 @@ local function oneRide(tx, ty, tz, name)
     frame("NO SHUTTLE", "")
     at(1, 6, refused or (heard and "the base sent nobody" or "nothing came back"), INK)
     if not (refused or heard) then
-      at(1, 8, "is ops running, and are", DIM)
-      at(1, 9, "you in radio range?", DIM)
-      at(1, 10, "try: hail test", DIM)
+      if KIOSK then
+        -- a customer has never heard of ops, and cannot type a command
+        at(1, 8, "the service may be closed,", DIM)
+        at(1, 9, "or you are out of range", DIM)
+      else
+        at(1, 8, "is ops running, and are", DIM)
+        at(1, 9, "you in radio range?", DIM)
+        at(1, 10, "try: hail test", DIM)
+      end
     end
     sleep(6)
     return
@@ -536,7 +595,8 @@ local function oneRide(tx, ty, tz, name)
   if how == "done" then
     F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(), blocks = away })
     frame("ARRIVED", name)
-    at(1, 6, "thanks for flying", INK)
+    at(1, 6, "thanks for flying", AMBER)
+    if balance then at(1, 8, "balance " .. (UI and UI.money(balance) or tostring(balance)), DIM) end
   else
     F.record(stats, "failure")
     frame("RIDE ENDED", how)
@@ -579,6 +639,20 @@ local tx0, ty0, tz0 = coords(table.concat(args, " "))
 if tx0 then
   oneRide(tx0, ty0, tz0, nil)
   return
+end
+
+if KIOSK then
+  -- A customer's pass: the places list is the home screen, and after every
+  -- ride it comes back round. The boot screen stays up until the list is
+  -- drawn, so there is no STARTING screen to read.
+  refreshPlaces(2)
+  askBalance(1)
+  save()
+  while true do
+    oneRide(nil, nil, nil, nil)
+    refreshPlaces(1)
+    askBalance(1)
+  end
 end
 
 frame("STARTING", "asking the base for places")

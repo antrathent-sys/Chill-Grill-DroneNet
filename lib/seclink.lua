@@ -125,6 +125,19 @@ function S.readFleetKeys(path)
   return S.parseFleetKeys(readAll(path) or "")
 end
 
+S.CUST_HEADER = "Shuttle customer keys - one line per pass you issued."
+
+--- The text of a key list, sorted by id, under a comment line: the one place
+-- the file format is written, so seckey and provision cannot drift apart.
+function S.formatFleetKeys(keys, header)
+  local ids = {}
+  for id in pairs(keys or {}) do ids[#ids + 1] = id end
+  table.sort(ids)
+  local out = { "# " .. (header or "keys") .. "\n" }
+  for _, id in ipairs(ids) do out[#out + 1] = id .. "=" .. S.keyHex(keys[id]) .. "\n" end
+  return table.concat(out)
+end
+
 -- -------------------------------------------------------------------- codec
 
 -- A flat table as text: key US type value RS ... Numbers, strings and
@@ -263,6 +276,15 @@ function S.receiver()
     last[slot] = n
     msg.id = id
     return msg
+  end
+
+  --- Forget the counters seen from one id. For when its key is replaced: the
+  -- new pass counts from 1 again, and without this every message from it would
+  -- look like a replay until the base restarted.
+  function o.forget(id)
+    for slot in pairs(last) do
+      if slot:sub(1, #id + 1) == id .. "/" then last[slot] = nil end
+    end
   end
 
   return o

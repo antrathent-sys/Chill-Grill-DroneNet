@@ -29,7 +29,7 @@ local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua"
                  "lib/devices.lua", "basectl.lua", "devices.example.lua",
                  "lib/fleet.lua", "ops.lua", "taxipad.lua", "hail.lua", "lib/hailui.lua", "lib/tui.lua",
                  "lib/ledger.lua", "lib/queue.lua", "tariff.example.lua",
-                 "lib/opsui.lua",
+                 "lib/opsui.lua", "provision.lua", "lib/provision.lua", "kiosk.lua",
                  "lib/seclink.lua", "seckey.lua", "radiotest.lua",
                  "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
                  "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
@@ -435,6 +435,11 @@ local function update(roleRequest)
   if #unchanged > 0 then print("unchanged: " .. table.concat(unchanged, ", ")) end
   if #failed > 0    then print("FAILED:    " .. table.concat(failed, ", ")) end
   if #updated == 0 and #failed == 0 then print("startup: all files current") end
+  -- Which commit this computer is now running, when it is a real commit and
+  -- nothing failed: provision stamps it on every pass it makes, and the
+  -- pass's boot screen shows it, so a pass in a customer's hand says which
+  -- code it carries.
+  if ref ~= BRANCH and #failed == 0 then writeText(".commit", ref:sub(1, 7) .. "\n") end
 
   -- Remove only what startup installed and this role no longer wants. A
   -- computer that has never recorded what it installed may lose any file the

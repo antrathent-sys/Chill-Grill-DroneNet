@@ -72,6 +72,41 @@ function M.places(T, c, view)
   return rows
 end
 
+-- --------------------------------------------------------------- the boot ---
+-- Nothing to read, on purpose: the name, a line that fills, and that is all.
+-- A customer's pass shows this while it starts (kiosk.lua) and hail finds
+-- where they are standing. view = { frac = 0..1, ver = "a1b2c3d" }
+function M.boot(T, c, view)
+  local w, h = c.w, c.h
+  c:clear()
+  local y = math.max(1, math.floor(h / 2) - 2)
+  T.masthead(c, y, M.NAME, T.C.text, M.SUB)
+  -- a hairline, one sub-pixel tall, like the rules either side of the name
+  local bw = math.max(6, w - 10)
+  local x0 = math.floor((w - bw) / 2) + 1
+  local py = (y + 5 - 1) * 3 + 2
+  local px0, px1 = (x0 - 1) * 2 + 1, (x0 - 1 + bw) * 2
+  c:line(px0, py, px1, py, T.C.rule)
+  local fill = math.floor((px1 - px0 + 1) * math.max(0, math.min(1, view.frac or 0)))
+  if fill > 0 then c:line(px0, py, px0 + fill - 1, py, T.C.accent) end
+  -- the build, in the corner, in the same grey as the rules: there for
+  -- whoever looks for it, and not for anyone else
+  if view.ver then c:text(2, h, "REV " .. tostring(view.ver):upper():sub(1, 7), T.C.rule) end
+end
+
+-- ---------------------------------------------------------- out of service ---
+-- When the program behind a pass stops. What went wrong is written to .crash
+-- for the base to read; the customer only needs to know it is coming back.
+function M.down(T, c, view)
+  local w, h = c.w, c.h
+  c:clear()
+  local y = math.max(1, math.floor(h / 2) - 3)
+  T.masthead(c, y, M.NAME, T.C.text, M.SUB)
+  local function mid(row, s, ink) c:text(math.max(1, math.floor((w - #s) / 2) + 1), row, s, ink) end
+  mid(y + 5, "OUT OF SERVICE", T.C.warn)
+  mid(y + 7, "BACK IN A MOMENT", T.C.faint)
+end
+
 -- -------------------------------------------------------------- the till ---
 -- view = { who, balance, amount, state = "choose"|"waiting"|"done", got }
 function M.topup(T, c, view)

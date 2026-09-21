@@ -137,6 +137,36 @@ local up = S.sender(K1, "drone-1", 1, nil)
 local down = S.sender(K1, "drone-1", 2, nil)
 check("same counter, other direction: different nonce", up.seal({ a = 1 }).c ~= down.seal({ a = 1 }).c)
 
+
+print("a replaced key")
+-- a pass reissued under the same name counts from 1 again with its new key;
+-- the base forgets the old counter for that name, and only that name
+local K2 = S.parseKey(string.rep("cd", 32))
+local custKeyNow = K1
+local keyOf = function(id) if id == "alex" then return custKeyNow end if id == "sam" then return K1 end end
+local base = S.receiver()
+local oldPass = S.sender(K1, "alex", S.DIR.DRONE_TO_BASE, nil)
+for _ = 1, 5 do oldPass.seal({ type = "x" }) end
+check("the old pass is heard", base.open(oldPass.seal({ type = "x" }), keyOf, S.DIR.DRONE_TO_BASE) ~= nil)
+local samPass = S.sender(K1, "sam", S.DIR.DRONE_TO_BASE, nil)
+for _ = 1, 3 do samPass.seal({ type = "x" }) end
+check("so is someone else's", base.open(samPass.seal({ type = "x" }), keyOf, S.DIR.DRONE_TO_BASE) ~= nil)
+custKeyNow = K2
+local newPass = S.sender(K2, "alex", S.DIR.DRONE_TO_BASE, nil)
+check("without forgetting, the new pass looks like a replay",
+  select(2, base.open(newPass.seal({ type = "x" }), keyOf, S.DIR.DRONE_TO_BASE)) == "replay")
+base.forget("alex")
+check("after forgetting, the new pass is heard", base.open(newPass.seal({ type = "x" }), keyOf, S.DIR.DRONE_TO_BASE) ~= nil)
+check("the old pass is not - its key is gone",
+  select(2, base.open(oldPass.seal({ type = "x" }), keyOf, S.DIR.DRONE_TO_BASE)) ~= nil)
+local replay = samPass.seal({ type = "x" })
+base.open(replay, keyOf, S.DIR.DRONE_TO_BASE)
+check("and nobody else's replay protection was touched",
+  select(2, base.open(replay, keyOf, S.DIR.DRONE_TO_BASE)) == "replay")
+local text = S.formatFleetKeys({ sam = K1, alex = K2 }, S.CUST_HEADER)
+local readBack = S.parseFleetKeys(text)
+check("the key file format round-trips, sorted by name",
+  text:find("alex=", 1, true) < text:find("sam=", 1, true) and S.keyHex(readBack.alex) == S.keyHex(K2))
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("seclink tests failed", 0) end

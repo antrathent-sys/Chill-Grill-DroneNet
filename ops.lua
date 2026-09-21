@@ -7,7 +7,9 @@
 --   ops land|hold|undock <who>     the in-flight words fly already takes
 --   ops stats            what the taxi pads have reported
 --   ops closed           run the board but turn radio hails away
---   ops known            take hails only from terminals you issued a key to
+--   ops open             also take hails from terminals with no key - for
+--                        testing only. By default only passes made with
+--                        `provision` (or seckey cust) can call a shuttle.
 --   ops poke <drone>     prove the link: ask a drone to answer, nothing flies
 --   ops free <drone>     it is not on a job, whatever ops thinks
 --   ops jobs [n]         the last n rides and what they cost in time
@@ -70,12 +72,38 @@ local cmd = (args[1] or "watch"):lower()
 local keys_api = keys
 
 local fleetKeys, nKeys = SEC.readFleetKeys(".fleetkeys")
--- Customers have their own keys (seckey cust new <name>). A sealed request
--- names the customer beyond doubt; an unsealed one is anonymous, and whether
--- those are taken at all is `ops open` (default) versus `ops known`.
+-- Customers have their own keys, one per pass (`provision`). A sealed request
+-- names the customer beyond doubt. An unsealed one is anonymous, and it is
+-- refused unless ops was started with `ops open`: anyone can write a few lines
+-- of Lua, so an open door would mean free anonymous rides for all of them.
 local custKeys, nCusts = SEC.readFleetKeys(".custkeys")
 local custRx = SEC.receiver()
-local knownOnly = false
+local knownOnly = true
+
+-- .custkeys changes while ops runs: provision adds a pass, `provision drop`
+-- takes one away. It is read again whenever it changes, so a new pass works
+-- the moment it leaves the drive and a dropped one stops at once - a revoked
+-- key that kept working until the next restart would be a back door. A key
+-- that changed also has its replay counter forgotten, because the new pass
+-- counts from 1 again.
+local custStamp = nil
+local function custKeysFresh()
+  local stamp
+  if fs.attributes then
+    local okA, a = pcall(fs.attributes, ".custkeys")
+    stamp = okA and a and (tostring(a.modified) .. ":" .. tostring(a.size)) or "none"
+  else
+    stamp = tostring(math.floor(os.clock() / 10))      -- no attributes: every 10 s
+  end
+  if stamp == custStamp then return end
+  custStamp = stamp
+  local fresh, n = SEC.readFleetKeys(".custkeys")
+  for id, k in pairs(custKeys) do
+    if not fresh[id] or SEC.keyHex(fresh[id]) ~= SEC.keyHex(k) then custRx.forget(id) end
+  end
+  custKeys, nCusts = fresh, n
+end
+custKeysFresh()
 local me = (os.getComputerLabel and os.getComputerLabel()) or ("ops-" .. tostring(os.getComputerID()))
 
 -- ---------------------------------------------------------------- the wire --
@@ -96,7 +124,8 @@ if openToHails then
   end
 end
 if cmd == "closed" then cmd = "watch" end
-if cmd == "known" then knownOnly, cmd = true, "watch" end
+if cmd == "open" then knownOnly, cmd = false, "watch" end
+if cmd == "known" then cmd = "watch" end            -- the default now; the old word still works
 
 
 -- one sealed sender per drone, made on first use; the counter persists so a
@@ -689,7 +718,7 @@ print(string.format("ops %s: %d key%s, %d pad%s, orders sealed on %s", me,
   radio and (radio .. " channel " .. link.CHANNEL) or "NOTHING - no ender modem"))
 print(string.format("%s  %d customer key%s%s",
   openToHails and "dispatching pads and radio hails." or "dispatching pads only - hails turned away.",
-  nCusts, nCusts == 1 and "" or "s", knownOnly and "  KNOWN CUSTOMERS ONLY" or ""))
+  nCusts, nCusts == 1 and "" or "s", knownOnly and "" or "  OPEN TO ANY TERMINAL (testing)"))
 
 -- One message. Kept separate so serve can run it under pcall: a single
 -- malformed packet must never be able to stop ops answering customers.
@@ -834,6 +863,7 @@ local function serve()
     -- they are. Anything that fails to open is dropped, not guessed at.
     local who
     if type(msg) == "table" and msg.sl then
+      custKeysFresh()
       local okO, body = pcall(custRx.open, msg, function(id) return custKeys[id] end,
                               SEC.DIR.DRONE_TO_BASE, 120000)
       if okO and body then
@@ -843,7 +873,7 @@ local function serve()
         msg = nil
       end
     elseif knownOnly and type(msg) == "table" and msg.type == "taxi.request" then
-      log("ignored an unsealed hail - ops is in known-customers-only mode")
+      log("ignored a hail from a terminal with no pass (ops open takes them, for testing)")
       msg = nil
     end
     local ok, err = pcall(handle, from, msg, who)
