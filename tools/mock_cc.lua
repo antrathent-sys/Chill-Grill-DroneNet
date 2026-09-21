@@ -646,8 +646,8 @@ local out = io.open(os.getenv("HARNESS_LOG") or "harness_flightlog", "w")
 for _, l in ipairs(logLines) do out:write(l, "\n") end
 out:close()
 
--- the drops: "name x z h" per line
-if os.getenv("HARNESS_LOG") then
+-- the drops: "name x z h" per line - only for a craft with stickers fitted
+if os.getenv("HARNESS_LOG") and (os.getenv("STICKERS") or memFiles[".drops"]) then
   local df = io.open(os.getenv("HARNESS_LOG") .. ".drops", "w")
   for _, d in ipairs(sim.drops) do df:write(string.format("%s %.2f %.2f %.2f\n", d.name, d.x, d.z, d.h)) end
   df:close()

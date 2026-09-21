@@ -286,6 +286,10 @@ def run(args, env, logpath):
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
     os.environ["HARNESS_FINAL"] = logpath + ".final"
+    # a drop record left by an earlier run must not pass for this one's
+    for ext in (".drops", ".flydrops"):
+        if os.path.exists(logpath + ext):
+            os.remove(logpath + ext)
     L = LuaRuntime(unpack_returned_tuples=True)
     entry = L.eval("function(h, s, a) local f = assert(loadfile(h)) return f(s, a) end")
     lua_args = L.eval("{" + ",".join('"%s"' % a for a in args) + "}")
