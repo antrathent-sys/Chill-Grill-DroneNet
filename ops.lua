@@ -358,6 +358,40 @@ local function cargoWrite(lines)
   return true
 end
 
+-- A load that is on the drone: one loaded row per item per silo, with where
+-- each silo is going from the load's liftoff (`deliver A and B`, read with
+-- lib/deliver the way the drone will). manifest is { [side] = items }, or
+-- { both = items } when only the intake was counted. Used by `ops load run`
+-- and by the board for a depot's load alike. Returns ok, silos, dest.
+local function recordLoad(loadId, drone, sides, stickers, manifest, liftoff)
+  if not CARGO then return false end
+  local okDL, DL = pcall(dofile, "lib/deliver.lua")
+  local dest = CARGO.destinations(okDL and DL or nil, liftoff, stickers)
+  local m, silos = manifest or {}, {}
+  if m.both then
+    local where, seen = {}, {}
+    for _, n in ipairs(stickers) do
+      if dest[n] and not seen[dest[n]] then seen[dest[n]] = true where[#where + 1] = dest[n] end
+    end
+    local both = table.concat(stickers, "+")
+    dest[both] = table.concat(where, " / ")
+    silos[1] = { silo = table.concat(sides, "+"), sticker = both, items = m.both }
+  else
+    for i, side in ipairs(sides) do
+      silos[#silos + 1] = { silo = side, sticker = stickers[i], items = m[side] or {} }
+    end
+  end
+  local when = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()
+  return cargoWrite(CARGO.loadedRows(when, loadId, drone, silos, dest)), silos, dest
+end
+
+-- Depots: the computer at each dock that works its loading station
+-- (depot.lua), keyed like a drone as depot-<dock>. `ops load send` queues a
+-- load in loads.queue; the board takes it from there.
+local LOAD_QUEUE = "loads.queue"
+local function isDepot(id) return type(id) == "string" and id:match("^depot%-[%w_%-]+$") ~= nil end
+local function dockOf(depot) return (tostring(depot):gsub("^depot%-", "")) end
+
 do
   local okP, P = pcall(dofile, "lib/pads.lua")
   if okP and type(P) == "table" then pads = P.load("pads.lua", fs) or {} end
@@ -404,7 +438,7 @@ local function receive()
                              SEC.DIR.DRONE_TO_BASE, 120000)
       if ok and body then
         if body.type == "tlm" and link.check(body) then note(body)
-        elseif F.TYPES[body.type] and handle then pcall(handle, nil, body) end
+        elseif F.TYPES[body.type] and handle then pcall(handle, nil, body, nil, msg.id) end
       else
         rejected = rejected + 1
       end
@@ -663,6 +697,43 @@ if cmd == "load" then
   -- it sealed, the same way every other order does.
   local LOAD = dofile("lib/loader.lua")
   local sub = (args[2] or ""):lower()
+  if sub == "send" then
+    -- a load at a depot's dock, run by the board: this only queues it
+    local who, depot = args[3], args[4]
+    if not (who and depot) then
+      print("ops load send <drone|any> <depot> [items] [stack] [fly command]")
+      print("  the board sends the drone to the depot's dock, the depot loads it, the drone")
+      print("  flies the command: ops load send drone-1 pier 3000 deliver market and farm")
+      return
+    end
+    if not isDepot(depot) then depot = "depot-" .. depot end
+    if not fleetKeys[depot] then
+      print("no key for " .. depot .. ": seckey new " .. depot .. " here, then seckey set disk on the depot")
+      return
+    end
+    local pad = padByName(dockOf(depot))
+    if not pad then print("no place called " .. dockOf(depot) .. ": ops place add " .. dockOf(depot) .. " <x> <y> <z> dock") return end
+    if pad.kind == "pad" then print(dockOf(depot) .. " is a landing pad: a depot needs a dock") return end
+    local nums, liftoff = {}, nil
+    for i = 5, #args do
+      if tonumber(args[i]) and #nums < 2 then
+        nums[#nums + 1] = tonumber(args[i])
+      else
+        local okA, whyA = F.flyArgs(table.concat({ (table.unpack or unpack)(args, i) }, " "))
+        if not okA then print("liftoff: " .. whyA) return end
+        liftoff = okA
+        break
+      end
+    end
+    local h = fs.open(LOAD_QUEUE, "a")
+    if not h then print("cannot write " .. LOAD_QUEUE) return end
+    h.writeLine(table.concat({ who:lower(), depot, tostring(nums[1] or "-"), tostring(nums[2] or "-"), liftoff or "" }, " "))
+    h.close()
+    print(string.format("queued: %s to %s, %s, then %s", who, dockOf(depot),
+      nums[1] and (nums[1] .. " items") or "what is in its intake", liftoff and ("fly " .. liftoff) or "it stays loaded"))
+    print("the board (ops) sends it - it has to be running")
+    return
+  end
   local usage = {
     "ops load                      the station: bays, relays, waits, what a silo holds",
     "ops load plan [items] [stack] how a load is carried (items: the intake's, if set)",
@@ -671,6 +742,8 @@ if cmd == "load" then
     "ops load unstick <drone> [side]   ...and retracts them: drops what they hold",
     "ops load run <drone|any> [items] [stack] [fly command]   a whole load, synced",
     "   with the drone; the fly command is its liftoff: deliver pier and market",
+    "ops load send <drone|any> <depot> [items] [stack] [fly command]   a load at a",
+    "   depot's dock, run by the board",
   }
   if not fs.exists("station.lua") then
     print("no station.lua here: copy station.example.lua to station.lua and fill it in")
@@ -686,56 +759,15 @@ if cmd == "load" then
     local a = read()
     return type(a) == "string" and a:lower():sub(1, 1) == "y"
   end
-  local function setFace(face, on)
-    if face.relay then
-      if not peripheral.isPresent(face.relay) then return false, "not on this computer's network" end
-      return pcall(peripheral.call, face.relay, "setOutput", face.side, on)
-    end
-    return pcall(redstone.setOutput, face.side, on)
-  end
-  local function inputOf(face)
-    local okI, v
-    if face.relay then okI, v = pcall(peripheral.call, face.relay, "getAnalogInput", face.side)
-    else okI, v = pcall(redstone.getAnalogInput, face.side) end
-    return okI and v or nil
-  end
-  local function countOf(inv)
-    local okL, list = pcall(peripheral.call, inv, "list")
-    if not (okL and type(list) == "table") then return nil end
-    local n = 0
-    for _, it in pairs(list) do n = n + (it.count or 0) end
-    return n
-  end
-  -- what is waiting in the intake: items, stacks (by item, each at its own
-  -- stack size) and the smallest stack size among them
-  local function intake()
-    local inv = cfg.fill.intake
-    if not inv then return nil end
-    local okL, list = pcall(peripheral.call, inv, "list")
-    if not (okL and type(list) == "table") then return nil end
-    local byName, maxOf = {}, {}
-    for slot, it in pairs(list) do
-      byName[it.name] = (byName[it.name] or 0) + it.count
-      if not maxOf[it.name] then
-        local okD, d = pcall(peripheral.call, inv, "getItemDetail", slot)
-        maxOf[it.name] = okD and type(d) == "table" and d.maxCount or 64
-      end
-    end
-    local rows, smallest = {}, nil
-    for name, c in pairs(byName) do
-      rows[#rows + 1] = { count = c, max = maxOf[name] }
-      smallest = math.min(smallest or maxOf[name], maxOf[name])
-    end
-    local items, stacks = LOAD.stacksOf(rows)
-    return items, stacks, smallest
-  end
+  -- the station's relays and inventories, on this computer's network
+  local hands = LOAD.station(cfg, peripheral, redstone, CARGO or dofile("lib/cargo.lua"))
   -- items and stacks from the command line, or else from the intake
   local function sized(iItems, iStack)
     local items, stack = tonumber(args[iItems]), tonumber(args[iStack])
     if items then return items, stack end
-    local n, stacks, smallest = intake()
-    if not n then return nil, "how many items? (or set fill.intake in station.lua so it can count)" end
-    if n == 0 then return nil, "the intake " .. cfg.fill.intake .. " is empty" end
+    local n, stacks, smallest = hands.intake()
+    if not n then return nil, "how many items? (or set intake in station.lua so it can count)" end
+    if n == 0 then return nil, "the intake " .. cfg.intake .. " is empty" end
     return n, smallest, stacks
   end
   local function faces(act, sides)
@@ -787,19 +819,15 @@ if cmd == "load" then
     if #list == 0 then print("no relay face for " .. act .. (side and (" " .. side) or "")) return end
     print(act .. " fires: " .. faces(act, side and { side } or cfg.bays))
     if not confirm("fire it? the machines move") then print("nothing fired") return end
-    for _, face in ipairs(list) do
-      local okS, whyS = setFace(face, not face.invert)
-      if not okS then print(LOAD.describeIO(face) .. ": " .. tostring(whyS)) end
-    end
+    local fired, whyF, release = LOAD.fire(cfg, hands, act, side and { side } or nil)
+    if not fired then print(whyF) return end
     local held = false
-    for _, face in ipairs(list) do held = held or face.hold end
+    for _, face in ipairs(fired) do held = held or face.hold end
     if held then
       write("held on - ENT to let go ")
       read()
-    else
-      sleep(cfg.pulse)
+      release()
     end
-    for _, face in ipairs(list) do setFace(face, face.invert and true or false) end
     print("done - all back at rest")
     return
   end
@@ -877,16 +905,10 @@ if cmd == "load" then
     if not confirm("run it? the station's machines move") then print("nothing fired") return end
     print("X calls it off (the lift comes back down)")
     local t0, stop = os.clock(), false
-    -- counting what goes in, for cargo.csv: each silo while it is still a
-    -- block, or else what left the intake during the fill
-    local function tallyOf(inv)
-      local okL, list = pcall(peripheral.call, inv, "list")
-      if not (okL and type(list) == "table" and CARGO) then return nil end
-      return CARGO.tally(list)
-    end
-    local before
-    local io = {
-      set = setFace, sleep = sleep, now = os.clock, count = countOf, input = inputOf,
+    local io = {}
+    for k, v in pairs(hands) do io[k] = v end
+    io.sleep, io.now = sleep, os.clock
+    local drone = {
       docked = function()
         local f = fleet[id]
         if not (f and f.seen) or os.clock() - f.seen > 15 then return false, id .. " not heard from" end
@@ -906,23 +928,8 @@ if cmd == "load" then
       end,
       say = function(step, text) print(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text)) end,
       stopped = function() return stop end,
-      beforeFill = function() before = cfg.intake and tallyOf(cfg.intake) or nil end,
-      manifest = function(p)
-        if cfg.silo then
-          local m, all = {}, true
-          for _, side in ipairs(p.sides) do
-            local t = cfg.silo[side] and tallyOf(cfg.silo[side])
-            if t then m[side] = t else all = false end
-          end
-          if all then return m, "read from the silos" end
-        end
-        local after = before and tallyOf(cfg.intake)
-        if after then
-          return { [#p.sides == 1 and p.sides[1] or "both"] = CARGO.diff(before, after) }, "what left the intake"
-        end
-        return nil
-      end,
     }
+    for k, v in pairs(drone) do io[k] = v end
     local ok, why, at
     parallel.waitForAny(receive, function() ok, why, at = LOAD.run(cfg, plan, io) end, function()
       while true do
@@ -932,24 +939,8 @@ if cmd == "load" then
     end)
     -- the silos are on the drone from the stick on, whatever happened after
     if (ok or at == "retract" or at == "liftoff") and CARGO then
-      local okDL, DL = pcall(dofile, "lib/deliver.lua")
-      local dest = CARGO.destinations(okDL and DL or nil, cfg.liftoff, plan.stickers)
-      local m, silos = plan.manifest or {}, {}
-      if m.both then
-        local where, seen = {}, {}
-        for _, n in ipairs(plan.stickers) do
-          if dest[n] and not seen[dest[n]] then seen[dest[n]] = true where[#where + 1] = dest[n] end
-        end
-        local both = table.concat(plan.stickers, "+")
-        dest[both] = table.concat(where, " / ")
-        silos[1] = { silo = table.concat(plan.sides, "+"), sticker = both, items = m.both }
-      else
-        for i, side in ipairs(plan.sides) do
-          silos[#silos + 1] = { silo = side, sticker = plan.stickers[i], items = m[side] or {} }
-        end
-      end
-      local when = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()
-      if cargoWrite(CARGO.loadedRows(when, loadId, id, silos, dest)) then
+      local wrote, silos, dest = recordLoad(loadId, id, plan.sides, plan.stickers, plan.manifest, cfg.liftoff)
+      if wrote then
         for _, s in ipairs(silos) do
           print(string.format("  %s: %s -> %s", s.silo, CARGO.describe(s.items, 4),
             dest[s.sticker] ~= "" and dest[s.sticker] or "no destination"))
@@ -1199,10 +1190,162 @@ print(string.format("%s  %d customer key%s%s",
 -- rednet are someone pretending to be a drone: a "failed" or "done" for
 -- another customer's ride would free its unit mid-flight, a false distress
 -- would send the operator out for nothing.
-local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true,
-                     ["unit.dropped"] = true }
+-- ---------------------------------------------------------------- depots ---
+-- The board runs loads at depots. A queued load picks its drone and sends it
+-- to the depot's dock; the drone's chunk loader wakes the depot, which says
+-- hello; once the drone is latched there and the depot is awake, the depot
+-- gets the load and works its machines. When it has the silos up the board
+-- has the drone stick, tells the depot, and at the end writes cargo.csv and
+-- sends the drone on (the load's liftoff). Nothing here waits: depotLoop
+-- looks every second and each message moves a load along.
+local depots, loads = {}, {}      -- depot id -> { seen }, depot id -> the load there
+local LOAD_SEND_MAX = 900         -- s: sent, and no drone docked with its depot awake
+local LOAD_QUIET_MAX = 600        -- s: loading, and the depot has gone quiet
 
-function handle(from, msg, customer)
+local function droneAt(drone, dock)
+  local f, p = fleet[drone], padByName(dock)
+  if not (f and f.seen and p and f.x) or os.clock() - f.seen > 15 or not f.docked then return false end
+  return math.sqrt((f.x - p.x - 0.5) ^ 2 + (f.z - p.z - 0.5) ^ 2) <= 4
+end
+
+local function endLoad(L, state, why)
+  if L.drone and fleet[L.drone] and fleet[L.drone].job == L.id then fleet[L.drone].job = nil end
+  loads[L.depot] = nil
+  log("load %s at %s %s%s", L.id, L.dock, state, why and (": " .. why) or "")
+end
+
+local function depotHello(msg)
+  local d = depots[msg.depot] or {}
+  depots[msg.depot] = d
+  if not d.seen or os.clock() - d.seen > 30 then log("%s awake", msg.depot) end
+  d.seen = os.clock()
+  local L = loads[msg.depot]
+  if msg.load and L and L.id == msg.load then endLoad(L, "failed", "the depot restarted during " .. tostring(msg.step)) end
+end
+
+local function depotReport(msg)
+  local L = loads[msg.depot]
+  if not (L and L.id == msg.load and L.state == "loading") then return end
+  L.at = os.clock()
+  if msg.type == "load.step" then
+    log("%s %s: %s", L.dock, msg.step, tostring(msg.text or ""))
+  elseif msg.type == "load.lifted" then
+    local sent, why = order(L.drone, F.stick(L.id, F.list(msg.stickers), true, nonce()))
+    if not sent then order(L.depot, F.loadStuck(L.id, false, "not sent to " .. L.drone .. ": " .. tostring(why), nonce())) end
+  elseif msg.type == "load.done" then
+    if msg.ok or msg.at == "retract" or msg.at == "liftoff" then
+      local manifest
+      for _, side in ipairs({ "left", "right", "both" }) do
+        if msg["silo_" .. side] and CARGO then
+          manifest = manifest or {}
+          manifest[side] = CARGO.unpack(msg["silo_" .. side])
+        end
+      end
+      recordLoad(L.id, L.drone, F.list(msg.sides), F.list(msg.stickers), manifest, L.liftoff)
+    end
+    if msg.ok then
+      if L.liftoff then
+        local sent, why = order(L.drone, F.flyCommand(L.liftoff, nonce()))
+        if sent then log("%s lifts off: fly %s", L.drone, L.liftoff) else log("liftoff not sent: %s", tostring(why)) end
+      end
+      endLoad(L, "done")
+    else
+      endLoad(L, "failed", tostring(msg.why) .. " (at " .. tostring(msg.at) .. ")")
+    end
+  end
+end
+
+-- the drone's answer to a stick for a depot's load goes back to that depot
+local function stuckReply(msg, sealedBy)
+  if sealedBy ~= msg.drone then return end
+  for _, L in pairs(loads) do
+    if L.id == msg.job and L.drone == msg.drone and L.state == "loading" then
+      order(L.depot, F.loadStuck(L.id, msg.ok, msg.why, nonce()))
+      log("%s %s", msg.drone, msg.ok and "stuck the silos on" or ("could not stick: " .. tostring(msg.why)))
+    end
+  end
+end
+
+-- new loads from `ops load send`: the file is moved aside before it is read,
+-- so a line appended meanwhile starts a fresh file instead of being lost
+local function takeQueue()
+  if not fs.exists(LOAD_QUEUE) then return end
+  local taking = LOAD_QUEUE .. ".taking"
+  if fs.exists(taking) then fs.delete(taking) end
+  if not pcall(fs.move, LOAD_QUEUE, taking) then return end
+  local h = fs.open(taking, "r")
+  local text = h and h.readAll() or ""
+  if h then h.close() end
+  fs.delete(taking)
+  for line in text:gmatch("[^\n]+") do
+    local who, depot, items, stack, liftoff = line:match("^(%S+) (%S+) (%S+) (%S+) ?(.*)$")
+    if who and isDepot(depot) then
+      if loads[depot] then
+        log("%s is busy with load %s - not queued", depot, loads[depot].id)
+      else
+        local id = "L" .. tostring(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time())
+        loads[depot] = { id = id, depot = depot, dock = dockOf(depot), who = who, items = tonumber(items),
+                         stack = tonumber(stack), liftoff = liftoff ~= "" and liftoff or nil,
+                         state = "queued", at = os.clock() }
+        log("load %s queued at %s for %s", id, dockOf(depot), who)
+      end
+    end
+  end
+end
+
+local function depotLoop()
+  while true do
+    takeQueue()
+    local now = os.clock()
+    for depot, L in pairs(loads) do
+      if L.state == "queued" then
+        -- a drone: the one named, once it is free, or the nearest free one
+        local drone
+        if L.who == "any" then
+          drone = (F.pick(fleet, padByName(L.dock) or { x = 0, z = 0 }, now))
+        elseif F.available(fleet[L.who], now) then
+          drone = L.who
+        end
+        if drone then
+          L.drone = drone
+          fleet[drone].job = L.id
+          if droneAt(drone, L.dock) then
+            L.state, L.at = "sent", now
+          else
+            local sent, why = order(drone, F.flyCommand("ferry " .. L.dock, nonce()))
+            if sent then
+              L.state, L.at = "sent", now
+              log("%s sent to %s for load %s", drone, L.dock, L.id)
+            else
+              endLoad(L, "failed", "could not send " .. drone .. ": " .. tostring(why))
+            end
+          end
+        end
+      elseif L.state == "sent" then
+        local d = depots[depot]
+        if droneAt(L.drone, L.dock) and d and d.seen and now - d.seen < 15 then
+          local sent = order(depot, F.loadStart(L.id, L.drone, L.items, L.stack, nonce()))
+          if sent then
+            L.state, L.at = "loading", now
+            log("%s docked at %s: loading", L.drone, L.dock)
+          end
+        elseif now - L.at > LOAD_SEND_MAX then
+          endLoad(L, "failed", "no drone docked there with the depot awake in " .. LOAD_SEND_MAX .. " s")
+        end
+      elseif L.state == "loading" and now - L.at > LOAD_QUIET_MAX then
+        endLoad(L, "failed", "the depot went quiet")
+      end
+    end
+    sleep(1)
+  end
+end
+
+local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true,
+                     ["unit.dropped"] = true, ["depot.hello"] = true, ["load.step"] = true,
+                     ["load.lifted"] = true, ["load.done"] = true }
+
+-- sealedBy: whose key opened it, for what came sealed on the radio
+function handle(from, msg, customer, sealedBy)
   do
     if type(msg) == "table" and from ~= nil and DRONE_ONLY[msg.type] then
       log("ignored a %s by plain radio from %s - drones speak sealed", tostring(msg.type), tostring(from))
@@ -1374,6 +1517,12 @@ function handle(from, msg, customer)
           end
         end
         log("%s %s%s", msg.drone, msg.state, msg.detail and (" - " .. msg.detail) or "")
+      elseif msg.type == "depot.hello" then
+        if isDepot(sealedBy) and msg.depot == sealedBy then depotHello(msg) end
+      elseif msg.type == "load.step" or msg.type == "load.lifted" or msg.type == "load.done" then
+        if isDepot(sealedBy) and msg.depot == sealedBy then depotReport(msg) end
+      elseif msg.type == "unit.stuck" then
+        stuckReply(msg, sealedBy)
       elseif msg.type == "unit.dropped" then
         -- a silo let go of on a delivery: which load it was, and where
         local load, silo, dest
@@ -1723,5 +1872,5 @@ local function keys()
   end
 end
 
-parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, serveQueue, draw, keys)
+parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, serveQueue, draw, keys, depotLoop)
 print("ops stopped")

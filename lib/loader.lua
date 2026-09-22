@@ -433,7 +433,8 @@ function L.run(cfg, plan, io)
       local okL, whyL = io.liftoff(cfg.liftoff)
       if not okL then error({ why = "the drone did not take the lift-off: " .. tostring(whyL) }, 0) end
     else
-      say("loaded - no liftoff set, the drone stays")
+      -- liftoff = false: a depot, whose drone the base sends on
+      say(cfg.liftoff == false and "loaded - over to the base" or "loaded - no liftoff set, the drone stays")
     end
     step = "done"
   end
@@ -451,6 +452,100 @@ function L.run(cfg, plan, io)
   for _, face in ipairs(L.allFaces(cfg)) do pcall(drive, face, false) end
   if io.say then io.say(at, "called off: " .. why) end
   return false, why, at
+end
+
+--- One action on its own, outside a load: `depot test`, `ops load test`, and
+-- the lift lowered after a restart. Each face pulses (or, held, stays on
+-- until `release` is called). Returns the faces it fired, or nil and why.
+function L.fire(cfg, io, act, sides)
+  local faces = L.facesFor(cfg[act], sides or cfg.bays)
+  if #faces == 0 then return nil, "no relay face for " .. tostring(act) end
+  local held = {}
+  for _, face in ipairs(faces) do
+    local okS, whyS = io.set(face, not face.invert)
+    if okS == false then return nil, describeIO(face) .. ": " .. tostring(whyS) end
+    if face.hold then held[#held + 1] = face end
+  end
+  if #held < #faces then
+    io.sleep(cfg.pulse)
+    for _, face in ipairs(faces) do if not face.hold then io.set(face, face.invert and true or false) end end
+  end
+  return faces, nil, function()
+    for _, face in ipairs(held) do io.set(face, face.invert and true or false) end
+  end
+end
+
+--- The station's own hands: relay faces, signals and inventories on this
+-- computer's network, for L.run. P = peripheral, R = redstone, C =
+-- lib/cargo (it counts). `ops load` and depot.lua both build their io from
+-- this, then add the drone's half (docked, stick, liftoff) their own way.
+function L.station(cfg, P, R, C)
+  local s = { sleep = sleep }
+  function s.set(face, on)
+    if face.relay then
+      if not P.isPresent(face.relay) then return false, "not on this computer's network" end
+      return pcall(P.call, face.relay, "setOutput", face.side, on)
+    end
+    return pcall(R.setOutput, face.side, on)
+  end
+  function s.input(face)
+    local okI, v
+    if face.relay then okI, v = pcall(P.call, face.relay, "getAnalogInput", face.side)
+    else okI, v = pcall(R.getAnalogInput, face.side) end
+    return okI and v or nil
+  end
+  function s.tally(inv)
+    local okL, list = pcall(P.call, inv, "list")
+    if not (okL and type(list) == "table") then return nil end
+    return C.tally(list)
+  end
+  function s.count(inv)
+    local t = s.tally(inv)
+    return t and C.total(t) or nil
+  end
+  -- what is waiting in the intake: items, stacks (by item, each at its own
+  -- stack size) and the smallest stack size among them
+  function s.intake()
+    local inv = cfg.intake
+    if not inv then return nil end
+    local okL, list = pcall(P.call, inv, "list")
+    if not (okL and type(list) == "table") then return nil end
+    local byName, maxOf = {}, {}
+    for slot, it in pairs(list) do
+      byName[it.name] = (byName[it.name] or 0) + it.count
+      if not maxOf[it.name] then
+        local okD, d = pcall(P.call, inv, "getItemDetail", slot)
+        maxOf[it.name] = okD and type(d) == "table" and d.maxCount or 64
+      end
+    end
+    local rows, smallest = {}, nil
+    for name, c in pairs(byName) do
+      rows[#rows + 1] = { count = c, max = maxOf[name] }
+      smallest = min(smallest or maxOf[name], maxOf[name])
+    end
+    local items, stacks = L.stacksOf(rows)
+    return items, stacks, smallest
+  end
+  -- counting what goes in, for cargo.csv: each silo while it is still a
+  -- block, or else what left the intake during the fill
+  local before
+  function s.beforeFill() before = cfg.intake and s.tally(cfg.intake) or nil end
+  function s.manifest(p)
+    if cfg.silo then
+      local m, all = {}, true
+      for _, side in ipairs(p.sides) do
+        local t = cfg.silo[side] and s.tally(cfg.silo[side])
+        if t then m[side] = t else all = false end
+      end
+      if all then return m, "read from the silos" end
+    end
+    local after = before and s.tally(cfg.intake)
+    if after then
+      return { [#p.sides == 1 and p.sides[1] or "both"] = C.diff(before, after) }, "what left the intake"
+    end
+    return nil
+  end
+  return s
 end
 
 return L

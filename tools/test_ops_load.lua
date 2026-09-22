@@ -16,6 +16,9 @@ local LINK = dofile(DIR .. "/../lib/link.lua")
 local F = dofile(DIR .. "/../lib/fleet.lua")
 local KEYHEX = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 local KEY = S.parseKey(KEYHEX)
+local DEPOTHEX = "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100"
+local DEPOTKEY = S.parseKey(DEPOTHEX)
+local CARGO = dofile(DIR .. "/../lib/cargo.lua")
 local unpack = table.unpack or unpack
 local function pack(...) return { n = select("#", ...), ... } end
 
@@ -38,8 +41,9 @@ return {
 local function base(opts)
   local w = { files = {}, printed = {}, clock = 0, queue = {}, timers = {}, nTimer = 0, later = {},
               sets = {}, level = {}, orders = {}, lines = opts.lines or { "y" }, nextTlm = 0.5, seq = 0 }
-  w.files[".fleetkeys"] = "drone-1=" .. KEYHEX .. "\n"
-  w.files["pads.lua"] = 'return { { name = "home", x = 1892, y = 91, z = 365, kind = "dock" } }'
+  w.files[".fleetkeys"] = "drone-1=" .. KEYHEX .. "\ndepot-pier=" .. DEPOTHEX .. "\n"
+  w.files["pads.lua"] = 'return { { name = "home", x = 1892, y = 91, z = 365, kind = "dock" }, '
+    .. '{ name = "pier", x = 1950, y = 70, z = 400, kind = "dock" } }'
   if opts.station ~= false then w.files["station.lua"] = STATION:format(opts.station or "{ secs = 5 }") end
   for k, v in pairs(opts.files or {}) do w.files[k] = v end
   local drone = opts.drone or {}
@@ -57,6 +61,10 @@ local function base(opts)
     attributes = function(p) return w.files[p] and { modified = 0, size = #w.files[p] } or nil end,
     delete = function(p) w.files[p] = nil end,
     isDir = function() return false end,
+    move = function(a, b)
+      if w.files[a] == nil then error("no such file " .. a, 2) end
+      w.files[b], w.files[a] = w.files[a], nil
+    end,
     open = function(p, mode)
       if mode == "r" then
         local s = w.files[p]
@@ -112,17 +120,49 @@ local function base(opts)
   -- comes in every 2 s
   local droneRx = S.receiver()
   local droneTx = S.sender(KEY, "drone-1", S.DIR.DRONE_TO_BASE, nil)
+  -- opts.depot: a depot-pier on the radio too - awake once the drone is at
+  -- the pier (its chunk loader), saying hello every 10 s, loading on request
+  local depot = opts.depot
+  local depotRx = S.receiver()
+  local depotTx = S.sender(DEPOTKEY, "depot-pier", S.DIR.DRONE_TO_BASE, nil)
+  w.depotHeard = {}
+  w.pos = { x = drone.x or 1892.5, z = drone.z or 365.5 }
   -- sealed when it is sent, not when it is scheduled: the counter has to rise
   -- in the order the packets go out, as it does on a real drone
   local function fromDrone(body, delay)
     w.later[#w.later + 1] = { at = w.clock + (delay or 0.3), body = body }
   end
+  local function fromDepot(body, delay)
+    w.later[#w.later + 1] = { at = w.clock + (delay or 0.3), body = body, fromDepot = true }
+  end
   local function transmit(ch, _, env2)
     if ch ~= LINK.CHANNEL or type(env2) ~= "table" or not env2.sl then return end
+    if env2.id == "depot-pier" then
+      local dbody = depotRx.open(env2, function(id) return id == "depot-pier" and DEPOTKEY or nil end, S.DIR.BASE_TO_DRONE, 120000)
+      if not (dbody and depot) then return end
+      w.depotHeard[#w.depotHeard + 1] = dbody
+      if dbody.type == "load.start" then
+        fromDepot(F.loadStep(dbody.load, "depot-pier", "place", "placing 1 silo: left", "p-1"), 1)
+        fromDepot(F.loadLifted(dbody.load, "depot-pier", { "Create_Sticker_0" }, "p-2"), 3)
+      elseif dbody.type == "load.stuck" then
+        fromDepot(F.loadDone(dbody.load, "depot-pier", dbody.ok, (not dbody.ok) and dbody.why or nil,
+          dbody.ok and "done" or "stick", { counted = "read from the silos", sides = { "left" },
+          stickers = { "Create_Sticker_0" }, silos = { left = CARGO.pack({ ["minecraft:cobblestone"] = 640 }) } }, "p-3"), 2)
+      end
+      return
+    end
     local body = droneRx.open(env2, function(id) return id == "drone-1" and KEY or nil end, S.DIR.BASE_TO_DRONE, 120000)
     if not body then return end
     w.orders[#w.orders + 1] = body
     if drone.silent then return end
+    -- a ferry to the pier: it is there, docked, 5 s later; any other flight
+    -- (a delivery) leaves the dock
+    if body.type == "ops.fly" and body.args == "ferry pier" then
+      w.flying = true
+      w.later[#w.later + 1] = { at = w.clock + 5, fn = function() w.pos = { x = 1950.5, z = 400.5 } w.flying = false end }
+    elseif body.type == "ops.fly" and body.args:match("^deliver") then
+      w.flying = true
+    end
     if body.type == "unit.stick" then
       local ok = not drone.stickFails
       fromDrone(F.stuck(body.job, "drone-1", ok, (not ok) and "Create_Sticker_1 is not a sticker on this drone" or nil,
@@ -133,9 +173,14 @@ local function base(opts)
   end
   local function tlm()
     w.seq = w.seq + 1
-    local docked = drone.docked ~= false and (not drone.dockAt or w.clock >= drone.dockAt)
+    local docked = drone.docked ~= false and (not drone.dockAt or w.clock >= drone.dockAt) and not w.flying
     local s = { t = w.clock, phase = docked and "docked" or "idle", h = 98.5, e = 0,
-                x = drone.x or 1892.5, z = drone.z or 365.5, vx = 0, vz = 0, vv = 0 }
+                x = w.pos.x, z = w.pos.z, vx = 0, vz = 0, vv = 0 }
+    -- the depot is awake while the drone is at the pier
+    if depot and not depot.asleep and math.abs(w.pos.x - 1950.5) < 1 and (w.lastHello or -99) + 10 <= w.clock then
+      w.lastHello = w.clock
+      fromDepot(F.depotHello("depot-pier", depot.interrupted, depot.interrupted and "stick" or nil, "h-" .. w.clock), 0.1)
+    end
     return { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL,
              droneTx.seal(LINK.packet("drone-1", w.seq, s, { energy = 50 }, { pct = 80 }, { connected = docked }, 0, 0, nil, "idle")) }
   end
@@ -253,7 +298,9 @@ local function base(opts)
     if kind == "timer" then w.timers[idx] = nil return { "timer", idx, n = 2 } end
     if kind == "later" then
       local l = table.remove(w.later, idx)
-      local ev = l.ev or { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL, droneTx.seal(l.body) }
+      if l.fn then l.fn() return nextEvent() end
+      local tx = l.fromDepot and depotTx or droneTx
+      local ev = l.ev or { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL, tx.seal(l.body) }
       ev.n = #ev
       return ev
     end
@@ -407,6 +454,41 @@ local dropped = files["cargo.csv"] .. C.dropRow(1, loadId, "drone-1", "left", "C
 w = base({ args = { "cargo" }, files = { ["cargo.csv"] = dropped } }):run()
 check("...and once the drone reports the drop, where it was let go", has(w, "-> pier: DELIVERED at 100 80 50")
   and has(w, "-> market: on board"), w.text)
+print("a load at a depot, run by the board")
+w = base({ args = { "load", "send", "drone-1", "pier", "640", "deliver", "market" } }):run()
+check("ops load send queues it for the board", w.err == nil and (w.files["loads.queue"] or ""):find(
+  "drone-1 depot-pier 640 - deliver market", 1, true) and has(w, "the board (ops) sends it"), w.err or w.files["loads.queue"])
+local queued = w.files["loads.queue"]
+w = base({ args = { "load", "send", "drone-1", "farm" } }):run()
+check("a depot with no key is refused", has(w, "no key for depot-farm"))
+w = base({ args = {}, depot = {}, files = { ["loads.queue"] = queued }, keysAt = { { 60, "q" } } }):run()
+local o = {}
+for _, b in ipairs(w.orders) do o[#o + 1] = b.type .. (b.args and (":" .. b.args) or "") end
+check("the board sends the drone to the depot's dock", w.err == nil and o[1] == "ops.fly:ferry pier", w.err or table.concat(o, " "))
+local starts = {}
+for _, b in ipairs(w.depotHeard) do if b.type == "load.start" then starts[#starts + 1] = b end end
+check("once it is docked there and the depot is awake, the depot gets the load", #starts == 1 and starts[1].drone == "drone-1"
+  and starts[1].items == 640)
+local sticks = {}
+for _, b in ipairs(w.orders) do if b.type == "unit.stick" then sticks[#sticks + 1] = b end end
+check("the depot's 'silos up' becomes a stick order to the drone", #sticks == 1 and sticks[1].stickers == "Create_Sticker_0"
+  and sticks[1].job == starts[1].load)
+local stuckTo = {}
+for _, b in ipairs(w.depotHeard) do if b.type == "load.stuck" then stuckTo[#stuckTo + 1] = b end end
+check("and the drone's answer goes back to the depot", #stuckTo == 1 and stuckTo[1].ok == true)
+local csv2 = w.files["cargo.csv"] or ""
+check("at the end the load is in cargo.csv, going where the liftoff says", csv2:find(
+  "left,Create_Sticker_0,minecraft:cobblestone,640,market,loaded", 1, true), csv2)
+check("and the drone is sent on", o[#o] == "ops.fly:deliver market", table.concat(o, " "))
+check("the queue file is used up", w.files["loads.queue"] == nil)
+w = base({ args = {}, depot = { interrupted = "L1700000000" }, files = { ["loads.queue"] = queued }, keysAt = { { 40, "q" } } }):run()
+starts = {}
+for _, b in ipairs(w.depotHeard) do if b.type == "load.start" then starts[#starts + 1] = b end end
+local sticks2 = 0
+for _, b in ipairs(w.orders) do if b.type == "unit.stick" then sticks2 = sticks2 + 1 end end
+check("a depot that says it restarted mid-load: that load is called off, not restarted",
+  w.err == nil and #starts == 0 and sticks2 == 0 and w.files["cargo.csv"] == nil, w.err or #starts)
+
 -- the board running: the drone's sealed drop report lands in cargo.csv
 w = base({ args = {}, files = { ["cargo.csv"] = files["cargo.csv"] }, keysAt = { { 12, "q" } },
            later = { { 5, F.dropped("drone-1", "Create_Sticker_1", true, 20.4, 80, 30.9, "d-drop") },

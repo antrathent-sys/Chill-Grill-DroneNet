@@ -169,6 +169,23 @@ function C.openFor(rows, drone, sticker)
   return nil
 end
 
+--- A silo's items as one field, for the sealed link (flat fields only):
+-- "minecraft:cobblestone*2500;minecraft:iron_ingot*100".
+function C.pack(m)
+  local names = {}
+  for name in pairs(m or {}) do names[#names + 1] = name end
+  table.sort(names)
+  local parts = {}
+  for _, name in ipairs(names) do parts[#parts + 1] = name .. "*" .. tostring(floor(m[name])) end
+  return table.concat(parts, ";")
+end
+
+function C.unpack(s)
+  local out = {}
+  for name, n in tostring(s or ""):gmatch("([^;*]+)%*(%d+)") do out[name] = (out[name] or 0) + tonumber(n) end
+  return out
+end
+
 --- The newest n loads, each with its silos and where each went:
 -- { load, when, drone, silos = { { silo, sticker, items, dest, drops = { row, ... } } } }
 function C.summary(rows, n)

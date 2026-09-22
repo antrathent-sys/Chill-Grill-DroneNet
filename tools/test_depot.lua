@@ -1,0 +1,186 @@
+-- Desktop tests for depot.lua: the computer at a dock that works its loading
+-- station. A pretend base on the other end of the radio sends it loads and
+-- answers "have it stick", all sealed, and hears everything it says.
+local DIR = ...
+local pass, fail = 0, 0
+local function check(n, c, d)
+  if c then pass = pass + 1 print("  ok   " .. n)
+  else fail = fail + 1 print("  FAIL " .. n .. (d and ("  " .. tostring(d)) or "")) end
+end
+
+dofile(DIR .. "/cc_shim.lua")
+local S = dofile(DIR .. "/../lib/seclink.lua")
+S.ROOT = DIR .. "/../"
+local LINK = dofile(DIR .. "/../lib/link.lua")
+local F = dofile(DIR .. "/../lib/fleet.lua")
+local C = dofile(DIR .. "/../lib/cargo.lua")
+local W = dofile(DIR .. "/cc_world.lua")
+local KEYHEX = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+local KEY = S.parseKey(KEYHEX)
+
+local STATION = [[
+return {
+  place = { left = { relay = "redstone_relay_0", side = "top" }, right = { relay = "redstone_relay_1", side = "top" } },
+  assemble = { relay = "redstone_relay_2", side = "top" },
+  lift = { relay = "redstone_relay_3", side = "top" },
+  retract = { relay = "redstone_relay_3", side = "bottom" },
+  stick = { left = "Create_Sticker_0", right = "Create_Sticker_1" },
+  fill = { secs = 3 },
+  silo = { left = "create:item_vault_0", right = "create:item_vault_1" },
+  intake = "minecraft:chest_0",
+  wait = { place = 1, assemble = 1, lift = 1, stick = 1, retract = 1 },
+  liftoff = "ferry nowhere",
+}
+]]
+
+-- opts: label, nokey, state (the .depotstate file), vaults, intake (items),
+-- base = { stuck = true|false|nil (nil: never answers) }, loads = { { t, msg } }
+local function depot(opts)
+  local w = W.new(DIR, { label = opts.label == nil and "depot-pier" or opts.label or nil, S = S,
+                         lines = opts.lines })
+  w.files["station.lua"] = opts.station or STATION
+  if not opts.nokey then w.files[".dronekey"] = KEYHEX end
+  if opts.state then w.files[".depotstate"] = opts.state end
+  w.heard, w.sets, w.level = {}, {}, {}
+  local baseTx = S.sender(KEY, "depot-pier", S.DIR.BASE_TO_DRONE, nil)
+  local baseRx = S.receiver()
+  local base = opts.base or { stuck = true }
+  local function fromBase(t, msg)
+    msg.to = msg.to or "depot-pier"
+    w.at(t, function() return { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL, baseTx.seal(msg) } end)
+  end
+  w.fromBase = fromBase
+  w.periph.modem_ender = { type = "modem", m = {
+    isWireless = function() return true end, open = function() end,
+    transmit = function(ch, _, env)
+      local body = baseRx.open(env, function(id) return id == "depot-pier" and KEY or nil end, S.DIR.DRONE_TO_BASE)
+      if not body then return end
+      w.heard[#w.heard + 1] = body
+      if body.type == "load.lifted" and base.stuck ~= nil then
+        fromBase(w.clock + 0.3, F.loadStuck(body.load, base.stuck, (not base.stuck) and "not a sticker" or nil, "b-" .. #w.heard))
+      end
+    end } }
+  for i = 0, 3 do
+    local n = "redstone_relay_" .. i
+    w.periph[n] = { type = "redstone_relay", m = {
+      setOutput = function(side, on)
+        w.sets[#w.sets + 1] = { t = w.clock, k = n .. ":" .. side, on = on }
+        w.level[n .. ":" .. side] = on
+      end,
+      getAnalogInput = function() return 0 end } }
+  end
+  for name, items in pairs(opts.vaults or {}) do
+    w.periph[name] = { type = "create:item_vault", m = { list = function()
+      local l, i = {}, 0
+      for n, c in pairs(items) do i = i + 1 l[i] = { name = n, count = c } end
+      return l
+    end } }
+  end
+  if opts.intake then
+    w.periph["minecraft:chest_0"] = { type = "minecraft:chest", m = {
+      list = function() return opts.intake > 0 and { [1] = { name = "minecraft:cobblestone", count = opts.intake } } or {} end,
+      getItemDetail = function() return { name = "minecraft:cobblestone", maxCount = 64 } end } }
+  end
+  for _, l in ipairs(opts.loads or {}) do fromBase(l[1], l[2]) end
+  return w
+end
+local function heardOf(w, ty)
+  local t = {}
+  for _, b in ipairs(w.heard) do if b.type == ty then t[#t + 1] = b end end
+  return t
+end
+local function onCount(w, k)
+  local n = 0
+  for _, s in ipairs(w.sets) do if s.k == k and s.on then n = n + 1 end end
+  return n
+end
+local VAULTS = { ["create:item_vault_0"] = { ["minecraft:cobblestone"] = 640 } }
+local VAULTS2 = { ["create:item_vault_0"] = { ["minecraft:cobblestone"] = 2500 },
+                  ["create:item_vault_1"] = { ["minecraft:cobblestone"] = 2400, ["minecraft:iron_ingot"] = 100 } }
+
+print("awake")
+local w = depot({}):run("depot.lua", {}, 35)
+local hi = heardOf(w, "depot.hello")
+check("it says hello to the base as soon as it wakes, sealed", w.err == nil and hi[1] and hi[1].depot == "depot-pier", w.err)
+check("...and every 10 s while it is awake", #hi == 4, #hi)
+check("nothing moves without a load", #w.sets == 0)
+
+print("a load from the base")
+w = depot({ vaults = VAULTS, loads = { { 2, F.loadStart("L1", "drone-1", 640, 64, "b-1") } } }):run("depot.lua", {}, 60)
+local steps = {}
+for _, b in ipairs(heardOf(w, "load.step")) do steps[#steps + 1] = b.step end
+check("it works the machines and reports every step", table.concat(steps, " "):find("place fill fill assemble dock lift stick retract liftoff", 1, true) ~= nil,
+  table.concat(steps, " "))
+local lifted = heardOf(w, "load.lifted")[1]
+check("once the silos are up it asks the base to have the drone stick", lifted and lifted.load == "L1"
+  and lifted.stickers == "Create_Sticker_0")
+local done = heardOf(w, "load.done")[1]
+check("and ends with what it counted in each silo", done and done.ok == true and done.sides == "left"
+  and done.stickers == "Create_Sticker_0" and C.unpack(done.silo_left)["minecraft:cobblestone"] == 640
+  and done.counted == "read from the silos", done and tostring(done.why))
+check("the liftoff is the base's: it flies nothing, says it is over to the base", w.text:find("over to the base", 1, true) ~= nil)
+check("the lift came down after the stick", onCount(w, "redstone_relay_3:bottom") == 1)
+check("no state file is left behind", w.files[".depotstate"] == nil)
+
+w = depot({ vaults = VAULTS2, loads = { { 2, F.loadStart("L2", "drone-1", 5000, 64, "b-2") } } }):run("depot.lua", {}, 60)
+done = heardOf(w, "load.done")[1]
+check("two silos: both counted, both stickers", done and done.ok and done.sides == "left,right"
+  and done.stickers == "Create_Sticker_0,Create_Sticker_1"
+  and C.unpack(done.silo_right)["minecraft:iron_ingot"] == 100, done and tostring(done.why))
+
+w = depot({ vaults = VAULTS, intake = 640, loads = { { 2, F.loadStart("L3", "drone-1", nil, nil, "b-3") } } }):run("depot.lua", {}, 60)
+done = heardOf(w, "load.done")[1]
+check("no number from the base: it counts its own intake", done and done.ok, done and tostring(done.why))
+w = depot({ intake = 0, loads = { { 2, F.loadStart("L4", "drone-1", nil, nil, "b-4") } } }):run("depot.lua", {}, 30)
+done = heardOf(w, "load.done")[1]
+check("...and an empty intake is a load that never starts", done and done.ok == false and done.why == "the intake is empty"
+  and #w.sets == 0, done and done.why)
+
+print("when it goes wrong")
+w = depot({ vaults = VAULTS, base = { stuck = false }, loads = { { 2, F.loadStart("L5", "drone-1", 640, 64, "b-5") } } }):run("depot.lua", {}, 60)
+done = heardOf(w, "load.done")[1]
+check("the drone could not stick: called off at stick, lift down", done and done.ok == false and done.at == "stick"
+  and onCount(w, "redstone_relay_3:bottom") == 1, done and done.why)
+w = depot({ vaults = VAULTS, base = {}, loads = { { 2, F.loadStart("L6", "drone-1", 640, 64, "b-6") } } }):run("depot.lua", {}, 80)
+done = heardOf(w, "load.done")[1]
+check("no word from the base: called off after 20 s", done and done.ok == false and tostring(done.why):find("no word", 1, true),
+  done and done.why)
+w = depot({ vaults = { ["create:item_vault_0"] = {} }, loads = { { 2, F.loadStart("L7", "drone-1", 640, 64, "b-7") } } }):run("depot.lua", {}, 60)
+done = heardOf(w, "load.done")[1]
+check("empty silos: called off before assembling", done and done.ok == false and done.at == "fill"
+  and onCount(w, "redstone_relay_2:top") == 0, done and done.why)
+
+print("only the base, only for this depot")
+w = depot({ vaults = VAULTS })
+local stranger = S.sender(S.parseKey(string.rep("ab", 32)), "depot-pier", S.DIR.BASE_TO_DRONE, nil)
+w.at(2, function() return { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL,
+  stranger.seal(F.loadStart("L8", "drone-1", 640, 64, "x-1")) } end)
+w.at(3, { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL, F.loadStart("L9", "drone-1", 640, 64, "x-2") })
+w.fromBase(4, (function() local m = F.loadStart("L10", "drone-1", 640, 64, "x-3") m.to = "depot-farm" return m end)())
+w:run("depot.lua", {}, 30)
+check("a load sealed with another key, sent in the clear, or meant for another depot: nothing moves",
+  #w.sets == 0 and #heardOf(w, "load.step") == 0)
+
+print("after a restart part way through a load")
+w = depot({ state = "L11 stick" }):run("depot.lua", {}, 25)
+hi = heardOf(w, "depot.hello")
+check("it lowers the lift at once", onCount(w, "redstone_relay_3:bottom") == 1 and w.sets[1].k == "redstone_relay_3:bottom")
+check("and tells the base which load it was in and where", hi[1] and hi[1].load == "L11" and hi[1].step == "stick")
+check("...then forgets it", w.files[".depotstate"] == nil)
+w = depot({ state = "L12 fill" }):run("depot.lua", {}, 5)
+check("stopped before the lift: nothing to lower", onCount(w, "redstone_relay_3:bottom") == 0)
+
+print("setting up")
+w = depot({ label = false }):run("depot.lua", {}, 5)
+check("not labelled depot-<dock>: says how", w.text:find("label set depot-", 1, true) ~= nil and #w.heard == 0)
+w = depot({ nokey = true }):run("depot.lua", {}, 5)
+check("no key: says how", w.text:find("seckey new depot-pier", 1, true) ~= nil)
+w = depot({ lines = { "y" } }):run("depot.lua", { "test", "lift" }, 5)
+check("depot test lift: fires the lift face and lets go", onCount(w, "redstone_relay_3:top") == 1
+  and w.level["redstone_relay_3:top"] == false and w.ended)
+w = depot({ vaults = VAULTS, intake = 64 }):run("depot.lua", { "status" }, 5)
+check("depot status: bays, key, radio, silos and intake", w.text:find("2 bays", 1, true) and w.text:find("key: yes", 1, true)
+  and w.text:find("silo left: create:item_vault_0 readable", 1, true) and w.text:find("64 items", 1, true), w.text)
+
+print(string.format("\n%d passed, %d failed", pass, fail))
+if fail > 0 then error("depot tests failed", 0) end

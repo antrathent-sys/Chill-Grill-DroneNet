@@ -99,6 +99,32 @@ split evenly, so the drone carries about the same either side. Place, fill
 and assemble run before the drone arrives. A failure anywhere calls the load
 off with the lift down and every face at rest, and says where it stopped.
 
+## Depots: a computer at each dock (built 2026-09-22)
+
+Each dock that loads has its own computer running `depot.lua`: its relays and
+silos need a cable, and the timing of each step has to be local. The base
+still decides everything; a depot only works its machines and reports.
+
+A depot sleeps with its chunk. The drone's own chunk loader wakes it on
+arrival (proven in game: a computer at a remote dock answered only once the
+drone had docked), so no depot needs a chunk loader of its own.
+
+1. `ops load send drone-1 pier 3000 deliver market and farm` queues it; the
+   board picks the drone (the one named once free, or `any`) and sends it
+   `ferry pier`.
+2. The drone docks; its chunk loader wakes depot-pier, which says hello to
+   the base every 10 s, sealed.
+3. With the drone latched there (telemetry) and the depot awake, the board
+   sends the depot the load.
+4. The depot places, fills, counts and assembles, lifts, and reports "silos
+   up". The board has the drone stick and passes its answer back.
+5. The depot lowers the lifter and reports what it counted; the board writes
+   cargo.csv and sends the drone its liftoff.
+
+A depot that restarts part way through lowers the lift and says so; the board
+calls that load off rather than guess. Keys: `seckey new depot-pier` on the
+base, `label set depot-pier` and `seckey set disk` on the depot.
+
 ## The cargo ledger (built 2026-09-22)
 
 What was loaded and where it went is `cargo.csv` on the base

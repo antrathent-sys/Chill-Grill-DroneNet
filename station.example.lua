@@ -1,6 +1,7 @@
--- station.example.lua: the loading station at the dock. Copy it to station.lua
--- on the base computer (the one that runs ops) and fill in your own relays;
--- station.lua is not in the repo. `ops load` checks it and lists what it found.
+-- station.example.lua: the loading station at a dock. Copy it to station.lua
+-- on the computer that works it - a depot computer at the dock (depot.lua), or
+-- the base computer for its own dock (ops load) - and fill in your own relays;
+-- station.lua is not in the repo. `depot status` or `ops load` checks it.
 --
 -- A load runs:  place -> fill -> assemble -> dock -> lift -> stick -> retract -> liftoff
 --

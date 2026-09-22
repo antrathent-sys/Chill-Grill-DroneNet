@@ -47,6 +47,9 @@ return {
     "provision.lua", "lib/provision.lua", "kiosk.lua", "hail.lua", "lib/hailui.lua",
   },
 
+  -- the computer at a dock that works its loading station (startup autorun depot)
+  depot = { "depot.lua", "lib/loader.lua", "lib/cargo.lua", "station.example.lua", "stickers.lua" },
+
   -- a customer terminal standing at a pad: it calls a taxi and counts its own use
   pad = { "taxipad.lua" },
 

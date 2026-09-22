@@ -62,6 +62,20 @@
 --                  station has lifted silos up against them)
 --   unit.stuck    job drone ok [why] [detail] nonce         drone-> ops
 --   unit.dropped  drone sticker ok x y z nonce              drone-> ops
+-- A depot is the computer at a dock that runs its loading station
+-- (depot.lua). It is keyed like a drone - id "depot-<dock>" - and everything
+-- between it and ops is sealed; it never talks to a drone.
+--   depot.hello   depot [load] [step] nonce                  depot-> ops
+--                 (awake - the drone's chunk loader woke it; load/step: a
+--                  load that was under way when it last stopped)
+--   load.start    load drone [items] [stack] nonce           ops  -> depot
+--   load.step     load depot step [text] nonce               depot-> ops
+--   load.lifted   load depot stickers nonce                  depot-> ops
+--                 (the silos are up against the drone: have it stick)
+--   load.stuck    load ok [why] nonce                        ops  -> depot
+--   load.done     load depot ok [why] [at] sides stickers [counted]
+--                 [silo_left] [silo_right] [silo_both] nonce depot-> ops
+--                 (silo_* is what was counted in that silo, lib/cargo.pack)
 --                 (sealed: a delivery let go of this sticker's silo here;
 --                  ok = false means the sticker was still out afterwards)
 -- A nonce is "<who>-<counter>" and never repeats for that sender: a customer
@@ -86,7 +100,8 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true,
             ["fare.ask"] = true, ["fare.quote"] = true, ["unit.distress"] = true,
             ["job.relocate"] = true, ["unit.stick"] = true, ["unit.stuck"] = true,
-            ["unit.dropped"] = true }
+            ["unit.dropped"] = true, ["depot.hello"] = true, ["load.start"] = true,
+            ["load.step"] = true, ["load.lifted"] = true, ["load.stuck"] = true, ["load.done"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -183,6 +198,22 @@ function F.check(m)
     if not str(m.job) then return false, "no job id" end
     if not (str(m.stickers) and m.stickers:match("^[%w_:%.%-,]+$")) then return false, "bad sticker list" end
     if type(m.on) ~= "boolean" then return false, "extend or retract?" end
+  elseif m.type == "depot.hello" then
+    if not str(m.depot) then return false, "no depot" end
+  elseif m.type == "load.start" then
+    if not (str(m.load) and str(m.drone)) then return false, "no load or drone" end
+    if m.items ~= nil and not num(m.items) then return false, "bad item count" end
+  elseif m.type == "load.step" then
+    if not (str(m.load) and str(m.depot) and str(m.step)) then return false, "no load, depot or step" end
+  elseif m.type == "load.lifted" then
+    if not (str(m.load) and str(m.depot)) then return false, "no load or depot" end
+    if not (str(m.stickers) and m.stickers:match("^[%w_:%.%-,]+$")) then return false, "bad sticker list" end
+  elseif m.type == "load.stuck" then
+    if not str(m.load) then return false, "no load" end
+    if type(m.ok) ~= "boolean" then return false, "no verdict" end
+  elseif m.type == "load.done" then
+    if not (str(m.load) and str(m.depot)) then return false, "no load or depot" end
+    if type(m.ok) ~= "boolean" then return false, "no verdict" end
   elseif m.type == "unit.dropped" then
     if not (str(m.drone) and str(m.sticker)) then return false, "no unit or sticker" end
     if type(m.ok) ~= "boolean" then return false, "no verdict" end
@@ -309,6 +340,50 @@ function F.dropped(drone, sticker, ok, x, y, z, nonce)
   return { v = F.VERSION, type = "unit.dropped", nonce = nonce, drone = drone, sticker = sticker,
            ok = ok and true or false, x = num(x) and math.floor(x) or nil,
            y = num(y) and math.floor(y) or nil, z = num(z) and math.floor(z) or nil }
+end
+
+-- ------------------------------------------------------------- depots ---
+function F.depotHello(depot, load, step, nonce)
+  return { v = F.VERSION, type = "depot.hello", nonce = nonce, depot = depot, load = load, step = step }
+end
+
+function F.loadStart(load, drone, items, stack, nonce)
+  return { v = F.VERSION, type = "load.start", nonce = nonce, load = load, drone = drone,
+           items = num(items) and math.floor(items) or nil, stack = num(stack) and math.floor(stack) or nil }
+end
+
+function F.loadStep(load, depot, step, text, nonce)
+  return { v = F.VERSION, type = "load.step", nonce = nonce, load = load, depot = depot, step = step, text = text }
+end
+
+function F.loadLifted(load, depot, names, nonce)
+  return { v = F.VERSION, type = "load.lifted", nonce = nonce, load = load, depot = depot,
+           stickers = table.concat(names, ",") }
+end
+
+function F.loadStuck(load, ok, why, nonce)
+  return { v = F.VERSION, type = "load.stuck", nonce = nonce, load = load, ok = ok and true or false, why = why }
+end
+
+--- The end of a load at a depot. report: sides and stickers (lists), counted
+-- (how), and silos { [side] = packed items } - the sealed link carries flat
+-- fields only.
+function F.loadDone(load, depot, ok, why, at, report, nonce)
+  report = report or {}
+  local m = { v = F.VERSION, type = "load.done", nonce = nonce, load = load, depot = depot,
+              ok = ok and true or false, why = why, at = at, counted = report.counted,
+              sides = table.concat(report.sides or {}, ","), stickers = table.concat(report.stickers or {}, ",") }
+  for side, packed in pairs(report.silos or {}) do
+    if side == "left" or side == "right" or side == "both" then m["silo_" .. side] = packed end
+  end
+  return m
+end
+
+--- A list field ("a,b") back into a list.
+function F.list(s)
+  local out = {}
+  for v in tostring(s or ""):gmatch("[^,]+") do out[#out + 1] = v end
+  return out
 end
 
 function F.flyCommand(args, nonce)
