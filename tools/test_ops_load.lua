@@ -471,6 +471,19 @@ check("...and no text clears it", (w.files["pads.lua"] or ""):find("label = ", 1
 w = base({ args = { "place", "label", "nowhere" } }):run()
 check("a place that is not there is refused", has(w, "no place called nowhere"))
 
+-- a place added while the board is running reaches the terminals
+w = base({ args = {}, keysAt = { { 12, "q" } } })
+w.later[#w.later + 1] = { at = 3, fn = function()
+  w.files["pads.lua"] = 'return { { name = "home", x = 1892, y = 91, z = 365, kind = "dock" }, '
+    .. '{ name = "farm", x = 1700, y = 70, z = 300, kind = "pad" } }'
+end }
+w.later[#w.later + 1] = { at = 6, ev = { "rednet_message", 12, F.placesAsk("p-1"), F.PROTO } }
+w = w:run()
+local listed
+for _, a in ipairs(w.answered) do if a.msg and a.msg.type == "places.list" then listed = a.msg.places end end
+check("a place added while the board runs is sent out without a restart",
+  w.err == nil and listed and listed:find("farm", 1, true), w.err or tostring(listed))
+
 print("hails with no pass")
 -- a pad terminal with no key, calling by plain rednet
 local function hail(w, t)

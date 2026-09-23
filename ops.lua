@@ -411,10 +411,27 @@ local LOAD_QUEUE = "loads.queue"
 local function isDepot(id) return type(id) == "string" and id:match("^depot%-[%w_%-]+$") ~= nil end
 local function dockOf(depot) return (tostring(depot):gsub("^depot%-", "")) end
 
-do
-  local okP, P = pcall(dofile, "lib/pads.lua")
-  if okP and type(P) == "table" then pads = P.load("pads.lua", fs) or {} end
+-- pads.lua changes while the board runs: `ops place add` in another tab, or
+-- an edit by hand. It is read again whenever the file changes, so a new place
+-- reaches the terminals on their next ask instead of after a restart - which
+-- looked exactly like the place never having been added.
+local padsLib = select(2, pcall(dofile, "lib/pads.lua"))
+if type(padsLib) ~= "table" then padsLib = nil end
+local padStamp = nil
+local function padsFresh()
+  if not padsLib then return end
+  local stamp
+  if fs.attributes then
+    local okA, a = pcall(fs.attributes, "pads.lua")
+    stamp = okA and a and (tostring(a.modified) .. ":" .. tostring(a.size)) or "none"
+  else
+    stamp = tostring(math.floor(os.clock() / 10))      -- no attributes: every 10 s
+  end
+  if stamp == padStamp then return end
+  padStamp = stamp
+  pads = padsLib.load("pads.lua", fs) or {}
 end
+padsFresh()
 local function padByName(name)
   for _, p in ipairs(pads) do if p.name == tostring(name):lower() then return p end end
   return nil
@@ -1339,6 +1356,7 @@ end
 local function depotLoop()
   while true do
     takeQueue()
+    padsFresh()               -- a place added or renamed while the board runs
     local now = os.clock()
     for depot, L in pairs(loads) do
       if L.state == "queued" then
