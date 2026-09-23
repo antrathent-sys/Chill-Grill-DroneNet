@@ -174,7 +174,10 @@ local function base(opts)
   local function tlm()
     w.seq = w.seq + 1
     local docked = drone.docked ~= false and (not drone.dockAt or w.clock >= drone.dockAt) and not w.flying
-    local s = { t = w.clock, phase = docked and "docked" or "idle", h = 98.5, e = 0,
+    if drone.sos and w.clock >= drone.sos then docked = false end
+    local phase = docked and "docked" or "idle"
+    if drone.sos and w.clock >= drone.sos then phase = "sos" end
+    local s = { t = w.clock, phase = phase, h = 98.5, e = 0,
                 x = w.pos.x, z = w.pos.z, vx = 0, vz = 0, vv = 0 }
     -- the depot is awake while the drone is at the pier
     if depot and not depot.asleep and math.abs(w.pos.x - 1950.5) < 1 and (w.lastHello or -99) + 10 <= w.clock then
@@ -457,6 +460,17 @@ local dropped = files["cargo.csv"] .. C.dropRow(1, loadId, "drone-1", "left", "C
 w = base({ args = { "cargo" }, files = { ["cargo.csv"] = dropped } }):run()
 check("...and once the drone reports the drop, where it was let go", has(w, "-> pier: DELIVERED at 100 80 50")
   and has(w, "-> market: on board"), w.text)
+print("a unit in distress")
+w = base({ args = {}, drone = { sos = 3 }, keysAt = { { 10, "q" } } }):run()
+check("telemetry that reads sos is written to incidents.csv, and the board stays up",
+  w.err == nil and (w.files["incidents.csv"] or ""):find("distress signal", 1, true), w.err or w.files["incidents.csv"])
+w = base({ args = {}, keysAt = { { 8, "q" } },
+           later = { { 4, F.distress("drone-1", "pickup flight failed", 1900, 70, 380, "d-sos") } } }):run()
+check("...and so is a distress call", w.err == nil
+  and (w.files["incidents.csv"] or ""):find("pickup flight failed", 1, true), w.err or w.files["incidents.csv"])
+w = base({ args = { "sos" }, files = { ["incidents.csv"] = w.files["incidents.csv"] } }):run()
+check("ops sos lists them for recovery", w.err == nil and has(w, "drone-1") and has(w, "1900 70 380"), w.err or w.text)
+
 print("what places are called")
 w = base({ args = { "place" } }):run()
 check("ops place shows the home dock as CINDER HQ", w.err == nil and has(w, "CINDER HQ")

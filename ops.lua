@@ -316,7 +316,7 @@ local function coords(x, y, z)
   return string.format("%d %d %d", math.floor(x), math.floor(type(y) == "number" and y or 0), math.floor(z))
 end
 
-incident = function(drone, j, why, x, y, z, alert)
+local function incident(drone, j, why, x, y, z, alert)
   local f = fleet[drone] or {}
   x, y, z = x or f.x, y or f.y, z or f.z
   if alert ~= false then
@@ -437,7 +437,6 @@ local function padByName(name)
   return nil
 end
 
-local incident            -- defined once log() exists, below
 
 local function note(d)
   local id = d.id
