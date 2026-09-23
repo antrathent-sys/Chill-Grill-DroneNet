@@ -227,7 +227,10 @@ local function base(opts)
       return periph[n].m[m](...)
     end,
   }
-  env.rednet = { open = function() end, broadcast = function() end, send = function() end, isOpen = function() return true end,
+  w.answered = {}
+  env.rednet = { open = function() end, broadcast = function() end,
+    send = function(to, msg) w.answered[#w.answered + 1] = { to = to, msg = msg } end,
+    isOpen = function() return true end,
     receive = function(proto)
       while true do
         local _, from, msg, p = env.os.pullEvent("rednet_message")
@@ -454,6 +457,44 @@ local dropped = files["cargo.csv"] .. C.dropRow(1, loadId, "drone-1", "left", "C
 w = base({ args = { "cargo" }, files = { ["cargo.csv"] = dropped } }):run()
 check("...and once the drone reports the drop, where it was let go", has(w, "-> pier: DELIVERED at 100 80 50")
   and has(w, "-> market: on board"), w.text)
+print("hails with no pass")
+-- a pad terminal with no key, calling by plain rednet
+local function hail(w, t)
+  w.later[#w.later + 1] = { at = t, ev = { "rednet_message", 12,
+    F.request({ x = 1900, y = 64, z = 370 }, { x = 1700, z = 300, name = "pier" }, "pad-1", "alex"), F.PROTO } }
+end
+w = base({ args = { "open" }, keysAt = { { 4, "q" } } })
+hail(w, 2)
+w = w:run()
+check("ops open remembers it, so every boot after this takes any terminal", w.err == nil
+  and w.files[".hailsopen"] ~= nil and has(w, "OPEN TO ANY TERMINAL"), w.err or w.text)
+local assigns = {}
+for _, b in ipairs(w.orders) do if b.type == "job.assign" then assigns[#assigns + 1] = b end end
+-- the destination is the pier's own record, not the coordinates the terminal sent
+check("...and a terminal with no pass gets a shuttle", #assigns == 1 and assigns[1].tx == 1950,
+  #assigns .. " " .. tostring(assigns[1] and assigns[1].tx))
+check("nobody was told about a pass", not has(w, "no pass on this terminal"))
+local open = w.files[".hailsopen"]
+
+w = base({ args = {}, files = { [".hailsopen"] = open }, keysAt = { { 4, "q" } } })
+hail(w, 2)
+w = w:run()
+assigns = {}
+for _, b in ipairs(w.orders) do if b.type == "job.assign" then assigns[#assigns + 1] = b end end
+check("a plain `ops` after that is still open", w.err == nil and #assigns == 1, w.err or #assigns)
+
+w = base({ args = {}, keysAt = { { 4, "q" } } })
+hail(w, 2)
+w = w:run()
+assigns = {}
+for _, b in ipairs(w.orders) do if b.type == "job.assign" then assigns[#assigns + 1] = b end end
+check("without the file it is passes only again: no shuttle", #assigns == 0)
+check("...and the terminal is told why, rather than timing out", w.answered[1]
+  and w.answered[1].msg.why == "no pass on this terminal", w.answered[1] and w.answered[1].msg.why)
+
+w = base({ args = { "known" }, files = { [".hailsopen"] = open }, keysAt = { { 3, "q" } } }):run()
+check("ops known closes it again", w.files[".hailsopen"] == nil and not has(w, "OPEN TO ANY TERMINAL"))
+
 print("a load at a depot, run by the board")
 w = base({ args = { "load", "send", "drone-1", "pier", "640", "deliver", "market" } }):run()
 check("ops load send queues it for the board", w.err == nil and (w.files["loads.queue"] or ""):find(

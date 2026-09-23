@@ -7,9 +7,11 @@
 --   ops land|hold|undock <who>     the in-flight words fly already takes
 --   ops stats            what the taxi pads have reported
 --   ops closed           run the board but turn radio hails away
---   ops open             also take hails from terminals with no key - for
---                        testing only. By default only passes made with
---                        `provision` (or seckey cust) can call a shuttle.
+--   ops open             take hails from ANY terminal, pass or not, and keep
+--                        doing so until `ops known` - it is remembered across
+--                        reboots (.hailsopen on this computer)
+--   ops known            passes only again: a terminal must carry a key made
+--                        with `provision` (or seckey cust) to call a shuttle
 --   ops poke <drone>     prove the link: ask a drone to answer, nothing flies
 --   ops free <drone>     it is not on a job, whatever ops thinks
 --   ops jobs [n]         the last n rides and what they cost in time
@@ -85,7 +87,12 @@ local fleetKeys, nKeys = SEC.readFleetKeys(".fleetkeys")
 -- of Lua, so an open door would mean free anonymous rides for all of them.
 local custKeys, nCusts = SEC.readFleetKeys(".custkeys")
 local custRx = SEC.receiver()
-local knownOnly = true
+-- Whether a caller must carry a pass. The choice is remembered in a file, so
+-- an `ops` started by startup on every boot keeps it: `ops open` writes it,
+-- `ops known` removes it. Passes are what tie a ride to an account, so open
+-- means anonymous rides billed to whatever the terminal calls itself.
+local HAILS_OPEN = ".hailsopen"
+local knownOnly = not fs.exists(HAILS_OPEN)
 
 -- .custkeys changes while ops runs: provision adds a pass, `provision drop`
 -- takes one away. It is read again whenever it changes, so a new pass works
@@ -131,8 +138,17 @@ if openToHails then
   end
 end
 if cmd == "closed" then cmd = "watch" end
-if cmd == "open" then knownOnly, cmd = false, "watch" end
-if cmd == "known" then cmd = "watch" end            -- the default now; the old word still works
+if cmd == "open" then
+  if not fs.exists(HAILS_OPEN) then
+    local h = fs.open(HAILS_OPEN, "w")
+    if h then h.writeLine("hails from any terminal, pass or not - ops known ends it") h.close() end
+  end
+  knownOnly, cmd = false, "watch"
+end
+if cmd == "known" then
+  if fs.exists(HAILS_OPEN) then fs.delete(HAILS_OPEN) end
+  knownOnly, cmd = true, "watch"
+end
 
 
 -- one sealed sender per drone, made on first use; the counter persists so a
@@ -1181,7 +1197,7 @@ print(string.format("ops %s: %d key%s, %d pad%s, orders sealed on %s", me,
   radio and (radio .. " channel " .. link.CHANNEL) or "NOTHING - no ender modem"))
 print(string.format("%s  %d customer key%s%s",
   openToHails and "dispatching pads and radio hails." or "dispatching pads only - hails turned away.",
-  nCusts, nCusts == 1 and "" or "s", knownOnly and "" or "  OPEN TO ANY TERMINAL (testing)"))
+  nCusts, nCusts == 1 and "" or "s", knownOnly and "" or "  OPEN TO ANY TERMINAL - ops known ends it"))
 
 -- One message. Kept separate so serve can run it under pcall: a single
 -- malformed packet must never be able to stop ops answering customers.
@@ -1565,7 +1581,7 @@ local function serve()
         msg = nil
       end
     elseif knownOnly and type(msg) == "table" and msg.type == "taxi.request" then
-      log("refused a hail from a terminal with no pass (ops open takes them, for testing)")
+      log("refused a hail from a terminal with no pass (ops open takes any terminal)")
       -- and say so, or the terminal waits out its timeout and reports that
       -- nothing answered, which sends people looking for the wrong fault
       pcall(rednet.send, from, F.ack("j-none", "ops", false, "no pass on this terminal", nonce()), F.PROTO)
@@ -1872,5 +1888,6 @@ local function keys()
   end
 end
 
+if not knownOnly then log("OPEN: any terminal can call, pass or not - ops known ends it") end
 parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, serveQueue, draw, keys, depotLoop)
 print("ops stopped")
