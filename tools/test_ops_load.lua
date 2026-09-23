@@ -457,6 +457,20 @@ local dropped = files["cargo.csv"] .. C.dropRow(1, loadId, "drone-1", "left", "C
 w = base({ args = { "cargo" }, files = { ["cargo.csv"] = dropped } }):run()
 check("...and once the drone reports the drop, where it was let go", has(w, "-> pier: DELIVERED at 100 80 50")
   and has(w, "-> market: on board"), w.text)
+print("what places are called")
+w = base({ args = { "place" } }):run()
+check("ops place shows the home dock as CINDER HQ", w.err == nil and has(w, "CINDER HQ")
+  and has(w, "home") and has(w, "pier"), w.err or w.text)
+w = base({ args = { "place", "label", "pier", "Cinder", "Docks" } }):run()
+check("ops place label names one", w.err == nil and has(w, "pier is shown as CINDER DOCKS")
+  and (w.files["pads.lua"] or ""):find('label = "Cinder Docks"', 1, true), w.err or w.text)
+local labelled = w.files["pads.lua"]
+w = base({ args = { "place", "label", "pier" }, files = { ["pads.lua"] = labelled } }):run()
+check("...and no text clears it", (w.files["pads.lua"] or ""):find("label = ", 1, true) == nil,
+  w.files["pads.lua"])
+w = base({ args = { "place", "label", "nowhere" } }):run()
+check("a place that is not there is refused", has(w, "no place called nowhere"))
+
 print("hails with no pass")
 -- a pad terminal with no key, calling by plain rednet
 local function hail(w, t)

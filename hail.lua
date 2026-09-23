@@ -239,6 +239,15 @@ end
 rednet.open(radio)
 
 
+-- What a place is called on screen: the home dock is CINDER HQ, anything
+-- else the label the base sent, else its own name. The NAME still goes on the
+-- request - that is what the base matches against its own places.
+local function shownAs(p)
+  if UI and UI.placeName then return UI.placeName(p) end
+  if type(p) == "string" then p = { name = p } end
+  return tostring((type(p) == "table" and (p.label or p.name)) or ""):upper()
+end
+
 -- ----------------------------------------------------------------- places ---
 local function coords(s)
   local n = {}
@@ -525,7 +534,8 @@ local function chooseDestination(from)
   local function build()
     local own, base = {}, {}
     for _, p in ipairs(places) do
-      local e = { name = p.name, x = p.x, y = p.y, z = p.z, own = p.own, src = p, dist = dist(from, p.x, p.z) }
+      local e = { name = p.name, label = p.label, x = p.x, y = p.y, z = p.z, own = p.own, src = p,
+                  dist = dist(from, p.x, p.z) }
       if p.own then own[#own + 1] = e else base[#base + 1] = e end
     end
     local function near(a, b) return a.dist < b.dist end
@@ -549,7 +559,7 @@ local function chooseDestination(from)
       elseif key == keys.pageUp then sel = math.max(1, sel - rows)
       elseif key == keys.enter and list[sel] then
         local p = list[sel]
-        return p.x, p.y, p.z, p.name
+        return p.x, p.y, p.z, p.name, p.label
       elseif key == keys.q and not KIOSK then
         return nil
       elseif key == keys.t then
@@ -890,16 +900,18 @@ end
 local function oneRide(tx, ty, tz, name)
   local from = whereAmI()
   if not from then return end
+  local label
   if not tx then
-    tx, ty, tz, name = chooseDestination(from)
+    tx, ty, tz, name, label = chooseDestination(from)
     if not tx then return end
   end
   name = name or xyz(tx, ty, tz)
+  local shown = shownAs({ name = name, label = label })
   local to = { x = tx, y = ty, z = tz }
 
   -- First ask the base: the fare, and whether a unit is already on station
   -- nearby. If one is, there is no landing to arrange - they walk to it.
-  frame("CHECKING", name)
+  frame("CHECKING", shown)
   at(2, 6, "consulting the directorate", DIM)
   local quote = askQuote(from, tx, tz, name)
   local near = quote and quote.near
@@ -912,14 +924,14 @@ local function oneRide(tx, ty, tz, name)
 
   -- The price before the promise, and where from and to, in coordinates.
   lastFare, lastUnit = nil, nil
-  frame("CONFIRM", name, { { "ENT", "REQUEST", true }, { "ANY", "BACK" } })
+  frame("CONFIRM", shown, { { "ENT", "REQUEST", true }, { "ANY", "BACK" } })
   if near then
-    local unitAt = quote.nplace and quote.nplace:upper() or xyz(quote.nx, quote.ny, quote.nz)
-    field(6, "from", "unit at " .. unitAt)
+    local unitAt = quote.nplace and shownAs(quote.nplace) or xyz(quote.nx, quote.ny, quote.nz)
+    field(6, "unit at", unitAt)
     field(7, "to", xyz(tx, ty, tz))
     field(8, "distance", string.format("%d blocks", math.floor(dist({ x = quote.nx, z = quote.nz }, tx, tz))))
   else
-    field(6, "from", pickup.name and (pickup.name:upper()) or xyz(pickup.x, pickup.y, pickup.z))
+    field(6, "from", pickup.name and shownAs(pickup) or xyz(pickup.x, pickup.y, pickup.z))
     if pickup.name then at(11, 7, xyz(pickup.x, pickup.y, pickup.z), DIM) end
     field(pickup.name and 8 or 7, "to", xyz(tx, ty, tz))
     field(pickup.name and 9 or 8, "distance", string.format("%d blocks", math.floor(dist(pickup, tx, tz))))
@@ -939,7 +951,7 @@ local function oneRide(tx, ty, tz, name)
   local req = F.request(pickup, { x = tx, z = tz, y = ty, name = name }, nonce(), me)
   say(req)
 
-  frame("REQUESTING UNIT", name)
+  frame("REQUESTING UNIT", shown)
   field(6, "from", xyz(pickup.x, pickup.y, pickup.z))
   field(7, "to", xyz(tx, ty, tz))
   local job, t0, refused, heard, n = nil, os.clock(), nil, false, 0
@@ -1018,14 +1030,14 @@ local function oneRide(tx, ty, tz, name)
   if assigned and assigned.px and assigned.pz then
     pickup = { x = assigned.px, y = assigned.py or pickup.y, z = assigned.pz, name = pickup.name }
   end
-  local how = follow(job, from, name, { pickup = pickup, to = to, board = board })
+  local how = follow(job, from, shown, { pickup = pickup, to = to, board = board })
   askBalance(1.5)                 -- the fare lands as the ride ends
   if how == "done" then
     F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(),
       blocks = dist(pickup, tx, tz) })
     -- the end of the ride is the part people remember, so it says exactly
     -- what happened: which unit, from and to where, what it cost, what is left
-    frame("TRANSIT COMPLETE", name)
+    frame("TRANSIT COMPLETE", shown)
     local fare = lastFare or (quote and quote.fare)
     if lastUnit then field(6, "unit", UI and UI.unitName(lastUnit) or lastUnit) end
     field(7, "from", xyz(pickup.x, pickup.y, pickup.z))

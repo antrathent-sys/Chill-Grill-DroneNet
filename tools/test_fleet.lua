@@ -301,6 +301,18 @@ local periph = {
 local wired = F.wired(periph)
 check("just the wired one", #wired == 1 and wired[1] == "back", table.concat(wired, ","))
 
+print("what a place is called travels with it")
+local withLabel = F.packPlaces({ { name = "home", x = 10, z = -20, y = 64, label = "CINDER HQ" },
+                                 { name = "pier", x = 5, z = 6 } })
+local back = F.unpackPlaces(withLabel)
+check("a place carries its label", back[1].label == "CINDER HQ" and back[1].y == 64 and back[1].x == 10)
+check("one without a label is unchanged", back[2].label == nil and back[2].x == 5 and back[2].z == 6)
+local noY = F.unpackPlaces(F.packPlaces({ { name = "hq", x = 1, z = 2, label = "HQ" } }))
+check("a label with no height keeps the gap", noY[1].label == "HQ" and noY[1].y == nil and noY[1].x == 1)
+check("the old four-field form still reads", F.unpackPlaces("home:10:-20:64")[1].y == 64)
+check("a label cannot smuggle a separator", F.packPlaces({ { name = "a", x = 1, z = 2, label = "x|y:z" } })
+  :find("|") == nil)
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("fleet tests failed", 0) end

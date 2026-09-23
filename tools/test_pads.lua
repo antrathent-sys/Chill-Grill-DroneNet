@@ -115,6 +115,22 @@ check("put refuses a bad pad", select(1, pads.put(l3, { name = "x" })) == nil an
 check("remove returns what it removed", pads.remove(l3, "Depot").x == 11 and #l3 == 1)
 check("remove of a stranger does nothing", pads.remove(l3, "nowhere") == nil and #l3 == 1)
 
+print("what a place is called")
+check("the home dock is CINDER HQ everywhere, without being told",
+  pads.label({ name = "home", x = 1, y = 2, z = 3 }) == "CINDER HQ")
+check("...and by name on the command line", pads.HOME == "home")
+check("anything else is its own name", pads.label({ name = "pier" }) == "PIER")
+check("a label of its own wins", pads.label({ name = "pier", label = "Cinder Docks" }) == "CINDER DOCKS")
+check("even for home", pads.label({ name = "home", label = "the yard" }) == "THE YARD")
+check("a name on its own works too", pads.label("home") == "CINDER HQ" and pads.label(nil) == "")
+local lp, lw = pads.check({ name = "pier", x = 1, y = 2, z = 3, label = "  Cinder  Docks " })
+check("a label is tidied and kept", lp and lp.label == "Cinder Docks", lw or (lp and lp.label))
+check("a label with punctuation in it is refused", (pads.check({ name = "p", x = 1, y = 2, z = 3, label = "a;b" })) == nil)
+check("...and one too long", (pads.check({ name = "p", x = 1, y = 2, z = 3,
+  label = string.rep("x", pads.LABEL_MAX + 1) })) == nil)
+local saved = pads.serialise({ { name = "home", kind = "dock", x = 1, y = 2, z = 3, label = "Cinder HQ" } })
+check("it survives being written and read back", saved:find('label = "Cinder HQ"', 1, true) ~= nil)
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("pads tests failed", 0) end

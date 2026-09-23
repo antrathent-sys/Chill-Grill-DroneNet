@@ -32,6 +32,26 @@
 local pads = {}
 pads.VERSION = 1
 
+-- The home dock is the one place every part of the service knows, so it has
+-- one name everywhere: `home` on the command line (short to type, and what
+-- fly, ops and the tariff already use) and CINDER HQ on every screen. Any
+-- place can carry its own `label` to be shown by; this is the default for
+-- home. The brand itself is in lib/hailui.lua (M.NAME).
+pads.HOME = "home"
+pads.HOME_LABEL = "CINDER HQ"
+pads.LABEL_MAX = 18
+
+--- What to call a place on a screen: its own label, the home dock's standard
+-- name, or the name itself. Always upper case, as the screens are.
+function pads.label(p)
+  if type(p) == "string" then p = { name = p } end
+  if type(p) ~= "table" then return "" end
+  local name = tostring(p.name or "")
+  if type(p.label) == "string" and p.label ~= "" then return p.label:upper() end
+  if name:lower() == pads.HOME then return pads.HOME_LABEL end
+  return name:upper()
+end
+
 local function num(v)
   if type(v) ~= "number" or v ~= v then return nil end
   return v
@@ -56,7 +76,15 @@ function pads.check(e)
   if kind ~= "dock" and kind ~= "pad" then
     return nil, name .. ": kind must be dock or pad, not " .. kind
   end
-  return { name = name, x = x, y = y, z = z, kind = kind,
+  -- what customers see this place called, when it is not just the name
+  local label
+  if e.label ~= nil and e.label ~= "" then
+    label = type(e.label) == "string" and e.label:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "") or ""
+    if not label:match("^[%w _%-%.]+$") or #label > pads.LABEL_MAX then
+      return nil, name .. ": a label is up to " .. pads.LABEL_MAX .. " letters, digits, spaces, - _ ."
+    end
+  end
+  return { name = name, x = x, y = y, z = z, kind = kind, label = label,
            trimX = num(e.trimX) or 0, trimZ = num(e.trimZ) or 0,
            cruiseY = num(e.cruiseY),
            note = type(e.note) == "string" and e.note or nil }
@@ -131,7 +159,7 @@ function pads.serialise(list)
     "-- x, y, z are F3 block coordinates and y is the PAD block, the same",
     "-- number `fly dock <x> <y> <z>` takes. trimX/trimZ shift the park point",
     "-- for a pad whose connector is not under the centre of mass; cruiseY is",
-    "-- the altitude to travel there at.",
+    "-- the altitude to travel there at. label is what customers see it called",
     "-- Written by `fly pad add <name> [dock|pad]` and `ops place add`, and",
     "-- safe to edit by hand.",
     "return {",
@@ -141,6 +169,7 @@ function pads.serialise(list)
                                   p.name, p.kind or "pad", p.x, p.y, p.z) }
     if (p.trimX or 0) ~= 0 then parts[#parts + 1] = string.format("trimX = %g", p.trimX) end
     if (p.trimZ or 0) ~= 0 then parts[#parts + 1] = string.format("trimZ = %g", p.trimZ) end
+    if p.label then parts[#parts + 1] = string.format("label = %q", p.label) end
     if p.cruiseY then parts[#parts + 1] = string.format("cruiseY = %g", p.cruiseY) end
     if p.note then parts[#parts + 1] = string.format("note = %q", p.note) end
     out[#out + 1] = "  { " .. table.concat(parts, ", ") .. " },"

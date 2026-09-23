@@ -21,6 +21,9 @@
 --   ops place            the destinations customers can pick from
 --   ops place add <name> <x> <y> <z> [dock]   add one (or move it), in F3's
 --                                         order; a pad unless `dock`
+--   ops place label <name> [text]         what customers see it called; no
+--                                         text clears it. The home dock is
+--                                         CINDER HQ without being told
 --   ops place del <name>                  take one off the list
 --   ops sos [n]          the last n incidents: every unit that went down or
 --                        silent, with where it was, for recovery
@@ -1053,6 +1056,23 @@ if cmd == "place" then
     print(okW and string.format("%s (%s) is at %d %d %d", entry.name, entry.kind, entry.x, entry.y, entry.z)
                or ("could not save: " .. tostring(whyW)))
     return
+  elseif sub == "label" then
+    -- what the terminals call it. The name stays what every command uses.
+    local name = args[3] and args[3]:lower()
+    if not name then print("ops place label <name> [text]   (no text clears it)") return end
+    local p = P.get(list, name)
+    if not p then print("no place called " .. name) return end
+    local text = args[4] and table.concat({ (table.unpack or unpack)(args, 4) }, " ") or nil
+    local entry = {}
+    for k, v in pairs(p) do entry[k] = v end
+    entry.label = text
+    local okL, whyL = P.check(entry)
+    if not okL then print("no: " .. tostring(whyL)) return end
+    list = P.put(list, entry)
+    local okW, whyW = P.save("pads.lua", list, fs)
+    if not okW then print("could not save: " .. tostring(whyW)) return end
+    print(string.format("%s is shown as %s", name, P.label(okL)))
+    return
   elseif sub == "del" then
     if not args[3] then print("ops place del <name>") return end
     list = P.remove(list, args[3]:lower())
@@ -1061,9 +1081,16 @@ if cmd == "place" then
     return
   end
   if #list == 0 then print("no places yet - ops place add <name> <x> <y> <z>") return end
-  print(string.format("%-14s %-4s %8s %5s %8s", "PLACE", "KIND", "X", "Y", "Z"))
+  print(string.format("%-12s %-4s %7s %5s %7s  %s", "PLACE", "KIND", "X", "Y", "Z", "SHOWN AS"))
   for _, p in ipairs(list) do
-    print(string.format("%-14s %-4s %8d %5d %8d", p.name, p.kind or "dock", p.x, p.y or 0, p.z))
+    local shown = P.label(p)
+    print(string.format("%-12s %-4s %7d %5d %7d  %s", p.name, p.kind or "dock", p.x, p.y or 0, p.z,
+      shown ~= p.name:upper() and shown or ""))
+  end
+  if not P.get(list, P.HOME) then
+    print("")
+    print("no home dock yet - it is the one place everything knows, shown to")
+    print("customers as " .. P.HOME_LABEL .. ":  ops place add " .. P.HOME .. " <x> <y> <z> dock")
   end
   print("")
   print("a drone lands at a pad and docks at a dock. terminals pick these up")

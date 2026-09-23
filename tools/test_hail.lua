@@ -339,7 +339,9 @@ local nb = run(world({ near = { unit = "drone-1", x = 1890, y = 98, z = 366, pla
   { char = "g", when = function(w) return w.state == "waiting" end },
 } }), "hail.lua", "kiosk")
 check("no landing zone to check", not has(nb, "LANDING ZONE"))
-check("it says so at confirm", has(nb, "UNIT ON STATION NEARBY") and has(nb, "UNIT AT HOME"))
+check("the places list calls the home dock CINDER HQ, not HOME", has(nb, "CINDER HQ"))
+check("it says so at confirm, and the home dock is called CINDER HQ",
+  has(nb, "UNIT ON STATION NEARBY") and has(nb, "UNIT AT") and has(nb, "CINDER HQ"))
 check("the ride screen says walk to it", has(nb, "WALK TO UNIT"))
 check("and G takes it from there", nb.went == true)
 

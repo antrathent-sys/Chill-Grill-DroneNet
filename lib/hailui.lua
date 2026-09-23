@@ -31,6 +31,21 @@ M.WORDS = {
 --- What a customer calls a craft: its class and its number. The passenger
 -- craft are Lambdas, so drone-1 is LAMBDA-1; anything named otherwise is
 -- shown as it is.
+-- The home dock is CINDER HQ on every customer screen; any other place is
+-- shown by its own label when the base sent one, else by its name.
+M.HOME = "home"
+M.HQ = M.NAME .. " HQ"
+
+--- What to call a place on a screen. Takes a place, or just a name.
+function M.placeName(p)
+  if type(p) == "string" then p = { name = p } end
+  if type(p) ~= "table" then return "" end
+  local name = tostring(p.name or "")
+  if type(p.label) == "string" and p.label ~= "" then return p.label:upper() end
+  if name:lower() == M.HOME then return M.HQ end
+  return name:upper()
+end
+
 function M.unitName(id)
   if type(id) ~= "string" or id == "" then return nil end
   local n = id:lower():match("^drone%-(%d+)$")
@@ -119,7 +134,7 @@ function M.places(T, c, view)
       T.band(c, top + r, line.band, line.right, nil, owed and T.C.warn or T.C.text)
     elseif line then
       local p = line.item
-      T.row(c, 1, top + r, w, p.name:upper(), string.format("%d", math.floor(p.dist or 0)), line.index == view.sel)
+      T.row(c, 1, top + r, w, M.placeName(p), string.format("%d", math.floor(p.dist or 0)), line.index == view.sel)
     end
   end
   if #places == 0 then

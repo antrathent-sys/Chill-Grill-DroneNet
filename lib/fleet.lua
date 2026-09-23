@@ -404,7 +404,12 @@ function F.packPlaces(list)
       -- name:x:z, then :y when the place has one - height is where a landing
       -- starts braking, so it travels with the place
       local entry = string.format("%s:%d:%d", tostring(p.name):gsub("[|:]", ""), math.floor(p.x), math.floor(p.z))
-      if p.y then entry = entry .. ":" .. math.floor(p.y) end
+      -- then the height, and then what it is called on a screen when that is
+      -- not just its name. A place with a label but no height keeps the gap
+      -- (name:x:z::LABEL), so an older terminal still reads the first four.
+      local label = type(p.label) == "string" and p.label ~= "" and (p.label:gsub("[|:]", "")) or nil
+      if p.y or label then entry = entry .. ":" .. (p.y and math.floor(p.y) or "") end
+      if label then entry = entry .. ":" .. label end
       out[#out + 1] = entry
     end
   end
@@ -414,8 +419,11 @@ end
 function F.unpackPlaces(text)
   local out = {}
   for chunk in tostring(text or ""):gmatch("[^|]+") do
-    local name, x, z, y = chunk:match("^([^:]+):(-?%d+):(-?%d+):?(-?%d*)$")
-    if name then out[#out + 1] = { name = name, x = tonumber(x), z = tonumber(z), y = tonumber(y) } end
+    local name, x, z, y, label = chunk:match("^([^:]+):(-?%d+):(-?%d+):?(-?%d*):?(.*)$")
+    if name then
+      out[#out + 1] = { name = name, x = tonumber(x), z = tonumber(z), y = tonumber(y),
+                        label = (label ~= "" and label) or nil }
+    end
   end
   return out
 end

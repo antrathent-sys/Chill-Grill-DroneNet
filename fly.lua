@@ -2141,8 +2141,10 @@ if mode == "pads" then
     print(string.format("places in %s (ferry to a dock, land at a pad):", file))
     if #PAD.list == 0 then print("  none yet - dock on one and run: fly pad add <name>") end
     for _, p in ipairs(PAD.list) do
-      print(string.format("  %-10s %-4s %6d %4d %6d  %5.0f away%s", p.name, p.kind or "dock", p.x, p.y, p.z,
-        PAD.lib.dist(p, pos.x, pos.z), p.note and ("  " .. p.note) or ""))
+      local shown = PAD.lib.label(p)
+      print(string.format("  %-10s %-4s %6d %4d %6d  %5.0f away%s%s", p.name, p.kind or "dock", p.x, p.y, p.z,
+        PAD.lib.dist(p, pos.x, pos.z), shown ~= p.name:upper() and ("  " .. shown) or "",
+        p.note and ("  " .. p.note) or ""))
     end
     local hp = PAD.home()
     print(string.format("home: %d %d %d%s", hp.x, hp.y, hp.z,
