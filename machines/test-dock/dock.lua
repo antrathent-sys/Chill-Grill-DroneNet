@@ -2,7 +2,7 @@
 -- Relays from `depot probe map` 2026-09-24 20:41 (relays.lua beside this);
 -- the order of each job is Alex's, 2026-09-24. Read by lib/dockseq.lua.
 --
--- NOT MAPPED YET:
+-- NOT MAPPED YET (the lasers are - see detect below):
 --   belts   redstone_relay_1 and redstone_relay_2 moved nothing during the
 --           walk - almost certainly the two belts, which show nothing with
 --           empty storage. Until they are confirmed the belts are left alone
@@ -17,6 +17,12 @@ return {
     B = { place = "redstone_relay_11", assemble = "redstone_relay_8", pusher = "redstone_relay_9" },
   },
   storage = { "create_connected:item_silo_0", "create_connected:item_silo_2" },
+
+  -- a laser across each bay (Create Avionics): a silo blocks the beam, so the
+  -- dock SEES whether a bay has one instead of remembering. Alex, 2026-09-24:
+  -- sensor 3 is A, 4 is B. `depot seq` says if a name is wrong.
+  detect = { A = "laser_sensor_3", B = "laser_sensor_4" },
+  silo_when = "blocked",
 
   -- what ON does to a belt, once the belts are mapped: "fills" or "empties"
   -- belt_on = "empties",

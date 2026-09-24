@@ -130,6 +130,12 @@ local function snapshot()
   for _, n in ipairs(peripheral.getNames()) do
     local t = peripheral.getType(n)
     s.type[n] = t
+    if t == "laser_sensor" then
+      local okH, hit = pcall(peripheral.call, n, "getClosestHitDistance")
+      local okP, pow = pcall(peripheral.call, n, "getPower")
+      s.laser = s.laser or {}
+      s.laser[n] = { hit = okH and hit or nil, power = okP and pow or nil }
+    end
     if t == "redstone_relay" then
       local faces = {}
       for _, side in ipairs(SIDES) do
@@ -189,7 +195,14 @@ local function printSnapshot(s)
     local inv = s.inv[n]
     psay(string.format("%s  %s%s", n, inv.size and (inv.size .. " slots, ") or "", itemsLine(inv)))
   end
-  for _, n in ipairs(other) do psay("  " .. n) end
+  for _, n in ipairs(other) do
+    local l = s.laser and s.laser[n:match("^(%S+)")]
+    if l then
+      psay(string.format("  %s  %s", n, l.hit and string.format("beam hitting at %.1f", l.hit) or "NO BEAM (blocked?)"))
+    else
+      psay("  " .. n)
+    end
+  end
   local mine = {}
   for _, side in ipairs(SIDES) do
     local okO, out = pcall(redstone.getOutput, side)
@@ -211,6 +224,12 @@ local function report(before, after)
     elseif inv.items ~= was.items then say("%s %+d items (%s)", n, inv.items - was.items, itemsLine(inv)) end
   end
   for n in pairs(before.inv) do if not after.inv[n] then say("GONE %s (assembled, or broken)", n) end end
+  for n, l in pairs(after.laser or {}) do
+    local was = before.laser and before.laser[n]
+    if was and (was.hit ~= nil) ~= (l.hit ~= nil) then
+      say("%s: %s", n, l.hit and "beam back - the bay cleared" or "beam BLOCKED - something is in the bay")
+    end
+  end
   for n, t in pairs(after.type) do if not before.type[n] then say("NEW peripheral %s (%s)", n, tostring(t)) end end
   for n in pairs(before.type) do if not after.type[n] then say("GONE peripheral %s", n) end end
   for n, faces in pairs(after.relay) do
@@ -467,6 +486,17 @@ if cmd == "seq" then
       if s then
         print(string.format("side %s  silo: %-5s  place %s  assemble %s  pusher %s  belt %s", sd, silo(sd),
           s.place or "-", s.assemble or "-", s.pusher, s.belt or "(not mapped)"))
+        local d = cfg.detect[sd]
+        if d then
+          local p = nil
+          if peripheral.isPresent(d) then
+            local okH, hit = pcall(peripheral.call, d, "getClosestHitDistance")
+            if okH then p = (hit == nil) end
+            if p ~= nil and cfg.silo_when == "hit" then p = not p end
+          end
+          print(string.format("        detector %s: %s", d, p == nil and "NOT FOUND - check the name with depot probe"
+            or (p and "a silo is in the bay" or "the bay is clear")))
+        end
       end
     end
     print("storage: " .. (#cfg.storage > 0 and table.concat(cfg.storage, ", ") or "(none - fills and empties are timed)"))
@@ -508,9 +538,20 @@ if cmd == "seq" then
     end
     return n
   end
+  -- a side's detector: is there a silo in its bay? nil when there is no
+  -- detector, or it cannot be read
+  local function present(sd)
+    local name = cfg.detect[sd]
+    if not name or not peripheral.isPresent(name) then return nil end
+    local okH, hit = pcall(peripheral.call, name, "getClosestHitDistance")
+    if not okH then return nil end
+    local blocked = (hit == nil)
+    if cfg.silo_when == "hit" then return not blocked end
+    return blocked
+  end
   local io = {
     set = function(relay, on) return drive({ relay = relay }, on) end,
-    sleep = sleep, now = os.clock, count = storageCount, silo = silo,
+    sleep = sleep, now = os.clock, count = storageCount, silo = silo, present = present,
     stopped = function() return stop end,
     say = function(step, text) psay(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text)) end,
     drone = function(what)

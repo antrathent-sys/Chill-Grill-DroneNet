@@ -329,5 +329,49 @@ w = depot({})
 w = w:run("depot.lua", { "seq" }, 5)
 check("no dock.lua: says where it comes from", w.text:find("machines/depot-pier/dock.lua", 1, true) ~= nil, w.text)
 
+print("the lasers across the bays")
+-- laser_sensor_3 watches side A, laser_sensor_4 side B; relay 0 places a silo
+-- on A, which blocks A's beam
+local function laserDepot(lines)
+  local w = depot({ lines = lines })
+  w.bayA = false
+  w.periph["laser_sensor_3"] = { type = "laser_sensor", m = {
+    getClosestHitDistance = function() if w.bayA then return nil end return 4.5 end,
+    getPower = function() return w.bayA and 0 or 15 end } }
+  w.periph["laser_sensor_4"] = { type = "laser_sensor", m = {
+    getClosestHitDistance = function() return nil end,
+    getPower = function() return 0 end } }
+  local set = w.periph["redstone_relay_0"].m.setOutput
+  w.periph["redstone_relay_0"].m.setOutput = function(side, on)
+    if on then w.bayA = true end
+    return set(side, on)
+  end
+  return w
+end
+w = laserDepot({}):run("depot.lua", { "probe" }, 10)
+check("depot probe lists each laser sensor and whether its beam is getting through", w.err == nil
+  and w.text:find("laser_sensor_3 (laser_sensor)  beam hitting at 4.5", 1, true) ~= nil
+  and w.text:find("laser_sensor_4 (laser_sensor)  NO BEAM", 1, true) ~= nil, w.err or w.text)
+check("...and that goes in probe.txt", (w.files["probe.txt"] or ""):find("laser_sensor_3", 1, true) ~= nil)
+w = laserDepot({ "y" }):run("depot.lua", { "probe", "fire", "redstone_relay_0", "1" }, 20)
+check("probe fire says when a laser's beam is cut: something is in the bay", w.err == nil
+  and w.text:find("laser_sensor_3: beam BLOCKED", 1, true) ~= nil, w.err or w.text)
+w = laserDepot({ "y", "p", "A", "p", "n", "n", "n" }):run("depot.lua", { "probe", "map", "1" }, 60)
+check("the map walk shows it too, as the placer runs", w.text:find("laser_sensor_3: beam BLOCKED", 1, true) ~= nil,
+  w.text)
+w = laserDepot({})
+w.files["dock.lua"] = [[return {
+  sides = { A = { place = "redstone_relay_0", pusher = "redstone_relay_2" }, B = { pusher = "redstone_relay_3" } },
+  detect = { A = "laser_sensor_3", B = "laser_sensor_4" },
+}]]
+w = w:run("depot.lua", { "seq" }, 5)
+check("depot seq shows what each side's laser sees", w.err == nil
+  and w.text:find("detector laser_sensor_3: the bay is clear", 1, true) ~= nil
+  and w.text:find("detector laser_sensor_4: a silo is in the bay", 1, true) ~= nil, w.err or w.text)
+w = laserDepot({})
+w.files["dock.lua"] = [[return { sides = { A = { pusher = "redstone_relay_2" } }, detect = { A = "laser_sensor_9" } }]]
+w = w:run("depot.lua", { "seq" }, 5)
+check("...and says so plainly when the name is wrong", w.text:find("laser_sensor_9: NOT FOUND", 1, true) ~= nil, w.text)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

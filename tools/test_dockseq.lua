@@ -142,6 +142,86 @@ w = dock()
 ok, whyL = D.load(CFG, "C", w.io)
 check("a side the dock does not have is refused", not ok and tostring(whyL):find("no side C", 1, true), whyL)
 
+print("with a laser across each bay")
+local DCFG = D.check({
+  sides = { A = { place = "r10", assemble = "r6", pusher = "r7" } },
+  storage = { "store" }, detect = { A = "laser_sensor_0" },
+  wait = { pulse = 1, place = 2, assemble = 3, push = 2, retract = 2, step = 1 },
+  fill = { settle = 4, start = 10, max = 60 }, empty = { settle = 4, start = 10, max = 60 },
+})
+check("detect is kept, and a silo means a blocked beam by default", DCFG.detect.A == "laser_sensor_0"
+  and DCFG.silo_when == "blocked")
+bad({ sides = { A = { pusher = "r" } }, silo_when = "sometimes" }, "silo_when that is neither is refused")
+-- a bay the laser watches: a silo appears when the placer runs, goes when
+-- the pusher comes down after a stick, arrives when the drone lets go
+local function laserDock(opts)
+  opts = opts or {}
+  local w = dock({ store = opts.store or 3000, silo = opts.memory })
+  w.inBay = opts.inBay or false
+  local set = w.io.set
+  w.io.set = function(relay, on)
+    if relay == "r10" and on and not opts.placerBroken then w.inBay = true end
+    if relay == "r7" and not on and w.stuck and not opts.droneKeeps then w.inBay = false end
+    return set(relay, on)
+  end
+  w.io.present = function(side)
+    if side ~= "A" then return nil end
+    return w.inBay == true
+  end
+  w.io.drone = function(what)
+    w.asked[#w.asked + 1] = { what = what, t = w.t }
+    if what == "stick" then w.stuck = true end
+    if what == "release" and not opts.nothingArrives then w.inBay = true w.flow, w.flowUntil = 30, w.t + 20 end
+    return true
+  end
+  return w
+end
+w = laserDock()
+w.flow = -64
+ok, whyL = D.load(DCFG, "A", w.io, 640)
+check("a load it can see: place, confirm, assemble, fill, stick, confirm gone", ok, whyL)
+check("...and the bay is clear at the end", w.inBay == false and w.silos.A == "none")
+
+w = laserDock({ inBay = true })
+w.flow = -64
+ok = D.load(DCFG, "A", w.io, 640)
+check("a silo in the bay that memory did not know about is used, not placed over", ok and not firstOn(w, "r10"))
+
+w = laserDock({ inBay = true, memory = "full" })
+ok = D.load(DCFG, "A", w.io)
+check("a silo it filled before is sent as it is: no second fill", ok and not firstOn(w, "r10")
+  and (function() for _, l in ipairs(w.said) do if l:find("^fill:") then return false end end return true end)())
+
+w = laserDock({ memory = "empty" })
+w.flow = -64
+ok = D.load(DCFG, "A", w.io, 640)
+check("memory says a silo, the laser says none: it believes the laser and places one", ok and firstOn(w, "r10") ~= nil)
+
+w = laserDock({ placerBroken = true })
+ok, whyL, at = D.load(DCFG, "A", w.io)
+check("the placer ran but no silo appeared: called off, and says so", not ok and at == "place"
+  and tostring(whyL):find("does not see one", 1, true) ~= nil, whyL)
+check("...before anything was assembled", not firstOn(w, "r6"))
+
+w = laserDock({ droneKeeps = true })
+w.flow = -64
+ok, whyL, at = D.load(DCFG, "A", w.io, 640)
+check("the pusher came down and the silo is still there: the drone did not take it", not ok
+  and tostring(whyL):find("did not take it", 1, true) ~= nil, whyL)
+
+w = laserDock()
+ok, whyL, at, moved = D.unload(DCFG, "A", w.io)
+check("an unload it can see: clear bay, release, silo arrives, emptied", ok and moved and moved > 0
+  and w.silos.A == "empty", whyL)
+w = laserDock({ inBay = true, memory = "none" })
+ok, whyL = D.unload(DCFG, "A", w.io)
+check("the laser sees a silo in the bay: unload refused, whatever memory says", not ok
+  and tostring(whyL):find("already has a silo", 1, true) ~= nil, whyL)
+w = laserDock({ nothingArrives = true })
+ok, whyL, at = D.unload(DCFG, "A", w.io)
+check("the drone let go but nothing arrived: called off, says so", not ok and at == "retract"
+  and tostring(whyL):find("no silo arrived", 1, true) ~= nil, whyL)
+
 print("the belt's direction")
 check("ON empties: fill is OFF, empty is ON", D.beltFor(CFG, "fill") == false and D.beltFor(CFG, "empty") == true)
 check("not mapped: the belt is left alone", D.beltFor(real, "fill") == nil)

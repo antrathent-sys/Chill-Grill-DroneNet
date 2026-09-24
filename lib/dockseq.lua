@@ -15,9 +15,15 @@
 --   UNLOAD  pusher up. the drone lets go. pusher down. empty the silo into
 --           storage. An empty silo is now waiting on this side.
 --
--- Whether a side has an empty silo waiting is remembered (io.silo), because
--- nothing at the dock can see an assembled silo: it is not an inventory any
--- more once it is its own physics object.
+-- Whether a silo is in a bay is SEEN when the dock has a detector for that
+-- side - a laser across the bay (Create Avionics laser_pointer and
+-- laser_sensor) that a silo blocks - and remembered otherwise (io.silo),
+-- because an assembled silo is not an inventory any more. With a detector
+-- every step that should put a silo in the bay or take one out is checked:
+-- placed and assembled means one is there, stuck and pushed back down means
+-- it has gone with the drone, let go of means one has arrived. Memory is still
+-- kept for what a detector cannot tell: whether the silo in the bay is empty
+-- or full.
 --
 -- Filling and emptying are judged by the side's storage, which IS readable:
 -- a fill is done when the load has left it (or it has stopped moving), an
@@ -76,6 +82,23 @@ function D.check(c)
     return nil, "belt_on is \"fills\" or \"empties\""
   end
   out.belt_on = c.belt_on
+  -- a detector per side: a laser_sensor's name. silo_when says which reading
+  -- means a silo is there: "blocked" (the beam no longer reaches the sensor,
+  -- the usual build) or "hit"
+  out.detect = {}
+  if c.detect ~= nil then
+    if type(c.detect) ~= "table" then return nil, "detect = { A = \"laser_sensor_0\", B = ... }" end
+    for _, side in ipairs(D.SIDES) do
+      if c.detect[side] ~= nil then
+        if not str(c.detect[side]) then return nil, "detect." .. side .. " must be a sensor's name" end
+        out.detect[side] = c.detect[side]
+      end
+    end
+  end
+  if c.silo_when ~= nil and c.silo_when ~= "blocked" and c.silo_when ~= "hit" then
+    return nil, "silo_when is \"blocked\" or \"hit\""
+  end
+  out.silo_when = c.silo_when or "blocked"
   for k, v in pairs(D.WAIT) do out.wait[k] = (type(c.wait) == "table" and num(c.wait[k])) and c.wait[k] or v end
   for k, v in pairs(D.FILL) do out.fill[k] = (type(c.fill) == "table" and num(c.fill[k])) and c.fill[k] or v end
   for k, v in pairs(D.EMPTY) do out.empty[k] = (type(c.empty) == "table" and num(c.empty[k])) and c.empty[k] or v end
@@ -113,7 +136,10 @@ end
 --                                   "stick", "release". Test mode asks a
 --                                   person; a depot asks the base.
 --   silo(side[, state]) -> state    "empty" (an assembled silo waiting),
---                                   or "none"; with state, remembers it
+--                                   "full", or "none"; with state, remembers it
+--   present(side) -> true|false|nil what the side's detector sees: a silo in
+--                                   the bay, none, or nil (no detector, or it
+--                                   could not be read)
 --   say(step, text), stopped() -> bool
 local function runner(cfg, side, io)
   local s = cfg.sides[side]
@@ -169,6 +195,18 @@ local function runner(cfg, side, io)
       if io.now() - t0 >= t.max then return done end
     end
   end
+  -- what the detector says, or nil with none
+  function r.seen() return io.present and io.present(side) end
+  -- insist on it, where a detector can tell: wanted = true (a silo must be in
+  -- the bay) or false (it must have gone); a few looks, as a silo settles
+  function r.expect(wanted, why)
+    if r.seen() == nil then return end
+    for _ = 1, 5 do
+      if r.seen() == wanted then return end
+      r.pause(D.POLL)
+    end
+    error({ why = why }, 0)
+  end
   function r.rest()
     for _, relay in ipairs(D.relays(cfg)) do pcall(io.set, relay, false) end
   end
@@ -202,7 +240,12 @@ function D.load(cfg, side, io, items)
     local s = cfg.sides[side]
     r.step = "silo"
     local have = io.silo(side)
-    if have == "empty" then
+    local seen = r.seen()
+    if seen == true and have == "none" then have = "empty" end     -- one is there, whatever memory said
+    if seen == false and have ~= "none" then have = "none" end     -- nothing there, whatever memory said
+    if have == "full" then
+      r.say("a filled silo is already waiting on side " .. side)
+    elseif have == "empty" then
       r.say("an empty silo is waiting on side " .. side)
     else
       if not (s.place and s.assemble) then error({ why = "no silo here, and no placer or assembler to make one" }, 0) end
@@ -212,22 +255,27 @@ function D.load(cfg, side, io, items)
       r.pause(cfg.wait.place)
       r.set(s.place, false)
       r.pause(cfg.wait.step)
+      r.expect(true, "a silo was placed but the detector does not see one in the bay")
       r.step = "assemble"
       r.say("assembling it")
       r.pulse(s.assemble)
       r.pause(cfg.wait.assemble)
+      r.expect(true, "after assembling, the detector no longer sees the silo")
       io.silo(side, "empty")
     end
 
+    local moved
+    if have ~= "full" then
     r.step = "fill"
     local belt = D.beltFor(cfg, "fill")
     if s.belt and belt ~= nil then r.set(s.belt, belt) end
     r.say(items and string.format("filling %d items", items) or "filling until the storage stops moving")
-    local moved = r.watch(cfg.fill, items, -1)
+    moved = r.watch(cfg.fill, items, -1)
     if s.belt and belt ~= nil then r.set(s.belt, false) end
     r.say(moved and string.format("%d items in", moved) or "filled")
     io.silo(side, "full")
     r.pause(cfg.wait.step)
+    end
 
     r.step = "dock"
     r.say("waiting for the drone to latch")
@@ -242,6 +290,7 @@ function D.load(cfg, side, io, items)
     r.step = "retract"
     r.say("pusher down")
     r.pusher(false)
+    r.expect(false, "the silo is still in the bay - the drone did not take it")
     io.silo(side, "none")        -- it went with the drone
     r.step = "done"
     r.say("loaded - side " .. side .. " has no silo now")
@@ -254,7 +303,8 @@ end
 function D.unload(cfg, side, io, expect)
   return job(cfg, side, io, function(r)
     local s = cfg.sides[side]
-    if io.silo(side) ~= "none" then
+    local seen = r.seen()
+    if seen == true or (seen == nil and io.silo(side) ~= "none") then
       error({ why = "side " .. side .. " already has a silo in the bay - load it, or clear it first" }, 0)
     end
     r.step = "push"
@@ -263,10 +313,11 @@ function D.unload(cfg, side, io, expect)
     r.step = "release"
     r.say("the drone lets go")
     r.drone("release")
-    io.silo(side, "full")
     r.step = "retract"
     r.say("pusher down")
     r.pusher(false)
+    r.expect(true, "the drone let go but no silo arrived in the bay")
+    io.silo(side, "full")
 
     r.step = "empty"
     local belt = D.beltFor(cfg, "empty")
