@@ -1,0 +1,32 @@
+---- test-dock  09-24 20:29 ----
+9 relays, 2 inventories
+            top bot lft rgt fnt bck   (O driven, digit = signal in)
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+create_connected:item_ empty
+create_connected:item_ empty
+  bottom (modem)
+  modem_2 (modem)
+---- test-dock  09-24 20:31 ----
+9 relays, 2 inventories
+            top bot lft rgt fnt bck   (O driven, digit = signal in)
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+redstone_re  .   .   .   .   .   .
+create_connected:item_ empty
+create_connected:item_ empty
+  bottom (modem)
+  modem_2 (modem)
