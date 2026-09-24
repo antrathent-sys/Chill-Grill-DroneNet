@@ -172,3 +172,6 @@ side A: empty   side B: none
 side A belt redstone_relay_2 OFF (unloading)
 side B belt redstone_relay_1 OFF (unloading)
 everything else off
+---- test-dock  09-24 23:02 ----
+pulsed redstone_relay_12 (every face) for 3s
+  create:depot_0 +1 items (1 physics_assembler)
