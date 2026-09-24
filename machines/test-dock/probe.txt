@@ -91,3 +91,10 @@ side A: none   side B: none
  38.6 FILL     called off: Terminated
 called off at fill: Terminated
 side A: empty   side B: none
+---- test-dock  09-24 21:44 ----
+---- load side A ----
+  7.4 SILO     an empty silo is waiting on side A
+  7.4 FILL     filling until the storage stops moving
+ 37.9 FILL     called off: nothing moved in 30 s - is there anything to move?
+called off at fill: nothing moved in 30 s - is there anything to move?
+side A: empty   side B: none
