@@ -137,3 +137,15 @@ pulsed redstone_relay_10 (every face) for 6s
   optical_sensor_7 getDistance 15.5 -> 0.515500009059906
   optical_sensor_7 hasHit false -> true
   optical_sensor_7 getBlock minecraft:air -> create_connected:item_silo
+---- test-dock  09-24 22:50 ----
+---- load side A ----
+  1.9 SILO     sensor: no hit - a silo
+  1.9 PLACE    placing a silo on side A
+  8.9 PLACE    watch: expected a silo, sensor no hit - agrees
+  8.9 ASSEMBLE assembling it
+ 14.9 ASSEMBLE watch: expected a silo, sensor no hit - agrees
+ 14.9 ASSEMBLE watch: expected a silo, sensor no hit - agrees
+ 14.9 FILL     filling until the storage stops moving
+ 45.4 FILL     called off: nothing moved in 30 s - is there anything to move?
+called off at fill: nothing moved in 30 s - is there anything to move?
+side A: empty   side B: none
