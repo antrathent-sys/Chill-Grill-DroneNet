@@ -288,3 +288,23 @@ side A: none   side B: none
  71.3 DONE     loaded - side A has no silo now
 load done in 71 s
 side A: none   side B: none
+---- test-dock  09-24 23:36 ----
+---- load side A ----
+  1.4 SILO     sensor: no hit - no silo
+  1.4 PLACE    placing a silo on side A
+  8.4 PLACE    sensor: hit create_connected:item_silo at 0.52 - a silo
+  8.4 ASSEMBLE assembling it
+ 16.4 ASSEMBLE watch: expected a silo, sensor hit create_connected:item_silo at 0.52 - agrees
+ 16.4 ASSEMBLE watch: expected a silo, sensor hit create_connected:item_silo at 0.52 - agrees
+ 16.4 FILL     filling until the storage stops moving
+ 23.8 FILL     2 items in
+ 25.8 DOCK     waiting for the drone to latch
+ 25.8 DOCK     the drone: latch it on the dock  [ENT] done  [X] call off
+ 68.0 PUSH     pusher up
+ 72.0 STICK    the drone sticks the silo
+ 72.0 STICK    the drone: stick the silo (stickers out)  [ENT] done  [X] call off
+ 72.6 RETRACT  pusher down
+ 76.6 RETRACT  watch: expected no silo, sensor no hit - agrees
+ 76.6 DONE     loaded - side A has no silo now
+load done in 77 s
+side A: none   side B: none
