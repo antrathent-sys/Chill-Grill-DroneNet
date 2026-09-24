@@ -188,3 +188,23 @@ side A: empty   side B: none
 side A belt redstone_relay_2 OFF (unloading)
 side B belt redstone_relay_1 OFF (unloading)
 everything else off
+---- test-dock  09-24 23:09 ----
+---- load side A ----
+  1.4 SILO     sensor: no hit - no silo
+  1.4 PLACE    placing a silo on side A
+  8.4 PLACE    sensor: hit create_connected:item_silo at 0.52 - a silo
+  8.4 ASSEMBLE assembling it
+ 14.4 ASSEMBLE watch: expected a silo, sensor hit create_connected:item_silo at 0.52 - agrees
+ 14.4 ASSEMBLE watch: expected a silo, sensor hit create_connected:item_silo at 0.52 - agrees
+ 14.4 FILL     filling until the storage stops moving
+ 21.8 FILL     64 items in
+ 23.8 DOCK     waiting for the drone to latch
+ 23.8 DOCK     the drone: latch it on the dock  [ENT] done  [X] call off
+ 27.5 PUSH     pusher up
+ 31.5 STICK    the drone sticks the silo
+ 31.5 STICK    the drone: stick the silo (stickers out)  [ENT] done  [X] call off
+105.7 RETRACT  pusher down
+109.7 RETRACT  watch: expected no silo, sensor no hit - agrees
+109.7 DONE     loaded - side A has no silo now
+load done in 110 s
+side A: none   side B: none
