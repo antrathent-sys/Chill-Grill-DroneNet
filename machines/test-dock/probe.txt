@@ -76,3 +76,8 @@ side A: empty   side B: none
  34.6 FILL     called off: nothing moved in 30 s - is there anything to move?
 called off at fill: nothing moved in 30 s - is there anything to move?
 side A: empty   side B: none
+---- test-dock  09-24 20:53 ----
+---- unload side A ----
+  1.8 START    called off: side A already has a silo in the bay - load it, or clear it first
+called off at start: side A already has a silo in the bay - load it, or clear it first
+side A: empty   side B: none
