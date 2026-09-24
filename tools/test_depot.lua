@@ -206,7 +206,8 @@ check("...and how to go on", w.text:find("probe fire", 1, true) and w.text:find(
 
 w = depot({ lines = { "y" } }):run("depot.lua", { "probe", "set", "redstone_relay_2:bottom", "on" }, 10)
 check("probe set holds a face on, for a toggle", w.err == nil
-  and w.level["redstone_relay_2:bottom"] == true and w.text:find("is ON", 1, true) ~= nil, w.err or w.text)
+  and w.level["redstone_relay_2:bottom"] == true
+  and w.text:find("set redstone_relay_2:bottom ON", 1, true) ~= nil, w.err or w.text)
 w = depot({ lines = { "n" } }):run("depot.lua", { "probe", "fire", "redstone_relay_0:top" }, 10)
 check("it asks first", #w.sets == 0 and w.text:find("nothing changed", 1, true) ~= nil)
 w = depot({ lines = { "y" } }):run("depot.lua", { "probe", "fire", "nosuch:top" }, 10)
@@ -216,6 +217,27 @@ w = depot({ station = false }):run("depot.lua", { "probe" }, 10)
 check("it runs before there is any station.lua", w.err == nil and w.text:find("relay", 1, true) ~= nil, w.err)
 check("...and `depot` itself says to probe first", depot({ station = false }):run("depot.lua", {}, 5).text
   :find("depot probe", 1, true) ~= nil)
+
+-- kept and pushed, so a probing session can be read from anywhere
+w = depot({ vaults = VAULTS, intake = 64 }):run("depot.lua", { "probe" }, 10)
+check("what it printed is kept in probe.txt", (w.files["probe.txt"] or ""):find("create:item_vault_0", 1, true) ~= nil
+  and (w.files["probe.txt"] or ""):find("depot-pier", 1, true) ~= nil, w.files["probe.txt"])
+check("...and it says how to send it when it cannot push", w.text:find("paste probe.txt", 1, true) ~= nil)
+w = depot({ vaults = VAULTS, lines = { "y" } })
+w.files["upload.lua"] = "-- pretend"
+w.files["probe.txt"] = "---- an earlier look ----\n"
+w.env.http = {}
+w.ran = {}
+w.env.shell = { run = function(...) w.ran[#w.ran + 1] = table.concat({ ... }, " ") return true end }
+w = w:run("depot.lua", { "probe" }, 10)
+check("with http and upload.lua it pushes it to the repo", w.ran[1] == "upload sync probe.txt data/probe-depot-pier.txt",
+  w.ran[1] or "nothing run")
+check("...appending to what was there, not replacing it",
+  (w.files["probe.txt"] or ""):find("an earlier look", 1, true) ~= nil)
+w = depot({ station = false })
+w.files["probe.txt"] = "old\n"
+w = w:run("depot.lua", { "probe", "clear" }, 5)
+check("probe clear starts a fresh one", w.files["probe.txt"] == nil and w.text:find("fresh", 1, true) ~= nil)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

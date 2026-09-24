@@ -7,7 +7,13 @@
 --   depot probe                  every relay face and inventory on this network,
 --                                and `probe fire`/`probe set` to find out which
 --                                machine each face works. Run it before there
---                                is a station.lua.
+--                                is a station.lua. Everything it prints is kept
+--                                in probe.txt and pushed to the repo as
+--                                data/probe-<this computer>.txt, so a whole
+--                                session of "fire that, see what moved" can be
+--                                read from anywhere. `depot probe clear` starts
+--                                a fresh one; with no http or no .ghtoken here,
+--                                `paste probe.txt` sends it instead.
 --
 -- It sleeps with its chunk. A drone docking here brings its chunk loader, the
 -- chunk loads, this computer turns itself back on and runs startup - so the
@@ -61,6 +67,37 @@ end
 -- inventory, a belt shows up as items moving, a detector as a signal coming
 -- back. Nothing here knows anything about a station, so it runs first.
 local SIDES = { "top", "bottom", "left", "right", "front", "back" }
+-- Everything the probe prints is also kept, so a session of "fire this, see
+-- what moved" ends up as one file to read rather than a screen that scrolled.
+local PROBE_LOG = "probe.txt"
+local probeLines = {}
+local function psay(s)
+  s = tostring(s)
+  probeLines[#probeLines + 1] = s
+  print(s)
+end
+local function probeSave()
+  if #probeLines == 0 then return end
+  local h = fs.open(PROBE_LOG, fs.exists(PROBE_LOG) and "a" or "w")
+  if not h then print("could not write " .. PROBE_LOG) return end
+  h.write(string.format("---- %s  %s ----\n", tostring(id or "depot"),
+    os.date and select(2, pcall(os.date, "%m-%d %H:%M")) or tostring(os.clock())))
+  for _, line in ipairs(probeLines) do h.write(line .. "\n") end
+  h.close()
+  probeLines = {}
+  -- and push it, so it can be read without standing at this computer
+  local into = "data/probe-" .. tostring(id or ("computer-" .. tostring(os.getComputerID and os.getComputerID() or 0))) .. ".txt"
+  if not (fs.exists("upload.lua") and http and shell) then
+    print(string.format("kept in %s - `paste %s` to send it (no http or upload.lua here)", PROBE_LOG, PROBE_LOG))
+    return
+  end
+  print("pushing " .. PROBE_LOG .. " to " .. into .. " ...")
+  local okU, whyU = pcall(shell.run, "upload", "sync", PROBE_LOG, into)
+  if not okU then
+    print("push failed: " .. tostring(whyU))
+    print("`paste " .. PROBE_LOG .. "` sends it instead")
+  end
+end
 
 local function inventoryOf(n)
   local okL, list = pcall(peripheral.call, n, "list")
@@ -124,19 +161,19 @@ local function printSnapshot(s)
     else other[#other + 1] = n .. " (" .. tostring(t) .. ")" end
   end
   table.sort(relays) table.sort(invs) table.sort(other)
-  print(string.format("%d relay%s, %d inventor%s", #relays, #relays == 1 and "" or "s",
+  psay(string.format("%d relay%s, %d inventor%s", #relays, #relays == 1 and "" or "s",
     #invs, #invs == 1 and "y" or "ies"))
-  print("            top bot lft rgt fnt bck   (O driven, digit = signal in)")
+  psay("            top bot lft rgt fnt bck   (O driven, digit = signal in)")
   for _, n in ipairs(relays) do
     local marks = {}
     for _, side in ipairs(SIDES) do marks[#marks + 1] = faceMark(s.relay[n][side]) end
-    print(string.format("%-11s  %s", n:sub(1, 11), table.concat(marks, "   ")))
+    psay(string.format("%-11s  %s", n:sub(1, 11), table.concat(marks, "   ")))
   end
   for _, n in ipairs(invs) do
     local inv = s.inv[n]
-    print(string.format("%-22s %s", n:sub(1, 22), itemsLine(inv)))
+    psay(string.format("%-22s %s", n:sub(1, 22), itemsLine(inv)))
   end
-  for _, n in ipairs(other) do print("  " .. n) end
+  for _, n in ipairs(other) do psay("  " .. n) end
   local mine = {}
   for _, side in ipairs(SIDES) do
     local okO, out = pcall(redstone.getOutput, side)
@@ -145,13 +182,13 @@ local function printSnapshot(s)
       mine[#mine + 1] = side .. (okO and out and " driven" or (" in " .. tostring(inp)))
     end
   end
-  if #mine > 0 then print("this computer's own faces: " .. table.concat(mine, ", ")) end
+  if #mine > 0 then psay("this computer's own faces: " .. table.concat(mine, ", ")) end
 end
 
 -- what changed between two looks: the machine that moved
 local function report(before, after)
   local said = false
-  local function say(fmt, ...) said = true print("  " .. string.format(fmt, ...)) end
+  local function say(fmt, ...) said = true psay("  " .. string.format(fmt, ...)) end
   for n, inv in pairs(after.inv) do
     local was = before.inv[n]
     if not was then say("NEW inventory %s: %s", n, itemsLine(inv))
@@ -166,7 +203,7 @@ local function report(before, after)
       if was and faces[side].inp ~= was.inp then say("%s:%s signal %d -> %d", n, side, was.inp, faces[side].inp) end
     end
   end
-  if not said then print("  nothing changed that this computer can see") end
+  if not said then psay("  nothing changed that this computer can see") end
 end
 
 local function faceArg(spec)
@@ -186,12 +223,19 @@ end
 
 if cmd == "probe" then
   local sub = (args[2] or ""):lower()
+  if sub == "clear" then
+    if fs.exists(PROBE_LOG) then fs.delete(PROBE_LOG) end
+    print(PROBE_LOG .. " started fresh")
+    return
+  end
   if sub == "" then
     printSnapshot(snapshot())
+    probeSave()
     print("")
     print("depot probe watch [secs]        keep looking, to see a machine work")
     print("depot probe fire <relay>:<side> [secs]   pulse one face, say what moved")
     print("depot probe set <relay>:<side> on|off    hold one face (a toggle)")
+    print("depot probe clear               start " .. PROBE_LOG .. " again")
     return
   end
   if sub == "watch" then
@@ -220,8 +264,9 @@ if cmd == "probe" then
       local okD, whyD = drive(face, on)
       if not okD then print("could not drive it: " .. tostring(whyD)) return end
       sleep(1.5)
-      print(string.format("%s is %s", where, on and "ON" or "OFF"))
+      psay(string.format("set %s %s", where, on and "ON" or "OFF"))
       report(before, snapshot())
+      probeSave()
       return
     end
     local secs = tonumber(args[4]) or 2
@@ -235,8 +280,9 @@ if cmd == "probe" then
     sleep(secs)
     drive(face, false)
     sleep(1)
-    print(string.format("pulsed %s for %gs", where, secs))
+    psay(string.format("pulsed %s for %gs", where, secs))
     report(before, snapshot())
+    probeSave()
     return
   end
   print("depot probe [watch [secs] | fire <relay>:<side> [secs] | set <relay>:<side> on|off]")
