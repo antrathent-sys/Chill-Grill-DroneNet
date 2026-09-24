@@ -1,128 +1,50 @@
----- test-dock  09-24 20:33 ----
-9 relays, 2 inventories
-                   top bot lft rgt fnt bck   (O driven, digit = signal in)
-redstone_relay_1   .   .   .   .   .   .
-redstone_relay_10  .   .   .   .   .   .
-redstone_relay_11  .   .   .   .   .   .
-redstone_relay_2   .   .   .   .   .   .
-redstone_relay_5   .   .   .   .   .   .
-redstone_relay_6   .   .   .   .   .   .
-redstone_relay_7   .   .   .   .   .   .
-redstone_relay_8   .   .   .   .   .   .
-redstone_relay_9   .   .   .   .   .   .
-create_connected:item_silo_0  60 slots, empty
-create_connected:item_silo_2  60 slots, empty
-  bottom (modem)
-  modem_2 (modem)
----- test-dock  09-24 20:41 ----
+---- test-dock  09-24 21:35 ----
 [1/9] redstone_relay_1 is ON
+  create_connected:item_silo_0 -65 items (empty)
   redstone_relay_1:top signal 0 -> 15
   redstone_relay_1:left signal 0 -> 15
-  = redstone_relay_1   none      
+  = redstone_relay_1   belt      side B  ON fills
 [2/9] redstone_relay_2 is ON
+  create_connected:item_silo_2 -64 items (empty)
   redstone_relay_2:top signal 0 -> 15
   redstone_relay_2:right signal 0 -> 15
-  = redstone_relay_2   none      
+  = redstone_relay_2   belt      side A  ON fills
 [3/9] redstone_relay_5 is ON
   redstone_relay_5:bottom signal 0 -> 15
   = redstone_relay_5   pusher      ON up
-[4/9] redstone_relay_6 is ON
-  redstone_relay_6:bottom signal 0 -> 15
-  redstone_relay_6:front signal 0 -> 15
-  = redstone_relay_6   assemble  side A
-[5/9] redstone_relay_7 is ON
+[4/9] redstone_relay_7 is ON
   redstone_relay_7:top signal 0 -> 15
   redstone_relay_7:bottom signal 0 -> 15
   redstone_relay_7:back signal 0 -> 15
   = redstone_relay_7   pusher    side A  ON up
-[6/9] redstone_relay_8 is ON
-  redstone_relay_8:bottom signal 0 -> 15
-  redstone_relay_8:left signal 0 -> 15
-  = redstone_relay_8   assemble  side B
-[7/9] redstone_relay_9 is ON
+[5/9] redstone_relay_9 is ON
   redstone_relay_9:top signal 0 -> 15
   redstone_relay_9:bottom signal 0 -> 15
+  redstone_relay_9:back signal 0 -> 15
   = redstone_relay_9   pusher    side B  ON up
-[8/9] redstone_relay_10 is ON
+[6/9] redstone_relay_10 is ON
   redstone_relay_10:top signal 0 -> 15
   = redstone_relay_10  place     side A  ON places
-[9/9] redstone_relay_11 is ON
+[7/9] redstone_relay_11 is ON
   redstone_relay_11:top signal 0 -> 15
   = redstone_relay_11  place     side B  ON places
+[8/9] redstone_relay_12 is ON
+  redstone_relay_12:right signal 0 -> 15
+  redstone_relay_12:front signal 0 -> 15
+  = redstone_relay_12  assemble  side A
+[9/9] redstone_relay_13 is ON
+  redstone_relay_13:left signal 0 -> 15
+  redstone_relay_13:front signal 0 -> 15
+  = redstone_relay_13  assemble  side B
 
 the map:
-  redstone_relay_1   none      -
-  redstone_relay_2   none      -
+  redstone_relay_1   belt      B  ON fills
+  redstone_relay_2   belt      A  ON fills
   redstone_relay_5   pusher    -  ON up
-  redstone_relay_6   assemble  A
   redstone_relay_7   pusher    A  ON up
-  redstone_relay_8   assemble  B
   redstone_relay_9   pusher    B  ON up
   redstone_relay_10  place     A  ON places
   redstone_relay_11  place     B  ON places
-not found: A belt, B belt
----- test-dock  09-24 20:52 ----
----- load side A ----
-  7.0 PLACE    placing a silo on side A
- 13.0 ASSEMBLE assembling it
- 19.0 FILL     filling until the storage stops moving
- 49.8 FILL     called off: nothing moved in 30 s - is there anything to move?
-called off at fill: nothing moved in 30 s - is there anything to move?
-side A: empty   side B: none
----- test-dock  09-24 20:52 ----
----- load side A ----
-  3.7 SILO     an empty silo is waiting on side A
-  3.7 FILL     filling until the storage stops moving
- 34.6 FILL     called off: nothing moved in 30 s - is there anything to move?
-called off at fill: nothing moved in 30 s - is there anything to move?
-side A: empty   side B: none
----- test-dock  09-24 20:53 ----
----- unload side A ----
-  1.8 START    called off: side A already has a silo in the bay - load it, or clear it first
-called off at start: side A already has a silo in the bay - load it, or clear it first
-side A: empty   side B: none
----- test-dock  09-24 21:10 ----
----- load side A ----
-  1.8 SILO     an empty silo is waiting on side A
-  1.8 FILL     filling until the storage stops moving
- 32.5 FILL     called off: nothing moved in 30 s - is there anything to move?
-called off at fill: nothing moved in 30 s - is there anything to move?
-side A: empty   side B: none
----- test-dock  09-24 21:22 ----
----- load side A ----
-  1.8 SILO     an empty silo is waiting on side A
-  1.8 FILL     filling until the storage stops moving
-  9.6 FILL     64 items in
- 11.6 DOCK     waiting for the drone to latch
- 11.6 DOCK     the drone: latch it on the dock  [ENT] done  [X] call off
- 19.0 PUSH     pusher up
- 23.0 STICK    the drone sticks the silo
- 23.0 STICK    the drone: stick the silo (stickers out)  [ENT] done  [X] call off
- 31.2 RETRACT  pusher down
- 35.2 DONE     loaded - side A has no silo now
-load done in 35 s
-side A: none   side B: none
----- test-dock  09-24 21:27 ----
-side A  silo: none   place redstone_relay_10  assemble redstone_relay_6  pusher redstone_relay_7  belt redstone_relay_2
-        detector laser_sensor_1: NOT FOUND - check the name with depot probe
-side B  silo: none   place redstone_relay_11  assemble redstone_relay_8  pusher redstone_relay_9  belt redstone_relay_1
-        detector laser_sensor_6: NOT FOUND - check the name with depot probe
-storage: create_connected:item_silo_0, create_connected:item_silo_2
----- test-dock  09-24 21:28 ----
-9 relays, 2 inventories
-                   top bot lft rgt fnt bck   (O driven, digit = signal in)
-redstone_relay_1   .   .   .   .   .   .
-redstone_relay_10  .   .   .   .   .   .
-redstone_relay_11  .   .   .   .   .   .
-redstone_relay_12  .   .   .   .   .   .
-redstone_relay_13  .   .   .   .   .   .
-redstone_relay_2   .   .   .   .   .   .
-redstone_relay_5   .   .   .   .   .   .
-redstone_relay_7   .   .   .   .   .   .
-redstone_relay_9   .   .   .   .   .   .
-create_connected:item_silo_0  60 slots, 64 smart_chute, 1 physics_assembler
-create_connected:item_silo_2  60 slots, 64 barrel
-  bottom (modem)
-  modem_2 (modem)
-  optical_sensor_6 (optical_sensor)
-  optical_sensor_7 (optical_sensor)
+  redstone_relay_12  assemble  A
+  redstone_relay_13  assemble  B
+every device found on both sides
