@@ -4,7 +4,13 @@
 --   assemble  deploys a Physics Assembler and fires it: the silo becomes its
 --             own physics object
 --   belt      a funnel on a belt that runs one way or the other: into the
---             cargo, or out of it into this side's storage
+--             cargo, or out of it into this side's storage. It never STOPS,
+--             so neither level is "off": the belt is held at the loading
+--             level from the fill until the silo has gone with the drone
+--             (anything else would pull the load straight back out while it
+--             waits), and at the unloading level otherwise - harmless with
+--             an empty bay, and what an unload wants. A job that fails
+--             leaves the belt where it is, so a filled silo stays filled.
 --   pusher    lifts the silo up against the drone, and takes it back down
 --
 -- Two jobs, in Alex's order (2026-09-24):
@@ -69,6 +75,11 @@ function D.check(c)
           o[dev] = s[dev]
         end
       end
+      -- what ON does to this side's belt, when it differs from the dock's
+      if s.belt_on ~= nil and s.belt_on ~= "fills" and s.belt_on ~= "empties" then
+        return nil, side .. ".belt_on is \"fills\" or \"empties\""
+      end
+      o.belt_on = s.belt_on
       if not o.pusher then return nil, "side " .. side .. " needs a pusher" end
       out.sides[side] = o
     end
@@ -82,6 +93,7 @@ function D.check(c)
     return nil, "belt_on is \"fills\" or \"empties\""
   end
   out.belt_on = c.belt_on
+  for _, o in pairs(out.sides) do o.belt_on = o.belt_on or c.belt_on end
   -- a detector per side: a laser_sensor's name. silo_when says which power
   -- means a silo is there: "high" (Alex's dock, 2026-09-24: the sensor goes
   -- low when there is no silo) or "low". "hit" and "blocked" still work, as
@@ -105,25 +117,31 @@ function D.check(c)
   return out
 end
 
---- Every relay dock.lua names, once each: put at rest before and after a job.
-function D.relays(cfg)
+--- Every relay dock.lua names, once each: put at rest before and after a
+-- job. Not the belts - a belt has no rest, only a direction - unless asked.
+function D.relays(cfg, withBelts)
   local out, seen = {}, {}
   for _, side in ipairs(D.SIDES) do
     local s = cfg.sides[side]
     if s then
       for _, dev in ipairs(D.DEVICES) do
-        if s[dev] and not seen[s[dev]] then seen[s[dev]] = true out[#out + 1] = s[dev] end
+        if s[dev] and not seen[s[dev]] and (withBelts or dev ~= "belt") then
+          seen[s[dev]] = true
+          out[#out + 1] = s[dev]
+        end
       end
     end
   end
   return out
 end
 
---- The belt's level for "fill" or "empty": ON, OFF, or nil when the belt's
--- direction is not known yet (then it is left as it is).
-function D.beltFor(cfg, want)
-  if not cfg.belt_on then return nil end
-  return cfg.belt_on == (want == "fill" and "fills" or "empties")
+--- A side's belt level for "fill" or "empty": ON, OFF, or nil when that belt
+-- is not mapped or its direction is not known (then it is left as it is).
+function D.beltFor(cfg, want, side)
+  local s = side and cfg.sides[side]
+  local on = s and s.belt_on or cfg.belt_on
+  if not on or (s and not s.belt) then return nil end
+  return on == (want == "fill" and "fills" or "empties")
 end
 
 -- ------------------------------------------------------------------ running
@@ -264,14 +282,15 @@ function D.load(cfg, side, io, items)
       io.silo(side, "empty")
     end
 
+    -- the belt goes to loading and stays there until the silo has gone: at
+    -- the other level it would pull the load back out while it waits
+    local fillLevel = D.beltFor(cfg, "fill", side)
+    if fillLevel ~= nil then r.set(s.belt, fillLevel) end
     local moved
     if have ~= "full" then
     r.step = "fill"
-    local belt = D.beltFor(cfg, "fill")
-    if s.belt and belt ~= nil then r.set(s.belt, belt) end
     r.say(items and string.format("filling %d items", items) or "filling until the storage stops moving")
     moved = r.watch(cfg.fill, items, -1)
-    if s.belt and belt ~= nil then r.set(s.belt, false) end
     r.say(moved and string.format("%d items in", moved) or "filled")
     io.silo(side, "full")
     r.pause(cfg.wait.step)
@@ -292,6 +311,9 @@ function D.load(cfg, side, io, items)
     r.pusher(false)
     r.expect(false, "the silo is still in the bay - the drone did not take it")
     io.silo(side, "none")        -- it went with the drone
+    -- an empty bay: the belt back to unloading, its harmless level
+    local idle = D.beltFor(cfg, "empty", side)
+    if idle ~= nil then r.set(s.belt, idle) end
     r.step = "done"
     r.say("loaded - side " .. side .. " has no silo now")
     return moved
@@ -320,11 +342,10 @@ function D.unload(cfg, side, io, expect)
     io.silo(side, "full")
 
     r.step = "empty"
-    local belt = D.beltFor(cfg, "empty")
-    if s.belt and belt ~= nil then r.set(s.belt, belt) end
+    local emptyLevel = D.beltFor(cfg, "empty", side)
+    if emptyLevel ~= nil then r.set(s.belt, emptyLevel) end
     r.say(expect and string.format("emptying %d items into storage", expect) or "emptying into storage")
     local moved = r.watch(cfg.empty, expect, 1)
-    if s.belt and belt ~= nil then r.set(s.belt, false) end
     io.silo(side, "empty")
     r.step = "done"
     r.say(string.format("%s - an empty silo is waiting on side %s", moved and (moved .. " items out") or "emptied", side))

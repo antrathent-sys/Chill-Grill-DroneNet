@@ -2,19 +2,19 @@
 -- Relays from `depot probe map` 2026-09-24 20:41 (relays.lua beside this);
 -- the order of each job is Alex's, 2026-09-24. Read by lib/dockseq.lua.
 --
--- NOT MAPPED YET (the lasers are - see detect below):
---   belts   redstone_relay_1 and redstone_relay_2 moved nothing during the
---           walk - almost certainly the two belts, which show nothing with
---           empty storage. Until they are confirmed the belts are left alone
---           and run whichever way they already run. Once known, add
---           belt = "redstone_relay_N" to each side and set belt_on below.
+-- BELTS: A's is redstone_relay_2, B's is redstone_relay_1 (Alex,
+--           2026-09-24). HIGH loads items into the cargo, LOW unloads - said
+--           of A's; B's is taken to be wired the same way.
+-- NOT MAPPED YET:
 --   relay 5 answered "pusher" with no side. Left out of both jobs.
 --   storage the two 60-slot item silos are counted together, which is all a
 --           one-side job needs to tell when items have stopped moving.
 return {
   sides = {
-    A = { place = "redstone_relay_10", assemble = "redstone_relay_6", pusher = "redstone_relay_7" },
-    B = { place = "redstone_relay_11", assemble = "redstone_relay_8", pusher = "redstone_relay_9" },
+    A = { place = "redstone_relay_10", assemble = "redstone_relay_6", pusher = "redstone_relay_7",
+          belt = "redstone_relay_2", belt_on = "fills" },
+    B = { place = "redstone_relay_11", assemble = "redstone_relay_8", pusher = "redstone_relay_9",
+          belt = "redstone_relay_1", belt_on = "fills" },
   },
   storage = { "create_connected:item_silo_0", "create_connected:item_silo_2" },
 
@@ -25,8 +25,6 @@ return {
   detect = { A = "laser_sensor_1", B = "laser_sensor_6" },
   silo_when = "high",
 
-  -- what ON does to a belt, once the belts are mapped: "fills" or "empties"
-  -- belt_on = "empties",
 
   -- seconds. Generous on purpose for the first runs; trim once it is proven.
   wait = {
