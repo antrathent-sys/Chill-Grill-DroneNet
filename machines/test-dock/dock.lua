@@ -12,10 +12,13 @@
 --           15.5 away) to a hit on create_connected:item_silo at 0.52. So a
 --           HIT means a silo is there - not inverted; the earlier readings
 --           only looked inverted with the sides the wrong way round.
---           Known: empty = no hit, placed = hit at 0.52. Not yet known:
---           assembled - a physics object, which a ray may not see. Until it
---           is, the sensors WATCH: every check logs what was expected, what
---           the sensor read and whether it agrees, and memory decides.
+--           Known: empty = no hit, placed = hit at 0.52 - so the sensor
+--           decides whether a bay needs a silo, and confirms one was placed
+--           (23:00 and 23:03 showed why: memory said an empty silo was
+--           waiting, the sensor said none, and the sensor was right). Not yet
+--           known: assembled - a physics object, which a ray may not see - so
+--           the check after assembling only WATCHES, as do the checks around
+--           the drone, which in test mode is a person pressing ENT.
 -- PLACERS place on the falling edge (Alex, 2026-09-24): pulsed, then
 --           `place` seconds for the silo to land.
 -- NOT MAPPED YET:
@@ -29,7 +32,7 @@ return {
   },
   detect = { A = "optical_sensor_7", B = "optical_sensor_6" },
   silo_when = "high",      -- a silo when the sensor has a hit
-  watch = true,            -- read and log the sensors, do not act on them yet
+  watch = { "assemble", "retract", "release" },   -- only log these checks, for now
 
   -- seconds. Generous on purpose for the first runs; trim once it is proven.
   wait = {

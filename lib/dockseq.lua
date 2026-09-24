@@ -126,10 +126,16 @@ function D.check(c)
   local when = ({ high = "high", low = "low", hit = "high", blocked = "low" })[c.silo_when or "high"]
   if not when then return nil, "silo_when is \"high\" or \"low\"" end
   out.silo_when = when
-  -- watch = true: read and log the sensors at every check, but go by memory
-  -- and never stop a job on them - for while what each state reads is still
-  -- being found out
-  out.watch = c.watch and true or false
+  -- watch: read and log the sensors, but go by memory and never stop a job
+  -- on them - for while what a state reads is still being found out. true
+  -- watches every check; a list of steps ({ "assemble", "retract" })
+  -- watches only those and lets the sensor decide the rest.
+  if type(c.watch) == "table" then
+    out.watch = {}
+    for _, step in ipairs(c.watch) do if str(step) then out.watch[step] = true end end
+  else
+    out.watch = c.watch and true or false
+  end
   for k, v in pairs(D.WAIT) do out.wait[k] = (type(c.wait) == "table" and num(c.wait[k])) and c.wait[k] or v end
   for k, v in pairs(D.FILL) do out.fill[k] = (type(c.fill) == "table" and num(c.fill[k])) and c.fill[k] or v end
   for k, v in pairs(D.EMPTY) do out.empty[k] = (type(c.empty) == "table" and num(c.empty[k])) and c.empty[k] or v end
@@ -237,6 +243,10 @@ local function runner(cfg, side, io)
   -- one which cannot be read stops the job: falling back to memory is how a
   -- load once filled toward an empty bay (2026-09-24) - the sensor's name did
   -- not match, memory said a silo was waiting, and nothing said otherwise.
+  -- is this step's sensor check only watched?
+  function r.watching()
+    return cfg.watch == true or (type(cfg.watch) == "table" and cfg.watch[r.step] == true)
+  end
   function r.read()
     if not io.present then return nil end
     return io.present(side)
@@ -248,7 +258,7 @@ local function runner(cfg, side, io)
     local line = (got ~= nil and said) and string.format("sensor: %s - %s", said, got and "a silo" or "no silo") or nil
     if line and line ~= r.lastSensor then r.say(line) end
     r.lastSensor = line or r.lastSensor
-    if cfg.watch then return nil end        -- watching only: memory decides
+    if r.watching() then return nil end      -- watching only: memory decides
     if name and got == nil then
       error({ why = string.format("the silo sensor for side %s (%s) cannot be read - check its name with depot probe",
         side, name) }, 0)
@@ -258,7 +268,7 @@ local function runner(cfg, side, io)
   -- insist on it, where a detector can tell: wanted = true (a silo must be in
   -- the bay) or false (it must have gone); a few looks, as a silo settles
   function r.expect(wanted, why)
-    if cfg.watch then
+    if r.watching() then
       -- watching only: say what was expected and what the sensor made of it
       local got, said = r.read()
       if got ~= nil then

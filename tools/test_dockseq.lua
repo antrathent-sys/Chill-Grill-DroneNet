@@ -166,7 +166,9 @@ check("the test dock, from the second walk: assemblers 12 and 13, each side its 
   and real.sides.B.storage[1] == "create_connected:item_silo_0")
 check("...sensor 7 on A, 6 on B, and a hit means a silo", real.detect.A == "optical_sensor_7"
   and real.detect.B == "optical_sensor_6" and real.silo_when == "high")
-check("...and for now they only watch", real.watch == true)
+check("...and for now they only watch after assembling and around the drone",
+  type(real.watch) == "table" and real.watch.assemble and real.watch.retract and real.watch.release
+  and not real.watch.silo and not real.watch.place)
 check("a side's own storage is counted on its own", (function()
   local c = D.check({ sides = { A = { pusher = "p", storage = { "a1", "a2" } }, B = { pusher = "q" } },
                      storage = { "shared" } })
@@ -283,6 +285,35 @@ w.io.present = function() return nil end      -- a sensor that cannot be read at
 w.flow = -64
 ok = D.load(WCFG, "A", w.io, 640)
 check("watching, even an unreadable sensor does not stop it", ok)
+
+print("watching only some steps")
+local PCFG = D.check({
+  sides = { A = { place = "r10", assemble = "r6", pusher = "r7" } },
+  storage = { "store" }, detect = { A = "laser_sensor_0" }, watch = { "assemble", "retract" },
+  wait = { pulse = 1, place = 2, assemble = 3, push = 2, retract = 2, step = 1 },
+  fill = { settle = 4, start = 10, max = 60 }, empty = { settle = 4, start = 10, max = 60 },
+})
+-- memory says an empty silo is waiting; the sensor sees none - the 23:00 run
+w = laserDock({ memory = "empty" })
+local assembled, pulsing = false, false
+local set2 = w.io.set
+w.io.set = function(relay, on)
+  if relay == "r6" and on then pulsing = true end
+  if relay == "r6" and not on and pulsing then assembled = true end
+  return set2(relay, on)
+end
+-- once assembled, a ray may not see it: the sensor goes blank
+w.io.present = function(side) if assembled then return false, "no hit" end return w.inBay == true, w.inBay and "hit" or "no hit" end
+w.flow = -64
+ok, whyL = D.load(PCFG, "A", w.io, 640)
+check("the sensor decides the bay needs a silo, over memory - it places one", firstOn(w, "r10") ~= nil, whyL)
+local said2 = table.concat(w.said, "\n")
+check("...an assembled silo the sensor cannot see is only watched, and logged as DISAGREES",
+  ok and said2:find("watch: expected a silo, sensor no hit - DISAGREES", 1, true) ~= nil, whyL or said2)
+w = laserDock({ placerBroken = true })
+ok, whyL, at = D.load(PCFG, "A", w.io)
+check("...while a placer that placed nothing still stops it: place is not watched",
+  not ok and at == "place", whyL)
 
 print("a belt that never stops (Alex's: HIGH loads, LOW unloads)")
 local BCFG = D.check({
