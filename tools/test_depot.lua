@@ -230,8 +230,8 @@ w.env.http = {}
 w.ran = {}
 w.env.shell = { run = function(...) w.ran[#w.ran + 1] = table.concat({ ... }, " ") return true end }
 w = w:run("depot.lua", { "probe" }, 10)
-check("with http and upload.lua it pushes it to the repo", w.ran[1] == "upload sync probe.txt data/probe-depot-pier.txt",
-  w.ran[1] or "nothing run")
+check("with http and upload.lua it pushes it to this machine's own folder",
+  w.ran[1] == "upload sync probe.txt machines/depot-pier/probe.txt", w.ran[1] or "nothing run")
 check("...appending to what was there, not replacing it",
   (w.files["probe.txt"] or ""):find("an earlier look", 1, true) ~= nil)
 w = depot({ station = false })

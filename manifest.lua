@@ -16,6 +16,7 @@ return {
   -- every computer: the updater, uploads, keys and the sealed link
   common = {
     "startup.lua", "upload.lua", "paste.lua", "seckey.lua", "radiotest.lua",
+    "machine.lua", "lib/machine.lua",
     "lib/seclink.lua", "lib/link.lua", "lib/pads.lua", "lib/fleet.lua",
     "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
     "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",

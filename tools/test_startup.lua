@@ -71,9 +71,13 @@ local function world(opts)
       if not name then return nil, "bad url " .. url end
       w.fetched = w.fetched or {}
       w.fetched[#w.fetched + 1] = name
-      if opts.tunes and name:match("^tunes/") then
-        if not opts.tunes[name] then return nil, "404" end
+      if name:match("^tunes/") then
+        if not (opts.tunes and opts.tunes[name]) then return nil, "404" end
         return { readAll = function() return opts.tunes[name] end, close = function() end }
+      end
+      if name:match("^machines/") then
+        if not (opts.machines and opts.machines[name]) then return nil, "404" end
+        return { readAll = function() return opts.machines[name] end, close = function() end }
       end
       if name == "manifest.lua" then
         if not opts.manifest then return nil, "404" end
@@ -440,13 +444,49 @@ check("no label: found by computer id (drone-7)", t2.files["tune.lua"] == TUNE, 
 local t3 = world({ label = "drone-1", tunes = {}, files = { ["tune.lua"] = "return { CRUISE_DEG = 50 }" } })
 run(t3)
 check("none in the repo: a local tune.lua is kept", t3.files["tune.lua"] == "return { CRUISE_DEG = 50 }")
-check("and it says so", printedHas(t3, "none in the repo for drone-1 - keeping"))
+check("and it says so", printedHas(t3, "for tune.lua - keeping this computer's"))
 local t4 = world({ label = "drone-1", tunes = { ["tunes/drone-1.lua"] = TUNE }, files = { ["tune.lua"] = "return { CRUISE_DEG = 50 }" } })
 run(t4)
 check("the repo's file replaces a local one", t4.files["tune.lua"] == TUNE)
 local t5 = world({ label = "drone-1", tunes = { ["tunes/drone-1.lua"] = "<html>not found</html>" } })
 run(t5)
 check("something that is not a tune table is not installed", t5.files["tune.lua"] == nil)
+
+
+print("this machine's own settings, from its folder in the repo")
+local STATION = "return { place = { relay = \"redstone_relay_0\" } }"
+local MANM = [[return { common = { "startup.lua" }, drone = { "fly.lua" }, depot = { "depot.lua" } }]]
+local m1 = world({ label = "test-dock", manifest = MANM, files = { [".role"] = "depot" },
+                   machines = { ["machines/test-dock/station.lua"] = STATION } })
+run(m1)
+check("a dock pulls its own station.lua", m1.files["station.lua"] == STATION, m1.files["station.lua"])
+check("and says where it came from", printedHas(m1, "station.lua (machines/test-dock)"))
+local m2 = world({ label = "drone-1", manifest = MANM, files = { [".role"] = "drone" },
+                   machines = { ["machines/drone-1/cal.lua"] = "return { HDG_OFFSET = 300 }",
+                                ["machines/drone-1/tune.lua"] = TUNE },
+                   tunes = { ["tunes/drone-1.lua"] = "return { CRUISE_DEG = 9 }" } })
+run(m2)
+check("a drone pulls its cal and tune", m2.files["cal.lua"] == "return { HDG_OFFSET = 300 }"
+  and m2.files["tune.lua"] == TUNE, m2.files["tune.lua"])
+check("...its folder beats the older tunes/ file", m2.files["tune.lua"] ~= "return { CRUISE_DEG = 9 }")
+local m3 = world({ label = "drone-1", manifest = MANM, files = { [".role"] = "drone" }, tunes = { ["tunes/drone-1.lua"] = TUNE } })
+run(m3)
+check("nothing in the folder: tunes/ still works", m3.files["tune.lua"] == TUNE)
+local m4 = world({ label = "test-dock", manifest = MANM, files = { [".role"] = "depot" },
+                   machines = { ["machines/test-dock/station.lua"] = STATION } })
+run(m4)
+local asked = table.concat(m4.fetched or {}, " ")
+check("it never even asks for a key", asked:find("ghtoken", 1, true) == nil
+  and asked:find("dronekey", 1, true) == nil and asked:find("fleetkeys", 1, true) == nil, asked)
+check("...and only asks for what a dock keeps", asked:find("machines/test%-dock/station%.lua") ~= nil
+  and asked:find("machines/test%-dock/cal%.lua") == nil, asked)
+-- with no label a computer is drone-<id> to the repo, as it has always been
+local m5 = world({ manifest = MANM, files = { [".role"] = "depot" }, machines = { ["machines/test-dock/station.lua"] = STATION } })
+run(m5)
+check("no label: it looks under its computer id, not another machine's folder",
+  m5.files["station.lua"] == nil
+  and table.concat(m5.fetched or {}, " "):find("machines/drone-7/station.lua", 1, true) ~= nil,
+  table.concat(m5.fetched or {}, " "))
 
 print("thrusters off at boot")
 local thrCalls = {}

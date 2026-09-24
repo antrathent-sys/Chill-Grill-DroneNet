@@ -86,7 +86,13 @@ local function probeSave()
   h.close()
   probeLines = {}
   -- and push it, so it can be read without standing at this computer
-  local into = "data/probe-" .. tostring(id or ("computer-" .. tostring(os.getComputerID and os.getComputerID() or 0))) .. ".txt"
+  local okM, MACHINE = pcall(dofile, "lib/machine.lua")
+  local folder = okM and type(MACHINE) == "table" and MACHINE.folder(id) or nil
+  if not folder then
+    print(string.format("kept in %s - label this computer to keep it in the repo (label set test-dock)", PROBE_LOG))
+    return
+  end
+  local into = folder .. "/" .. PROBE_LOG
   if not (fs.exists("upload.lua") and http and shell) then
     print(string.format("kept in %s - `paste %s` to send it (no http or upload.lua here)", PROBE_LOG, PROBE_LOG))
     return
@@ -206,17 +212,34 @@ local function report(before, after)
   if not said then psay("  nothing changed that this computer can see") end
 end
 
+-- A relay on its own means every face of it, which is how these are wired:
+-- one relay per machine, and which face the dust leaves by does not matter.
+-- <relay>:<side> picks one face, for the machine that needs two.
 local function faceArg(spec)
-  local relay, side = tostring(spec or ""):match("^(.+):(%a+)$")
-  if not relay then side = tostring(spec or "") end
+  spec = tostring(spec or "")
+  local relay, side = spec:match("^(.+):(%a+)$")
+  if not relay then
+    if peripheral.isPresent(spec) then return { relay = spec } end
+    relay, side = nil, spec
+  end
   local okSide = false
   for _, s in ipairs(SIDES) do if s == side then okSide = true end end
-  if not okSide then return nil, "name a face: <relay>:<side>, or a side of this computer" end
+  if not okSide then
+    return nil, "name a relay (every face of it), a <relay>:<side>, or a side of this computer"
+  end
   if relay and not peripheral.isPresent(relay) then return nil, relay .. " is not on this computer's network" end
   return { relay = relay, side = side }
 end
 
 local function drive(face, on)
+  if face.relay and not face.side then
+    local okAll, whyAll = true, nil
+    for _, side in ipairs(SIDES) do
+      local ok, why = pcall(peripheral.call, face.relay, "setOutput", side, on)
+      if not ok then okAll, whyAll = false, why end
+    end
+    return okAll, whyAll
+  end
   if face.relay then return pcall(peripheral.call, face.relay, "setOutput", face.side, on) end
   return pcall(redstone.setOutput, face.side, on)
 end
@@ -233,8 +256,9 @@ if cmd == "probe" then
     probeSave()
     print("")
     print("depot probe watch [secs]        keep looking, to see a machine work")
-    print("depot probe fire <relay>:<side> [secs]   pulse one face, say what moved")
-    print("depot probe set <relay>:<side> on|off    hold one face (a toggle)")
+    print("depot probe fire <relay> [secs]          pulse a relay, say what moved")
+    print("depot probe set <relay> on|off           hold a relay on (a toggle)")
+    print("  a relay on its own drives every face of it; <relay>:<side> picks one")
     print("depot probe clear               start " .. PROBE_LOG .. " again")
     return
   end
@@ -253,7 +277,8 @@ if cmd == "probe" then
   if sub == "fire" or sub == "set" then
     local face, whyF = faceArg(args[3])
     if not face then print(whyF) print("depot probe " .. sub .. " <relay>:<side> ...") return end
-    local where = (face.relay and (face.relay .. ":") or "this computer's ") .. face.side
+    local where = face.relay and (face.relay .. (face.side and (":" .. face.side) or " (every face)"))
+      or ("this computer's " .. face.side)
     if sub == "set" then
       local on = (args[4] or "on"):lower() ~= "off"
       if not confirm(string.format("hold %s %s? the machines move", where, on and "ON" or "OFF")) then

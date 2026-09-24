@@ -5,7 +5,9 @@
 --
 -- A load runs:  place -> fill -> assemble -> dock -> lift -> stick -> retract -> liftoff
 --
--- Every machine action is one Redstone Relay face: { relay = "<name>", side = "<face>" }.
+-- Every machine action is one Redstone Relay: { relay = "<name>" } drives EVERY
+-- face of it, which is what one relay per machine wants. Name a face -
+-- { relay = "<name>", side = "top" } - only for a machine that needs two.
 -- The relay must be on this computer's wired network (its name is what
 -- `peripheral.getNames()` shows once its modem is switched on). A face of this
 -- computer itself is { side = "back" }. Per face, optionally:

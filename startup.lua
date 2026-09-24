@@ -34,6 +34,7 @@ local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua"
                  "lib/display.lua", "console.lua", "lib/state.lua", "lib/screens.lua", "control.lua",
                  "lib/devices.lua", "basectl.lua", "devices.example.lua",
                  "lib/loader.lua", "station.example.lua", "lib/cargo.lua", "depot.lua",
+                 "machine.lua", "lib/machine.lua",
                  "lib/fleet.lua", "ops.lua", "taxipad.lua", "hail.lua", "lib/hailui.lua", "lib/tui.lua",
                  "lib/ledger.lua", "lib/queue.lua", "tariff.example.lua",
                  "lib/opsui.lua", "provision.lua", "lib/provision.lua", "kiosk.lua",
@@ -410,6 +411,8 @@ local function update(roleRequest)
   -- Which files: the manifest decides, by this computer's role.
   local man = parseManifest((fetch(ref, MANIFEST)))
   local role = roleRequest or (readLocal(ROLE_FILE) or ""):gsub("%s+", "")
+  -- `role` is also what decides which of this machine's own settings are
+  -- pulled from its folder, further down
   local wanted
   if man then
     if role == "" or role == "all" then
@@ -481,24 +484,54 @@ local function update(roleRequest)
     end
   end
 
-  -- This craft's tuning lives in the repo as tunes/<name>.lua (the name its
-  -- telemetry uses: the label, else drone-<id>) and is installed as tune.lua,
-  -- which fly loads over CFG. A tune.lua edited by hand on the drone went
+  -- This machine's own settings live in the repo under its name -
+  -- machines/<label>/ - and are installed over the local copies, so the repo
+  -- is what it is actually running: a dock's relay map, a drone's cal and
+  -- tune, a base's places and prices. Only the machine with that label ever
+  -- writes its folder (`machine push`). Nothing in the repo for a file: the
+  -- local one is left alone. A tune.lua edited by hand on the drone went
   -- missing on 2026-09-19 and the craft flew its defaults for three hours
-  -- without a word. No file in the repo: a local tune.lua is left alone.
+  -- without a word, which is why the repo wins and says so.
+  --
+  -- tunes/<name>.lua still works, for the drones that came before folders.
   do
     local me = (os.getComputerLabel and os.getComputerLabel())
                or ("drone-" .. tostring(os.getComputerID and os.getComputerID() or "?"))
-    local tb = fetch(ref, "tunes/" .. me .. ".lua")
-    if tb and tb:match("return%s*{") then
-      if tb ~= readLocal("tune.lua") then
-        writeText("tune.lua", tb)
-        updated[#updated + 1] = "tune.lua (tunes/" .. me .. ".lua)"
-      else
-        unchanged[#unchanged + 1] = "tune.lua"
+    local okM, MACHINE = pcall(dofile, "lib/machine.lua")
+    local folder = okM and type(MACHINE) == "table" and MACHINE.folder(me) or nil
+    local mine = {}
+    if folder then
+      for _, name in ipairs(MACHINE.wanted(role ~= "" and role or nil)) do mine[#mine + 1] = name end
+    end
+    for _, name in ipairs(mine) do
+      local body = fetch(ref, folder .. "/" .. name)
+      if body and body ~= "" and not body:find("^404") then
+        if body ~= readLocal(name) then
+          writeText(name, body)
+          updated[#updated + 1] = name .. " (" .. folder .. ")"
+        else
+          unchanged[#unchanged + 1] = name
+        end
       end
-    else
-      print("tune:      none in the repo for " .. me .. (fs.exists("tune.lua") and " - keeping this computer's tune.lua" or ""))
+    end
+    -- the older place for a drone's tune, when its folder has none
+    local haveTune = false
+    for _, u in ipairs(updated) do if u:find("^tune%.lua") then haveTune = true end end
+    for _, u in ipairs(unchanged) do if u == "tune.lua" then haveTune = true end end
+    if not haveTune then
+      local tb = fetch(ref, "tunes/" .. me .. ".lua")
+      if tb and tb:match("return%s*{") then
+        if tb ~= readLocal("tune.lua") then
+          writeText("tune.lua", tb)
+          updated[#updated + 1] = "tune.lua (tunes/" .. me .. ".lua)"
+        else
+          unchanged[#unchanged + 1] = "tune.lua"
+        end
+      elseif not folder then
+        print("machine:   no label, so no settings folder in the repo")
+      elseif fs.exists("tune.lua") then
+        print("machine:   nothing in " .. folder .. " for tune.lua - keeping this computer's")
+      end
     end
   end
 

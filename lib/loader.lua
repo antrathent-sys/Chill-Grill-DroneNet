@@ -41,8 +41,15 @@ L.ACTIONS = { place = true, assemble = true, lift = true, retract = true }
 local function num(v) return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge end
 local function str(v) return type(v) == "string" and v ~= "" end
 
+-- A face to drive: a relay and a side, or - since one relay usually works one
+-- machine and which face it is wired from does not matter - a relay on its
+-- own, which drives every face of it. A side with no relay is a face of this
+-- computer, where "every face" would be reckless, so that needs naming.
+L.SIDES = { "top", "bottom", "left", "right", "front", "back" }
 local function isIO(t)
-  return type(t) == "table" and str(t.side) and (t.relay == nil or str(t.relay))
+  if type(t) ~= "table" then return false end
+  if str(t.relay) then return t.side == nil or str(t.side) end
+  return str(t.side)
 end
 
 --- An action's faces for the bays in use: a per-bay table gives one face per
@@ -208,7 +215,7 @@ end
 
 local function describeIO(io)
   if not io then return "-" end
-  local s = io.relay and (io.relay .. ":" .. io.side) or ("computer:" .. io.side)
+  local s = io.relay and (io.relay .. ":" .. (io.side or "every face")) or ("computer:" .. tostring(io.side))
   if io.hold then s = s .. " held" end
   if io.invert then s = s .. " inverted" end
   return s
@@ -484,12 +491,27 @@ function L.station(cfg, P, R, C)
   function s.set(face, on)
     if face.relay then
       if not P.isPresent(face.relay) then return false, "not on this computer's network" end
-      return pcall(P.call, face.relay, "setOutput", face.side, on)
+      if face.side then return pcall(P.call, face.relay, "setOutput", face.side, on) end
+      local okAll, whyAll = true, nil
+      for _, side in ipairs(L.SIDES) do
+        local ok, why = pcall(P.call, face.relay, "setOutput", side, on)
+        if not ok then okAll, whyAll = false, why end
+      end
+      return okAll, whyAll
     end
     return pcall(R.setOutput, face.side, on)
   end
   function s.input(face)
     local okI, v
+    if face.relay and not face.side then
+      -- every face: the strongest signal coming into any of them
+      local best = nil
+      for _, side in ipairs(L.SIDES) do
+        local ok, got = pcall(P.call, face.relay, "getAnalogInput", side)
+        if ok and type(got) == "number" and (not best or got > best) then best = got end
+      end
+      return best
+    end
     if face.relay then okI, v = pcall(P.call, face.relay, "getAnalogInput", face.side)
     else okI, v = pcall(R.getAnalogInput, face.side) end
     return okI and v or nil

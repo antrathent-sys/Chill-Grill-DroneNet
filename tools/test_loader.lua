@@ -9,6 +9,7 @@ end
 
 local L = dofile(DIR .. "/../lib/loader.lua")
 local F = dofile(DIR .. "/../lib/fleet.lua")
+local C = dofile(DIR .. "/../lib/cargo.lua")
 
 local function R(n, side) return { relay = "redstone_relay_" .. n, side = side or "top" } end
 local function station(over)
@@ -212,6 +213,24 @@ for _, s in ipairs(w.sets) do if s.k == "redstone_relay_2:top" then sets[#sets +
 check("an inverted face rests ON, the action switches it off and back",
   ok and sets[1] == true and sets[2] == false and sets[3] == true, table.concat((function()
     local t = {} for i, v in ipairs(sets) do t[i] = tostring(v) end return t end)(), ","))
+
+print("a relay on its own")
+local allcfg = L.check(station({ place = { relay = "redstone_relay_7" }, stick = "Create_Sticker_0" }))
+check("a relay with no side is a face spec", allcfg ~= nil and allcfg.place.relay == "redstone_relay_7"
+  and allcfg.place.side == nil, select(2, L.check(station({ place = { relay = "redstone_relay_7" } }))))
+check("...and says so when described", L.describeIO({ relay = "r" }) == "r:every face")
+local P = { isPresent = function() return true end, call = function(n, m, side, on)
+  allFired = allFired or {}
+  if m == "setOutput" and on then allFired[#allFired + 1] = side end
+  return true
+end }
+allFired = {}
+local hands = L.station(allcfg, P, { setOutput = function() end, getAnalogInput = function() return 0 end }, C)
+hands.set({ relay = "redstone_relay_7" }, true)
+check("driving it drives every face", #allFired == 6, #allFired)
+allFired = {}
+hands.set({ relay = "redstone_relay_7", side = "top" }, true)
+check("...and one named face drives only that one", #allFired == 1 and allFired[1] == "top")
 
 print("counting what went in")
 local ccfg = L.check(station({ silo = { left = "create:item_vault_0", right = "create:item_vault_1" },
