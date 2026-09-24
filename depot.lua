@@ -198,7 +198,8 @@ local function printSnapshot(s)
   for _, n in ipairs(other) do
     local l = s.laser and s.laser[n:match("^(%S+)")]
     if l then
-      psay(string.format("  %s  %s", n, l.hit and string.format("beam hitting at %.1f", l.hit) or "NO BEAM (blocked?)"))
+      psay(string.format("  %s  power %s  %s", n, tostring(l.power or "?"),
+        l.hit and string.format("beam hitting at %.1f", l.hit) or "no beam"))
     else
       psay("  " .. n)
     end
@@ -226,8 +227,9 @@ local function report(before, after)
   for n in pairs(before.inv) do if not after.inv[n] then say("GONE %s (assembled, or broken)", n) end end
   for n, l in pairs(after.laser or {}) do
     local was = before.laser and before.laser[n]
-    if was and (was.hit ~= nil) ~= (l.hit ~= nil) then
-      say("%s: %s", n, l.hit and "beam back - the bay cleared" or "beam BLOCKED - something is in the bay")
+    if was and (was.power ~= l.power or (was.hit ~= nil) ~= (l.hit ~= nil)) then
+      say("%s: power %s -> %s%s", n, tostring(was.power or "?"), tostring(l.power or "?"),
+        ((was.hit ~= nil) ~= (l.hit ~= nil)) and (l.hit and ", beam hitting" or ", beam gone") or "")
     end
   end
   for n, t in pairs(after.type) do if not before.type[n] then say("NEW peripheral %s (%s)", n, tostring(t)) end end
@@ -477,6 +479,20 @@ if cmd == "seq" then
     end
     return silos[side] or "none"
   end
+  -- a side's sensor: is there a silo in its bay? Its power is what it says -
+  -- high or low - read straight; nil when there is no sensor for the side, or
+  -- it cannot be read. The power, too, for the status line.
+  local function present(sd)
+    local name = cfg.detect[sd]
+    if not name or not peripheral.isPresent(name) then return nil end
+    local okP, pow = pcall(peripheral.call, name, "getPower")
+    if not (okP and type(pow) == "number") then
+      local okH, hit = pcall(peripheral.call, name, "getClosestHitDistance")
+      if not okH then return nil end
+      pow = hit and 15 or 0
+    end
+    return (pow > 0) == (cfg.silo_when == "high"), pow
+  end
 
   local sub = (args[2] or ""):lower()
   local side = args[3] and args[3]:upper()
@@ -488,14 +504,9 @@ if cmd == "seq" then
           s.place or "-", s.assemble or "-", s.pusher, s.belt or "(not mapped)"))
         local d = cfg.detect[sd]
         if d then
-          local p = nil
-          if peripheral.isPresent(d) then
-            local okH, hit = pcall(peripheral.call, d, "getClosestHitDistance")
-            if okH then p = (hit == nil) end
-            if p ~= nil and cfg.silo_when == "hit" then p = not p end
-          end
+          local p, pow = present(sd)
           print(string.format("        detector %s: %s", d, p == nil and "NOT FOUND - check the name with depot probe"
-            or (p and "a silo is in the bay" or "the bay is clear")))
+            or string.format("%s (power %d)", p and "a silo is in the bay" or "the bay is clear", pow)))
         end
       end
     end
@@ -540,15 +551,6 @@ if cmd == "seq" then
   end
   -- a side's detector: is there a silo in its bay? nil when there is no
   -- detector, or it cannot be read
-  local function present(sd)
-    local name = cfg.detect[sd]
-    if not name or not peripheral.isPresent(name) then return nil end
-    local okH, hit = pcall(peripheral.call, name, "getClosestHitDistance")
-    if not okH then return nil end
-    local blocked = (hit == nil)
-    if cfg.silo_when == "hit" then return not blocked end
-    return blocked
-  end
   local io = {
     set = function(relay, on) return drive({ relay = relay }, on) end,
     sleep = sleep, now = os.clock, count = storageCount, silo = silo, present = present,

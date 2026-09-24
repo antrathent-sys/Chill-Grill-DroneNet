@@ -18,11 +18,12 @@ return {
   },
   storage = { "create_connected:item_silo_0", "create_connected:item_silo_2" },
 
-  -- a laser across each bay (Create Avionics): a silo blocks the beam, so the
-  -- dock SEES whether a bay has one instead of remembering. Alex, 2026-09-24:
-  -- sensor 3 is A, 4 is B. `depot seq` says if a name is wrong.
-  detect = { A = "laser_sensor_3", B = "laser_sensor_4" },
-  silo_when = "blocked",
+  -- a laser sensor on each bay (Create Avionics), so the dock SEES whether a
+  -- bay has a silo instead of remembering. Alex, 2026-09-24: sensor 1 is A,
+  -- 6 is B, and they go LOW when there is no silo. `depot seq` shows each
+  -- one's power, and says if a name is wrong.
+  detect = { A = "laser_sensor_1", B = "laser_sensor_6" },
+  silo_when = "high",
 
   -- what ON does to a belt, once the belts are mapped: "fills" or "empties"
   -- belt_on = "empties",

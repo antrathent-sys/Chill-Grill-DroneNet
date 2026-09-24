@@ -16,8 +16,8 @@
 --           storage. An empty silo is now waiting on this side.
 --
 -- Whether a silo is in a bay is SEEN when the dock has a detector for that
--- side - a laser across the bay (Create Avionics laser_pointer and
--- laser_sensor) that a silo blocks - and remembered otherwise (io.silo),
+-- side - a Create Avionics laser_sensor, whose power goes high when it sees
+-- a silo and low when it does not - and remembered otherwise (io.silo),
 -- because an assembled silo is not an inventory any more. With a detector
 -- every step that should put a silo in the bay or take one out is checked:
 -- placed and assembled means one is there, stuck and pushed back down means
@@ -82,9 +82,10 @@ function D.check(c)
     return nil, "belt_on is \"fills\" or \"empties\""
   end
   out.belt_on = c.belt_on
-  -- a detector per side: a laser_sensor's name. silo_when says which reading
-  -- means a silo is there: "blocked" (the beam no longer reaches the sensor,
-  -- the usual build) or "hit"
+  -- a detector per side: a laser_sensor's name. silo_when says which power
+  -- means a silo is there: "high" (Alex's dock, 2026-09-24: the sensor goes
+  -- low when there is no silo) or "low". "hit" and "blocked" still work, as
+  -- the same two
   out.detect = {}
   if c.detect ~= nil then
     if type(c.detect) ~= "table" then return nil, "detect = { A = \"laser_sensor_0\", B = ... }" end
@@ -95,10 +96,9 @@ function D.check(c)
       end
     end
   end
-  if c.silo_when ~= nil and c.silo_when ~= "blocked" and c.silo_when ~= "hit" then
-    return nil, "silo_when is \"blocked\" or \"hit\""
-  end
-  out.silo_when = c.silo_when or "blocked"
+  local when = ({ high = "high", low = "low", hit = "high", blocked = "low" })[c.silo_when or "high"]
+  if not when then return nil, "silo_when is \"high\" or \"low\"" end
+  out.silo_when = when
   for k, v in pairs(D.WAIT) do out.wait[k] = (type(c.wait) == "table" and num(c.wait[k])) and c.wait[k] or v end
   for k, v in pairs(D.FILL) do out.fill[k] = (type(c.fill) == "table" and num(c.fill[k])) and c.fill[k] or v end
   for k, v in pairs(D.EMPTY) do out.empty[k] = (type(c.empty) == "table" and num(c.empty[k])) and c.empty[k] or v end

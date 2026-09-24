@@ -149,8 +149,12 @@ local DCFG = D.check({
   wait = { pulse = 1, place = 2, assemble = 3, push = 2, retract = 2, step = 1 },
   fill = { settle = 4, start = 10, max = 60 }, empty = { settle = 4, start = 10, max = 60 },
 })
-check("detect is kept, and a silo means a blocked beam by default", DCFG.detect.A == "laser_sensor_0"
-  and DCFG.silo_when == "blocked")
+check("detect is kept, and a silo means the sensor is high by default", DCFG.detect.A == "laser_sensor_0"
+  and DCFG.silo_when == "high")
+check("the older words mean the same two things", D.check({ sides = { A = { pusher = "r" } }, silo_when = "blocked" })
+  .silo_when == "low" and D.check({ sides = { A = { pusher = "r" } }, silo_when = "hit" }).silo_when == "high")
+check("the test dock: sensor 1 is A, 6 is B, high means a silo", real.detect.A == "laser_sensor_1"
+  and real.detect.B == "laser_sensor_6" and real.silo_when == "high")
 bad({ sides = { A = { pusher = "r" } }, silo_when = "sometimes" }, "silo_when that is neither is refused")
 -- a bay the laser watches: a silo appears when the placer runs, goes when
 -- the pusher comes down after a stick, arrives when the drone lets go
