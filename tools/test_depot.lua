@@ -374,5 +374,33 @@ w.files["dock.lua"] = [[return { sides = { A = { pusher = "redstone_relay_2" } }
 w = w:run("depot.lua", { "seq" }, 5)
 check("...and says so plainly when the name is wrong", w.text:find("laser_sensor_9: NOT FOUND", 1, true) ~= nil, w.text)
 
+print("a sensor the probe has never met")
+local function opticalDepot(lines)
+  local w = depot({ lines = lines })
+  w.bayA = false
+  w.periph["optical_sensor_6"] = { type = "optical_sensor", m = {
+    getPower = function() return w.bayA and 15 or 0 end,
+    isDetecting = function() return w.bayA end,
+    getRange = function() return 16 end,
+    setRange = function() error("a setter must never be called") end } }
+  local set = w.periph["redstone_relay_0"].m.setOutput
+  w.periph["redstone_relay_0"].m.setOutput = function(side, on)
+    if on then w.bayA = true end
+    return set(side, on)
+  end
+  return w
+end
+w = opticalDepot({}):run("depot.lua", { "probe" }, 10)
+check("depot probe lists what an unknown device says, and what it can be asked", w.err == nil
+  and w.text:find("optical_sensor_6 (optical_sensor)  getPower=0 getRange=16 isDetecting=false", 1, true) ~= nil
+  and w.text:find("methods: getPower, getRange, isDetecting, setRange", 1, true) ~= nil, w.err or w.text)
+w = opticalDepot({ "y" }):run("depot.lua", { "probe", "fire", "redstone_relay_0", "1" }, 20)
+check("probe fire shows the sensor changing as the silo lands", w.err == nil
+  and w.text:find("optical_sensor_6 getPower 0 -> 15", 1, true) ~= nil
+  and w.text:find("optical_sensor_6 isDetecting false -> true", 1, true) ~= nil, w.err or w.text)
+check("...and it never calls a setter", w.err == nil)
+w = opticalDepot({ "y", "p", "A", "p", "n", "n", "n" }):run("depot.lua", { "probe", "map", "1" }, 60)
+check("the map walk shows it too", w.text:find("optical_sensor_6 getPower 0 -> 15", 1, true) ~= nil, w.text)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

@@ -89,6 +89,14 @@ function W.new(DIR, opts)
     getNames = function() local t = {} for n in pairs(w.periph) do t[#t + 1] = n end table.sort(t) return t end,
     getType = function(n) return w.periph[n] and w.periph[n].type end,
     isPresent = function(n) return w.periph[n] ~= nil end,
+    getMethods = function(n)
+      local p = w.periph[n]
+      if not p then return nil end
+      local out = {}
+      for k in pairs(p.m) do out[#out + 1] = k end
+      table.sort(out)
+      return out
+    end,
     call = function(n, m, ...)
       local p = w.periph[n]
       if not p then error("no peripheral " .. tostring(n), 2) end

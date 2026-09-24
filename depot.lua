@@ -125,8 +125,32 @@ local function inventoryOf(n)
   return { items = items, kinds = kinds, size = okS and tonumber(size) or nil }
 end
 
+-- A device the probe has no special knowledge of - a sensor from a mod it
+-- has never met: what can be asked of it, and what it answers to every
+-- get/is/has question that needs no argument. Those answers are compared
+-- like anything else, so a sensor that changes when a silo lands shows up in
+-- `probe fire` and the map walk without anyone knowing its API first.
+local QUIET = { modem = true, redstone_relay = true, drive = true, monitor = true, speaker = true, printer = true }
+local function readDevice(n)
+  local okM, ms = pcall(peripheral.getMethods, n)
+  if not (okM and type(ms) == "table") then return nil end
+  table.sort(ms)
+  local vals = {}
+  for _, m in ipairs(ms) do
+    if m:match("^get%u") or m:match("^is%u") or m:match("^has%u") then
+      local okV, v = pcall(peripheral.call, n, m)
+      if okV then
+        local tv = type(v)
+        if tv == "number" or tv == "boolean" or tv == "string" then vals[m] = v
+        elseif v == nil then vals[m] = "nil" end
+      end
+    end
+  end
+  return { methods = ms, vals = vals }
+end
+
 local function snapshot()
-  local s = { type = {}, relay = {}, inv = {} }
+  local s = { type = {}, relay = {}, inv = {}, dev = {} }
   for _, n in ipairs(peripheral.getNames()) do
     local t = peripheral.getType(n)
     s.type[n] = t
@@ -146,7 +170,11 @@ local function snapshot()
       s.relay[n] = faces
     else
       local inv = inventoryOf(n)
-      if inv then s.inv[n] = inv end
+      if inv then
+        s.inv[n] = inv
+      elseif not QUIET[t] then
+        s.dev[n] = readDevice(n)
+      end
     end
   end
   return s
@@ -196,8 +224,18 @@ local function printSnapshot(s)
     psay(string.format("%s  %s%s", n, inv.size and (inv.size .. " slots, ") or "", itemsLine(inv)))
   end
   for _, n in ipairs(other) do
-    local l = s.laser and s.laser[n:match("^(%S+)")]
-    if l then
+    local name = n:match("^(%S+)")
+    local l = s.laser and s.laser[name]
+    local d = s.dev[name]
+    if d and not l then
+      local said = {}
+      local keys = {}
+      for k in pairs(d.vals) do keys[#keys + 1] = k end
+      table.sort(keys)
+      for _, k in ipairs(keys) do said[#said + 1] = k .. "=" .. tostring(d.vals[k]) end
+      psay(string.format("  %s  %s", n, #said > 0 and table.concat(said, " ") or ""))
+      psay("      methods: " .. table.concat(d.methods, ", "))
+    elseif l then
       psay(string.format("  %s  power %s  %s", n, tostring(l.power or "?"),
         l.hit and string.format("beam hitting at %.1f", l.hit) or "no beam"))
     else
@@ -230,6 +268,14 @@ local function report(before, after)
     if was and (was.power ~= l.power or (was.hit ~= nil) ~= (l.hit ~= nil)) then
       say("%s: power %s -> %s%s", n, tostring(was.power or "?"), tostring(l.power or "?"),
         ((was.hit ~= nil) ~= (l.hit ~= nil)) and (l.hit and ", beam hitting" or ", beam gone") or "")
+    end
+  end
+  for n, d in pairs(after.dev or {}) do
+    local was = before.dev and before.dev[n]
+    if was and d then
+      for k, v in pairs(d.vals) do
+        if was.vals[k] ~= nil and was.vals[k] ~= v then say("%s %s %s -> %s", n, k, tostring(was.vals[k]), tostring(v)) end
+      end
     end
   end
   for n, t in pairs(after.type) do if not before.type[n] then say("NEW peripheral %s (%s)", n, tostring(t)) end end
