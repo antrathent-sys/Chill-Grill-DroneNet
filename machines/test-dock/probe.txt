@@ -68,3 +68,18 @@ create_connected:item_silo_2  60 slots, 64 barrel
       methods: getBlock, getDistance, getRange, hasHit, setRange
   optical_sensor_7 (optical_sensor)  getBlock=create_connected:item_silo getDistance=0.515500009059906 getRange=15 hasHit=true
       methods: getBlock, getDistance, getRange, hasHit, setRange
+---- test-dock  09-24 21:43 ----
+---- load side A ----
+  2.1 PLACE    placing a silo on side A
+ 10.1 ASSEMBLE assembling it
+ 16.1 FILL     filling until the storage stops moving
+ 23.6 FILL     64 items in
+ 25.6 DOCK     waiting for the drone to latch
+ 25.6 DOCK     the drone: latch it on the dock  [ENT] done  [X] call off
+ 39.8 PUSH     pusher up
+ 43.8 STICK    the drone sticks the silo
+ 43.8 STICK    the drone: stick the silo (stickers out)  [ENT] done  [X] call off
+ 45.2 RETRACT  pusher down
+ 49.2 DONE     loaded - side A has no silo now
+load done in 49 s
+side A: none   side B: none
