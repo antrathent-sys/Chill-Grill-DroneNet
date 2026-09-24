@@ -126,7 +126,8 @@ check("...and the belt stays at unloading, the level an empty silo wants", w.lev
 w = dock({ silo = "empty" })
 ok, whyL = D.unload(CFG, "A", w.io)
 check("a side that already has a silo is refused before anything moves", not ok
-  and (function() for _, st in ipairs(w.sets) do if st.on then return false end end return true end)(), whyL)
+  and (function() for _, st in ipairs(w.sets) do if st.on and st.relay ~= "r1" then return false end end return true end)()
+  and w.level.r1 == true, whyL)   -- this belt rests ON: its ON unloads
 
 print("when it goes wrong")
 w = dock()
@@ -142,8 +143,8 @@ check("the drone does not stick: called off, and the pusher comes back down", no
 w = dock({ stopAt = 3 })
 w.flow = -10
 ok, whyL, at = D.load(CFG, "A", w.io)
-check("stopped by the operator part way: called off, all off", not ok and tostring(whyL):find("operator", 1, true)
-  and allOff(w), whyL)
+check("stopped by the operator part way: called off, all off but the belt at unloading",
+  not ok and tostring(whyL):find("operator", 1, true) and allOff(w, "r1") and w.level.r1 == true, whyL)
 w = dock()
 ok, whyL = D.load(CFG, "C", w.io)
 check("a side the dock does not have is refused", not ok and tostring(whyL):find("no side C", 1, true), whyL)
@@ -163,8 +164,8 @@ check("the test dock, from the second walk: assemblers 12 and 13, each side its 
   real.sides.A.assemble == "redstone_relay_12" and real.sides.B.assemble == "redstone_relay_13"
   and real.sides.A.storage[1] == "create_connected:item_silo_2"
   and real.sides.B.storage[1] == "create_connected:item_silo_0")
-check("...optical sensor 6 on A, 7 on B, inverted: no hit means a silo", real.detect.A == "optical_sensor_6"
-  and real.detect.B == "optical_sensor_7" and real.silo_when == "low")
+check("...sensor 7 on A, 6 on B, and a hit means a silo", real.detect.A == "optical_sensor_7"
+  and real.detect.B == "optical_sensor_6" and real.silo_when == "high")
 check("...and for now they only watch", real.watch == true)
 check("a side's own storage is counted on its own", (function()
   local c = D.check({ sides = { A = { pusher = "p", storage = { "a1", "a2" } }, B = { pusher = "q" } },
@@ -325,6 +326,32 @@ check("the drone would not stick: the belt is left HIGH, so the filled silo stay
 w = beltDock({ silo = "full" })
 ok = D.load(BCFG, "A", w.io)
 check("sending a silo filled earlier: HIGH while it waits, even with no fill", ok and w.asked[1].belt == true)
+w = beltDock({ store = 3000 })
+w.level.r2 = true                     -- left loading by a run stopped part way
+w.flow = -64
+ok = D.load(BCFG, "A", w.io, 640)
+local firstBelt, firstPlace
+for _, st in ipairs(w.sets) do
+  if st.relay == "r2" and firstBelt == nil then firstBelt = st end
+  if st.relay == "r10" and st.on and firstPlace == nil then firstPlace = st end
+end
+check("a belt left loading by an earlier run is put to unloading before anything else moves",
+  firstBelt and firstBelt.on == false and firstPlace and firstBelt.t <= firstPlace.t
+  and (function() for i, st in ipairs(w.sets) do
+    if st == firstBelt then return true end
+    if st.on then return false end
+  end end)())
+w = beltDock({ store = 3000 })
+w.io.stopped = function() return w.level.r2 == true end   -- stopped the moment the fill starts
+ok, whyL = D.load(BCFG, "A", w.io, 640)
+check("stopped during the fill: the silo is not full, so the belt goes back to unloading",
+  not ok and w.level.r2 == false and w.silos.A ~= "full", whyL)
+w = beltDock()
+w.io.drone = function(what) return true end               -- lets go, but nothing arrives to empty
+w.level.r2 = true
+ok = D.unload(BCFG, "A", w.io)
+check("an unload that fails leaves the belt unloading, never loading",
+  not ok and w.level.r2 == false)
 w = beltDock()
 ok = D.unload(BCFG, "A", w.io)
 check("an unload runs it LOW, and leaves it LOW", ok and w.level.r2 == false and not firstOn(w, "r2"))

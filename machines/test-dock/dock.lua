@@ -7,14 +7,15 @@
 -- emptied item_silo_2 (A), relay 1 emptied item_silo_0 (B) - which is how
 -- each side's storage is known.
 --
--- SENSORS: optical_sensor_6 on A and optical_sensor_7 on B (confirmed:
---           a silo in A read as a silo, empty B as clear, 22:40).
---           Taken as INVERTED - no hit means a silo. But a silo that is
---           only placed is an ordinary block and one that is assembled is a
---           physics object, and a ray may see the two differently, so for
---           now the sensors WATCH: every check logs what each one read and
---           whether that agrees, and memory decides. Once each state's
---           reading is known (empty, placed, assembled), take watch out.
+-- SENSORS: optical_sensor_7 watches A and optical_sensor_6 watches B.
+--           Proven 22:42: firing A's placer turned sensor 7 from no hit (air,
+--           15.5 away) to a hit on create_connected:item_silo at 0.52. So a
+--           HIT means a silo is there - not inverted; the earlier readings
+--           only looked inverted with the sides the wrong way round.
+--           Known: empty = no hit, placed = hit at 0.52. Not yet known:
+--           assembled - a physics object, which a ray may not see. Until it
+--           is, the sensors WATCH: every check logs what was expected, what
+--           the sensor read and whether it agrees, and memory decides.
 -- PLACERS place on the falling edge (Alex, 2026-09-24): pulsed, then
 --           `place` seconds for the silo to land.
 -- NOT MAPPED YET:
@@ -26,8 +27,8 @@ return {
     B = { place = "redstone_relay_11", assemble = "redstone_relay_13", pusher = "redstone_relay_9",
           belt = "redstone_relay_1", belt_on = "fills", storage = "create_connected:item_silo_0" },
   },
-  detect = { A = "optical_sensor_6", B = "optical_sensor_7" },
-  silo_when = "low",       -- a silo when the sensor has NO hit
+  detect = { A = "optical_sensor_7", B = "optical_sensor_6" },
+  silo_when = "high",      -- a silo when the sensor has a hit
   watch = true,            -- read and log the sensors, do not act on them yet
 
   -- seconds. Generous on purpose for the first runs; trim once it is proven.

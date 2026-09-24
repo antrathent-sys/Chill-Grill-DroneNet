@@ -10,8 +10,12 @@
 --             level from the fill until the silo has gone with the drone
 --             (anything else would pull the load straight back out while it
 --             waits), and at the unloading level otherwise - harmless with
---             an empty bay, and what an unload wants. A job that fails
---             leaves the belt where it is, so a filled silo stays filled.
+--             an empty bay, and what an unload wants. Every job sets it at
+--             the START to suit the bay, whatever the last one left: a run
+--             stopped with Ctrl+T once left a belt loading for an hour, and
+--             the next load's items went into the bay before its fill began.
+--             A job that fails leaves it loading only if a FILLED silo is
+--             waiting, and at unloading otherwise.
 --   pusher    lifts the silo up against the drone, and takes it back down
 --
 -- Two jobs, in Alex's order (2026-09-24):
@@ -277,7 +281,13 @@ local function runner(cfg, side, io)
 end
 
 -- a job, with the dock left safe whatever happens: pusher down, all at rest
-local function job(cfg, side, io, body)
+-- the belt for a side given what is in its bay: loading only keeps a filled
+-- silo filled; anything else rests at unloading
+local function beltFor(cfg, side, keepFull)
+  return D.beltFor(cfg, keepFull and "fill" or "empty", side)
+end
+
+local function job(cfg, side, io, body, kind)
   if not cfg.sides[side] then
     local why = "this dock has no side " .. tostring(side)
     if io.say then io.say("start", "called off: " .. why) end
@@ -291,6 +301,9 @@ local function job(cfg, side, io, body)
   local at = r.step
   if r.up then pcall(io.set, cfg.sides[side].pusher, false) end
   r.rest()
+  local s = cfg.sides[side]
+  local lvl = s.belt and beltFor(cfg, side, kind == "load" and io.silo(side) == "full")
+  if lvl ~= nil and s.belt then pcall(io.set, s.belt, lvl) end
   if io.say then io.say(at, "called off: " .. why) end
   return false, why, at
 end
@@ -306,6 +319,9 @@ function D.load(cfg, side, io, items)
     local seen = r.seen()
     if seen == true and have == "none" then have = "empty" end     -- one is there, whatever memory said
     if seen == false and have ~= "none" then have = "none" end     -- nothing there, whatever memory said
+    -- the belt to suit the bay before anything else moves
+    local startLevel = beltFor(cfg, side, have == "full")
+    if startLevel ~= nil then r.set(s.belt, startLevel) end
     if have == "full" then
       r.say("a filled silo is already waiting on side " .. side)
     elseif have == "empty" then
@@ -361,7 +377,7 @@ function D.load(cfg, side, io, items)
     r.step = "done"
     r.say("loaded - side " .. side .. " has no silo now")
     return moved
-  end)
+  end, "load")
 end
 
 --- UNLOAD one side: take a silo off the drone and empty it into storage.
@@ -373,6 +389,8 @@ function D.unload(cfg, side, io, expect)
     if seen == true or (seen == nil and io.silo(side) ~= "none") then
       error({ why = "side " .. side .. " already has a silo in the bay - load it, or clear it first" }, 0)
     end
+    local startLevel = beltFor(cfg, side, false)
+    if startLevel ~= nil then r.set(s.belt, startLevel) end
     r.step = "push"
     r.say("pusher up, under the drone's silo")
     r.pusher(true)
@@ -394,7 +412,7 @@ function D.unload(cfg, side, io, expect)
     r.step = "done"
     r.say(string.format("%s - an empty silo is waiting on side %s", moved and (moved .. " items out") or "emptied", side))
     return moved
-  end)
+  end, "unload")
 end
 
 return D
