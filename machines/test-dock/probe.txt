@@ -159,3 +159,12 @@ pulsed redstone_relay_12 (every face) for 3s
 set redstone_relay_2 (every face) OFF
   redstone_relay_2:top signal 15 -> 0
   redstone_relay_2:right signal 15 -> 0
+---- test-dock  09-24 23:00 ----
+---- load side A ----
+  1.2 SILO     sensor: no hit - no silo
+  1.2 SILO     an empty silo is waiting on side A
+  1.2 SILO     watch: expected a silo, sensor no hit - DISAGREES
+  1.2 FILL     filling until the storage stops moving
+ 24.5 FILL     called off: Terminated
+called off at fill: Terminated
+side A: empty   side B: none
