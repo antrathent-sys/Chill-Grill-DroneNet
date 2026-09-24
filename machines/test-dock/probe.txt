@@ -83,3 +83,11 @@ create_connected:item_silo_2  60 slots, 64 barrel
  49.2 DONE     loaded - side A has no silo now
 load done in 49 s
 side A: none   side B: none
+---- test-dock  09-24 21:44 ----
+---- load side A ----
+  1.6 PLACE    placing a silo on side A
+  9.6 ASSEMBLE assembling it
+ 15.6 FILL     filling until the storage stops moving
+ 38.6 FILL     called off: Terminated
+called off at fill: Terminated
+side A: empty   side B: none
