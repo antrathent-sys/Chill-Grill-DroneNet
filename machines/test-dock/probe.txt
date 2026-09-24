@@ -102,3 +102,9 @@ side A: empty   side B: none
  35.2 DONE     loaded - side A has no silo now
 load done in 35 s
 side A: none   side B: none
+---- test-dock  09-24 21:27 ----
+side A  silo: none   place redstone_relay_10  assemble redstone_relay_6  pusher redstone_relay_7  belt redstone_relay_2
+        detector laser_sensor_1: NOT FOUND - check the name with depot probe
+side B  silo: none   place redstone_relay_11  assemble redstone_relay_8  pusher redstone_relay_9  belt redstone_relay_1
+        detector laser_sensor_6: NOT FOUND - check the name with depot probe
+storage: create_connected:item_silo_0, create_connected:item_silo_2
