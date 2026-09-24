@@ -213,8 +213,19 @@ local function runner(cfg, side, io)
       if io.now() - t0 >= t.max then return done end
     end
   end
-  -- what the detector says, or nil with none
-  function r.seen() return io.present and io.present(side) end
+  -- what the detector says, or nil when this side has none. A side that HAS
+  -- one which cannot be read stops the job: falling back to memory is how a
+  -- load once filled toward an empty bay (2026-09-24) - the sensor's name did
+  -- not match, memory said a silo was waiting, and nothing said otherwise.
+  function r.seen()
+    local name = cfg.detect and cfg.detect[side]
+    local got = io.present and io.present(side)
+    if name and got == nil then
+      error({ why = string.format("the silo sensor for side %s (%s) cannot be read - check its name with depot probe",
+        side, name) }, 0)
+    end
+    return got
+  end
   -- insist on it, where a detector can tell: wanted = true (a silo must be in
   -- the bay) or false (it must have gone); a few looks, as a silo settles
   function r.expect(wanted, why)
@@ -284,6 +295,7 @@ function D.load(cfg, side, io, items)
 
     -- the belt goes to loading and stays there until the silo has gone: at
     -- the other level it would pull the load back out while it waits
+    r.expect(true, "no silo in the bay to fill - nothing will be loaded toward an empty bay")
     local fillLevel = D.beltFor(cfg, "fill", side)
     if fillLevel ~= nil then r.set(s.belt, fillLevel) end
     local moved

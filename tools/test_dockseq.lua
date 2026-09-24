@@ -229,6 +229,24 @@ ok, whyL, at = D.unload(DCFG, "A", w.io)
 check("the drone let go but nothing arrived: called off, says so", not ok and at == "retract"
   and tostring(whyL):find("no silo arrived", 1, true) ~= nil, whyL)
 
+print("a sensor that cannot be read")
+w = laserDock({ memory = "empty" })
+w.io.present = function() return nil end        -- the name in dock.lua is not what the dock sees
+ok, whyL, at = D.load(DCFG, "A", w.io)
+check("a side with a sensor it cannot read stops before anything moves", not ok and at == "silo"
+  and tostring(whyL):find("cannot be read", 1, true) ~= nil
+  and (function() for _, st in ipairs(w.sets) do if st.on then return false end end return true end)(), whyL)
+check("...rather than trusting memory's empty silo", w.silos.A == "empty")
+w = laserDock({ memory = "empty" })
+w.io.present = function() return nil end
+ok, whyL = D.unload(DCFG, "A", w.io)
+check("an unload the same", not ok and tostring(whyL):find("cannot be read", 1, true) ~= nil, whyL)
+w = laserDock({ memory = "full" })          -- memory says full; the sensor sees nothing
+w.flow = -64
+ok, whyL, at = D.load(DCFG, "A", w.io, 640)
+check("memory says a filled silo, the sensor says none: it makes a new one, never loads toward nothing",
+  ok and firstOn(w, "r10") ~= nil, whyL)
+
 print("a belt that never stops (Alex's: HIGH loads, LOW unloads)")
 local BCFG = D.check({
   sides = { A = { place = "r10", assemble = "r6", pusher = "r7", belt = "r2", belt_on = "fills" },

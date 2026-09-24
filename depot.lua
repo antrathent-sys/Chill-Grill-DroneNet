@@ -500,17 +500,26 @@ if cmd == "seq" then
     for _, sd in ipairs(DS.SIDES) do
       local s = cfg.sides[sd]
       if s then
-        print(string.format("side %s  silo: %-5s  place %s  assemble %s  pusher %s  belt %s", sd, silo(sd),
+        psay(string.format("side %s  silo: %-5s  place %s  assemble %s  pusher %s  belt %s", sd, silo(sd),
           s.place or "-", s.assemble or "-", s.pusher, s.belt or "(not mapped)"))
         local d = cfg.detect[sd]
         if d then
           local p, pow = present(sd)
-          print(string.format("        detector %s: %s", d, p == nil and "NOT FOUND - check the name with depot probe"
+          psay(string.format("        detector %s: %s", d, p == nil and "NOT FOUND - check the name with depot probe"
             or string.format("%s (power %d)", p and "a silo is in the bay" or "the bay is clear", pow)))
         end
       end
     end
-    print("storage: " .. (#cfg.storage > 0 and table.concat(cfg.storage, ", ") or "(none - fills and empties are timed)"))
+    psay("storage: " .. (#cfg.storage > 0 and table.concat(cfg.storage, ", ") or "(none - fills and empties are timed)"))
+    -- and every sensor this computer CAN see, whatever dock.lua calls them
+    for _, n in ipairs(peripheral.getNames()) do
+      local t = peripheral.getType(n)
+      if t and tostring(t):find("laser") then
+        local okP, pow = pcall(peripheral.call, n, "getPower")
+        psay(string.format("  seen here: %s (%s) power %s", n, tostring(t), okP and tostring(pow) or "unreadable"))
+      end
+    end
+    probeSave()
     print("")
     print("depot seq load <A|B> [items]     place/assemble if needed, fill, push, stick, retract")
     print("depot seq unload <A|B> [items]   push, release, retract, empty into storage")
