@@ -1,6 +1,7 @@
 --- dockseq: a loading dock with two sides, A and B, each with four machines.
 --
---   place     puts a silo down in the bay (ON places it)
+--   place     puts a silo down in the bay. It places on the FALLING edge
+--             (Alex, 2026-09-24), so it is pulsed, and then given time to land
 --   assemble  deploys a Physics Assembler and fires it: the silo becomes its
 --             own physics object
 --   belt      a funnel on a belt that runs one way or the other: into the
@@ -46,7 +47,7 @@ D.DEVICES = { "place", "assemble", "belt", "pusher" }
 -- seconds; every one of them can be set in dock.lua
 D.WAIT = {
   pulse = 1,       -- how long a one-shot machine (the assembler) is held on
-  place = 3,       -- a silo placed: time for it to land
+  place = 3,       -- after the placer's pulse: time for the silo to land
   assemble = 4,    -- assembled: time for the physics object to settle
   push = 3,        -- pusher up: time to reach the drone
   retract = 3,     -- pusher down
@@ -121,6 +122,10 @@ function D.check(c)
   local when = ({ high = "high", low = "low", hit = "high", blocked = "low" })[c.silo_when or "high"]
   if not when then return nil, "silo_when is \"high\" or \"low\"" end
   out.silo_when = when
+  -- watch = true: read and log the sensors at every check, but go by memory
+  -- and never stop a job on them - for while what each state reads is still
+  -- being found out
+  out.watch = c.watch and true or false
   for k, v in pairs(D.WAIT) do out.wait[k] = (type(c.wait) == "table" and num(c.wait[k])) and c.wait[k] or v end
   for k, v in pairs(D.FILL) do out.fill[k] = (type(c.fill) == "table" and num(c.fill[k])) and c.fill[k] or v end
   for k, v in pairs(D.EMPTY) do out.empty[k] = (type(c.empty) == "table" and num(c.empty[k])) and c.empty[k] or v end
@@ -228,14 +233,18 @@ local function runner(cfg, side, io)
   -- one which cannot be read stops the job: falling back to memory is how a
   -- load once filled toward an empty bay (2026-09-24) - the sensor's name did
   -- not match, memory said a silo was waiting, and nothing said otherwise.
+  function r.read()
+    if not io.present then return nil end
+    return io.present(side)
+  end
   function r.seen()
     local name = cfg.detect and cfg.detect[side]
-    local got, said
-    if io.present then got, said = io.present(side) end
+    local got, said = r.read()
     -- said once, and again only when it changes: a check looks five times
     local line = (got ~= nil and said) and string.format("sensor: %s - %s", said, got and "a silo" or "no silo") or nil
     if line and line ~= r.lastSensor then r.say(line) end
     r.lastSensor = line or r.lastSensor
+    if cfg.watch then return nil end        -- watching only: memory decides
     if name and got == nil then
       error({ why = string.format("the silo sensor for side %s (%s) cannot be read - check its name with depot probe",
         side, name) }, 0)
@@ -245,6 +254,15 @@ local function runner(cfg, side, io)
   -- insist on it, where a detector can tell: wanted = true (a silo must be in
   -- the bay) or false (it must have gone); a few looks, as a silo settles
   function r.expect(wanted, why)
+    if cfg.watch then
+      -- watching only: say what was expected and what the sensor made of it
+      local got, said = r.read()
+      if got ~= nil then
+        r.say(string.format("watch: expected %s, sensor %s - %s", wanted and "a silo" or "no silo", tostring(said),
+          got == wanted and "agrees" or "DISAGREES"))
+      end
+      return
+    end
     if r.seen() == nil then return end
     for _ = 1, 5 do
       if r.seen() == wanted then return end
@@ -296,10 +314,8 @@ function D.load(cfg, side, io, items)
       if not (s.place and s.assemble) then error({ why = "no silo here, and no placer or assembler to make one" }, 0) end
       r.step = "place"
       r.say("placing a silo on side " .. side)
-      r.set(s.place, true)
-      r.pause(cfg.wait.place)
-      r.set(s.place, false)
-      r.pause(cfg.wait.step)
+      r.pulse(s.place)                 -- it places as the signal FALLS
+      r.pause(cfg.wait.place)          -- then time for the silo to land
       r.expect(true, "a silo was placed but the detector does not see one in the bay")
       r.step = "assemble"
       r.say("assembling it")

@@ -7,12 +7,16 @@
 -- emptied item_silo_2 (A), relay 1 emptied item_silo_0 (B) - which is how
 -- each side's storage is known.
 --
--- SENSORS: optical_sensor_6 on A and optical_sensor_7 on B - taken as the
---           lower number on A, as every other pair is; flip them if not.
---           INVERTED (Alex, 2026-09-24): with both bays empty each sensor
---           reported a hit (a create_connected:item_silo half a block away),
---           so a hit means the bay is clear and no hit means a silo is there.
---           Every check writes what the sensor read to probe.txt.
+-- SENSORS: optical_sensor_6 on A and optical_sensor_7 on B (confirmed:
+--           a silo in A read as a silo, empty B as clear, 22:40).
+--           Taken as INVERTED - no hit means a silo. But a silo that is
+--           only placed is an ordinary block and one that is assembled is a
+--           physics object, and a ray may see the two differently, so for
+--           now the sensors WATCH: every check logs what each one read and
+--           whether that agrees, and memory decides. Once each state's
+--           reading is known (empty, placed, assembled), take watch out.
+-- PLACERS place on the falling edge (Alex, 2026-09-24): pulsed, then
+--           `place` seconds for the silo to land.
 -- NOT MAPPED YET:
 --   relay 5 answered "pusher" with no side, twice. Left out of both jobs.
 return {
@@ -24,13 +28,12 @@ return {
   },
   detect = { A = "optical_sensor_6", B = "optical_sensor_7" },
   silo_when = "low",       -- a silo when the sensor has NO hit
+  watch = true,            -- read and log the sensors, do not act on them yet
 
   -- seconds. Generous on purpose for the first runs; trim once it is proven.
-  -- place is how long the placer is held on: the map walk's 3 s saw no silo
-  -- land, so this is longer
   wait = {
-    pulse = 1,       -- the assembler held on
-    place = 6,       -- the placer held on, for a silo to land
+    pulse = 1,       -- how long the assembler and the placer are pulsed
+    place = 6,       -- after the placer's pulse: time for the silo to land
     assemble = 5,    -- assembled: time for the new physics object to settle
     push = 4,        -- pusher up
     retract = 4,     -- pusher down
