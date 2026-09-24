@@ -132,3 +132,8 @@ side B  silo: none   place redstone_relay_11  assemble redstone_relay_13  pusher
         detector optical_sensor_7: the bay is clear (hit create_connected:item_silo at 0.52)
 storage A: create_connected:item_silo_2, 0 items
 storage B: create_connected:item_silo_0, 65 items
+---- test-dock  09-24 22:42 ----
+pulsed redstone_relay_10 (every face) for 6s
+  optical_sensor_7 getDistance 15.5 -> 0.515500009059906
+  optical_sensor_7 hasHit false -> true
+  optical_sensor_7 getBlock minecraft:air -> create_connected:item_silo
