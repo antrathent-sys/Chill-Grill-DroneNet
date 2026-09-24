@@ -38,7 +38,7 @@ return {
 local function depot(opts)
   local w = W.new(DIR, { label = opts.label == nil and "depot-pier" or opts.label or nil, S = S,
                          lines = opts.lines })
-  w.files["station.lua"] = opts.station or STATION
+  if opts.station ~= false then w.files["station.lua"] = opts.station or STATION end
   if not opts.nokey then w.files[".dronekey"] = KEYHEX end
   if opts.state then w.files[".depotstate"] = opts.state end
   w.heard, w.sets, w.level = {}, {}, {}
@@ -181,6 +181,41 @@ check("depot test lift: fires the lift face and lets go", onCount(w, "redstone_r
 w = depot({ vaults = VAULTS, intake = 64 }):run("depot.lua", { "status" }, 5)
 check("depot status: bays, key, radio, silos and intake", w.text:find("2 bays", 1, true) and w.text:find("key: yes", 1, true)
   and w.text:find("silo left: create:item_vault_0 readable", 1, true) and w.text:find("64 items", 1, true), w.text)
+
+print("probing the dock before there is a station")
+-- a relay face that places a silo: firing it makes a new inventory appear
+w = depot({ vaults = VAULTS, intake = 64, lines = { "y" } })
+w.periph["redstone_relay_1"].m.setOutput = function(side, on)
+  w.sets[#w.sets + 1] = { t = w.clock, k = "redstone_relay_1:" .. side, on = on }
+  w.level["redstone_relay_1:" .. side] = on
+  if side == "top" and on then
+    w.periph["create:item_vault_9"] = { type = "create:item_vault",
+      m = { list = function() return {} end, size = function() return 60 end } }
+  end
+end
+w = w:run("depot.lua", { "probe", "fire", "redstone_relay_1:top", "1" }, 20)
+check("probe fire names the machine that moved: a silo appeared", w.err == nil
+  and w.text:find("NEW inventory create:item_vault_9", 1, true) ~= nil, w.err or w.text)
+check("...and puts the face back", w.level["redstone_relay_1:top"] == false)
+
+w = depot({ vaults = VAULTS, intake = 64 }):run("depot.lua", { "probe" }, 10)
+check("probe lists every relay face and inventory", w.err == nil and w.text:find("4 relays", 1, true)
+  and w.text:find("create:item_vault_0", 1, true) and w.text:find("640 cobblestone", 1, true) ~= nil,
+  w.err or w.text)
+check("...and how to go on", w.text:find("probe fire", 1, true) and w.text:find("probe set", 1, true) ~= nil)
+
+w = depot({ lines = { "y" } }):run("depot.lua", { "probe", "set", "redstone_relay_2:bottom", "on" }, 10)
+check("probe set holds a face on, for a toggle", w.err == nil
+  and w.level["redstone_relay_2:bottom"] == true and w.text:find("is ON", 1, true) ~= nil, w.err or w.text)
+w = depot({ lines = { "n" } }):run("depot.lua", { "probe", "fire", "redstone_relay_0:top" }, 10)
+check("it asks first", #w.sets == 0 and w.text:find("nothing changed", 1, true) ~= nil)
+w = depot({ lines = { "y" } }):run("depot.lua", { "probe", "fire", "nosuch:top" }, 10)
+check("a relay that is not there is refused", #w.sets == 0
+  and w.text:find("not on this computer", 1, true) ~= nil)
+w = depot({ station = false }):run("depot.lua", { "probe" }, 10)
+check("it runs before there is any station.lua", w.err == nil and w.text:find("relay", 1, true) ~= nil, w.err)
+check("...and `depot` itself says to probe first", depot({ station = false }):run("depot.lua", {}, 5).text
+  :find("depot probe", 1, true) ~= nil)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

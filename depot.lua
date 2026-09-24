@@ -4,6 +4,10 @@
 --   startup autorun depot        ...from every boot, which is how it should run
 --   depot status                 the station from station.lua, and what it can reach
 --   depot test <action> [side]   fire one action's relay: place assemble lift retract
+--   depot probe                  every relay face and inventory on this network,
+--                                and `probe fire`/`probe set` to find out which
+--                                machine each face works. Run it before there
+--                                is a station.lua.
 --
 -- It sleeps with its chunk. A drone docking here brings its chunk loader, the
 -- chunk loads, this computer turns itself back on and runs startup - so the
@@ -49,8 +53,199 @@ local function confirm(q)
   return type(a) == "string" and a:lower():sub(1, 1) == "y"
 end
 
+-- ----------------------------------------------------------------- probe ---
+-- Before there is a station.lua there is a pile of relays and inventories
+-- with names like redstone_relay_3, and no way to tell which side of the dock
+-- each one works. This lists them, and fires one face at a time so the
+-- machine it moves gives itself away: a silo placed appears as a NEW
+-- inventory, a belt shows up as items moving, a detector as a signal coming
+-- back. Nothing here knows anything about a station, so it runs first.
+local SIDES = { "top", "bottom", "left", "right", "front", "back" }
+
+local function inventoryOf(n)
+  local okL, list = pcall(peripheral.call, n, "list")
+  if not (okL and type(list) == "table") then return nil end
+  local items, kinds = 0, {}
+  for _, it in pairs(list) do
+    if type(it) == "table" and it.count then
+      items = items + it.count
+      kinds[it.name or "?"] = (kinds[it.name or "?"] or 0) + it.count
+    end
+  end
+  local okS, size = pcall(peripheral.call, n, "size")
+  return { items = items, kinds = kinds, size = okS and tonumber(size) or nil }
+end
+
+local function snapshot()
+  local s = { type = {}, relay = {}, inv = {} }
+  for _, n in ipairs(peripheral.getNames()) do
+    local t = peripheral.getType(n)
+    s.type[n] = t
+    if t == "redstone_relay" then
+      local faces = {}
+      for _, side in ipairs(SIDES) do
+        local okO, out = pcall(peripheral.call, n, "getOutput", side)
+        local okI, inp = pcall(peripheral.call, n, "getAnalogInput", side)
+        faces[side] = { out = okO and out and true or false, inp = (okI and tonumber(inp)) or 0 }
+      end
+      s.relay[n] = faces
+    else
+      local inv = inventoryOf(n)
+      if inv then s.inv[n] = inv end
+    end
+  end
+  return s
+end
+
+local function itemsLine(inv, wide)
+  local names = {}
+  for name in pairs(inv.kinds) do names[#names + 1] = name end
+  table.sort(names, function(a, b) return inv.kinds[a] > inv.kinds[b] end)
+  local parts = {}
+  for i, name in ipairs(names) do
+    if i > (wide or 2) then parts[#parts + 1] = "+" .. (#names - (wide or 2)) .. " more" break end
+    parts[#parts + 1] = inv.kinds[name] .. " " .. (name:gsub("^[%w_]+:", ""))
+  end
+  return #parts > 0 and table.concat(parts, ", ") or "empty"
+end
+
+-- one face: "." off, "O" driven by us, a digit for a signal coming in
+local function faceMark(f)
+  if f.out then return "O" end
+  if f.inp > 0 then return tostring(math.min(9, f.inp)) end
+  return "."
+end
+
+local function printSnapshot(s)
+  local relays, invs, other = {}, {}, {}
+  for n, t in pairs(s.type) do
+    if s.relay[n] then relays[#relays + 1] = n
+    elseif s.inv[n] then invs[#invs + 1] = n
+    else other[#other + 1] = n .. " (" .. tostring(t) .. ")" end
+  end
+  table.sort(relays) table.sort(invs) table.sort(other)
+  print(string.format("%d relay%s, %d inventor%s", #relays, #relays == 1 and "" or "s",
+    #invs, #invs == 1 and "y" or "ies"))
+  print("            top bot lft rgt fnt bck   (O driven, digit = signal in)")
+  for _, n in ipairs(relays) do
+    local marks = {}
+    for _, side in ipairs(SIDES) do marks[#marks + 1] = faceMark(s.relay[n][side]) end
+    print(string.format("%-11s  %s", n:sub(1, 11), table.concat(marks, "   ")))
+  end
+  for _, n in ipairs(invs) do
+    local inv = s.inv[n]
+    print(string.format("%-22s %s", n:sub(1, 22), itemsLine(inv)))
+  end
+  for _, n in ipairs(other) do print("  " .. n) end
+  local mine = {}
+  for _, side in ipairs(SIDES) do
+    local okO, out = pcall(redstone.getOutput, side)
+    local okI, inp = pcall(redstone.getAnalogInput, side)
+    if (okO and out) or (okI and (tonumber(inp) or 0) > 0) then
+      mine[#mine + 1] = side .. (okO and out and " driven" or (" in " .. tostring(inp)))
+    end
+  end
+  if #mine > 0 then print("this computer's own faces: " .. table.concat(mine, ", ")) end
+end
+
+-- what changed between two looks: the machine that moved
+local function report(before, after)
+  local said = false
+  local function say(fmt, ...) said = true print("  " .. string.format(fmt, ...)) end
+  for n, inv in pairs(after.inv) do
+    local was = before.inv[n]
+    if not was then say("NEW inventory %s: %s", n, itemsLine(inv))
+    elseif inv.items ~= was.items then say("%s %+d items (%s)", n, inv.items - was.items, itemsLine(inv)) end
+  end
+  for n in pairs(before.inv) do if not after.inv[n] then say("GONE %s (assembled, or broken)", n) end end
+  for n, t in pairs(after.type) do if not before.type[n] then say("NEW peripheral %s (%s)", n, tostring(t)) end end
+  for n in pairs(before.type) do if not after.type[n] then say("GONE peripheral %s", n) end end
+  for n, faces in pairs(after.relay) do
+    for _, side in ipairs(SIDES) do
+      local was = before.relay[n] and before.relay[n][side]
+      if was and faces[side].inp ~= was.inp then say("%s:%s signal %d -> %d", n, side, was.inp, faces[side].inp) end
+    end
+  end
+  if not said then print("  nothing changed that this computer can see") end
+end
+
+local function faceArg(spec)
+  local relay, side = tostring(spec or ""):match("^(.+):(%a+)$")
+  if not relay then side = tostring(spec or "") end
+  local okSide = false
+  for _, s in ipairs(SIDES) do if s == side then okSide = true end end
+  if not okSide then return nil, "name a face: <relay>:<side>, or a side of this computer" end
+  if relay and not peripheral.isPresent(relay) then return nil, relay .. " is not on this computer's network" end
+  return { relay = relay, side = side }
+end
+
+local function drive(face, on)
+  if face.relay then return pcall(peripheral.call, face.relay, "setOutput", face.side, on) end
+  return pcall(redstone.setOutput, face.side, on)
+end
+
+if cmd == "probe" then
+  local sub = (args[2] or ""):lower()
+  if sub == "" then
+    printSnapshot(snapshot())
+    print("")
+    print("depot probe watch [secs]        keep looking, to see a machine work")
+    print("depot probe fire <relay>:<side> [secs]   pulse one face, say what moved")
+    print("depot probe set <relay>:<side> on|off    hold one face (a toggle)")
+    return
+  end
+  if sub == "watch" then
+    local untilT = os.clock() + (tonumber(args[3]) or 60)
+    while os.clock() < untilT do
+      term.clear()
+      term.setCursorPos(1, 1)
+      printSnapshot(snapshot())
+      print("")
+      print("watching - Ctrl+T stops")
+      sleep(0.5)
+    end
+    return
+  end
+  if sub == "fire" or sub == "set" then
+    local face, whyF = faceArg(args[3])
+    if not face then print(whyF) print("depot probe " .. sub .. " <relay>:<side> ...") return end
+    local where = (face.relay and (face.relay .. ":") or "this computer's ") .. face.side
+    if sub == "set" then
+      local on = (args[4] or "on"):lower() ~= "off"
+      if not confirm(string.format("hold %s %s? the machines move", where, on and "ON" or "OFF")) then
+        print("nothing changed")
+        return
+      end
+      local before = snapshot()
+      local okD, whyD = drive(face, on)
+      if not okD then print("could not drive it: " .. tostring(whyD)) return end
+      sleep(1.5)
+      print(string.format("%s is %s", where, on and "ON" or "OFF"))
+      report(before, snapshot())
+      return
+    end
+    local secs = tonumber(args[4]) or 2
+    if not confirm(string.format("pulse %s for %gs? the machines move", where, secs)) then
+      print("nothing changed")
+      return
+    end
+    local before = snapshot()
+    local okD, whyD = drive(face, true)
+    if not okD then print("could not drive it: " .. tostring(whyD)) return end
+    sleep(secs)
+    drive(face, false)
+    sleep(1)
+    print(string.format("pulsed %s for %gs", where, secs))
+    report(before, snapshot())
+    return
+  end
+  print("depot probe [watch [secs] | fire <relay>:<side> [secs] | set <relay>:<side> on|off]")
+  return
+end
+
 if not fs.exists("station.lua") then
   print("no station.lua here: copy station.example.lua to station.lua and fill it in")
+  print("`depot probe` lists the relays and inventories to fill it in with")
   return
 end
 local okF, raw = pcall(dofile, "station.lua")
