@@ -274,5 +274,60 @@ check("the walk goes in probe.txt too", (w.files["probe.txt"] or ""):find("the m
 w = depot({ lines = { "n" } }):run("depot.lua", { "probe", "map" }, 10)
 check("it asks before anything moves", #w.sets == 0 and w.files["relays.lua"] == nil)
 
+print("the two-sided dock, driven by hand")
+local DOCK = [[return {
+  sides = { A = { place = "redstone_relay_0", assemble = "redstone_relay_1", pusher = "redstone_relay_2" } },
+  storage = { "create:item_vault_0" },
+  wait = { pulse = 1, place = 1, assemble = 1, push = 1, retract = 1, step = 1 },
+  fill = { settle = 2, start = 5, max = 30 },
+}]]
+-- the vault drains 64 a second once the silo has been assembled
+local function seqDock(lines)
+  local w = depot({ lines = lines })
+  w.files["dock.lua"] = DOCK
+  local store = 640
+  w.periph["create:item_vault_0"] = { type = "create:item_vault", m = { list = function()
+    if w.level["redstone_relay_1:top"] ~= nil then store = math.max(0, store - 16) end
+    return store > 0 and { [1] = { name = "minecraft:cobblestone", count = store } } or {}
+  end } }
+  return w
+end
+w = seqDock({ "y" })
+-- ENT for the drone: latched, then stuck
+-- the fill takes ~45 s here (640 at 16 a look); the drone is ready after that
+w.at(70, { "key", 28 })
+w.at(80, { "key", 28 })
+w = w:run("depot.lua", { "seq", "load", "A" }, 150)
+check("depot seq load A runs the side's machines in order", w.err == nil
+  and w.text:find("PLACE", 1, true) and w.text:find("ASSEMBLE", 1, true) and w.text:find("FILL", 1, true)
+  and w.text:find("load done", 1, true) ~= nil, w.err or w.text)
+check("...waits for ENT where the drone would act", w.text:find("the drone: latch it on the dock", 1, true)
+  and w.text:find("the drone: stick the silo", 1, true) ~= nil)
+check("...and remembers side A has no silo now", (w.files[".dockstate"] or ""):find("A=none", 1, true) ~= nil,
+  w.files[".dockstate"])
+check("...every relay off at the end", (function()
+  for k, v in pairs(w.level) do if v then return false end end
+  return true
+end)())
+check("the run is kept in probe.txt", (w.files["probe.txt"] or ""):find("load side A", 1, true) ~= nil)
+
+w = seqDock({ "y" })
+w.at(70, { "key", 45 })            -- X at the latch prompt
+w = w:run("depot.lua", { "seq", "load", "A" }, 150)
+check("X calls it off, and it says where", w.text:find("called off at dock", 1, true) ~= nil, w.text)
+
+w = seqDock({})
+w = w:run("depot.lua", { "seq", "silo", "A", "empty" }, 5)
+check("depot seq silo A empty corrects what it remembers", (w.files[".dockstate"] or ""):find("A=empty", 1, true) ~= nil)
+w = seqDock({ "n" })
+w = w:run("depot.lua", { "seq", "load", "A" }, 10)
+check("it asks before anything moves", w.text:find("nothing moved", 1, true) ~= nil and (function()
+  for _, s in ipairs(w.sets) do if s.on then return false end end
+  return true
+end)())
+w = depot({})
+w = w:run("depot.lua", { "seq" }, 5)
+check("no dock.lua: says where it comes from", w.text:find("machines/depot-pier/dock.lua", 1, true) ~= nil, w.text)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

@@ -17,6 +17,9 @@
 --   depot probe map              every relay on in turn: say what moved and
 --                                which side, and relays.lua - the map - goes
 --                                in this machine's folder
+--   depot seq                    the two-sided dock (dock.lua): `seq load A`,
+--                                `seq unload B`, with you standing in for the
+--                                drone - ENT when it has latched, stuck or let go
 --
 -- It sleeps with its chunk. A drone docking here brings its chunk loader, the
 -- chunk loads, this computer turns itself back on and runs startup - so the
@@ -415,6 +418,127 @@ if cmd == "probe" then
     return
   end
   print("depot probe [watch [secs] | fire <relay>:<side> [secs] | set <relay>:<side> on|off]")
+  return
+end
+
+-- ------------------------------------------------------------------ seq ---
+-- The two-sided dock (lib/dockseq.lua, laid out in dock.lua): load and unload
+-- one side, run here with a person standing in for the drone - ENT when it
+-- has latched, stuck or let go. That is how the machines are proven before
+-- the base drives them.
+if cmd == "seq" then
+  local DS = dofile("lib/dockseq.lua")
+  if not fs.exists("dock.lua") then
+    print("no dock.lua here - it lives in this machine's folder in the repo")
+    print("(machines/" .. tostring(id) .. "/dock.lua); run startup to pull it")
+    return
+  end
+  local okD, raw = pcall(dofile, "dock.lua")
+  local cfg, whyD = DS.check(okD and raw or nil)
+  if not cfg then print("dock.lua: " .. tostring(okD and whyD or raw)) return end
+
+  -- whether each side has an empty silo waiting: nothing can see one once it
+  -- is assembled, so this computer remembers
+  local STATEF = ".dockstate"
+  local function readSilos()
+    local t = { A = "none", B = "none" }
+    if fs.exists(STATEF) then
+      local h = fs.open(STATEF, "r")
+      for side, st in ((h and h.readAll()) or ""):gmatch("(%u)=(%a+)") do t[side] = st end
+      if h then h.close() end
+    end
+    return t
+  end
+  local silos = readSilos()
+  local function silo(side, st)
+    if st then
+      silos[side] = st
+      local h = fs.open(STATEF, "w")
+      if h then h.write(string.format("A=%s\nB=%s\n", silos.A, silos.B)) h.close() end
+    end
+    return silos[side] or "none"
+  end
+
+  local sub = (args[2] or ""):lower()
+  local side = args[3] and args[3]:upper()
+  if sub == "" then
+    for _, sd in ipairs(DS.SIDES) do
+      local s = cfg.sides[sd]
+      if s then
+        print(string.format("side %s  silo: %-5s  place %s  assemble %s  pusher %s  belt %s", sd, silo(sd),
+          s.place or "-", s.assemble or "-", s.pusher, s.belt or "(not mapped)"))
+      end
+    end
+    print("storage: " .. (#cfg.storage > 0 and table.concat(cfg.storage, ", ") or "(none - fills and empties are timed)"))
+    print("")
+    print("depot seq load <A|B> [items]     place/assemble if needed, fill, push, stick, retract")
+    print("depot seq unload <A|B> [items]   push, release, retract, empty into storage")
+    print("depot seq silo <A|B> empty|none  correct what it remembers about a side")
+    print("  test mode: you stand in for the drone - ENT when it has latched, stuck or let go")
+    return
+  end
+  if sub == "silo" then
+    local st = (args[4] or ""):lower()
+    if not (side and cfg.sides[side]) or (st ~= "empty" and st ~= "none") then
+      print("depot seq silo <A|B> empty|none")
+      return
+    end
+    silo(side, st)
+    print("side " .. side .. ": " .. st)
+    return
+  end
+  if sub ~= "load" and sub ~= "unload" then print("depot seq [load|unload|silo] <A|B>") return end
+  if not (side and cfg.sides[side]) then print("which side: depot seq " .. sub .. " A") return end
+  local items = tonumber(args[4])
+
+  local PROMPT = {
+    dock = "the drone: latch it on the dock",
+    stick = "the drone: stick the silo (stickers out)",
+    release = "the drone: let go of the silo (stickers in)",
+  }
+  local stop = false
+  local t0 = os.clock()
+  local function storageCount()
+    if #cfg.storage == 0 then return nil end
+    local n = 0
+    for _, inv in ipairs(cfg.storage) do
+      local okL, list = pcall(peripheral.call, inv, "list")
+      if not (okL and type(list) == "table") then return nil end
+      for _, it in pairs(list) do n = n + (it.count or 0) end
+    end
+    return n
+  end
+  local io = {
+    set = function(relay, on) return drive({ relay = relay }, on) end,
+    sleep = sleep, now = os.clock, count = storageCount, silo = silo,
+    stopped = function() return stop end,
+    say = function(step, text) psay(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text)) end,
+    drone = function(what)
+      psay(string.format("%5.1f %-8s %s  [ENT] done  [X] call off", os.clock() - t0, what:upper(), PROMPT[what] or what))
+      while true do
+        local _, k = os.pullEvent("key")
+        if k == keys.enter then return true end
+        if k == keys.x then stop = true return false, "called off at " .. what end
+      end
+    end,
+  }
+  print(string.format("%s side %s%s - the machines move. X calls it off (pusher down).", sub, side,
+    items and (", " .. items .. " items") or ""))
+  if not confirm("go?") then print("nothing moved") return end
+  psay(string.format("---- %s side %s ----", sub, side))
+  local ok, why, at, moved
+  parallel.waitForAny(function()
+    ok, why, at, moved = DS[sub](cfg, side, io, items)
+  end, function()
+    while true do
+      local _, k = os.pullEvent("key")
+      if k == keys.x and not stop then stop = true print("calling it off...") end
+    end
+  end)
+  psay(ok and string.format("%s done in %.0f s", sub, os.clock() - t0)
+         or string.format("called off at %s: %s", tostring(at), tostring(why)))
+  psay(string.format("side A: %s   side B: %s", silo("A"), silo("B")))
+  probeSave()
   return
 end
 
