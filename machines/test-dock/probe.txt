@@ -184,3 +184,7 @@ pulsed redstone_relay_12 (every face) for 3s
  28.9 FILL     called off: Terminated
 called off at fill: Terminated
 side A: empty   side B: none
+---- test-dock  09-24 23:03 ----
+side A belt redstone_relay_2 OFF (unloading)
+side B belt redstone_relay_1 OFF (unloading)
+everything else off
