@@ -169,15 +169,19 @@ local function printSnapshot(s)
   table.sort(relays) table.sort(invs) table.sort(other)
   psay(string.format("%d relay%s, %d inventor%s", #relays, #relays == 1 and "" or "s",
     #invs, #invs == 1 and "y" or "ies"))
-  psay("            top bot lft rgt fnt bck   (O driven, digit = signal in)")
+  -- full names, however long: "redstone_re" tells nobody which relay this is,
+  -- and the whole point of the listing is to write the name into station.lua
+  local wide = 4
+  for _, n in ipairs(relays) do wide = math.max(wide, #n) end
+  psay(string.rep(" ", wide) .. "  top bot lft rgt fnt bck   (O driven, digit = signal in)")
   for _, n in ipairs(relays) do
     local marks = {}
     for _, side in ipairs(SIDES) do marks[#marks + 1] = faceMark(s.relay[n][side]) end
-    psay(string.format("%-11s  %s", n:sub(1, 11), table.concat(marks, "   ")))
+    psay(string.format("%-" .. wide .. "s  %s", n, table.concat(marks, "   ")))
   end
   for _, n in ipairs(invs) do
     local inv = s.inv[n]
-    psay(string.format("%-22s %s", n:sub(1, 22), itemsLine(inv)))
+    psay(string.format("%s  %s%s", n, inv.size and (inv.size .. " slots, ") or "", itemsLine(inv)))
   end
   for _, n in ipairs(other) do psay("  " .. n) end
   local mine = {}
