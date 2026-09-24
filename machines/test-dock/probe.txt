@@ -175,3 +175,12 @@ everything else off
 ---- test-dock  09-24 23:02 ----
 pulsed redstone_relay_12 (every face) for 3s
   create:depot_0 +1 items (1 physics_assembler)
+---- test-dock  09-24 23:03 ----
+---- load side A ----
+  1.2 SILO     sensor: no hit - no silo
+  1.2 SILO     an empty silo is waiting on side A
+  1.2 SILO     watch: expected a silo, sensor no hit - DISAGREES
+  1.2 FILL     filling until the storage stops moving
+ 28.9 FILL     called off: Terminated
+called off at fill: Terminated
+side A: empty   side B: none
