@@ -14,3 +14,50 @@ create_connected:item_silo_0  60 slots, empty
 create_connected:item_silo_2  60 slots, empty
   bottom (modem)
   modem_2 (modem)
+---- test-dock  09-24 20:41 ----
+[1/9] redstone_relay_1 is ON
+  redstone_relay_1:top signal 0 -> 15
+  redstone_relay_1:left signal 0 -> 15
+  = redstone_relay_1   none      
+[2/9] redstone_relay_2 is ON
+  redstone_relay_2:top signal 0 -> 15
+  redstone_relay_2:right signal 0 -> 15
+  = redstone_relay_2   none      
+[3/9] redstone_relay_5 is ON
+  redstone_relay_5:bottom signal 0 -> 15
+  = redstone_relay_5   pusher      ON up
+[4/9] redstone_relay_6 is ON
+  redstone_relay_6:bottom signal 0 -> 15
+  redstone_relay_6:front signal 0 -> 15
+  = redstone_relay_6   assemble  side A
+[5/9] redstone_relay_7 is ON
+  redstone_relay_7:top signal 0 -> 15
+  redstone_relay_7:bottom signal 0 -> 15
+  redstone_relay_7:back signal 0 -> 15
+  = redstone_relay_7   pusher    side A  ON up
+[6/9] redstone_relay_8 is ON
+  redstone_relay_8:bottom signal 0 -> 15
+  redstone_relay_8:left signal 0 -> 15
+  = redstone_relay_8   assemble  side B
+[7/9] redstone_relay_9 is ON
+  redstone_relay_9:top signal 0 -> 15
+  redstone_relay_9:bottom signal 0 -> 15
+  = redstone_relay_9   pusher    side B  ON up
+[8/9] redstone_relay_10 is ON
+  redstone_relay_10:top signal 0 -> 15
+  = redstone_relay_10  place     side A  ON places
+[9/9] redstone_relay_11 is ON
+  redstone_relay_11:top signal 0 -> 15
+  = redstone_relay_11  place     side B  ON places
+
+the map:
+  redstone_relay_1   none      -
+  redstone_relay_2   none      -
+  redstone_relay_5   pusher    -  ON up
+  redstone_relay_6   assemble  A
+  redstone_relay_7   pusher    A  ON up
+  redstone_relay_8   assemble  B
+  redstone_relay_9   pusher    B  ON up
+  redstone_relay_10  place     A  ON places
+  redstone_relay_11  place     B  ON places
+not found: A belt, B belt
