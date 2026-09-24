@@ -36,7 +36,8 @@ return {
 
   -- seconds. Generous on purpose for the first runs; trim once it is proven.
   wait = {
-    pulse = 1,       -- how long the assembler and the placer are pulsed
+    pulse = 1,       -- how long the placer is pulsed
+    assemble_hold = 3,  -- the assembler held on: 1 s did not finish the job (Alex, 2026-09-24)
     place = 6,       -- after the placer's pulse: time for the silo to land
     assemble = 5,    -- assembled: time for the new physics object to settle
     push = 4,        -- pusher up

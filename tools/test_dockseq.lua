@@ -85,6 +85,19 @@ check("the placer is a pulse - it places as the signal falls - and then it waits
     for _, s in ipairs(w.sets) do if s.relay == "r10" and not s.on and s.t > place.t then off = s break end end
     return off and off.t - place.t <= 1.01 and asm.t - off.t >= 2
   end)())
+check("the assembler is held its own time, apart from the placer's pulse", (function()
+  local c = D.check({ sides = { A = { place = "p", assemble = "a", pusher = "u" } }, wait = { pulse = 1, assemble_hold = 3 } })
+  local ww = dock()
+  ww.flow = -64
+  D.load(c, "A", ww.io, 640)
+  local on, off
+  for _, st in ipairs(ww.sets) do
+    if st.relay == "a" and st.on then on = st end
+    if st.relay == "a" and not st.on and on and not off then off = st end
+  end
+  return on and off and math.abs((off.t - on.t) - 3) < 0.01
+end)())
+check("the test dock holds its assembler 3 s", real.wait.assemble_hold == 3)
 check("the assembler is a pulse", (function()
   local on, off = 0, 0
   for _, s in ipairs(w.sets) do if s.relay == "r6" then if s.on then on = on + 1 else off = off + 1 end end end

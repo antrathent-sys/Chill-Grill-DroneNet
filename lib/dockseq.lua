@@ -50,7 +50,9 @@ D.SIDES = { "A", "B" }
 D.DEVICES = { "place", "assemble", "belt", "pusher" }
 -- seconds; every one of them can be set in dock.lua
 D.WAIT = {
-  pulse = 1,       -- how long a one-shot machine (the assembler) is held on
+  pulse = 1,       -- how long a one-shot machine (the placer) is pulsed
+  assemble_hold = 1,  -- how long the assembler is held on: it deploys an
+                      -- assembler and then fires it, which takes time
   place = 3,       -- after the placer's pulse: time for the silo to land
   assemble = 4,    -- assembled: time for the physics object to settle
   push = 3,        -- pusher up: time to reach the drone
@@ -202,9 +204,9 @@ local function runner(cfg, side, io)
       io.sleep(math.min(D.POLL, untilT - io.now()))
     end
   end
-  function r.pulse(relay)
+  function r.pulse(relay, hold)
     r.set(relay, true)
-    r.pause(cfg.wait.pulse)
+    r.pause(hold or cfg.wait.pulse)
     r.set(relay, false)
   end
   function r.pusher(up)
@@ -345,7 +347,7 @@ function D.load(cfg, side, io, items)
       r.expect(true, "a silo was placed but the detector does not see one in the bay")
       r.step = "assemble"
       r.say("assembling it")
-      r.pulse(s.assemble)
+      r.pulse(s.assemble, cfg.wait.assemble_hold)   -- held long enough to deploy and fire
       r.pause(cfg.wait.assemble)
       r.expect(true, "after assembling, the detector no longer sees the silo")
       io.silo(side, "empty")
