@@ -8,12 +8,15 @@
 --                                and `probe fire`/`probe set` to find out which
 --                                machine each face works. Run it before there
 --                                is a station.lua. Everything it prints is kept
---                                in probe.txt and pushed to the repo as
---                                data/probe-<this computer>.txt, so a whole
+--                                in probe.txt and pushed to this machine's own
+--                                folder, machines/<label>/probe.txt, so a whole
 --                                session of "fire that, see what moved" can be
 --                                read from anywhere. `depot probe clear` starts
 --                                a fresh one; with no http or no .ghtoken here,
 --                                `paste probe.txt` sends it instead.
+--   depot probe map              every relay on in turn: say what moved and
+--                                which side, and relays.lua - the map - goes
+--                                in this machine's folder
 --
 -- It sleeps with its chunk. A drone docking here brings its chunk loader, the
 -- chunk loads, this computer turns itself back on and runs startup - so the
@@ -263,6 +266,7 @@ if cmd == "probe" then
     print("depot probe fire <relay> [secs]          pulse a relay, say what moved")
     print("depot probe set <relay> on|off           hold a relay on (a toggle)")
     print("  a relay on its own drives every face of it; <relay>:<side> picks one")
+    print("depot probe map [secs]          walk every relay: say what moved, get relays.lua")
     print("depot probe clear               start " .. PROBE_LOG .. " again")
     return
   end
@@ -276,6 +280,102 @@ if cmd == "probe" then
       print("watching - Ctrl+T stops")
       sleep(0.5)
     end
+    return
+  end
+  if sub == "map" then
+    -- The walk: every relay on in turn, and the person watching the dock
+    -- says what moved. At the end, relays.lua - which relay works which
+    -- machine on which side, and what ON means for it - goes in this
+    -- machine's folder, and station.lua is written from that.
+    local relays = {}
+    for _, n in ipairs(peripheral.getNames()) do
+      if peripheral.getType(n) == "redstone_relay" then relays[#relays + 1] = n end
+    end
+    table.sort(relays, function(a, b)
+      local na, nb = tonumber(a:match("(%d+)$")), tonumber(b:match("(%d+)$"))
+      if na and nb and na ~= nb then return na < nb end
+      return a < b
+    end)
+    if #relays == 0 then print("no redstone relays on this computer's network") return end
+    local hold = tonumber(args[3]) or 3
+    print(string.format("%d relays. Each goes ON for %gs, then OFF, one at a time.", #relays, hold))
+    print("Stand where you can see both sides. Machines WILL move.")
+    if not confirm("start?") then print("nothing changed") return end
+
+    local DEVICES = { p = "place", a = "assemble", b = "belt", u = "pusher", n = "nothing" }
+    local ON_MEANS = {
+      place = "ON [p]laces a silo, or [r]emoves one?",
+      belt = "ON the belt [f]ills the cargo, or [e]mpties it into storage?",
+      pusher = "ON the pusher goes [u]p, or [d]own?",
+    }
+    local ON_WORD = { p = "places", r = "removes", f = "fills", e = "empties", u = "up", d = "down" }
+    local function ask(q)
+      write(q .. " ")
+      local a = read()
+      return type(a) == "string" and a:gsub("^%s+", ""):gsub("%s+$", "") or ""
+    end
+    local map = {}
+    for i, name in ipairs(relays) do
+      print("")
+      local before = snapshot()
+      drive({ relay = name }, true)
+      psay(string.format("[%d/%d] %s is ON", i, #relays, name))
+      sleep(hold)
+      report(before, snapshot())
+      local e = { relay = name }
+      local what = ask("what moved?  [p]lacement [a]ssembler [b]elt p[u]sher [n]othing, or type it:")
+      e.device = DEVICES[what:lower()] or (what ~= "" and what or "nothing")
+      if e.device ~= "nothing" and DEVICES[what:lower()] then
+        local side = ask("which side, A or B?"):upper()
+        e.side = (side == "A" or side == "B") and side or nil
+        if ON_MEANS[e.device] then
+          local on = ask(ON_MEANS[e.device]):lower():sub(1, 1)
+          e.on = ON_WORD[on]
+        end
+      end
+      drive({ relay = name }, false)
+      sleep(1)
+      local line = string.format("%-18s %-9s %s%s", name, e.device, e.side and ("side " .. e.side) or "",
+        e.on and ("  ON " .. e.on) or "")
+      psay("  = " .. line)
+      map[#map + 1] = e
+    end
+
+    -- what it adds up to, and what is missing
+    psay("")
+    psay("the map:")
+    local have = {}
+    for _, e in ipairs(map) do
+      if e.side then have[e.side .. ":" .. e.device] = e.relay end
+      psay(string.format("  %-18s %-9s %s%s", e.relay, e.device, e.side or "-", e.on and ("  ON " .. e.on) or ""))
+    end
+    local missing = {}
+    for _, side in ipairs({ "A", "B" }) do
+      for _, dev in ipairs({ "place", "assemble", "belt", "pusher" }) do
+        if not have[side .. ":" .. dev] then missing[#missing + 1] = side .. " " .. dev end
+      end
+    end
+    psay(#missing == 0 and "every device found on both sides"
+      or ("not found: " .. table.concat(missing, ", ")))
+
+    -- relays.lua: the map as data, in this machine's own folder
+    local out = { string.format("-- relay map for %s, from `depot probe map` %s", tostring(id or "this dock"),
+      os.date and select(2, pcall(os.date, "%Y-%m-%d %H:%M")) or ""),
+      "-- device: place | assemble | belt | pusher; on: what ON does", "return {" }
+    for _, e in ipairs(map) do
+      out[#out + 1] = string.format("  { relay = %q, device = %q%s%s },", e.relay, e.device,
+        e.side and string.format(", side = %q", e.side) or "", e.on and string.format(", on = %q", e.on) or "")
+    end
+    out[#out + 1] = "}"
+    local h = fs.open("relays.lua", "w")
+    if h then h.write(table.concat(out, "\n") .. "\n") h.close() end
+    probeSave()
+    if fs.exists("upload.lua") and http and shell then
+      local okM, MACHINE = pcall(dofile, "lib/machine.lua")
+      local folder = okM and type(MACHINE) == "table" and MACHINE.folder(id) or nil
+      if folder then pcall(shell.run, "upload", "sync", "relays.lua", folder .. "/relays.lua") end
+    end
+    print("written to relays.lua")
     return
   end
   if sub == "fire" or sub == "set" then

@@ -239,5 +239,40 @@ w.files["probe.txt"] = "old\n"
 w = w:run("depot.lua", { "probe", "clear" }, 5)
 check("probe clear starts a fresh one", w.files["probe.txt"] == nil and w.text:find("fresh", 1, true) ~= nil)
 
+print("walking every relay")
+w = depot({ lines = { "y",
+  "p", "A", "p",          -- redstone_relay_0: placement, side A, ON places a silo
+  "p", "b", "r",          -- redstone_relay_1: placement, side B (lower case), ON removes
+  "b", "A", "f",          -- redstone_relay_2: belt, side A, ON fills the cargo
+  "n" } })                -- redstone_relay_3: nothing
+w = w:run("depot.lua", { "probe", "map", "1" }, 60)
+local rel = w.files["relays.lua"] or ""
+check("it walks every relay and writes relays.lua", w.err == nil and rel:find("redstone_relay_3", 1, true) ~= nil,
+  w.err or rel)
+check("...with what each one works, which side, and what ON does",
+  rel:find('{ relay = "redstone_relay_0", device = "place", side = "A", on = "places" }', 1, true) ~= nil
+  and rel:find('{ relay = "redstone_relay_1", device = "place", side = "B", on = "removes" }', 1, true) ~= nil
+  and rel:find('{ relay = "redstone_relay_2", device = "belt", side = "A", on = "fills" }', 1, true) ~= nil
+  and rel:find('{ relay = "redstone_relay_3", device = "nothing" }', 1, true) ~= nil, rel)
+check("relays.lua is data a station can be read from", (function()
+  local f = loadstring(rel)
+  local ok, t = pcall(f)
+  return ok and type(t) == "table" and #t == 4 and t[3].device == "belt"
+end)())
+check("it says what it did not find", w.text:find("not found: A assemble, A pusher, B assemble, B belt, B pusher", 1, true) ~= nil,
+  w.text)
+check("every relay is back off at the end", (function()
+  for k, v in pairs(w.level) do if v then return false, k end end
+  return true
+end)())
+check("...and each one was on, every face, while it was asked about", (function()
+  local faces = 0
+  for _, s in ipairs(w.sets) do if s.k:find("^redstone_relay_2:") and s.on then faces = faces + 1 end end
+  return faces == 6
+end)())
+check("the walk goes in probe.txt too", (w.files["probe.txt"] or ""):find("the map:", 1, true) ~= nil)
+w = depot({ lines = { "n" } }):run("depot.lua", { "probe", "map" }, 10)
+check("it asks before anything moves", #w.sets == 0 and w.files["relays.lua"] == nil)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end
