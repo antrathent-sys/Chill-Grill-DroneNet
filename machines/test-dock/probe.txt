@@ -48,3 +48,23 @@ the map:
   redstone_relay_12  assemble  A
   redstone_relay_13  assemble  B
 every device found on both sides
+---- test-dock  09-24 21:42 ----
+9 relays, 2 inventories
+                   top bot lft rgt fnt bck   (O driven, digit = signal in)
+redstone_relay_1   .   .   .   .   .   .
+redstone_relay_10  .   .   .   .   .   .
+redstone_relay_11  .   .   .   .   .   .
+redstone_relay_12  .   .   .   .   .   .
+redstone_relay_13  .   .   .   .   .   .
+redstone_relay_2   .   .   .   .   .   .
+redstone_relay_5   .   .   .   .   .   .
+redstone_relay_7   .   .   .   .   .   .
+redstone_relay_9   .   .   .   .   .   .
+create_connected:item_silo_0  60 slots, 64 smart_chute, 1 physics_assembler
+create_connected:item_silo_2  60 slots, 64 barrel
+  bottom (modem)
+  modem_2 (modem)
+  optical_sensor_6 (optical_sensor)  getBlock=create_connected:item_silo getDistance=0.515500009059906 getRange=15 hasHit=true
+      methods: getBlock, getDistance, getRange, hasHit, setRange
+  optical_sensor_7 (optical_sensor)  getBlock=create_connected:item_silo getDistance=0.515500009059906 getRange=15 hasHit=true
+      methods: getBlock, getDistance, getRange, hasHit, setRange
