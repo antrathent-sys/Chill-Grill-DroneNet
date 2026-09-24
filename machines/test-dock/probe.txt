@@ -118,3 +118,10 @@ storage B: create_connected:item_silo_0, 65 items
  14.5 PLACE    called off: a silo was placed but the detector does not see one in the bay
 called off at place: a silo was placed but the detector does not see one in the bay
 side A: empty   side B: none
+---- test-dock  09-24 22:38 ----
+side A  silo: empty  place redstone_relay_10  assemble redstone_relay_12  pusher redstone_relay_7  belt redstone_relay_2
+        detector optical_sensor_6: the bay is clear (hit create_connected:item_silo at 0.52)
+side B  silo: none   place redstone_relay_11  assemble redstone_relay_13  pusher redstone_relay_9  belt redstone_relay_1
+        detector optical_sensor_7: a silo is in the bay (no hit)
+storage A: create_connected:item_silo_2, 0 items
+storage B: create_connected:item_silo_0, 65 items
