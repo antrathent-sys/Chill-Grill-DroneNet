@@ -155,3 +155,7 @@ pulsed redstone_relay_12 (every face) for 3s
 ---- test-dock  09-24 22:57 ----
 pulsed redstone_relay_12 (every face) for 3s
   nothing changed that this computer can see
+---- test-dock  09-24 22:59 ----
+set redstone_relay_2 (every face) OFF
+  redstone_relay_2:top signal 15 -> 0
+  redstone_relay_2:right signal 15 -> 0
