@@ -556,7 +556,14 @@ if cmd == "seq" then
         end
       end
     end
-    psay("storage: " .. (#cfg.storage > 0 and table.concat(cfg.storage, ", ") or "(none - fills and empties are timed)"))
+    for _, sd in ipairs(DS.SIDES) do
+      local s = cfg.sides[sd]
+      if s and s.storage then
+        psay(string.format("storage %s: %s, %s items", sd, table.concat(s.storage, ", "),
+          tostring(storageCount(sd) or "unreadable")))
+      end
+    end
+    if #cfg.storage > 0 then psay("storage: " .. table.concat(cfg.storage, ", ")) end
     -- and every sensor this computer CAN see, whatever dock.lua calls them
     for _, n in ipairs(peripheral.getNames()) do
       local t = peripheral.getType(n)
@@ -594,10 +601,11 @@ if cmd == "seq" then
   }
   local stop = false
   local t0 = os.clock()
-  local function storageCount()
-    if #cfg.storage == 0 then return nil end
+  local function storageCount(sd)
+    local list = (sd and cfg.sides[sd] and cfg.sides[sd].storage) or cfg.storage
+    if #list == 0 then return nil end
     local n = 0
-    for _, inv in ipairs(cfg.storage) do
+    for _, inv in ipairs(list) do
       local okL, list = pcall(peripheral.call, inv, "list")
       if not (okL and type(list) == "table") then return nil end
       for _, it in pairs(list) do n = n + (it.count or 0) end

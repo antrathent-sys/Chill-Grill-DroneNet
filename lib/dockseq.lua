@@ -80,6 +80,16 @@ function D.check(c)
         return nil, side .. ".belt_on is \"fills\" or \"empties\""
       end
       o.belt_on = s.belt_on
+      -- this side's own storage, when it has one (a name or a list); else the
+      -- dock's, counted together
+      if s.storage ~= nil then
+        local list = type(s.storage) == "table" and s.storage or { s.storage }
+        o.storage = {}
+        for _, inv in ipairs(list) do
+          if not str(inv) then return nil, side .. ".storage must be an inventory's name" end
+          o.storage[#o.storage + 1] = inv
+        end
+      end
       if not o.pusher then return nil, "side " .. side .. " needs a pusher" end
       out.sides[side] = o
     end
@@ -149,7 +159,8 @@ end
 -- io:
 --   set(relay, on) -> ok, why       drive a relay (every face)
 --   sleep(s), now()
---   count() -> number|nil           items in this dock's storage, all of it
+--   count(side) -> number|nil       items in that side's storage (or the
+--                                   dock's, when the side has none of its own)
 --   drone(step) -> ok, why          the drone's part: "dock" (latched here),
 --                                   "stick", "release". Test mode asks a
 --                                   person; a depot asks the base.
@@ -192,7 +203,7 @@ local function runner(cfg, side, io)
   end
   -- watch the storage until it settles; want = items expected to move (or nil)
   function r.watch(t, want, dir)
-    local startN = io.count and io.count()
+    local startN = io.count and io.count(side)
     if not startN then
       r.say("no storage to watch - waiting " .. t.max .. " s")
       r.pause(t.max)
@@ -202,7 +213,7 @@ local function runner(cfg, side, io)
     local t0 = io.now()
     while true do
       r.pause(D.POLL)
-      local n = io.count()
+      local n = io.count(side)
       if n and n ~= last then last, lastT, moved = n, io.now(), true end
       local done = (dir < 0 and startN - (n or last) or (n or last) - startN)
       if want and done >= want then return done end

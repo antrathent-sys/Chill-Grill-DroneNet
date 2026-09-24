@@ -156,8 +156,15 @@ check("detect is kept, and a silo means the sensor is high by default", DCFG.det
   and DCFG.silo_when == "high")
 check("the older words mean the same two things", D.check({ sides = { A = { pusher = "r" } }, silo_when = "blocked" })
   .silo_when == "low" and D.check({ sides = { A = { pusher = "r" } }, silo_when = "hit" }).silo_when == "high")
-check("the test dock: sensor 1 is A, 6 is B, high means a silo", real.detect.A == "laser_sensor_1"
-  and real.detect.B == "laser_sensor_6" and real.silo_when == "high")
+check("the test dock, from the second walk: assemblers 12 and 13, each side its own storage",
+  real.sides.A.assemble == "redstone_relay_12" and real.sides.B.assemble == "redstone_relay_13"
+  and real.sides.A.storage[1] == "create_connected:item_silo_2"
+  and real.sides.B.storage[1] == "create_connected:item_silo_0")
+check("a side's own storage is counted on its own", (function()
+  local c = D.check({ sides = { A = { pusher = "p", storage = { "a1", "a2" } }, B = { pusher = "q" } },
+                     storage = { "shared" } })
+  return c.sides.A.storage[2] == "a2" and c.sides.B.storage == nil and c.storage[1] == "shared"
+end)())
 bad({ sides = { A = { pusher = "r" } }, silo_when = "sometimes" }, "silo_when that is neither is refused")
 -- a bay the laser watches: a silo appears when the placer runs, goes when
 -- the pusher comes down after a stick, arrives when the drone lets go
