@@ -108,3 +108,21 @@ side A  silo: none   place redstone_relay_10  assemble redstone_relay_6  pusher 
 side B  silo: none   place redstone_relay_11  assemble redstone_relay_8  pusher redstone_relay_9  belt redstone_relay_1
         detector laser_sensor_6: NOT FOUND - check the name with depot probe
 storage: create_connected:item_silo_0, create_connected:item_silo_2
+---- test-dock  09-24 21:28 ----
+9 relays, 2 inventories
+                   top bot lft rgt fnt bck   (O driven, digit = signal in)
+redstone_relay_1   .   .   .   .   .   .
+redstone_relay_10  .   .   .   .   .   .
+redstone_relay_11  .   .   .   .   .   .
+redstone_relay_12  .   .   .   .   .   .
+redstone_relay_13  .   .   .   .   .   .
+redstone_relay_2   .   .   .   .   .   .
+redstone_relay_5   .   .   .   .   .   .
+redstone_relay_7   .   .   .   .   .   .
+redstone_relay_9   .   .   .   .   .   .
+create_connected:item_silo_0  60 slots, 64 smart_chute, 1 physics_assembler
+create_connected:item_silo_2  60 slots, 64 barrel
+  bottom (modem)
+  modem_2 (modem)
+  optical_sensor_6 (optical_sensor)
+  optical_sensor_7 (optical_sensor)
