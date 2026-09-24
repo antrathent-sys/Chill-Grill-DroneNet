@@ -436,5 +436,24 @@ w = opticalSeq(false):run("depot.lua", { "seq" }, 5)
 check("no hit, inverted, is a silo in the bay", w.text:find("detector optical_sensor_6: a silo is in the bay (no hit)", 1, true) ~= nil,
   w.text)
 
+print("putting the dock at rest")
+w = depot({})
+w.files["dock.lua"] = [[return {
+  sides = { A = { place = "redstone_relay_0", assemble = "redstone_relay_1", pusher = "redstone_relay_2",
+                  belt = "redstone_relay_3", belt_on = "fills" } },
+}]]
+w.level["redstone_relay_3:top"] = true           -- a belt left loading
+w.level["redstone_relay_2:top"] = true           -- and a pusher left up
+w = w:run("depot.lua", { "seq", "rest" }, 5)
+check("depot seq rest: everything off, and the belt back to unloading", w.err == nil
+  and (function() for k, v in pairs(w.level) do if v then return false, k end end return true end)()
+  and w.text:find("side A belt redstone_relay_3 OFF (unloading)", 1, true) ~= nil, w.err or w.text)
+w = depot({})
+w.files["dock.lua"] = [[return { sides = { A = { pusher = "redstone_relay_2", belt = "redstone_relay_3", belt_on = "fills" } } }]]
+w.files[".dockstate"] = "A=full\nB=none\n"
+w = w:run("depot.lua", { "seq", "rest" }, 5)
+check("...but a filled silo waiting keeps its belt loading", w.level["redstone_relay_3:top"] == true
+  and w.text:find("a filled silo is waiting: loading", 1, true) ~= nil, w.text)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

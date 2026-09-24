@@ -608,7 +608,30 @@ if cmd == "seq" then
     print("depot seq load <A|B> [items]     place/assemble if needed, fill, push, stick, retract")
     print("depot seq unload <A|B> [items]   push, release, retract, empty into storage")
     print("depot seq silo <A|B> empty|none  correct what it remembers about a side")
+    print("depot seq rest                   everything off, each belt to where its bay wants it")
     print("  test mode: you stand in for the drone - ENT when it has latched, stuck or let go")
+    return
+  end
+  if sub == "rest" then
+    -- after a messy test: every relay off, and each belt where its bay wants
+    -- it - loading only if a filled silo is waiting, unloading otherwise. A
+    -- belt left loading holds a silo's funnel busy, and the assembler cannot
+    -- take it then (2026-09-24).
+    for _, relay in ipairs(DS.relays(cfg)) do drive({ relay = relay }, false) end
+    for _, sd in ipairs(DS.SIDES) do
+      local s = cfg.sides[sd]
+      if s and s.belt then
+        local full = silo(sd) == "full"
+        local lvl = DS.beltFor(cfg, full and "fill" or "empty", sd)
+        if lvl ~= nil then
+          drive({ relay = s.belt }, lvl)
+          psay(string.format("side %s belt %s %s (%s)", sd, s.belt, lvl and "ON" or "OFF",
+            full and "a filled silo is waiting: loading" or "unloading"))
+        end
+      end
+    end
+    psay("everything else off")
+    probeSave()
     return
   end
   if sub == "silo" then
