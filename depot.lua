@@ -525,19 +525,36 @@ if cmd == "seq" then
     end
     return silos[side] or "none"
   end
-  -- a side's sensor: is there a silo in its bay? Its power is what it says -
-  -- high or low - read straight; nil when there is no sensor for the side, or
-  -- it cannot be read. The power, too, for the status line.
+  -- a side's sensor: is there a silo in its bay? nil when there is no sensor
+  -- for the side, or it cannot be read. Two kinds: an optical_sensor (a ray:
+  -- hasHit, and what it hit and how far) and an Avionics laser_sensor (a
+  -- power level). Either way the sensor is ON or OFF, and silo_when says
+  -- which of those means a silo. Also what it actually read, for the log.
   local function present(sd)
     local name = cfg.detect[sd]
     if not name or not peripheral.isPresent(name) then return nil end
-    local okP, pow = pcall(peripheral.call, name, "getPower")
-    if not (okP and type(pow) == "number") then
-      local okH, hit = pcall(peripheral.call, name, "getClosestHitDistance")
+    local on, said
+    if peripheral.getType(name) == "optical_sensor" then
+      local okH, hit = pcall(peripheral.call, name, "hasHit")
       if not okH then return nil end
-      pow = hit and 15 or 0
+      on = hit and true or false
+      if on then
+        local okB, blk = pcall(peripheral.call, name, "getBlock")
+        local okD, dist = pcall(peripheral.call, name, "getDistance")
+        said = string.format("hit %s at %.2f", okB and tostring(blk) or "?", okD and tonumber(dist) or -1)
+      else
+        said = "no hit"
+      end
+    else
+      local okP, pow = pcall(peripheral.call, name, "getPower")
+      if not (okP and type(pow) == "number") then
+        local okH, hit = pcall(peripheral.call, name, "getClosestHitDistance")
+        if not okH then return nil end
+        pow = hit and 15 or 0
+      end
+      on, said = pow > 0, "power " .. pow
     end
-    return (pow > 0) == (cfg.silo_when == "high"), pow
+    return on == (cfg.silo_when == "high"), said
   end
 
   local sub = (args[2] or ""):lower()
@@ -550,9 +567,9 @@ if cmd == "seq" then
           s.place or "-", s.assemble or "-", s.pusher, s.belt or "(not mapped)"))
         local d = cfg.detect[sd]
         if d then
-          local p, pow = present(sd)
+          local p, said = present(sd)
           psay(string.format("        detector %s: %s", d, p == nil and "NOT FOUND - check the name with depot probe"
-            or string.format("%s (power %d)", p and "a silo is in the bay" or "the bay is clear", pow)))
+            or string.format("%s (%s)", p and "a silo is in the bay" or "the bay is clear", tostring(said))))
         end
       end
     end

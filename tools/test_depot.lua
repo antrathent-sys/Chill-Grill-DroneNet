@@ -402,5 +402,27 @@ check("...and it never calls a setter", w.err == nil)
 w = opticalDepot({ "y", "p", "A", "p", "n", "n", "n" }):run("depot.lua", { "probe", "map", "1" }, 60)
 check("the map walk shows it too", w.text:find("optical_sensor_6 getPower 0 -> 15", 1, true) ~= nil, w.text)
 
+print("an optical sensor, inverted")
+local function opticalSeq(hitA)
+  local w = depot({})
+  w.files["dock.lua"] = [[return {
+    sides = { A = { place = "redstone_relay_0", pusher = "redstone_relay_2" } },
+    detect = { A = "optical_sensor_6" }, silo_when = "low",
+  }]]
+  w.periph["optical_sensor_6"] = { type = "optical_sensor", m = {
+    hasHit = function() return hitA end,
+    getBlock = function() return "create_connected:item_silo" end,
+    getDistance = function() return 0.5155 end,
+    getRange = function() return 15 end } }
+  return w
+end
+w = opticalSeq(true):run("depot.lua", { "seq" }, 5)
+check("a hit, inverted, is a clear bay - and it says what the sensor hit", w.err == nil
+  and w.text:find("detector optical_sensor_6: the bay is clear (hit create_connected:item_silo at 0.52)", 1, true) ~= nil,
+  w.err or w.text)
+w = opticalSeq(false):run("depot.lua", { "seq" }, 5)
+check("no hit, inverted, is a silo in the bay", w.text:find("detector optical_sensor_6: a silo is in the bay (no hit)", 1, true) ~= nil,
+  w.text)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

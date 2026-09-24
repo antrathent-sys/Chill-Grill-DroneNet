@@ -230,7 +230,9 @@ local function runner(cfg, side, io)
   -- not match, memory said a silo was waiting, and nothing said otherwise.
   function r.seen()
     local name = cfg.detect and cfg.detect[side]
-    local got = io.present and io.present(side)
+    local got, said
+    if io.present then got, said = io.present(side) end
+    if got ~= nil and said then r.say(string.format("sensor: %s - %s", said, got and "a silo" or "no silo")) end
     if name and got == nil then
       error({ why = string.format("the silo sensor for side %s (%s) cannot be read - check its name with depot probe",
         side, name) }, 0)

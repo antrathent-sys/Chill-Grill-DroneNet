@@ -7,13 +7,13 @@
 -- emptied item_silo_2 (A), relay 1 emptied item_silo_0 (B) - which is how
 -- each side's storage is known.
 --
+-- SENSORS: optical_sensor_6 on A and optical_sensor_7 on B - taken as the
+--           lower number on A, as every other pair is; flip them if not.
+--           INVERTED (Alex, 2026-09-24): with both bays empty each sensor
+--           reported a hit (a create_connected:item_silo half a block away),
+--           so a hit means the bay is clear and no hit means a silo is there.
+--           Every check writes what the sensor read to probe.txt.
 -- NOT MAPPED YET:
---   sensors optical_sensor_6 and optical_sensor_7 watch the bays, but which
---           is which, and how one says "a silo is here", is not known yet
---           (`depot probe` lists their methods). Until then there is no
---           detect below, and the dock goes by what it remembers - check
---           `depot seq` says what is really in each bay before a run, and
---           correct it with `depot seq silo A none`.
 --   relay 5 answered "pusher" with no side, twice. Left out of both jobs.
 return {
   sides = {
@@ -22,6 +22,8 @@ return {
     B = { place = "redstone_relay_11", assemble = "redstone_relay_13", pusher = "redstone_relay_9",
           belt = "redstone_relay_1", belt_on = "fills", storage = "create_connected:item_silo_0" },
   },
+  detect = { A = "optical_sensor_6", B = "optical_sensor_7" },
+  silo_when = "low",       -- a silo when the sensor has NO hit
 
   -- seconds. Generous on purpose for the first runs; trim once it is proven.
   -- place is how long the placer is held on: the map walk's 3 s saw no silo

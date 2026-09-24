@@ -160,6 +160,8 @@ check("the test dock, from the second walk: assemblers 12 and 13, each side its 
   real.sides.A.assemble == "redstone_relay_12" and real.sides.B.assemble == "redstone_relay_13"
   and real.sides.A.storage[1] == "create_connected:item_silo_2"
   and real.sides.B.storage[1] == "create_connected:item_silo_0")
+check("...optical sensor 6 on A, 7 on B, inverted: no hit means a silo", real.detect.A == "optical_sensor_6"
+  and real.detect.B == "optical_sensor_7" and real.silo_when == "low")
 check("a side's own storage is counted on its own", (function()
   local c = D.check({ sides = { A = { pusher = "p", storage = { "a1", "a2" } }, B = { pusher = "q" } },
                      storage = { "shared" } })
