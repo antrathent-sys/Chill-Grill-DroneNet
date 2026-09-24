@@ -105,3 +105,16 @@ side B  silo: none   place redstone_relay_11  assemble redstone_relay_13  pusher
         detector optical_sensor_7: a silo is in the bay (no hit)
 storage A: create_connected:item_silo_2, 0 items
 storage B: create_connected:item_silo_0, 65 items
+---- test-dock  09-24 22:35 ----
+---- load side A ----
+  1.5 SILO     sensor: hit create_connected:item_silo at 0.52 - no silo
+  1.5 PLACE    placing a silo on side A
+  9.5 PLACE    sensor: hit create_connected:item_silo at 0.52 - no silo
+  9.5 PLACE    sensor: hit create_connected:item_silo at 0.52 - no silo
+ 10.5 PLACE    sensor: hit create_connected:item_silo at 0.52 - no silo
+ 11.5 PLACE    sensor: hit create_connected:item_silo at 0.52 - no silo
+ 12.5 PLACE    sensor: hit create_connected:item_silo at 0.52 - no silo
+ 13.5 PLACE    sensor: hit create_connected:item_silo at 0.52 - no silo
+ 14.5 PLACE    called off: a silo was placed but the detector does not see one in the bay
+called off at place: a silo was placed but the detector does not see one in the bay
+side A: empty   side B: none
