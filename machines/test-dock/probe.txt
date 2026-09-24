@@ -61,3 +61,11 @@ the map:
   redstone_relay_10  place     A  ON places
   redstone_relay_11  place     B  ON places
 not found: A belt, B belt
+---- test-dock  09-24 20:52 ----
+---- load side A ----
+  7.0 PLACE    placing a silo on side A
+ 13.0 ASSEMBLE assembling it
+ 19.0 FILL     filling until the storage stops moving
+ 49.8 FILL     called off: nothing moved in 30 s - is there anything to move?
+called off at fill: nothing moved in 30 s - is there anything to move?
+side A: empty   side B: none
