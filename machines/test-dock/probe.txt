@@ -149,3 +149,6 @@ pulsed redstone_relay_10 (every face) for 6s
  45.4 FILL     called off: nothing moved in 30 s - is there anything to move?
 called off at fill: nothing moved in 30 s - is there anything to move?
 side A: empty   side B: none
+---- test-dock  09-24 22:56 ----
+pulsed redstone_relay_12 (every face) for 3s
+  nothing changed that this computer can see
