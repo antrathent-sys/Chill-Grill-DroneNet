@@ -98,3 +98,10 @@ side A: empty   side B: none
  37.9 FILL     called off: nothing moved in 30 s - is there anything to move?
 called off at fill: nothing moved in 30 s - is there anything to move?
 side A: empty   side B: none
+---- test-dock  09-24 22:34 ----
+side A  silo: empty  place redstone_relay_10  assemble redstone_relay_12  pusher redstone_relay_7  belt redstone_relay_2
+        detector optical_sensor_6: the bay is clear (hit create_connected:item_silo at 0.52)
+side B  silo: none   place redstone_relay_11  assemble redstone_relay_13  pusher redstone_relay_9  belt redstone_relay_1
+        detector optical_sensor_7: a silo is in the bay (no hit)
+storage A: create_connected:item_silo_2, 0 items
+storage B: create_connected:item_silo_0, 65 items
