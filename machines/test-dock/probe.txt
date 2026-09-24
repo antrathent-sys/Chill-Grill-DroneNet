@@ -69,3 +69,10 @@ not found: A belt, B belt
  49.8 FILL     called off: nothing moved in 30 s - is there anything to move?
 called off at fill: nothing moved in 30 s - is there anything to move?
 side A: empty   side B: none
+---- test-dock  09-24 20:52 ----
+---- load side A ----
+  3.7 SILO     an empty silo is waiting on side A
+  3.7 FILL     filling until the storage stops moving
+ 34.6 FILL     called off: nothing moved in 30 s - is there anything to move?
+called off at fill: nothing moved in 30 s - is there anything to move?
+side A: empty   side B: none
