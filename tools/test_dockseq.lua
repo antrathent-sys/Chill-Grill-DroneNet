@@ -179,9 +179,9 @@ check("the test dock, from the second walk: assemblers 12 and 13, each side its 
   and real.sides.B.storage[1] == "create_connected:item_silo_0")
 check("...sensor 7 on A, 6 on B, and a hit means a silo", real.detect.A == "optical_sensor_7"
   and real.detect.B == "optical_sensor_6" and real.silo_when == "high")
-check("...and for now they only watch after assembling and around the drone",
-  type(real.watch) == "table" and real.watch.assemble and real.watch.retract and real.watch.release
-  and not real.watch.silo and not real.watch.place)
+check("...and they only watch around the drone now: assembling is proven",
+  type(real.watch) == "table" and real.watch.retract and real.watch.release
+  and not real.watch.assemble and not real.watch.silo and not real.watch.place)
 check("a side's own storage is counted on its own", (function()
   local c = D.check({ sides = { A = { pusher = "p", storage = { "a1", "a2" } }, B = { pusher = "q" } },
                      storage = { "shared" } })
