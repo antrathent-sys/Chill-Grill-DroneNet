@@ -607,9 +607,10 @@ if cmd == "seq" then
     print("")
     print("depot seq load <A|B> [items]     place/assemble if needed, fill, push, stick, retract")
     print("depot seq unload <A|B> [items]   push, release, retract, empty into storage")
+    print("  the drone is taken to be ready at every step; add `ask` to answer for it with ENT")
     print("depot seq silo <A|B> empty|none  correct what it remembers about a side")
     print("depot seq rest                   everything off, each belt to where its bay wants it")
-    print("  test mode: you stand in for the drone - ENT when it has latched, stuck or let go")
+
     return
   end
   if sub == "rest" then
@@ -646,7 +647,13 @@ if cmd == "seq" then
   end
   if sub ~= "load" and sub ~= "unload" then print("depot seq [load|unload|silo] <A|B>") return end
   if not (side and cfg.sides[side]) then print("which side: depot seq " .. sub .. " A") return end
-  local items = tonumber(args[4])
+  -- words after the side: a number is how many items; "ask" puts a person
+  -- in for the drone again (ENT at each drone step)
+  local items, ask = nil, false
+  for i = 4, #args do
+    if tonumber(args[i]) then items = tonumber(args[i]) end
+    if tostring(args[i]):lower() == "ask" then ask = true end
+  end
 
   local PROMPT = {
     dock = "the drone: latch it on the dock",
@@ -662,7 +669,17 @@ if cmd == "seq" then
     sleep = sleep, now = os.clock, count = storageCount, silo = silo, present = present,
     stopped = function() return stop end,
     say = function(step, text) psay(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text)) end,
+    -- The drone's part. In service the base answers these: the drone is
+    -- latched, it has stuck the silo, it has let go. Here the drone is taken
+    -- to be ready every time, after a moment to watch the machines - or a
+    -- person answers, with `ask`.
     drone = function(what)
+      if not ask then
+        psay(string.format("%5.1f %-8s %s - taken as done (no base yet)", os.clock() - t0, what:upper(),
+          PROMPT[what] or what))
+        sleep(2)
+        return not stop, stop and ("called off at " .. what) or nil
+      end
       psay(string.format("%5.1f %-8s %s  [ENT] done  [X] call off", os.clock() - t0, what:upper(), PROMPT[what] or what))
       while true do
         local _, k = os.pullEvent("key")

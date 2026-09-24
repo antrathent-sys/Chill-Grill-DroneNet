@@ -293,11 +293,11 @@ local function seqDock(lines)
   return w
 end
 w = seqDock({ "y" })
--- ENT for the drone: latched, then stuck
+-- ENT for the drone, with `ask`: latched, then stuck
 -- the fill takes ~45 s here (640 at 16 a look); the drone is ready after that
 w.at(70, { "key", 28 })
 w.at(80, { "key", 28 })
-w = w:run("depot.lua", { "seq", "load", "A" }, 150)
+w = w:run("depot.lua", { "seq", "load", "A", "ask" }, 150)
 check("depot seq load A runs the side's machines in order", w.err == nil
   and w.text:find("PLACE", 1, true) and w.text:find("ASSEMBLE", 1, true) and w.text:find("FILL", 1, true)
   and w.text:find("load done", 1, true) ~= nil, w.err or w.text)
@@ -313,7 +313,7 @@ check("the run is kept in probe.txt", (w.files["probe.txt"] or ""):find("load si
 
 w = seqDock({ "y" })
 w.at(70, { "key", 45 })            -- X at the latch prompt
-w = w:run("depot.lua", { "seq", "load", "A" }, 150)
+w = w:run("depot.lua", { "seq", "load", "A", "ask" }, 150)
 check("X calls it off, and it says where", w.text:find("called off at dock", 1, true) ~= nil, w.text)
 
 w = seqDock({})
@@ -454,6 +454,17 @@ w.files[".dockstate"] = "A=full\nB=none\n"
 w = w:run("depot.lua", { "seq", "rest" }, 5)
 check("...but a filled silo waiting keeps its belt loading", w.level["redstone_relay_3:top"] == true
   and w.text:find("a filled silo is waiting: loading", 1, true) ~= nil, w.text)
+
+print("the drone taken to be ready")
+w = seqDock({ "y" })
+w = w:run("depot.lua", { "seq", "load", "A" }, 150)
+check("without `ask` a load runs to the end with no key pressed for the drone", w.err == nil
+  and w.text:find("load done", 1, true) ~= nil
+  and w.text:find("the drone: latch it on the dock - taken as done", 1, true) ~= nil
+  and w.text:find("the drone: stick the silo (stickers out) - taken as done", 1, true) ~= nil, w.err or w.text)
+w = seqDock({ "y" })
+w = w:run("depot.lua", { "seq", "load", "A", "640" }, 150)
+check("...and a count still works beside it", w.err == nil and w.text:find("640 items", 1, true) ~= nil, w.err or w.text)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end
