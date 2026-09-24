@@ -525,6 +525,20 @@ if cmd == "seq" then
     end
     return silos[side] or "none"
   end
+  -- items in a side's storage (the dock's shared list when the side has none
+  -- of its own); nil when there is none to count, or it cannot be read.
+  -- Up here, before the status line and the jobs that both use it.
+  local function storageCount(sd)
+    local list = (sd and cfg.sides[sd] and cfg.sides[sd].storage) or cfg.storage
+    if #list == 0 then return nil end
+    local n = 0
+    for _, inv in ipairs(list) do
+      local okL, items = pcall(peripheral.call, inv, "list")
+      if not (okL and type(items) == "table") then return nil end
+      for _, it in pairs(items) do n = n + (it.count or 0) end
+    end
+    return n
+  end
   -- a side's sensor: is there a silo in its bay? nil when there is no sensor
   -- for the side, or it cannot be read. Two kinds: an optical_sensor (a ray:
   -- hasHit, and what it hit and how far) and an Avionics laser_sensor (a
@@ -618,17 +632,6 @@ if cmd == "seq" then
   }
   local stop = false
   local t0 = os.clock()
-  local function storageCount(sd)
-    local list = (sd and cfg.sides[sd] and cfg.sides[sd].storage) or cfg.storage
-    if #list == 0 then return nil end
-    local n = 0
-    for _, inv in ipairs(list) do
-      local okL, list = pcall(peripheral.call, inv, "list")
-      if not (okL and type(list) == "table") then return nil end
-      for _, it in pairs(list) do n = n + (it.count or 0) end
-    end
-    return n
-  end
   -- a side's detector: is there a silo in its bay? nil when there is no
   -- detector, or it cannot be read
   local io = {

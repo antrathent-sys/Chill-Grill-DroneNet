@@ -420,6 +420,18 @@ w = opticalSeq(true):run("depot.lua", { "seq" }, 5)
 check("a hit, inverted, is a clear bay - and it says what the sensor hit", w.err == nil
   and w.text:find("detector optical_sensor_6: the bay is clear (hit create_connected:item_silo at 0.52)", 1, true) ~= nil,
   w.err or w.text)
+-- a side with its own storage on the status screen: it counts it (this
+-- crashed on the dock - the counter was defined below the status code)
+w = opticalSeq(true)
+w.files["dock.lua"] = [[return {
+  sides = { A = { place = "redstone_relay_0", pusher = "redstone_relay_2", storage = "create:item_vault_0" } },
+  detect = { A = "optical_sensor_6" }, silo_when = "low",
+}]]
+w.periph["create:item_vault_0"] = { type = "create:item_vault", m = { list = function()
+  return { [1] = { name = "minecraft:barrel", count = 64 } } end } }
+w = w:run("depot.lua", { "seq" }, 5)
+check("depot seq shows each side's own storage and how much is in it", w.err == nil
+  and w.text:find("storage A: create:item_vault_0, 64 items", 1, true) ~= nil, w.err or w.text)
 w = opticalSeq(false):run("depot.lua", { "seq" }, 5)
 check("no hit, inverted, is a silo in the bay", w.text:find("detector optical_sensor_6: a silo is in the bay (no hit)", 1, true) ~= nil,
   w.text)
