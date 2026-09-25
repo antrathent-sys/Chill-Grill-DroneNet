@@ -19,6 +19,10 @@ local Q = {}
 Q.LOOK = 3          -- how far down the line a free shuttle may look
 Q.SKIPS = 2         -- how many times one request may be passed over
 Q.TTL = 600         -- seconds before an unanswered request is dropped
+-- A terminal that says "still waiting" (job.wait) every few seconds and then
+-- stops has gone - closed, flat, out of range - and leaves the line after
+-- this long. One that never said it (a pass not updated yet) keeps TTL.
+Q.ALIVE = 45
 
 -- Flight time, from the measured numbers: 2,140 blocks a minute of cruise,
 -- plus the climb, descent and settle that every flight pays whatever its
@@ -51,16 +55,47 @@ function Q.removeWho(list, who)
   return nil
 end
 
+--- The entry a terminal made: by the customer's name when the request was
+-- sealed, else by the computer that asked. A name merely written in a message
+-- is never enough to reach someone else's place in the line.
+function Q.find(list, who, client)
+  for i, e in ipairs(list) do
+    if who ~= nil and e.who == who then return i, e end
+    if who == nil and client ~= nil and e.client == client then return i, e end
+  end
+  return nil
+end
+
+function Q.removeFor(list, who, client)
+  local i = Q.find(list, who, client)
+  if i then return table.remove(list, i) end
+  return nil
+end
+
+--- A terminal saying it is still there.
+function Q.alive(list, who, client, now)
+  local _, e = Q.find(list, who, client)
+  if e then e.seen, e.alive = now, true end
+  return e
+end
+
 function Q.position(list, who)
   for i, e in ipairs(list) do if e.who == who then return i end end
   return nil
 end
 
--- Drop requests nobody ever answered, so a queue cannot grow for ever.
-function Q.expire(list, now, ttl)
+-- Drop requests nobody ever answered, so a queue cannot grow for ever, and
+-- anyone whose terminal has stopped saying it is still there. Each dropped
+-- entry says why: "ttl" or "quiet".
+function Q.expire(list, now, ttl, alive)
   local gone = {}
   for i = #list, 1, -1 do
-    if now - (list[i].at or 0) > (ttl or Q.TTL) then
+    local e = list[i]
+    if e.alive and now - (e.seen or e.at or 0) > (alive or Q.ALIVE) then
+      e.gone = "quiet"
+      gone[#gone + 1] = table.remove(list, i)
+    elseif now - (e.at or 0) > (ttl or Q.TTL) then
+      e.gone = "ttl"
       gone[#gone + 1] = table.remove(list, i)
     end
   end

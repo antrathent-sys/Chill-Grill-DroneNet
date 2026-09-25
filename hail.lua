@@ -977,9 +977,19 @@ local function oneRide(tx, ty, tz, name)
     if ev[1] ~= "timer" then pcall(os.cancelTimer, timer) end
   end
 
+  -- no answer we could use, and not in the line as far as we know: the base
+  -- may still have queued us after we stopped listening - take us out
+  if not job and not place and not refused then say(F.cancel(nonce())) end
+
   -- waiting in the line: the same screen, saying where we stand, until a
-  -- shuttle is assigned or the customer gives up
+  -- shuttle is assigned or the customer gives up. Every 10 s it tells the
+  -- base it is still here; a terminal that goes quiet drops out of the line.
+  local lastWait = os.clock()
   while place and not job do
+    if os.clock() - lastWait >= 10 then
+      say(F.stillWaiting(nonce()))
+      lastWait = os.clock()
+    end
     if not drawRide({ state = "queued", place = place, eta = wait, spin = n, log = log,
                       showLog = false, away = nil, start = 1, from = pickup, to = to }) then
       frame("HOLDING", string.format("position %d, about %d:%02d", place, math.floor((wait or 0) / 60),

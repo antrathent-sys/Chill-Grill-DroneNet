@@ -232,7 +232,7 @@ local function base(opts)
   }
   w.answered = {}
   env.rednet = { open = function() end, broadcast = function() end,
-    send = function(to, msg) w.answered[#w.answered + 1] = { to = to, msg = msg } end,
+    send = function(to, msg) w.answered[#w.answered + 1] = { to = to, msg = msg, t = w.clock } end,
     isOpen = function() return true end,
     receive = function(proto)
       while true do
@@ -477,6 +477,60 @@ check("...and so is a distress call", w.err == nil
   and (w.files["incidents.csv"] or ""):find("pickup flight failed", 1, true), w.err or w.files["incidents.csv"])
 w = base({ args = { "sos" }, files = { ["incidents.csv"] = w.files["incidents.csv"] } }):run()
 check("ops sos lists them for recovery", w.err == nil and has(w, "drone-1") and has(w, "1900 70 380"), w.err or w.text)
+
+print("the queue, with passes off")
+-- the drone is out flying, so nobody is free and a hail joins the line
+local OPEN = { [".hailsopen"] = "open" }
+local function hailFrom(client, t, nonceTxt)
+  return { at = t, ev = { "rednet_message", client,
+    F.request({ x = 1900, y = 64, z = 370 }, { x = 1950, z = 400, name = "pier" }, nonceTxt, "pocket-" .. client), F.PROTO } }
+end
+local function says(w, client, ty)
+  local out = {}
+  for _, a in ipairs(w.answered) do
+    if a.to == client and type(a.msg) == "table" and a.msg.type == ty then out[#out + 1] = a.msg end
+  end
+  return out
+end
+-- (a caller may hail once every 20 s, so the second hail waits past that)
+local function queuedBetween(w, client, from, to)
+  local n = 0
+  for _, a in ipairs(w.answered) do
+    if a.to == client and type(a.msg) == "table" and a.msg.type == "job.queued" and a.t > from and a.t < to then n = n + 1 end
+  end
+  return n
+end
+w = base({ args = {}, files = OPEN, drone = { docked = false }, keysAt = { { 40, "q" } } })
+w.later[#w.later + 1] = hailFrom(12, 2, "h-1")
+w.later[#w.later + 1] = { at = 5, ev = { "rednet_message", 12, F.cancel("c-1"), F.PROTO } }
+w.later[#w.later + 1] = hailFrom(12, 25, "h-2")
+w = w:run()
+local refusedAgain = false
+for _, a in ipairs(says(w, 12, "job.ack")) do if tostring(a.why):find("already in the queue", 1, true) then refusedAgain = true end end
+check("queued, then aborted: out of the line - no more place updates", w.err == nil
+  and queuedBetween(w, 12, 2, 5) >= 1 and queuedBetween(w, 12, 6, 25) == 0, w.err)
+check("...and hailing again is queued afresh, not refused as a repeat", not refusedAgain
+  and queuedBetween(w, 12, 25, 40) >= 1)
+
+w = base({ args = {}, files = OPEN, drone = { docked = false }, keysAt = { { 40, "q" } } })
+w.later[#w.later + 1] = hailFrom(12, 2, "h-3")
+w.later[#w.later + 1] = { at = 5, ev = { "rednet_message", 13, F.cancel("c-2"), F.PROTO } }
+w.later[#w.later + 1] = hailFrom(12, 25, "h-4")
+w = w:run()
+local stillIn = false
+for _, a in ipairs(says(w, 12, "job.ack")) do if tostring(a.why):find("already in the queue", 1, true) then stillIn = true end end
+check("a cancel from another computer does not take someone out of line", stillIn)
+
+w = base({ args = {}, files = OPEN, drone = { docked = false }, keysAt = { { 90, "q" } } })
+w.later[#w.later + 1] = hailFrom(12, 2, "h-5")
+w.later[#w.later + 1] = { at = 6, ev = { "rednet_message", 12, F.stillWaiting("w-1"), F.PROTO } }
+w = w:run()
+local quiet = false
+for _, a in ipairs(says(w, 12, "job.ack")) do
+  if tostring(a.why):find("not heard from", 1, true) then quiet = true end
+end
+check("a terminal that said it was waiting and then went quiet drops out of the line", w.err == nil and quiet,
+  w.err or "no drop")
 
 print("Cinder HQ, always")
 local NOHOME = 'return { { name = "pier", x = 1950, y = 70, z = 400, kind = "dock" } }'

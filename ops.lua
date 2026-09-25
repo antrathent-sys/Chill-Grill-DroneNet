@@ -1484,9 +1484,15 @@ function handle(from, msg, customer, sealedBy)
         local fare, why = LEDGER.fare(blocks, toName, tariff)
         pcall(rednet.send, from, F.fareQuote(fare, why, nonce(), msg.nonce, near), F.PROTO)
       elseif msg.type == "job.cancel" then
-        local who = customer or msg.who
-        local gone = who and QUEUE.removeWho(waiting, who)
-        if gone then log("%s left the queue", tostring(who)) end
+        -- the entry this terminal made: its customer's, when it is sealed,
+        -- else the one this same computer asked for. A name in the message is
+        -- only a claim, and would let anyone take someone else out of line
+        -- (and with passes off, no cancel ever matched: it looked for a name
+        -- that was never there, and the next hail was refused as a repeat).
+        local gone = QUEUE.removeFor(waiting, customer, from)
+        if gone then log("%s left the queue", tostring(gone.who)) end
+      elseif msg.type == "job.wait" then
+        QUEUE.alive(waiting, customer, from, os.clock())
       elseif msg.type == "here" then
         -- a terminal saying where it is. Only a SEALED one counts: an
         -- unsealed "here" is just someone claiming to be somewhere.
@@ -1769,9 +1775,11 @@ local function serveQueue()
   while true do
     if #waiting > 0 then
       for _, e in ipairs(QUEUE.expire(waiting, os.clock())) do
-        log("%s waited too long and was dropped", tostring(e.who))
+        log(e.gone == "quiet" and "%s left the queue - their terminal went quiet"
+            or "%s waited too long and was dropped", tostring(e.who))
         if e.client then
-          pcall(rednet.send, e.client, F.ack("j-none", "ops", false, "nobody came free", nonce()), F.PROTO)
+          pcall(rednet.send, e.client, F.ack("j-none", "ops", false,
+            e.gone == "quiet" and "not heard from - you left the queue" or "nobody came free", nonce()), F.PROTO)
         end
       end
     end

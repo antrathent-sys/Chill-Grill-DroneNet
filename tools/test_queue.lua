@@ -67,6 +67,31 @@ check("a 2,140-block leg is a minute of cruise plus the overhead",
   math.abs(Q.flightTime(2140) - (60 + Q.OVERHEAD)) < 1, Q.flightTime(2140))
 check("a very short leg is almost all overhead", Q.flightTime(0) == Q.OVERHEAD)
 
+print("leaving the line")
+local L2 = {}
+Q.add(L2, { who = "alex", client = 7, at = 0 })        -- sealed: filed under the pass
+Q.add(L2, { who = "12", client = 12, at = 0 })         -- open: filed under the computer
+check("a sealed cancel finds the customer's place", (Q.find(L2, "alex", 99)) == 1)
+check("an unsealed cancel finds the place its own computer made", (Q.find(L2, nil, 12)) == 2)
+check("...and not anyone else's, whatever name it claims", Q.find(L2, nil, 13) == nil)
+check("removing it takes it out", Q.removeFor(L2, nil, 12).who == "12" and #L2 == 1)
+check("after that the same computer can queue again", Q.add(L2, { who = "12", client = 12, at = 0 }) ~= nil)
+
+print("a terminal that goes quiet")
+local L3 = {}
+Q.add(L3, { who = "a", client = 1, at = 0 })
+Q.add(L3, { who = "b", client = 2, at = 0 })
+Q.alive(L3, nil, 1, 10)                                 -- a says it is still there, at 10 s
+local gone = Q.expire(L3, 10 + Q.ALIVE + 1)
+check("still there, then silent for ALIVE: out, as quiet", #gone == 1 and gone[1].who == "a" and gone[1].gone == "quiet")
+check("one that never said it keeps the long TTL", #L3 == 1 and L3[1].who == "b")
+Q.alive(L3, nil, 2, 100)
+check("saying it keeps it in", #Q.expire(L3, 100 + Q.ALIVE - 1) == 0)
+local L4 = {}
+Q.add(L4, { who = "c", client = 3, at = 0 })
+gone = Q.expire(L4, Q.TTL + 1)
+check("...and one that never said it still ends at the long TTL, as ttl", #gone == 1 and gone[1].gone == "ttl")
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("queue tests failed", 0) end
