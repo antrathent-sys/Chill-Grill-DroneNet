@@ -104,6 +104,8 @@ local function drone(opts)
   env.term = { getSize = function() return 39, 13 end, getCursorPos = function() return 1, 5 end,
                setCursorPos = function() end, clearLine = function() end, write = function() end }
   -- a pause inside the order listener runs outside any coroutine here
+  -- opts.latch: the face fly holds high to keep the connector out
+  env.redstone = { getOutput = function(side) return opts.latch == side end }
   env.sleep = function() if coroutine.running() then coroutine.yield() end end
   -- the send loop runs `cycles` packets, then the key watcher gets the next key
   -- send a few packets, then whichever of the other two has something to do:
@@ -237,9 +239,30 @@ check("Q stops it", w.text:find("beacon stopped", 1, true) ~= nil and #w.runs ==
 print("docked or idle")
 w = run(drone({ velocity = { x = 2, y = 0, z = 0 } }))
 check("moving, no pad name, not charging: idle", tlm(w)[2].phase == "idle" and tlm(w)[2].dock == 0)
-w = run(drone({ velocity = { x = 0, y = 0, z = 0 }, cycles = 3 }))
+-- docked is latched on a dock; landed is still on the ground, on nothing
+local STILL = { x = 0, y = 0, z = 0 }
+local AT_HOME = '  HOME_X = 1892, HOME_Y = 91, HOME_Z = 365,\n  DOCK_SIDE = "back",'
+local FAR_HOME = '  HOME_X = 100, HOME_Y = 64, HOME_Z = 100,\n  DOCK_SIDE = "back",'
+w = run(drone({ velocity = STILL, cycles = 3 }))
 t = tlm(w)
-check("a frozen pose is docked from the second reading", t[1].phase == "idle" and t[2].phase == "docked" and t[3].dock == 1)
+check("still, nothing latched: LANDED from the second reading, not docked", t[1].phase == "idle"
+  and t[2].phase == "landed" and t[3].dock == 0, t[2].phase)
+w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = AT_HOME } }))
+t = tlm(w)
+check("still, connector held out, on the home dock: docked", t[2].phase == "docked" and t[3].dock == 1, t[2].phase)
+w = run(drone({ velocity = STILL, cycles = 3, files = { ["fly.lua"] = AT_HOME } }))
+check("on the home dock with the connector NOT held - fly land put it there: landed", tlm(w)[2].phase == "landed")
+w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = FAR_HOME } }))
+check("connector held but nowhere near a dock: landed", tlm(w)[2].phase == "landed" and tlm(w)[3].dock == 0)
+w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = FAR_HOME,
+  ["pads.lua"] = 'return { { name = "pier", kind = "dock", x = 1892, y = 70, z = 365 } }' } }))
+check("a dock from pads.lua counts as a dock", tlm(w)[2].phase == "docked")
+w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = FAR_HOME,
+  ["pads.lua"] = 'return { { name = "field", kind = "pad", x = 1892, y = 70, z = 365 } }' } }))
+check("a landing pad is not a dock: still on one is landed", tlm(w)[2].phase == "landed")
+w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = AT_HOME,
+  ["tune.lua"] = 'return { DOCK_SIDE = "top" }' } }))
+check("tune.lua moving the connector's face is followed", tlm(w)[2].phase == "landed")
 w = run(drone({ charging = true }))
 check("charging is docked", tlm(w)[2].phase == "docked")
 w = run(drone({ files = { ["pads.lua"] = 'return { { name = "home", x = 100, y = 64, z = -40 } }',

@@ -562,7 +562,9 @@ function F.available(d, now, maxAge)
   if d.job then return false, "on job " .. tostring(d.job) end
   if not num(d.seen) or now - d.seen > (maxAge or 15) then return false, "no telemetry" end
   if d.phase == "sos" then return false, "in distress" end
-  if not d.docked then return false, "flying" end
+  -- only latched on a dock: charged, and where a loading station can reach
+  -- it. A drone landed out in the field is not handed a job by itself.
+  if not d.docked then return false, d.landed and "landed, not docked" or "flying" end
   return true
 end
 

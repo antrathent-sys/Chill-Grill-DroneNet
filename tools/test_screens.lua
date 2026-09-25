@@ -61,6 +61,7 @@ print("state words")
 check("no packet is OFFLINE", S.stateWord(nil, "NONE") == "OFFLINE")
 check("a lost link is OFFLINE", S.stateWord({ phase = "cruise" }, "LOST") == "OFFLINE")
 check("latched is CRADLED", S.stateWord({ phase = "cruise", dock = 1 }, "LIVE") == "CRADLED")
+check("on the ground, not latched, is LANDED - not CRADLED", S.stateWord({ phase = "landed", dock = 0 }, "LIVE") == "LANDED")
 check("a cruise leg is CRUISE", S.stateWord({ phase = "cruise", legKind = "cruise" }, "LIVE") == "CRUISE")
 check("heading for a pad is INBOUND", S.stateWord({ phase = "cruise", legKind = "dock" }, "LIVE") == "INBOUND"
   and S.stateWord({ phase = "descend" }, "LIVE") == "INBOUND")

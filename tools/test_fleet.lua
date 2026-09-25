@@ -313,6 +313,11 @@ check("the old four-field form still reads", F.unpackPlaces("home:10:-20:64")[1]
 check("a label cannot smuggle a separator", F.packPlaces({ { name = "a", x = 1, z = 2, label = "x|y:z" } })
   :find("|") == nil)
 
+print("docked, not landed")
+local okL, whyL = F.available({ seen = 10, landed = true, docked = false }, 11)
+check("a drone landed in the field is not handed a job, and says why", okL == false and whyL == "landed, not docked", whyL)
+check("...one latched on a dock is", (F.available({ seen = 10, docked = true }, 11)) == true)
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("fleet tests failed", 0) end

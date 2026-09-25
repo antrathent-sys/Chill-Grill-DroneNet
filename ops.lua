@@ -452,6 +452,7 @@ local function note(d)
   f.x, f.z, f.y = d.x, d.z, d.y
   f.phase, f.mode = d.phase, d.mode
   f.docked = (d.dock == 1) or d.phase == "docked"
+  f.landed = not f.docked and d.phase == "landed"      -- still, on the ground, not latched
   f.energy, f.spd = d.energy, d.spd
   -- a unit whose telemetry reads sos is down: a base that restarted, or
   -- missed the distress call itself, still finds out from the next packet

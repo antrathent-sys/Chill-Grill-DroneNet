@@ -29,9 +29,13 @@
 -- Only one of beacon and fly sends at a time: the base refuses a counter that
 -- does not rise, and two senders sharing a key would interleave.
 --
--- Docked is judged without flying: the connector names its pad, or the
--- accumulators are charging, or the pose has been frozen for two readings (a
--- latched craft reads exactly zero velocity).
+-- Docked and LANDED are different things (Alex, 2026-09-25): docked is
+-- latched on a dock - charging, and a loading station can reach it; landed is
+-- sitting on the ground somewhere, on nothing. Both read exactly zero
+-- velocity, so being still is not enough. Docked is: the connector names its
+-- pad, or the accumulators are charging, or - still, with the connector held
+-- out (fly leaves DOCK_SIDE high after docking and never raises it to land)
+-- - within a few blocks of a known dock. Still and none of that: landed.
 
 local link = dofile("lib/link.lua")
 local SEC = dofile("lib/seclink.lua")
@@ -72,22 +76,39 @@ local accs = { peripheral.find("modular_accumulator") }
 local thrs = { peripheral.find("vector_thruster") }
 local dockP = peripheral.find("docking_connector")
 
--- home: a pad called home in pads.lua, else HOME_X/Y/Z in fly.lua
+-- home: a pad called home in pads.lua, else HOME_X/Y/Z in fly.lua. And every
+-- dock this drone knows, and the face its connector is held by - for telling
+-- docked from landed.
 local home
+local docks = {}          -- { x, z } of every dock, home included
+local latchSide           -- fly's DOCK_SIDE, when it is a face of this computer
 do
   local okP, P = pcall(dofile, "lib/pads.lua")
   if okP and type(P) == "table" then
-    local h = P.get((P.load("pads.lua", fs)), "home")
+    local list = P.load("pads.lua", fs) or {}
+    local h = P.get(list, "home")
     if h then home = { x = h.x + 0.5, z = h.z + 0.5 } end
+    for _, p in ipairs(list) do
+      if p.kind ~= "pad" then docks[#docks + 1] = { x = p.x + 0.5, z = p.z + 0.5 } end
+    end
   end
-  if not home and fs.exists("fly.lua") then
-    local f = fs.open("fly.lua", "r")
-    local src = f.readAll() or ""
-    f.close()
+  local function read(path)
+    if not fs.exists(path) then return "" end
+    local f = fs.open(path, "r")
+    local src = f and f.readAll() or ""
+    if f then f.close() end
+    return src
+  end
+  local src = read("fly.lua")
+  if not home then
     local hx, hz = src:match("HOME_X = (%-?%d+), HOME_Y = %-?%d+, HOME_Z = (%-?%d+),")
     if hx then home = { x = tonumber(hx) + 0.5, z = tonumber(hz) + 0.5 } end
   end
+  if home then docks[#docks + 1] = home end
+  -- tune.lua may move it; a relay or a slave (a table) cannot be read from here
+  latchSide = read("tune.lua"):match('DOCK_SIDE%s*=%s*"(%a+)"') or src:match('DOCK_SIDE%s*=%s*"(%a+)"')
 end
+local DOCK_NEAR = 4       -- blocks from a dock that count as on it
 
 local function call(p, method)
   if not (p and p[method]) then return nil end
@@ -128,10 +149,24 @@ local function status()
   local charging = run.lastFE ~= nil and stored > run.lastFE + CHARGE_FE
   run.lastFE = stored
   if x and vx == 0 and vy == 0 and vz == 0 then run.frozen = run.frozen + 1 else run.frozen = 0 end
-  local docked = (type(name) == "string" and name ~= "") or charging or run.frozen >= 2
+  local still = run.frozen >= 2
+  local held = false
+  if latchSide and redstone and redstone.getOutput then
+    local okR, on = pcall(redstone.getOutput, latchSide)
+    held = okR and on == true
+  end
+  local onDock = false
+  if x then
+    for _, d in ipairs(docks) do
+      if (d.x - x) ^ 2 + (d.z - z) ^ 2 <= DOCK_NEAR * DOCK_NEAR then onDock = true break end
+    end
+  end
+  local docked = (type(name) == "string" and name ~= "") or charging or (still and held and onDock)
+  local landed = still and not docked
+  run.landed = landed
   -- in distress the phase says so on every packet, so the base's board shows
   -- it and a base that restarts still finds out
-  local phase = run.sos and "sos" or (docked and "docked" or "idle")
+  local phase = run.sos and "sos" or (docked and "docked" or (landed and "landed" or "idle"))
   local s = { t = os.clock(), phase = phase, h = h or py, e = 0,
               x = x, z = z, vx = vx, vz = vz, vv = vy }
   return s, { energy = energy }, { pct = fe }, { connected = docked }

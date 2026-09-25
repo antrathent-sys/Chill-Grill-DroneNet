@@ -54,7 +54,7 @@ end
 SC.MAP = { half = 5000, bpp = 128, cols = 40, ox = 2, oy = 2, grid = 2000, rings = { 1000, 2500 } }
 
 SC.STATE_COLOUR = {
-  CRUISE = "ice", INBOUND = "ice", CRADLED = "lgrey", STANDBY = "lgrey", HOLD = "amber", MAINT = "amber",
+  CRUISE = "ice", INBOUND = "ice", CRADLED = "lgrey", STANDBY = "lgrey", LANDED = "amber", HOLD = "amber", MAINT = "amber",
   OFFLINE = "red",
 }
 SC.STAGES = { "QUE", "PCK", "FLY", "DRP" }
