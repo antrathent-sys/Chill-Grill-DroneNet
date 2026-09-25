@@ -561,17 +561,25 @@ function F.go(job, nonce)
   return { v = F.VERSION, type = "job.go", nonce = nonce or (job .. "-go"), job = job }
 end
 
--- A drone may take a job when the base has heard from it recently, it says it
--- is docked, and it is not already on one. "available" is the default pick:
--- ops send <name> overrides it, ops send any takes the nearest of these.
+-- A landed drone is not on a charger. It still takes the next job - one that
+-- missed its dock and set down beside it must not sit out the queue - but
+-- only while it has this much battery left.
+F.LANDED_MIN = 40
+
+-- A drone may take a job when the base has heard from it recently, it is on
+-- the ground - latched on a dock, or landed - and it is not already on one.
+-- "available" is the default pick: ops send <name> overrides it, ops send any
+-- takes the nearest of these.
 function F.available(d, now, maxAge)
   if type(d) ~= "table" then return false, "unknown" end
   if d.job then return false, "on job " .. tostring(d.job) end
   if not num(d.seen) or now - d.seen > (maxAge or 15) then return false, "no telemetry" end
   if d.phase == "sos" then return false, "in distress" end
-  -- only latched on a dock: charged, and where a loading station can reach
-  -- it. A drone landed out in the field is not handed a job by itself.
-  if not d.docked then return false, d.landed and "landed, not docked" or "flying" end
+  if d.docked then return true end
+  if not d.landed then return false, "flying" end
+  if num(d.energy) and d.energy < F.LANDED_MIN then
+    return false, string.format("landed, not charging, battery %d%%", math.floor(d.energy))
+  end
   return true
 end
 

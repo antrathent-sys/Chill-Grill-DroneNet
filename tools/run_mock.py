@@ -53,8 +53,10 @@ SELFTEST = [
     ("dock", ["dock", "100", "70", "50", "120"], {"TMAX": "150"},
      ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # DOCK_TRIES = 3, so capture is attempted three times before it gives up
-    ("dock abort", ["dock", "100", "70", "50", "90"], {"TMAX": "300", "NODOCK": "1"},
-     ["climb", "cruise", "brake"] + ["align", "descend", "capture"] * 3 + ["hold"]),
+    # - and then it sets down on the pad and the flight ENDS, rather than
+    # hovering there until the battery goes with the beacon waiting behind it
+    ("dock abort", ["dock", "100", "70", "50", "90"], {"TMAX": "300", "NODOCK": "1", "LAND_CHECK": "3"},
+     ["climb", "cruise", "brake"] + ["align", "descend", "capture"] * 3 + ["land", "touchdown"]),
     ("undock", ["undock", "80"], {"TMAX": "40", "START_DOCKED": "1"}, ["fly"]),
     # the four-thruster airframe carries no velocity sensors: body speed comes
     # from Sable world velocity rotated by the nav-table heading instead

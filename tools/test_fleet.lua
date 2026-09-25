@@ -313,10 +313,15 @@ check("the old four-field form still reads", F.unpackPlaces("home:10:-20:64")[1]
 check("a label cannot smuggle a separator", F.packPlaces({ { name = "a", x = 1, z = 2, label = "x|y:z" } })
   :find("|") == nil)
 
-print("docked, not landed")
-local okL, whyL = F.available({ seen = 10, landed = true, docked = false }, 11)
-check("a drone landed in the field is not handed a job, and says why", okL == false and whyL == "landed, not docked", whyL)
-check("...one latched on a dock is", (F.available({ seen = 10, docked = true }, 11)) == true)
+print("docked, landed")
+check("a drone landed, not latched, still takes the next job",
+  (F.available({ seen = 10, landed = true, docked = false, energy = 80 }, 11)) == true)
+local okL, whyL = F.available({ seen = 10, landed = true, docked = false, energy = F.LANDED_MIN - 1 }, 11)
+check("...but not on a low battery, since nothing is charging it - and says why",
+  okL == false and tostring(whyL):find("not charging", 1, true) ~= nil, whyL)
+check("a docked one takes it at any battery (it is on the charger)",
+  (F.available({ seen = 10, docked = true, energy = 5 }, 11)) == true)
+check("one in the air does not", (F.available({ seen = 10, docked = false, landed = false }, 11)) == false)
 
 print("")
 print(string.format("%d passed, %d failed", pass, fail))

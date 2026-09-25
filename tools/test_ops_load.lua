@@ -176,6 +176,8 @@ local function base(opts)
     local docked = drone.docked ~= false and (not drone.dockAt or w.clock >= drone.dockAt) and not w.flying
     if drone.sos and w.clock >= drone.sos then docked = false end
     local phase = docked and "docked" or "idle"
+    -- drone.landed: on the ground, not latched - the beacon says "landed"
+    if not docked and drone.landed and not w.flying then phase = "landed" end
     if drone.sos and w.clock >= drone.sos then phase = "sos" end
     local s = { t = w.clock, phase = phase, h = 98.5, e = 0,
                 x = w.pos.x, z = w.pos.z, vx = 0, vz = 0, vv = 0 }
@@ -619,6 +621,15 @@ for _, b in ipairs(w.orders) do if b.type == "job.assign" then assigns[#assigns 
 check("without the file it is passes only again: no shuttle", #assigns == 0)
 check("...and the terminal is told why, rather than timing out", w.answered[1]
   and w.answered[1].msg.why == "no pass on this terminal", w.answered[1] and w.answered[1].msg.why)
+
+-- missed its dock three times and set down beside it: not latched, but on the
+-- ground and able to fly, so the next customer still gets it
+w = base({ args = {}, files = { [".hailsopen"] = open }, drone = { docked = false, landed = true }, keysAt = { { 4, "q" } } })
+hail(w, 2)
+w = w:run()
+assigns = {}
+for _, b in ipairs(w.orders) do if b.type == "job.assign" then assigns[#assigns + 1] = b end end
+check("a unit LANDED, not docked, is still sent to the next customer", w.err == nil and #assigns == 1, w.err or #assigns)
 
 w = base({ args = { "known" }, files = { [".hailsopen"] = open }, keysAt = { { 3, "q" } } }):run()
 check("ops known closes it again", w.files[".hailsopen"] == nil and not has(w, "OPEN TO ANY TERMINAL"))

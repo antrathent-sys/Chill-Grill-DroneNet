@@ -859,7 +859,7 @@ local CFG = {
                                       -- hold almost at once or it is not going to; 25 just meant three
                                       -- minutes of cycling before the craft gave up.
   DOCK_ABORT_DIST = 4,                -- blocks of drift that sends the descent back to align
-  DOCK_TRIES = 3,                     -- capture attempts before giving up and just holding
+  DOCK_TRIES = 3,                     -- capture attempts before giving up and landing on the pad
   -- A flight that starts DOCKED must let go first: with the dock hold (startup
   -- hold) the connector stays powered, and `fly dock` from the pad pulled
   -- against the magnet on 2026-09-18. Every mode but undock, deliver and ferry
@@ -3130,8 +3130,15 @@ local function flyLeg()
         dockTries = dockTries + 1
         goal = math.min(cruiseY, dockAlt + CFG.DOCK_RETRY_UP)
         if dockTries >= CFG.DOCK_TRIES then
-          phase = "hold" dockExtend(false) dock.armed = false dock.extended = false
-          print("capture failed " .. dockTries .. "x - holding, connector retracted")
+          -- Holding here was the old answer, and it held everything up: the
+          -- flight never ended, so the beacon never came back and the unit
+          -- never came free for the next job. The pad is the safe place we
+          -- know and the craft is right over it - connector in, set down on
+          -- it the way the in-flight "land" word does, and end LANDED.
+          dockExtend(false) dock.armed = false dock.extended = false
+          phase = "land" landStart, touchT = t, 0
+          enter("land")
+          print("capture failed " .. dockTries .. "x - connector in, setting down on the pad")
         else
           phase = "align" alignStart = nil
           print("capture timed out - climbing back for retry " .. (dockTries + 1))
@@ -3592,8 +3599,9 @@ local function flyLeg()
     -- A cruise or hover leg ends where an ordinary flight would sit and hold:
     -- over the waypoint, at the height asked for, not moving. Dock and land
     -- legs end themselves (docked, touchdown) and are deliberately NOT tested
-    -- here - a dock that gave up and fell back to holding must keep holding,
-    -- not return and have the thrusters shut off underneath it.
+    -- here - a dock that gave up lands on the pad (touchdown ends it), and
+    -- one that fell back to holding must keep holding, not return and have
+    -- the thrusters shut off underneath it.
     if legs and (legKind == "cruise" or legKind == "hover")
        and (phase == "hold" or phase == "fly") then
       local gs = math.sqrt(pos.vx * pos.vx + pos.vz * pos.vz)

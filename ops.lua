@@ -452,8 +452,14 @@ local function note(d)
   f.x, f.z, f.y = d.x, d.z, d.y
   f.phase, f.mode = d.phase, d.mode
   f.docked = (d.dock == 1) or d.phase == "docked"
+  local wasLanded = f.landed
   f.landed = not f.docked and d.phase == "landed"      -- still, on the ground, not latched
   f.energy, f.spd = d.energy, d.spd
+  -- worth knowing: usually a dock it could not latch onto, and it is not
+  -- charging there
+  if f.landed and not wasLanded then
+    log("%s is LANDED, not docked, at %s %s - not charging", id, tostring(d.x), tostring(d.z))
+  end
   -- a unit whose telemetry reads sos is down: a base that restarted, or
   -- missed the distress call itself, still finds out from the next packet
   if d.phase == "sos" and not f.sos then
@@ -462,7 +468,9 @@ local function note(d)
   elseif d.phase ~= "sos" then
     f.sos = nil
   end
-  if f.docked and f.job and jobs[f.job] and jobs[f.job].state == "done" then f.job = nil end
+  -- back on the ground after a finished job: free again. Landed counts - a
+  -- unit that missed its dock and set down beside it is not still on the job
+  if (f.docked or f.landed) and f.job and jobs[f.job] and jobs[f.job].state == "done" then f.job = nil end
 end
 
 local handle    -- set below; a drone's sealed reply goes through the same path

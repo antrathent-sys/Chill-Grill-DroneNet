@@ -355,7 +355,7 @@ Both tolerances are compared as 3D vector magnitudes, so 0.5 blocks is total off
 
 **Build.** Point the drone's connector down and the pad's connector up, and keep the pad's connector permanently powered. Two connectors facing each other meet at 3 blocks of block-to-block separation, which is where `DOCK_GAP` comes from. Because the altitude sensor is not the connector block, treat `DOCK_GAP` as the value that makes the drone park about 3 blocks above the pad and calibrate it on the first attempt.
 
-**Sequence.** `fly dock <x> <z> <padY>` cruises to the pad using the same climb, dash and brake phases as `go`, settles over it, extends the connector, walks the altitude down, then waits for the magnet. On success it prints the pad name, cuts thrust and exits with `DOCK_SIDE` still high. A capture that times out climbs back and retries up to `DOCK_TRIES` times, then retracts and holds.
+**Sequence.** `fly dock <x> <z> <padY>` cruises to the pad using the same climb, dash and brake phases as `go`, settles over it, extends the connector, walks the altitude down, then waits for the magnet. On success it prints the pad name, cuts thrust and exits with `DOCK_SIDE` still high. A capture that times out climbs back and retries up to `DOCK_TRIES` times, then retracts the connector and lands on the pad, so the flight ends (landed, not docked) and the unit is free for the next job.
 
 **Undocking is a redstone release.** Dropping `DOCK_SIDE` is what the mod treats as an undock command. `fly undock` waits `DOCK_RELEASE_T` seconds so thrust is already supporting the drone before the connector lets go, then holds altitude normally.
 
@@ -421,7 +421,7 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `DOCK_SINK` | Power bled off during capture so the magnet can pull down. 0 means pure altitude hold. |
 | `DOCK_CAPTURE_T` | Seconds to wait for the magnet before aborting an attempt. |
 | `DOCK_ABORT_DIST` | Blocks of drift that sends the descent back to align. |
-| `DOCK_TRIES` | Capture attempts before giving up and just holding. |
+| `DOCK_TRIES` | Capture attempts before giving up and landing on the pad. |
 | `DOCK_RELEASE_T` | Seconds of thrust before `undock` drops the connector. |
 | `CHIME` | Speaker tones on phase changes. Silent if no speaker is attached. |
 
