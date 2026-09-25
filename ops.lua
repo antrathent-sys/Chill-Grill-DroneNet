@@ -543,9 +543,21 @@ local function dispatch(req, from)
   -- latches on. At a landing pad it lands beside the customer like anywhere
   -- else. The name stays on the job record either way.
   local known = req.pad and padByName(req.pad)
+  -- A pickup close to a known place IS that place, whatever the terminal
+  -- sent: a pocket's GPS fix can be well out (13.5 blocks and ~65 Y on
+  -- 2026-09-25), and a pass that predates the pocket's own rule still sends
+  -- its fix. Only well away from every known place does a fix stand.
+  if not known and not req.pad then
+    known = F.placeFor(pads, nil, req.px, req.pz, F.PICKUP_NEAR)
+    if known then
+      req.pad = known.name
+      log("pickup %d %d is by %s - sent to its record", math.floor(req.px), math.floor(req.pz), known.name)
+    end
+  end
   local pickupName = req.pad
   if known then
-    req.px, req.py, req.pz = req.px or known.x, req.py or known.y, req.pz or known.z
+    -- the place's own record wins: it was surveyed, the terminal's was a fix
+    req.px, req.py, req.pz = known.x, known.y or req.py, known.z
     if known.kind == "pad" then req.pad = nil end
   end
   local pad = known or { name = pickupName, x = req.px, y = req.py, z = req.pz }

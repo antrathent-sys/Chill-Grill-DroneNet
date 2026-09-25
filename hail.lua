@@ -642,6 +642,8 @@ local function walkTo(pad)
     else
       at(2, 9, "walk to it, then press ent", DIM)
     end
+    -- the distance is a guide: GPS can be well out, and the unit lands on
+    -- the platform's own record whatever it says, so ENT is always taken
   end
   local result
   local function screen()
@@ -651,7 +653,7 @@ local function walkTo(pad)
       if ev == "hail_where" then draw()
       elseif ev == "key" then
         if key == keys.enter then
-          if d and d <= AT_PLATFORM then result = true return end
+          result = true return
         else
           result = false return
         end
@@ -678,9 +680,12 @@ end
 -- where they stand - or nil to go back.
 local function landingZone(from)
   local pad, pd = nearestPlatform(from)
-  if pad and pd <= AT_PLATFORM then
-    -- already on a known platform: known good, nothing to check
-    return { x = pad.x, y = pad.y or from.y, z = pad.z, name = pad.name }
+  if pad and pd <= F.PICKUP_NEAR then
+    -- By a known platform: the pickup IS the platform, its own record, and
+    -- nothing to check. GPS only decides that one is close - never where the
+    -- unit comes down (2026-09-25: a fix on the rules pad was 13.5 blocks
+    -- off and ~65 Y low; the unit flew to it and hit the ground).
+    return { x = pad.x, y = pad.y, z = pad.z, name = pad.name }
   end
   if pad and pd > WALKABLE then pad = nil end
   if pad then
@@ -695,7 +700,7 @@ local function landingZone(from)
     at(2, 15, "   stand instead", DIM)
     local key = keyPress()
     if key == keys.enter then
-      if walkTo(pad) then return { x = pad.x, y = pad.y or from.y, z = pad.z, name = pad.name } end
+      if walkTo(pad) then return { x = pad.x, y = pad.y, z = pad.z, name = pad.name } end
       return nil
     end
     if key ~= keys.h then return nil end

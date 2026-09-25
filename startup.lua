@@ -38,7 +38,7 @@ local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua"
                  "lib/fleet.lua", "ops.lua", "taxipad.lua", "hail.lua", "lib/hailui.lua", "lib/tui.lua",
                  "lib/ledger.lua", "lib/queue.lua", "tariff.example.lua",
                  "lib/opsui.lua", "provision.lua", "lib/provision.lua", "kiosk.lua",
-                 "lib/seclink.lua", "seckey.lua", "radiotest.lua",
+                 "lib/seclink.lua", "seckey.lua", "radiotest.lua", "gpscheck.lua",
                  "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
                  "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
                  "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua",

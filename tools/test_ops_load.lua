@@ -622,6 +622,30 @@ check("without the file it is passes only again: no shuttle", #assigns == 0)
 check("...and the terminal is told why, rather than timing out", w.answered[1]
   and w.answered[1].msg.why == "no pass on this terminal", w.answered[1] and w.answered[1].msg.why)
 
+-- A pocket by a known pad sends its GPS fix, 13 blocks off and Y 5. The
+-- pickup goes to the pad's own record - x, z AND its Y - not to the fix.
+local FIELD = 'return { { name = "home", x = 1892, y = 91, z = 365, kind = "dock" }, '
+  .. '{ name = "field", x = 2100, y = 66, z = 500, kind = "pad" } }'
+w = base({ args = {}, files = { [".hailsopen"] = open, ["pads.lua"] = FIELD }, keysAt = { { 4, "q" } } })
+w.later[#w.later + 1] = { at = 2, ev = { "rednet_message", 12,
+  F.request({ x = 2110, y = 5, z = 507 }, { x = 1892, z = 365, name = "home" }, "near-1", "pocket-12"), F.PROTO } }
+w = w:run()
+assigns = {}
+for _, b in ipairs(w.orders) do if b.type == "job.assign" then assigns[#assigns + 1] = b end end
+local a1 = assigns[1] or {}
+check("a GPS fix 13 blocks from a known pad is sent to the pad's record, Y included",
+  w.err == nil and a1.px == 2100 and a1.pz == 500 and a1.py == 66 and a1.pad == nil,
+  w.err or string.format("%s %s %s pad %s", tostring(a1.px), tostring(a1.py), tostring(a1.pz), tostring(a1.pad)))
+w = base({ args = {}, files = { [".hailsopen"] = open, ["pads.lua"] = FIELD }, keysAt = { { 4, "q" } } })
+w.later[#w.later + 1] = { at = 2, ev = { "rednet_message", 12,
+  F.request({ x = 2300, y = 70, z = 700 }, { x = 1892, z = 365, name = "home" }, "far-1", "pocket-12"), F.PROTO } }
+w = w:run()
+assigns = {}
+for _, b in ipairs(w.orders) do if b.type == "job.assign" then assigns[#assigns + 1] = b end end
+a1 = assigns[1] or {}
+check("well away from every known place, the fix stands",
+  a1.px == 2300 and a1.py == 70 and a1.pz == 700, string.format("%s %s %s", tostring(a1.px), tostring(a1.py), tostring(a1.pz)))
+
 -- missed its dock three times and set down beside it: not latched, but on the
 -- ground and able to fly, so the next customer still gets it
 w = base({ args = {}, files = { [".hailsopen"] = open }, drone = { docked = false, landed = true }, keysAt = { { 4, "q" } } })

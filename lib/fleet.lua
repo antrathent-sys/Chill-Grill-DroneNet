@@ -261,6 +261,13 @@ end
 -- How close typed coordinates have to be to a known place to count as it.
 F.PLACE_NEAR = 16
 
+-- A pickup this close to a known platform IS that platform: the unit flies
+-- to the platform's own surveyed record, never to the terminal's GPS fix.
+-- GPS only decides whether one is close. On 2026-09-25 a pocket standing ON
+-- the rules pad got a fix 13.5 blocks off and ~65 Y low, the pickup flew to
+-- the fix, and the unit hit the ground at 45 b/s.
+F.PICKUP_NEAR = 40
+
 --- Which known place a request means, if any. By name first, and then the
 -- place's own record wins over whatever the terminal sent, so a name cannot
 -- be borrowed for somewhere else (a free ride "home" to the far side of the

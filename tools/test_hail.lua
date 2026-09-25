@@ -104,7 +104,7 @@ local function world(opts)
   }
 
   -- the base: answers exactly the questions ops answers, the way ops does
-  local places = { { name = "home", x = 1892, z = 365 }, { name = "market", x = 865, z = 248 } }
+  local places = { { name = "home", x = 1892, z = 365 }, { name = "market", x = 865, y = 70, z = 248 } }
   local function reply(msg, after)
     if after then w.later[#w.later + 1] = { at = w.events + after, msg = msg }
     else w.inbox[#w.inbox + 1] = msg end
@@ -380,8 +380,7 @@ local walk = run(world({ gpsPos = function(w) return w.walking and { 865, 70, 25
   { key = KEYS.down },                     -- home is second nearest from here
   { key = KEYS.enter },
   { key = KEYS.enter },                    -- the platform it offers: market, 165 blocks
-  { key = KEYS.enter, when = function(w) w.walking = true return w.events > 40 end },
-  { key = KEYS.enter, when = function(w) return w.events > 80 end },   -- arrived
+  { key = KEYS.enter, when = function(w) w.walking = true return w.events > 40 end },   -- arrived
   { key = KEYS.enter },                    -- confirm
   { char = "g", when = function(w) return w.state == "waiting" end },
 } }), "hail.lua", "kiosk")
@@ -413,6 +412,21 @@ local own = run(world({ gpsPos = { 100, 64, 200 },
 } }), "hail.lua", "kiosk")
 check("their own saved place nearby is not offered as a platform - nobody checked it",
   not has(own, "PLATFORM NEARBY") and not has(own, "NEAREST PLATFORM") and has(own, "LANDING ZONE"))
+
+print("standing by a platform, with GPS well out")
+-- on the market platform, but the fix says 13 blocks away and Y 5
+local by = run(world({ gpsPos = { 855, 5, 240 }, inputs = {
+  { key = KEYS.down }, { key = KEYS.enter },   -- home (market is nearest, so first)
+  { key = KEYS.enter },                        -- confirm
+  { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+check("close to a platform: the pickup IS the platform, no checklist, nothing to walk",
+  by.request and by.request.pad == "market" and not has(by, "LANDING ZONE") and not has(by, "PROCEED TO PLATFORM"),
+  by.request and tostring(by.request.pad))
+check("...at the platform's own record, not the GPS fix - its Y too",
+  by.request and by.request.px == 865 and by.request.pz == 248 and by.request.py == 70,
+  by.request and string.format("%s %s %s", tostring(by.request.px), tostring(by.request.py), tostring(by.request.pz)))
+check("and confirm names it", has(by, "CONFIRM") and has(by, "MARKET"))
 
 print("how many units are free")
 local fr = run(world({ inputs = ride(), free = 2 }), "hail.lua", "kiosk")
