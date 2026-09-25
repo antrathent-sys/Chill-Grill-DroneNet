@@ -2915,7 +2915,12 @@ local function flyLeg()
            and (CFG.LAND_SETTLE_XZ <= 0 or outBy <= CFG.LAND_SETTLE_XZ) then
           settleT = settleT + dt
           if settleT >= CFG.LAND_SETTLE_T then
-            landSettled = true
+            -- The descent starts HERE, so "the altitude has not moved"
+            -- starts here too. The ring still held the hover we settled
+            -- in, and read as stuck the moment the throttle eased to
+            -- descend: 2026-09-25 12-04-26 called touchdown 1.4 s after a
+            -- failed capture, 30 blocks up, and cut the thrust.
+            landSettled, hHist = true, {}
             print(string.format("settled: %.1f deg, %.1f b/s, %.0f blocks out - dropping",
               lean, gs, math.sqrt((goalX - pos.x)^2 + (goalZ - pos.z)^2)))
           end
@@ -2926,7 +2931,7 @@ local function flyLeg()
           -- Could not get straight. Something is wrong - aero moment, a weak
           -- corner - and hovering until the battery dies is not better than
           -- coming down crooked. Go, but keep the tight tilt cap and say so.
-          settleWarned, landSettled = true, true
+          settleWarned, landSettled, hHist = true, true, {}
           chime.play("warn")
           print(string.format("did not settle in %ds (%.0f deg, %.1f b/s) - coming down anyway",
             CFG.LAND_SETTLE_MAX, lean, gs))

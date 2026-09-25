@@ -43,10 +43,19 @@ local function step(to)
   -- velocity made the controller's D term a divergent feedback term.
   -- lift falls with cos(lean) on the quad so the throttle floor and the
   -- altitude-by-lean loop interact the way they do in the air
-  local lift = sim.pwr
+  -- SPOOL=<s>: the thrust the craft feels lags the command by that time
+  -- constant, as the real one does - after a failed capture on 2026-09-25 it
+  -- was still only sinking 0.7 b/s a second after the throttle eased
+  local spool = tonumber(os.getenv("SPOOL") or "")
+  if spool and spool > 0 then
+    sim.pwrFelt = (sim.pwrFelt or sim.pwr) + (sim.pwr - (sim.pwrFelt or sim.pwr)) * math.min(1, dt / spool)
+  else
+    sim.pwrFelt = sim.pwr
+  end
+  local lift = sim.pwrFelt
   if sim.quad then
     local tp, tr = sim.quadTilt()
-    lift = sim.pwr * math.max(0.15, math.cos(math.rad(tp)) * math.cos(math.rad(tr)))
+    lift = sim.pwrFelt * math.max(0.15, math.cos(math.rad(tp)) * math.cos(math.rad(tr)))
   end
   local accel = (lift - HOVER) * 25 - 0.4 * sim.vv
   sim.vv = sim.vv + accel * dt

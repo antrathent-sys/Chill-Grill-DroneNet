@@ -15,6 +15,7 @@ Environment switches the harness honours:
     DISK_KB=<kb>   a disk that small; DISK_LIE=1 also hides it from getFreeSpace
     PADS=n:x,y,z;.. write a pads.lua with those named places (n:x,y,z:pad for a landing pad)
     NODOCK=1       never let the magnet catch, to exercise the abort path
+    SPOOL=<secs>   thrust lags the command by this time constant, as in game
     START_DOCKED=1 begin the run already docked
     TMAX=<secs>    simulated-time budget
 
@@ -56,6 +57,12 @@ SELFTEST = [
     # - and then it sets down on the pad and the flight ENDS, rather than
     # hovering there until the battery goes with the beacon waiting behind it
     ("dock abort", ["dock", "100", "70", "50", "90"], {"TMAX": "300", "NODOCK": "1", "LAND_CHECK": "3"},
+     ["climb", "cruise", "brake"] + ["align", "descend", "capture"] * 3 + ["land", "touchdown"]),
+    # ...and with nothing under it at all: the hover it gave up in must not
+    # read as "on the ground". FALL_CHECK: it may not drop more than that
+    # many blocks once thrust is cut (2026-09-25 12-04-26 fell 30)
+    ("dock abort, no pad", ["dock", "100", "70", "50", "90"],
+     {"TMAX": "300", "NODOCK": "1", "NO_PAD": "1", "FALL_CHECK": "1.5", "SPOOL": "1.5"},
      ["climb", "cruise", "brake"] + ["align", "descend", "capture"] * 3 + ["land", "touchdown"]),
     ("undock", ["undock", "80"], {"TMAX": "40", "START_DOCKED": "1"}, ["fly"]),
     # the four-thruster airframe carries no velocity sensors: body speed comes
@@ -185,6 +192,10 @@ SELFTEST = [
     # the one that matters: land requested mid-flight, no restart
     ("land from cruise", ["go", "1000", "1000", "300"], {"TMAX": "150", "CMD_AT": "20:l"},
      ["climb", "cruise", "land", "touchdown"]),
+    # L pressed during a steady hover, with thrust that lags as in game: the
+    # hover must not count as already being on the ground
+    ("land from a hover", ["80"], {"TMAX": "90", "CMD_AT": "20:l", "SPOOL": "1.5", "FALL_CHECK": "1.5"},
+     ["fly", "land", "touchdown"]),
     ("hold from cruise", ["go", "1000", "1000", "300"], {"TMAX": "90", "CMD_AT": "20:h"},
      ["climb", "cruise", "hold"]),
     # radio commands: a wired `land` on CMD_PROTO is obeyed; the same kind of
@@ -290,7 +301,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -499,6 +510,18 @@ def main(argv=None):
                 ok = ok and tok
             if env.get("UNDOCK_CHECK"):
                 tok, extra = undock_check(logpath)
+                ok = ok and tok
+            if env.get("FALL_CHECK"):
+                import csv as _csv
+                with open(logpath, encoding="utf-8") as fh:
+                    rs = [r for r in _csv.DictReader(fh) if not r["phase"].startswith("end")]
+                td = [r for r in rs if r["phase"] == "touchdown"]
+                if td:
+                    fell = float(td[0]["height"]) - float(rs[-1]["height"])
+                    tok = fell <= float(env["FALL_CHECK"])
+                    extra = "fell %.1f blocks after touchdown was called at %.1f" % (fell, float(td[0]["height"]))
+                else:
+                    tok, extra = False, "no touchdown"
                 ok = ok and tok
             if env.get("LAND_CHECK"):
                 import csv as _csv, math as _m
