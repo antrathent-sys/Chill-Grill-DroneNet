@@ -306,6 +306,7 @@ end
 
 local places = localPlaces()
 local balance                    -- what the base last said, or nil if unknown
+local freeUnits                  -- units the base last said were free, or nil
 local lastFare, lastUnit         -- what the last ride cost, and which unit flew it
 
 -- What the base thinks this customer is worth. Cheap, so it is asked for
@@ -335,6 +336,7 @@ local function askQuote(from, tx, tz, name)
   while os.clock() - t0 < 1.5 do
     local _, msg = rednet.receive(F.PROTO, 1.5 - (os.clock() - t0))
     if type(msg) == "table" and msg.type == "fare.quote" and msg.re == ask.nonce and (F.check(msg)) then
+      if type(msg.free) == "number" then freeUnits = msg.free end
       return msg
     end
   end
@@ -354,6 +356,7 @@ local function refreshPlaces(secs)
   while os.clock() - t0 < (secs or 1.5) do
     local _, msg = rednet.receive(F.PROTO, (secs or 1.5) - (os.clock() - t0))
     if type(msg) == "table" and msg.type == "places.list" and (F.check(msg)) then
+      if type(msg.free) == "number" then freeUnits = msg.free end
       local known = {}
       for _, p in ipairs(places) do known[p.name:lower()] = true end
       for _, p in ipairs(F.unpackPlaces(msg.places)) do
@@ -546,13 +549,26 @@ local function chooseDestination(from)
   end
   local list = build()
 
+  -- the free count goes stale while someone reads the list: ask again
+  -- every 15 s. places.ask, not a ping - the base does not log it.
   local sel, top, rows = 1, 1, 1
+  local askedAt = os.clock()
   while true do
     c = screen()
-    rows, top = UI.places(T, c, { places = list, sel = sel, top = top, from = from, balance = balance })
+    rows, top = UI.places(T, c, { places = list, sel = sel, top = top, from = from, balance = balance,
+                                  free = freeUnits })
     c:flush(term)
-    local ev, key = os.pullEvent()
-    if ev == "key" then
+    if os.clock() - askedAt >= 15 then
+      say(F.placesAsk(nonce()))
+      askedAt = os.clock()
+    end
+    local timer = os.startTimer(5)
+    local ev, key, msg = os.pullEvent()
+    if ev ~= "timer" then pcall(os.cancelTimer, timer) end
+    if ev == "rednet_message" and type(msg) == "table" and msg.type == "places.list"
+       and type(msg.free) == "number" and (F.check(msg)) then
+      freeUnits = msg.free
+    elseif ev == "key" then
       if key == keys.down then sel = math.min(#list, sel + 1)
       elseif key == keys.up then sel = math.max(1, sel - 1)
       elseif key == keys.pageDown then sel = math.min(#list, sel + rows)
@@ -598,12 +614,16 @@ local LZ_R = 4            -- blocks round the spot a unit needs clear: 9x9
 local AT_PLATFORM = 6     -- this close to a known platform counts as on it
 local WALKABLE = 250      -- a platform further than this is not worth offering
 
--- The nearest known landing platform (the base's places), and how far.
+-- The nearest known landing platform (the base's places), and how far. A
+-- customer's own saved places are destinations, not platforms: nobody has
+-- checked that a unit can land at "house".
 local function nearestPlatform(pos)
   local best, bd
   for _, p in ipairs(places) do
-    local d = dist(pos, p.x, p.z)
-    if not bd or d < bd then best, bd = p, d end
+    if not p.own then
+      local d = dist(pos, p.x, p.z)
+      if not bd or d < bd then best, bd = p, d end
+    end
   end
   return best, bd
 end
@@ -651,9 +671,11 @@ local function walkTo(pad)
   return result
 end
 
--- Before a unit is called to open ground: where it will come down, what the
--- spot needs, and a platform instead if there is one. Returns the pickup -
--- where they stand, or a platform - or nil to go back.
+-- Where the unit picks them up. A known platform in walking distance comes
+-- first: it is a landing we KNOW is safe, and there is nothing for the
+-- customer to judge. Where they stand is the other choice (H), with the
+-- checklist a spot of open ground needs. Returns the pickup - a platform or
+-- where they stand - or nil to go back.
 local function landingZone(from)
   local pad, pd = nearestPlatform(from)
   if pad and pd <= AT_PLATFORM then
@@ -661,25 +683,31 @@ local function landingZone(from)
     return { x = pad.x, y = pad.y or from.y, z = pad.z, name = pad.name }
   end
   if pad and pd > WALKABLE then pad = nil end
-  local keysBar = { { "ENT", "CLEAR", true } }
-  if pad then keysBar[#keysBar + 1] = { "P", "PLATFORM" } end
-  keysBar[#keysBar + 1] = { "ANY", "BACK" }
-  frame("LANDING ZONE", xyz(from.x, from.y, from.z), keysBar)
+  if pad then
+    frame("PLATFORM NEARBY", shownAs(pad), { { "ENT", "PLATFORM", true }, { "H", "HERE" } })
+    field(6, "platform", shownAs(pad))
+    at(11, 7, xyz(pad.x, pad.y, pad.z), DIM)
+    field(8, "distance", string.format("%d blocks", math.floor(pd)))
+    at(2, 10, "a known safe landing.", AMBER)
+    at(2, 11, "walk there and the unit", DIM)
+    at(2, 12, "meets you on it", DIM)
+    at(2, 14, "h  call it to where you", DIM)
+    at(2, 15, "   stand instead", DIM)
+    local key = keyPress()
+    if key == keys.enter then
+      if walkTo(pad) then return { x = pad.x, y = pad.y or from.y, z = pad.z, name = pad.name } end
+      return nil
+    end
+    if key ~= keys.h then return nil end
+  end
+  frame("LANDING ZONE", xyz(from.x, from.y, from.z), { { "ENT", "CLEAR", true }, { "ANY", "BACK" } })
   at(2, 6, "the unit lands where you", AMBER)
   at(2, 7, "stand. before you call:", AMBER)
   at(2, 9, "- clear sky above", DIM)
   at(2, 10, "- level ground, 9x9", DIM)
   at(2, 11, "- no water, trees, roofs", DIM)
   at(2, 12, "- then step 5 blocks back", DIM)
-  if pad then
-    at(2, 14, "nearest platform", DIM)
-    at(2, 15, string.format("%s  %d blocks", pad.name, math.floor(pd)), AMBER)
-  end
-  local key = keyPress()
-  if key == keys.enter then return from end
-  if key == keys.p and pad then
-    if walkTo(pad) then return { x = pad.x, y = pad.y or from.y, z = pad.z, name = pad.name } end
-  end
+  if keyPress() == keys.enter then return from end
   return nil
 end
 
@@ -942,6 +970,11 @@ local function oneRide(tx, ty, tz, name)
   if near then
     at(2, row + 3, "unit on station nearby", AMBER)
     at(2, row + 4, "walk over, board, press g", DIM)
+  elseif freeUnits == 0 then
+    at(2, row + 3, "all units committed", AMBER)
+    at(2, row + 4, "you will hold in line", DIM)
+  elseif freeUnits then
+    at(2, row + 3, string.format("%d unit%s available", freeUnits, freeUnits == 1 and "" or "s"), DIM)
   end
   if keyPress() ~= keys.enter then return end
 

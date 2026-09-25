@@ -43,8 +43,9 @@
 --                 (where the taxi is, a few times a second-ish, so the
 --                  terminal can show how far away it is)
 --   places.ask    nonce                                     anyone -> ops
---   places.list   places nonce                              ops  -> anyone
---                 (places is "name:x:z|name:x:z|...", the pads ops knows)
+--   places.list   places [free] nonce                       ops  -> anyone
+--                 (places is "name:x:z|name:x:z|...", the pads ops knows;
+--                  free is how many units could take a job right now)
 --   account.ask   nonce                                     customer -> ops
 --   account.info  who balance rides owed nonce               ops -> customer
 --   credit.arm    amount nonce                               customer -> ops
@@ -57,7 +58,8 @@
 --   credit.ok     who amount balance nonce                   ops -> customer
 --   ops.ping      nonce                                     anyone -> ops
 --                 (answered with a job.ack, so a customer can tell "the base
---                  cannot hear me" from "the base has no drone free")
+--                  cannot hear me" from "the base has no drone free"; the
+--                  ack carries free, the count, as a number too)
 --   unit.stick    job stickers on nonce                      ops  -> drone
 --                 (sealed: extend - or with on = false retract - these
 --                  stickers, "Create_Sticker_0,Create_Sticker_1"; the loading
@@ -440,9 +442,9 @@ function F.fareAsk(from, dest, nonce)
            tx = dest.x, tz = dest.z, toName = dest.name }
 end
 
-function F.fareQuote(fare, why, nonce, re, near)
+function F.fareQuote(fare, why, nonce, re, near, free)
   local q = { v = F.VERSION, type = "fare.quote", nonce = nonce, fare = math.floor(fare or 0),
-              why = why, re = re }
+              why = why, re = re, free = num(free) and math.floor(free) or nil }
   -- a free unit already on station near the customer: they can walk to it
   if type(near) == "table" and str(near.unit) then
     q.near, q.nx, q.ny, q.nz, q.nplace = near.unit, near.x, near.y, near.z, near.place
@@ -549,8 +551,9 @@ function F.creditOk(who, amount, balance, nonce)
   return { v = F.VERSION, type = "credit.ok", nonce = nonce, who = who,
            amount = math.floor(amount or 0), balance = math.floor(balance or 0) }
 end
-function F.placesList(list, nonce)
-  return { v = F.VERSION, type = "places.list", nonce = nonce, places = F.packPlaces(list) }
+function F.placesList(list, nonce, free)
+  return { v = F.VERSION, type = "places.list", nonce = nonce, places = F.packPlaces(list),
+           free = num(free) and math.floor(free) or nil }
 end
 
 function F.ping(nonce)
@@ -581,6 +584,16 @@ function F.available(d, now, maxAge)
     return false, string.format("landed, not charging, battery %d%%", math.floor(d.energy))
   end
   return true
+end
+
+--- How many units could take a job right now: what a customer's list shows
+-- as "2 UNITS AVAILABLE", so they know before they ask whether they will hold.
+function F.freeCount(fleet, now, maxAge)
+  local n = 0
+  for _, d in pairs(fleet or {}) do
+    if (F.available(d, now, maxAge)) then n = n + 1 end
+  end
+  return n
 end
 
 -- Pick the docked drone nearest the pad. fleet is { [id] = { seen, docked, job,

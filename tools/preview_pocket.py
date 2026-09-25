@@ -50,7 +50,7 @@ function(root, w, h, frames)
       UI.topup(T, c, { who = "alex", balance = fr.balance, amount = fr.amount,
                        state = fr.state, got = fr.got, spin = fr.spin or 0 })
     elseif fr.screen == "places" then
-      UI.places(T, c, { from = { x = 812, z = -344 }, sel = fr.sel, top = 1, balance = fr.balance, places = {
+      UI.places(T, c, { from = { x = 812, z = -344 }, sel = fr.sel, top = 1, balance = fr.balance, free = fr.free, places = {
         { name = "home", dist = 1104 }, { name = "pier", dist = 220 },
         { name = "depot", dist = 3480 }, { name = "quarry", dist = 760 },
         { name = "north gate", dist = 2190 }, { name = "market", dist = 940 },
@@ -76,7 +76,8 @@ end
 """
 
 FRAMES = [
-    dict(screen="places", sel=2, away=0, state="calling", spin=0, start=1, eta=0, balance=416),
+    dict(screen="places", sel=2, away=0, state="calling", spin=0, start=1, eta=0, balance=416, free=2),
+    dict(screen="places", sel=1, away=0, state="calling", spin=0, start=1, eta=0, balance=416, free=0),
     dict(screen="topup", state="choose", balance=-56, amount=0, spin=1, away=0, start=1, eta=0),
     dict(screen="topup", state="ready", balance=-56, amount=512, spin=2, away=0, start=1, eta=0),
     dict(screen="ride", away=392, state="riding", spin=0, start=1456, eta=38),
@@ -145,7 +146,7 @@ def main():
         font = ImageFont.load_default()
 
     labels = (["starting", "started", "out of service"] if a.boot else
-              ["choosing a destination", "how much", "till open, pay now", "carrying you"])
+              ["choosing a destination", "all units committed", "how much", "till open, pay now", "carrying you"])
     imgs = [draw_frame(f, a.scale, font, labels[i]) for i, f in enumerate(frames)]
     pad = 10
     sheet = Image.new("RGB", (sum(i.width for i in imgs) + pad * (len(imgs) + 1),

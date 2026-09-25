@@ -1490,7 +1490,8 @@ function handle(from, msg, customer, sealedBy)
         end
         local blocks, toName = F.quoteBlocks(pads, msg)
         local fare, why = LEDGER.fare(blocks, toName, tariff)
-        pcall(rednet.send, from, F.fareQuote(fare, why, nonce(), msg.nonce, near), F.PROTO)
+        pcall(rednet.send, from, F.fareQuote(fare, why, nonce(), msg.nonce, near,
+          F.freeCount(fleet, os.clock())), F.PROTO)
       elseif msg.type == "job.cancel" then
         -- the entry this terminal made: its customer's, when it is sealed,
         -- else the one this same computer asked for. A name in the message is
@@ -1522,13 +1523,15 @@ function handle(from, msg, customer, sealedBy)
         end
       elseif msg.type == "places.ask" then
         -- the pads this base knows, so a customer picks a name instead of
-        -- typing coordinates off F3
-        pcall(rednet.send, from, F.placesList(pads, nonce()), F.PROTO)
+        -- typing coordinates off F3 - and how many units are free, which the
+        -- list shows. Not logged: a pass on its list asks every 15 s.
+        pcall(rednet.send, from, F.placesList(pads, nonce(), F.freeCount(fleet, os.clock())), F.PROTO)
       elseif msg.type == "ops.ping" then
         -- "can you hear me?" - and how many drones are free right now
-        local free = 0
-        for _, d in pairs(fleet) do if (F.available(d, os.clock())) then free = free + 1 end end
-        pcall(rednet.send, from, F.ack("ping", "ops", true, free .. " free", nonce()), F.PROTO)
+        local free = F.freeCount(fleet, os.clock())
+        local ack = F.ack("ping", "ops", true, free .. " free", nonce())
+        ack.free = free
+        pcall(rednet.send, from, ack, F.PROTO)
         log("ping from %s - answered, %d free", tostring(from), free)
       elseif msg.type == "job.relocate" then
         -- the unit could not land and is holding above: the customer has found

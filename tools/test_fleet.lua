@@ -313,6 +313,14 @@ check("the old four-field form still reads", F.unpackPlaces("home:10:-20:64")[1]
 check("a label cannot smuggle a separator", F.packPlaces({ { name = "a", x = 1, z = 2, label = "x|y:z" } })
   :find("|") == nil)
 
+print("free units")
+check("free counts what could take a job now", F.freeCount({
+  a = { seen = 10, docked = true }, b = { seen = 10, landed = true, energy = 90 },
+  c = { seen = 10, docked = true, job = "j-1" }, d = { seen = 10 } }, 11) == 2)
+check("the count rides on places.list and fare.quote",
+  F.placesList({}, "n", 2).free == 2 and F.fareQuote(5, nil, "n", "r", nil, 0).free == 0)
+check("...and is left out when not given", F.placesList({}, "n").free == nil)
+
 print("docked, landed")
 check("a drone landed, not latched, still takes the next job",
   (F.available({ seen = 10, landed = true, docked = false, energy = 80 }, 11)) == true)

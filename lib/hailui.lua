@@ -94,7 +94,8 @@ end
 -- --------------------------------------------------------------- the list ---
 -- view = { places = { {name, dist}, ... }, sel = n, top = n, from = {x,z} }
 -- Returns how many rows fitted, so the caller can page by the same number.
--- view = { places = { {name, dist, own}, ... }, sel = n, top = n, balance }
+-- view = { places = { {name, dist, own}, ... }, sel = n, top = n, balance, free }
+-- free: how many units the base says could take a job now (nil = not heard).
 -- The customer's own places come first (the caller orders them so), under
 -- their own band; the base's follow under DESTINATIONS. Returns how many rows
 -- fit, and the scroll position that keeps the selected row on screen.
@@ -141,6 +142,14 @@ function M.places(T, c, view)
     local function mid(yy, s, ink) c:text(math.max(1, math.floor((w - #s) / 2) + 1), yy, s, ink) end
     mid(top + 4, "NO DESTINATIONS YET", T.C.text)
     mid(top + 6, "C  ENTER COORDINATES", T.C.faint)
+  end
+
+  -- how many units are free, on the one spare row above the keys: whether
+  -- a call now is answered or held in line
+  if type(view.free) == "number" then
+    local s = view.free <= 0 and "ALL UNITS COMMITTED"
+      or string.format("%d UNIT%s AVAILABLE", view.free, view.free == 1 and "" or "S")
+    c:text(math.max(1, math.floor((w - #s) / 2) + 1), h - 2, s, view.free <= 0 and T.C.warn or T.C.faint)
   end
 
   -- two bands of keys: saving your own places above, the ride below

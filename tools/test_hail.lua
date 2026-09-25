@@ -18,7 +18,7 @@ S.ROOT = ROOT .. "/"
 local F = dofile(ROOT .. "/lib/fleet.lua")
 
 local KEYS = { enter = 28, up = 200, down = 208, pageUp = 201, pageDown = 209,
-               q = 16, t = 20, c = 46, g = 34, l = 38, p = 25, s = 31, d = 32, one = 2, two = 3, three = 4 }
+               q = 16, t = 20, c = 46, g = 34, l = 38, p = 25, h = 35, s = 31, d = 32, one = 2, two = 3, three = 4 }
 local COLOURS = { white = 1, orange = 2, brown = 4096, black = 32768, red = 16384,
                   grey = 128, lightGrey = 256 }
 
@@ -114,11 +114,11 @@ local function world(opts)
     broadcast = function(msg)
       w.said[#w.said + 1] = msg
       if type(msg) ~= "table" then return end
-      if msg.type == "places.ask" then reply(F.placesList(places, "p-" .. #w.said))
+      if msg.type == "places.ask" then reply(F.placesList(places, "p-" .. #w.said, opts.free))
       elseif msg.type == "account.ask" then reply(F.accountInfo("alex", 500, 3, "a-" .. #w.said))
       elseif msg.type == "fare.ask" then
         w.fareAsked = msg
-        reply(F.fareQuote(opts.fare or 13, "flat fare", "q-" .. #w.said, msg.nonce, opts.near))
+        reply(F.fareQuote(opts.fare or 13, "flat fare", "q-" .. #w.said, msg.nonce, opts.near, opts.free))
       elseif msg.type == "taxi.request" then
         w.request = msg
         if opts.near then
@@ -374,20 +374,60 @@ local rt = run(world({ relocateTimeout = true, inputs = {
 check("no new spot in time: dropped, and it says the fare is charged",
   has(rt, "JOB DROPPED") and has(rt, "SO THE FARE IS CHARGED"))
 
-print("walking to a platform")
+print("a platform in walking distance comes first")
 local walk = run(world({ gpsPos = function(w) return w.walking and { 865, 70, 250 } or { 700, 64, 200 } end,
   inputs = {
   { key = KEYS.down },                     -- home is second nearest from here
   { key = KEYS.enter },
-  { key = KEYS.p, char = "p" },            -- the nearest platform: market
+  { key = KEYS.enter },                    -- the platform it offers: market, 165 blocks
   { key = KEYS.enter, when = function(w) w.walking = true return w.events > 40 end },
   { key = KEYS.enter, when = function(w) return w.events > 80 end },   -- arrived
   { key = KEYS.enter },                    -- confirm
   { char = "g", when = function(w) return w.state == "waiting" end },
 } }), "hail.lua", "kiosk")
-check("it guides them to the platform", has(walk, "PROCEED TO PLATFORM"))
+check("it offers the platform before anything else, as a known safe landing",
+  has(walk, "PLATFORM NEARBY") and has(walk, "A KNOWN SAFE LANDING") and has(walk, "MARKET"))
+check("ENT takes it: it guides them to the platform", has(walk, "PROCEED TO PLATFORM"))
 check("and the pickup is the platform", walk.request and walk.request.pad == "market"
   and walk.request.px == 865, walk.request and tostring(walk.request.pad))
+
+local here = run(world({ gpsPos = { 700, 64, 200 }, inputs = {
+  { key = KEYS.down }, { key = KEYS.enter },
+  { key = KEYS.h, char = "h" },            -- no: where I stand
+  { key = KEYS.enter },                    -- the landing zone checklist: clear
+  { key = KEYS.enter },                    -- confirm
+  { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+check("H calls it to where they stand instead, through the checklist",
+  has(here, "LANDING ZONE") and has(here, "CLEAR SKY ABOVE")
+  and here.request and here.request.px == 700 and here.request.pad == nil,
+  here.request and (tostring(here.request.px) .. " " .. tostring(here.request.pad)))
+
+local own = run(world({ gpsPos = { 100, 64, 200 },
+  files = { ["places.lua"] = 'return {\n  { name = "shed", x = 110, y = 64, z = 205 },\n}\n' },
+  inputs = {
+    { key = KEYS.down }, { key = KEYS.enter },   -- a base place, below their own
+    { key = KEYS.enter },                        -- landing zone: clear
+    { key = KEYS.enter },                        -- confirm
+    { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+check("their own saved place nearby is not offered as a platform - nobody checked it",
+  not has(own, "PLATFORM NEARBY") and not has(own, "NEAREST PLATFORM") and has(own, "LANDING ZONE"))
+
+print("how many units are free")
+local fr = run(world({ inputs = ride(), free = 2 }), "hail.lua", "kiosk")
+check("the list says how many units are available", has(fr, "2 UNITS AVAILABLE"))
+local up = fr.text:upper()
+local ci = up:find("CONFIRM", 1, true) or 1
+local confirmText = up:sub(ci, up:find("REQUESTING UNIT", ci, true) or #up)
+check("and so does the confirm screen", confirmText:find("2 UNITS AVAILABLE", 1, true) ~= nil and fr.request ~= nil)
+local one = run(world({ inputs = ride(), free = 1 }), "hail.lua", "kiosk")
+check("one is one UNIT", has(one, "1 UNIT AVAILABLE"))
+local none = run(world({ inputs = ride(), free = 0 }), "hail.lua", "kiosk")
+check("none free: the list says all units are committed", has(none, "ALL UNITS COMMITTED"))
+check("and confirm says they will hold in line", has(none, "YOU WILL HOLD IN LINE"))
+check("a base that does not say shows nothing, not a guess", not has(w, "UNITS AVAILABLE")
+  and not has(w, "ALL UNITS COMMITTED"))
 
 print("typing coordinates")
 local typed = run(world({ inputs = {
