@@ -46,6 +46,14 @@
 --                      and stopped was enough to start the descent, wherever
 --                      it had stopped (02-35-46). Now it closes to 4 blocks
 --                      first; LAND_SETTLE_MAX still forces it down after 10 s
+--   LAND_SETTLE_MAX 40 the 10 s default ran out on every ride of 2026-09-25:
+--                      the brake hands over 45-111 blocks short and already
+--                      drifting back at ~10 b/s, closing that takes 12-16 s,
+--                      so it dropped 12-33 blocks out still moving 7-13 b/s
+--                      and touched down 7-19 off (01-03-25, 01-24-01,
+--                      01-40-27). The fall itself can hardly correct (0.12
+--                      thrust floor, 8 deg cap, 3 in the flare). 40 s lets
+--                      it close to 4 blocks and stop before it drops.
 return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
@@ -53,6 +61,7 @@ return {
   CRUISE_DEG = 58,
   CRUISE_BODY_LEAN = 30,
   LAND_SETTLE_XZ = 4,
+  LAND_SETTLE_MAX = 40,
   BRAKE_TURN_POWER = 0.55,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1280",
 }
