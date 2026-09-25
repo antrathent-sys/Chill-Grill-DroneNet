@@ -1,0 +1,2 @@
+t,phase,height,err,pwr,gps,x,z,ex,ez,vxw,vzw,hdg,rawhdg,mothdg,tp,tr,p,r,vx,vy,sched,fwdRaw,latRaw,vrtRaw,fwdH,latH,energy,fuel,sat,yerr,yrate,ydem,athr,amax,vv,dockc,npers,chg,nav1,nav3,nav2,trihdg,trires,aimq,wx,wz
+0.00,end:/fly.lua:3482: tumbled (98; -99) - thrust cut. Sable rates x -0 y -1 z -0 deg/s [lean 58 body 30 braketurn 0.55],0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
