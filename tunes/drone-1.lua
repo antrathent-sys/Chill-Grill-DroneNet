@@ -54,6 +54,13 @@
 --                      01-40-27). The fall itself can hardly correct (0.12
 --                      thrust floor, 8 deg cap, 3 in the flare). 40 s lets
 --                      it close to 4 blocks and stop before it drops.
+--   LAND_REST_GAP 7.5  the altimeter rests 5.5-7.5 above the pad block (rules
+--                      5.5, spawn 6.5, c_district 7.5), and the descent aimed
+--                      at the block: every pad landing of 2026-09-25 touched
+--                      down 3.5-5.5 blocks before its flare, at 14-18 b/s
+--                      (04-02-28, 04-31-17, 04-35-26, 04-38-49). The largest
+--                      gap, so the worst case is ~2 s more creep, never an
+--                      early contact.
 return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
@@ -62,6 +69,7 @@ return {
   CRUISE_BODY_LEAN = 30,
   LAND_SETTLE_XZ = 4,
   LAND_SETTLE_MAX = 40,
+  LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1280",
 }

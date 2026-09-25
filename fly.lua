@@ -241,6 +241,13 @@ local CFG = {
                                       -- all the way down and consistent with LAND_DECEL.
   LAND_CREEP = 2,                     -- b/s final approach
   LAND_GROUND = nil,                  -- ground altitude; nil = wherever the program started
+  LAND_REST_GAP = 0,                  -- blocks the altimeter reads above the GROUND BLOCK when the craft
+                                      -- stands on it. A typed or recorded y is that block, so a landing
+                                      -- given one aims this much higher. At 0 every pad landing of
+                                      -- 2026-09-25 touched down 3.5-5.5 blocks before its flare, at
+                                      -- 14-18 b/s (drone-1 rests 5.5-7.5 above pad y). Per airframe:
+                                      -- tunes/<drone>.lua. Not applied to a ground taken from the start
+                                      -- height - that is already an altimeter reading.
   CRUISE_Y = 350,                     -- default transit altitude for go, dock, deliver and land-at-a-place (Alex, 2026-09-18)
   LAND_CRUISE_UP = 60,                -- minimum clearance above the destination ground, if CRUISE_Y is lower
   ATT_MIN_LAND = 0.12,                -- thrust floor while landing: about half hover, so it can descend
@@ -1890,7 +1897,7 @@ else
       -- the descent profile knows where to start braking.
       mode = "go" landAtEnd = true
       tgtX, tgtZ = blockCentre(ax), blockCentre(az)
-      landGround = ay
+      landGround = ay + CFG.LAND_REST_GAP
       goal = tonumber(cruiseArg) or math.max(CFG.CRUISE_Y, ay + CFG.LAND_CRUISE_UP)
       dashDeg = CFG.CRUISE_DEG
     elseif ax and ay then

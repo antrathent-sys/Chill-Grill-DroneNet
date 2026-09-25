@@ -266,6 +266,16 @@ SELFTEST = [
     # physics actually cruises to.
     ("land at xyz", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1"},
      ["climb", "cruise", "brake", "land", "touchdown"]),
+    # the typed y is the GROUND BLOCK and the altimeter rests LAND_REST_GAP
+    # above it (7.5 here: the mock's floor is 64, the block 56.5). Aiming at
+    # the block itself touched down 3.5-5.5 blocks early at 14-18 b/s on
+    # every pad landing of 2026-09-25. CONTACT_CHECK: descending no faster
+    # than that at touchdown. The mock's flare lags more than the real craft
+    # (8.6 b/s even with the ground exact), so this proves the offset is
+    # used - 12.7 b/s without it - not what the real touchdown will be.
+    ("land on a block, rest gap", ["land", "100", "56.5", "50"],
+     {"TMAX": "200", "NO_PAD": "1", "TUNE": "return { LAND_REST_GAP = 7.5 }", "CONTACT_CHECK": "10.5"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
 ]
 
 
@@ -301,7 +311,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL"):
+              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -511,6 +521,21 @@ def main(argv=None):
             if env.get("UNDOCK_CHECK"):
                 tok, extra = undock_check(logpath)
                 ok = ok and tok
+            if env.get("CONTACT_CHECK"):
+                import csv as _csv
+                with open(logpath, encoding="utf-8") as fh:
+                    rs = [r for r in _csv.DictReader(fh) if not r["phase"].startswith("end")]
+                rest = float(rs[-1]["height"])
+                k0 = next((k for k, r in enumerate(rs) if r["phase"] == "land"), 0)
+                i = next((k for k, r in enumerate(rs) if k >= k0 and abs(float(r["height"]) - rest) < 0.3), len(rs) - 1)
+                # from the altitude itself: the mock does not report a
+                # vertical velocity, and in game the altitude is the truth
+                j = max(0, i - 3)
+                dt = float(rs[i]["t"]) - float(rs[j]["t"])
+                hit = (float(rs[i]["height"]) - float(rs[j]["height"])) / dt if dt > 0 else 0.0
+                tok = -hit <= float(env["CONTACT_CHECK"])
+                ok = ok and tok
+                extra = "touched down at %.1f b/s" % -hit
             if env.get("FALL_CHECK"):
                 import csv as _csv
                 with open(logpath, encoding="utf-8") as fh:
