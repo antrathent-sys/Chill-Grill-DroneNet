@@ -9,4 +9,5 @@
 -- safe to edit by hand.
 return {
   { name = "c_district", kind = "pad", x = 4242, y = 63, z = -3269 },
+  { name = "spawn", kind = "pad", x = 958, y = 71, z = 505 },
 }
