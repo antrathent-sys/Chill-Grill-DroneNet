@@ -356,3 +356,13 @@ side A: none   side B: none
  54.8 DONE     loaded - side A has no silo now
 load done in 55 s
 side A: none   side B: none
+---- test-dock  09-25 11:48 ----
+---- load side A ----
+  1.6 SILO     sensor: no hit - no silo
+  1.6 PLACE    placing a silo on side A
+  8.6 PLACE    sensor: hit create_connected:item_silo at 0.52 - a silo
+  8.6 ASSEMBLE assembling it
+ 16.6 FILL     filling until the storage stops moving
+ 47.1 FILL     called off: nothing moved in 30 s - is there anything to move?
+called off at fill: nothing moved in 30 s - is there anything to move?
+side A: empty   side B: none
