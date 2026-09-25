@@ -131,6 +131,18 @@ check("...and one too long", (pads.check({ name = "p", x = 1, y = 2, z = 3,
 local saved = pads.serialise({ { name = "home", kind = "dock", x = 1, y = 2, z = 3, label = "Cinder HQ" } })
 check("it survives being written and read back", saved:find('label = "Cinder HQ"', 1, true) ~= nil)
 
+print("Cinder HQ is always there")
+local withHQ, added = pads.withHome({ { name = "pier", kind = "dock", x = 1, y = 2, z = 3 } })
+check("a list with no home gets the standard one, first", added and withHQ[1].name == "home" and withHQ[2].name == "pier")
+check("...at the base dock, as a dock", withHQ[1].x == 1892 and withHQ[1].y == 91 and withHQ[1].z == 365
+  and withHQ[1].kind == "dock")
+check("...shown as CINDER HQ", pads.label(withHQ[1]) == "CINDER HQ")
+local own, addedOwn = pads.withHome({ { name = "home", kind = "dock", x = 5, y = 6, z = 7 } })
+check("a list with its own home keeps it: the file wins", not addedOwn and #own == 1 and own[1].x == 5)
+local empty = pads.withHome(nil)
+check("even no list at all has it", #empty == 1 and empty[1].name == "home")
+check("the standard one passes the same check as any place", pads.check(pads.HOME_DEFAULT) ~= nil)
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("pads tests failed", 0) end

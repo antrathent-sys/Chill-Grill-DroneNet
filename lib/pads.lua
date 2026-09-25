@@ -39,6 +39,22 @@ pads.VERSION = 1
 -- home. The brand itself is in lib/hailui.lua (M.NAME).
 pads.HOME = "home"
 pads.HOME_LABEL = "CINDER HQ"
+-- Where it is, when a base's own list does not say: the base dock, the same
+-- block fly.lua's HOME_X/Y/Z name (Alex, 2026-09-18). Cinder HQ is on every
+-- terminal's list whatever a base's pads.lua holds, so a base that is rebuilt
+-- or wiped never loses it (it vanished once, 2026-09-25). A home in the file
+-- wins over this.
+pads.HOME_DEFAULT = { name = "home", kind = "dock", x = 1892, y = 91, z = 365 }
+
+--- The list with the home dock in it: as the list has it, or the standard
+-- one added at the front. Returns the list and whether home was added.
+function pads.withHome(list)
+  list = list or {}
+  for _, p in ipairs(list) do if p.name == pads.HOME then return list, false end end
+  local out = { pads.check(pads.HOME_DEFAULT) }
+  for _, p in ipairs(list) do out[#out + 1] = p end
+  return out, true
+end
 pads.LABEL_MAX = 18
 
 --- What to call a place on a screen: its own label, the home dock's standard

@@ -250,6 +250,13 @@ local function base(opts)
   env.colours = setmetatable({}, { __index = function() return 1 end })
   env.colors = env.colours
   env.textutils = { formatTime = function() return "12:00" end }
+  -- opts.push: this base can push to the repo (http, upload.lua, a shell)
+  w.ran = {}
+  if opts.push then
+    env.http = {}
+    env.shell = { run = function(...) w.ran[#w.ran + 1] = table.concat({ ... }, " ") return true end }
+    w.files["upload.lua"] = "-- pretend"
+  end
 
   -- the event loop
   env.os = setmetatable({
@@ -470,6 +477,32 @@ check("...and so is a distress call", w.err == nil
   and (w.files["incidents.csv"] or ""):find("pickup flight failed", 1, true), w.err or w.files["incidents.csv"])
 w = base({ args = { "sos" }, files = { ["incidents.csv"] = w.files["incidents.csv"] } }):run()
 check("ops sos lists them for recovery", w.err == nil and has(w, "drone-1") and has(w, "1900 70 380"), w.err or w.text)
+
+print("Cinder HQ, always")
+local NOHOME = 'return { { name = "pier", x = 1950, y = 70, z = 400, kind = "dock" } }'
+w = base({ args = {}, files = { ["pads.lua"] = NOHOME }, keysAt = { { 8, "q" } } })
+w.later[#w.later + 1] = { at = 3, ev = { "rednet_message", 12, F.placesAsk("p-hq"), F.PROTO } }
+w = w:run()
+local sent
+for _, a in ipairs(w.answered) do if a.msg and a.msg.type == "places.list" then sent = a.msg.places end end
+check("a base whose list has no home still offers it to every terminal", w.err == nil and sent
+  and sent:find("home:1892:365:91", 1, true) ~= nil and sent:find("pier", 1, true) ~= nil, w.err or tostring(sent))
+w = base({ args = { "place" }, files = { ["pads.lua"] = NOHOME } }):run()
+check("ops place shows it, marked as the standard one", w.err == nil and has(w, "CINDER HQ  (standard)"), w.err or w.text)
+w = base({ args = { "place" }, files = { ["pads.lua"] = "return {}" } }):run()
+check("...even with no places at all", w.err == nil and has(w, "(standard)"), w.err or w.text)
+
+print("places kept in the repo")
+w = base({ args = { "place", "add", "farm", "1700", "70", "300", "pad" }, push = true }):run()
+check("adding a place pushes the list to this machine's folder", w.err == nil
+  and w.ran[1] == "upload sync pads.lua machines/base/pads.lua" and has(w, "kept in the repo"), w.err or w.ran[1])
+w = base({ args = { "place", "del", "pier" }, push = true }):run()
+check("...and so does removing one", w.ran[1] == "upload sync pads.lua machines/base/pads.lua")
+w = base({ args = { "place", "label", "pier", "Cinder", "Docks" }, push = true }):run()
+check("...and naming one", w.ran[1] == "upload sync pads.lua machines/base/pads.lua")
+w = base({ args = { "place", "add", "farm", "1700", "70", "300" } }):run()
+check("with nothing to push with, it says the place is NOT kept, and how", has(w, "NOT kept in the repo")
+  and (w.files["pads.lua"] or ""):find("farm", 1, true) ~= nil, w.text)
 
 print("what places are called")
 w = base({ args = { "place" } }):run()

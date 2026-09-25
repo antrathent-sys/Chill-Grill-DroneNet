@@ -25,6 +25,11 @@
 --                                         text clears it. The home dock is
 --                                         CINDER HQ without being told
 --   ops place del <name>                  take one off the list
+--   ops place keep                        push this list to the repo again
+--                 every change is pushed to machines/<label>/pads.lua, and
+--                 startup puts it back, so places survive a rebuilt computer;
+--                 CINDER HQ is always offered, at the base dock, even when
+--                 the list does not have it
 --   ops sos [n]          the last n incidents: every unit that went down or
 --                        silent, with where it was, for recovery
 --   ops load ...         the loading station at the dock: silos placed, filled,
@@ -429,7 +434,8 @@ local function padsFresh()
   end
   if stamp == padStamp then return end
   padStamp = stamp
-  pads = padsLib.load("pads.lua", fs) or {}
+  -- with Cinder HQ always in it: the one place every terminal must offer
+  pads = padsLib.withHome(padsLib.load("pads.lua", fs) or {})
 end
 padsFresh()
 local function padByName(name)
@@ -1055,6 +1061,23 @@ if cmd == "place" then
   local P = dofile("lib/pads.lua")
   local list = P.load("pads.lua", fs) or {}
   local sub = (args[2] or "list"):lower()
+  -- Every change goes to the repo too, in this machine's own folder, and
+  -- startup puts it back on every boot - so the places you build around the
+  -- world are not lost with the computer they were typed into.
+  local function keep()
+    local okM, MACHINE = pcall(dofile, "lib/machine.lua")
+    local folder = okM and type(MACHINE) == "table" and MACHINE.folder(os.getComputerLabel and os.getComputerLabel())
+    if not folder then
+      print("NOT kept in the repo: label this computer first (label set base), then ops place again")
+      return
+    end
+    if not (fs.exists("upload.lua") and http and shell) then
+      print("NOT kept in the repo: needs http, upload.lua and a .ghtoken here")
+      return
+    end
+    local okU = pcall(shell.run, "upload", "sync", "pads.lua", folder .. "/pads.lua")
+    print(okU and ("kept in the repo: " .. folder .. "/pads.lua") or "the push to the repo failed - try ops place keep")
+  end
   if sub == "add" then
     local name, x, y, z = args[3], tonumber(args[4]), tonumber(args[5]), tonumber(args[6])
     if not (name and x and y and z) then
@@ -1071,6 +1094,7 @@ if cmd == "place" then
     local okW, whyW = P.save("pads.lua", list, fs)
     print(okW and string.format("%s (%s) is at %d %d %d", entry.name, entry.kind, entry.x, entry.y, entry.z)
                or ("could not save: " .. tostring(whyW)))
+    if okW then keep() end
     return
   elseif sub == "label" then
     -- what the terminals call it. The name stays what every command uses.
@@ -1088,25 +1112,29 @@ if cmd == "place" then
     local okW, whyW = P.save("pads.lua", list, fs)
     if not okW then print("could not save: " .. tostring(whyW)) return end
     print(string.format("%s is shown as %s", name, P.label(okL)))
+    keep()
     return
   elseif sub == "del" then
     if not args[3] then print("ops place del <name>") return end
     list = P.remove(list, args[3]:lower())
     local okW = P.save("pads.lua", list, fs)
     print(okW and ("removed " .. args[3]:lower()) or "could not save pads.lua")
+    if okW then keep() end
+    return
+  elseif sub == "keep" then
+    keep()
     return
   end
-  if #list == 0 then print("no places yet - ops place add <name> <x> <y> <z>") return end
+  local shown, standard = P.withHome(list)
   print(string.format("%-12s %-4s %7s %5s %7s  %s", "PLACE", "KIND", "X", "Y", "Z", "SHOWN AS"))
-  for _, p in ipairs(list) do
-    local shown = P.label(p)
-    print(string.format("%-12s %-4s %7d %5d %7d  %s", p.name, p.kind or "dock", p.x, p.y or 0, p.z,
-      shown ~= p.name:upper() and shown or ""))
+  for _, p in ipairs(shown) do
+    local as = P.label(p)
+    print(string.format("%-12s %-4s %7d %5d %7d  %s%s", p.name, p.kind or "dock", p.x, p.y or 0, p.z,
+      as ~= p.name:upper() and as or "", (standard and p.name == P.HOME) and "  (standard)" or ""))
   end
-  if not P.get(list, P.HOME) then
+  if standard then
     print("")
-    print("no home dock yet - it is the one place everything knows, shown to")
-    print("customers as " .. P.HOME_LABEL .. ":  ops place add " .. P.HOME .. " <x> <y> <z> dock")
+    print(P.HOME_LABEL .. " is always offered, at the base dock. To move it: ops place add home <x> <y> <z> dock")
   end
   print("")
   print("a drone lands at a pad and docks at a dock. terminals pick these up")
