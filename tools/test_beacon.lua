@@ -239,7 +239,7 @@ check("Q stops it", w.text:find("beacon stopped", 1, true) ~= nil and #w.runs ==
 print("docked or idle")
 w = run(drone({ velocity = { x = 2, y = 0, z = 0 } }))
 check("moving, no pad name, not charging: idle", tlm(w)[2].phase == "idle" and tlm(w)[2].dock == 0)
--- docked is latched on a dock; landed is still on the ground, on nothing
+-- docked is on a dock; landed is still on the ground anywhere else
 local STILL = { x = 0, y = 0, z = 0 }
 local AT_HOME = '  HOME_X = 1892, HOME_Y = 91, HOME_Z = 365,\n  DOCK_SIDE = "back",'
 local FAR_HOME = '  HOME_X = 100, HOME_Y = 64, HOME_Z = 100,\n  DOCK_SIDE = "back",'
@@ -249,9 +249,10 @@ check("still, nothing latched: LANDED from the second reading, not docked", t[1]
   and t[2].phase == "landed" and t[3].dock == 0, t[2].phase)
 w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = AT_HOME } }))
 t = tlm(w)
-check("still, connector held out, on the home dock: docked", t[2].phase == "docked" and t[3].dock == 1, t[2].phase)
+check("still on the home dock: docked", t[2].phase == "docked" and t[3].dock == 1, t[2].phase)
 w = run(drone({ velocity = STILL, cycles = 3, files = { ["fly.lua"] = AT_HOME } }))
-check("on the home dock with the connector NOT held - fly land put it there: landed", tlm(w)[2].phase == "landed")
+check("still on the home dock with the connector signal LOW - a reboot drops it, the pad keeps the latch: docked",
+  tlm(w)[2].phase == "docked", tlm(w)[2].phase)
 w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = FAR_HOME } }))
 check("connector held but nowhere near a dock: landed", tlm(w)[2].phase == "landed" and tlm(w)[3].dock == 0)
 w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = FAR_HOME,
@@ -260,9 +261,6 @@ check("a dock from pads.lua counts as a dock", tlm(w)[2].phase == "docked")
 w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = FAR_HOME,
   ["pads.lua"] = 'return { { name = "field", kind = "pad", x = 1892, y = 70, z = 365 } }' } }))
 check("a landing pad is not a dock: still on one is landed", tlm(w)[2].phase == "landed")
-w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = AT_HOME,
-  ["tune.lua"] = 'return { DOCK_SIDE = "top" }' } }))
-check("tune.lua moving the connector's face is followed", tlm(w)[2].phase == "landed")
 w = run(drone({ charging = true }))
 check("charging is docked", tlm(w)[2].phase == "docked")
 w = run(drone({ files = { ["pads.lua"] = 'return { { name = "home", x = 100, y = 64, z = -40 } }',

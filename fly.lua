@@ -3040,7 +3040,13 @@ local function flyLeg()
       -- Extend on entry, not on exit: the connector is magnet-assisted, so
       -- arming it while we settle over the pad lets it help pull the last
       -- half block in rather than waiting until we are already there.
-      if not dock.extended then dockExtend(true) dock.extended = true
+      -- Armed with it: a ferry starts by letting go of a dock, and the
+      -- release disarms. Left that way, nothing watched for the latch - on
+      -- the real pad (no name, no network change, no charge) only the frozen
+      -- pose tells, and it is only looked for while armed. 2026-09-25: three
+      -- ferries home sat latched at 1892.5 365.5, all velocities 0, and
+      -- "timed out" every capture.
+      if not dock.extended then dockExtend(true) dock.extended = true dock.armed = true
         print("connector extended") end
       -- sit over the pad until position and speed are both settled. Plain
       -- arithmetic on the shared pos table, no peripheral reads.

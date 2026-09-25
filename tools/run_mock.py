@@ -91,11 +91,11 @@ SELFTEST = [
     ("deliver", ["deliver", "100", "80", "50", "90"],
      {"TMAX": "300", "START_DOCKED": "1", "LEGS": "100.5,50.5;0.5,0.5",
       "STICKERS": "Create_Sticker_0:1", "DROP_CHECK": "Create_Sticker_0@100.5,50.5"},
-     # it comes home from the drop height, so the approach passes down through
-     # the lock window and the magnet takes hold during align - the same
-     # ending as "dock grabs early", reached honestly
+     # home the whole way: align, descend, capture. (It used to "dock" during
+     # align because the mock named the home pad whenever the connector was
+     # out, latched or not; fixed 2026-09-25.)
      ["climb", "cruise", "brake", "hold", "fly",
-      "climb", "cruise", "brake", "align", "docked"]),
+      "climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # the same round trip ending on another pad: `to x padY z` docks there,
     # the home pad untouched (the mock's second pad sits at 20.5,30.5)
     ("deliver to", ["deliver", "100", "80", "50", "90", "to", "20", "70", "30", "empty"],
@@ -110,10 +110,10 @@ SELFTEST = [
      {"TMAX": "400", "START_DOCKED": "1", "LEGS": "100.5,50.5;20.5,30.5;0.5,0.5",
       "STICKERS": "Create_Sticker_0:1,Create_Sticker_1:1",
       "DROP_CHECK": "Create_Sticker_0@100.5,50.5;Create_Sticker_1@20.5,30.5"},
-     # the second drop is close to home: the way back climbs and the magnet
-     # takes hold during align, as in "deliver"
+     # the second drop is close to home: the way back climbs, then the whole
+     # docking sequence, as in "deliver"
      ["climb", "cruise", "brake", "hold", "fly", "climb", "cruise", "brake", "hold", "fly",
-      "climb", "align", "docked"]),
+      "climb", "align", "descend", "capture", "docked"]),
     # more drops than silos is refused on the ground
     ("two drops, one silo", ["deliver", "100", "80", "50", "90", "and", "20", "80", "30"],
      {"TMAX": "30", "START_DOCKED": "1", "STICKERS": "Create_Sticker_0:1,Create_Sticker_1:0"}, []),
@@ -215,6 +215,13 @@ SELFTEST = [
      ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # a landing pad is only ever landed at: ferry and dock refuse it on the
     # ground, and `land <name>` flies there and lands with the pad's own y
+    # the real home pad: no name, no network change, no charge - only the
+    # frozen pose says it latched. A ferry's release at the start must not
+    # leave that unwatched (three ferries home "timed out" latched, 2026-09-25)
+    ("ferry to a silent pad", ["ferry", "depot", "90"],
+     {"TMAX": "150", "START_DOCKED": "1", "PADS": "depot:100,70,50",
+      "UNNAMED_PAD": "1", "NO_BRIDGE": "1", "NO_CHARGE": "1"},
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     ("ferry refuses a landing pad", ["ferry", "field", "90"], {"TMAX": "30", "PADS": "field:100,70,50:pad"}, []),
     ("dock refuses a landing pad", ["dock", "field", "90"], {"TMAX": "30", "PADS": "field:100,70,50:pad"}, []),
     ("land at a named pad", ["land", "field", "90"], {"TMAX": "150", "PADS": "field:100,70,50:pad"},
@@ -283,7 +290,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

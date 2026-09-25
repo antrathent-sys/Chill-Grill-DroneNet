@@ -185,7 +185,11 @@ _G.rednet = {
 }
 
 _G.redstone = {
-  setOutput = function(side, on) sim.rs[side] = on and true or false end,
+  setOutput = function(side, on)
+    -- a START_DOCKED run is latched on its home pad until the first release
+    if not on and sim.rs[side] then sim.letGo = true end
+    sim.rs[side] = on and true or false
+  end,
   getOutput = function(side) return sim.rs[side] or false end,
   getSides = function() return { "top", "bottom", "left", "right", "front", "back" } end,
 }
@@ -414,7 +418,8 @@ add("modular_accumulator_0", "modular_accumulator", {
   getCapacity = function() return 1000000 end,
   -- the pad feeds the craft only once latched; otherwise the thrusters drain it
   getEnergy = function()
-    sim.fe = sim.fe + (sim.docked and 4000 or -200)
+    -- NO_CHARGE: the real home pad, which does not feed the craft at all
+    sim.fe = sim.fe + (sim.docked and (os.getenv("NO_CHARGE") and 0 or 4000) or -200)
     sim.fe = math.max(0, math.min(1000000, sim.fe))
     return sim.fe
   end,
@@ -431,7 +436,9 @@ add("docking_connector_0", "docking_connector", {
     -- UNNAMED_PAD reproduces the real one: latched, but the name reads "".
     -- The only way to know is the network bridge, which is what fly.lua uses.
     if os.getenv("UNNAMED_PAD") then return "" end
-    if os.getenv("START_DOCKED") and sim.rs["bottom"] then return "TestPad" end
+    -- started latched on the home pad: named until the craft first lets go,
+    -- not every time the connector goes out again later in the flight
+    if os.getenv("START_DOCKED") and sim.rs["bottom"] and not sim.letGo then return "TestPad" end
     return sim.docked and "TestPad" or "" end,
 })
 -- three velocity sensors; 0 forward, 1 lateral, 3 vertical, signs per CFG

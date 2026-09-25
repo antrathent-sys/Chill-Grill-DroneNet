@@ -29,13 +29,15 @@
 -- Only one of beacon and fly sends at a time: the base refuses a counter that
 -- does not rise, and two senders sharing a key would interleave.
 --
--- Docked and LANDED are different things (Alex, 2026-09-25): docked is
--- latched on a dock - charging, and a loading station can reach it; landed is
--- sitting on the ground somewhere, on nothing. Both read exactly zero
+-- Docked and LANDED are different things (Alex, 2026-09-25): docked is on a
+-- dock - where a loading station can reach it; landed is sitting on the
+-- ground somewhere else, a landing pad or a field. Both read exactly zero
 -- velocity, so being still is not enough. Docked is: the connector names its
--- pad, or the accumulators are charging, or - still, with the connector held
--- out (fly leaves DOCK_SIDE high after docking and never raises it to land)
--- - within a few blocks of a known dock. Still and none of that: landed.
+-- pad, or the accumulators are charging, or still within a few blocks of a
+-- known dock. Still anywhere else: landed.
+-- The connector signal is NOT asked: a reboot (or a world reload) drops every
+-- CC output, and the pad keeps the latch regardless - a craft latched on the
+-- home dock read LANDED after the reboot that pulled an update.
 
 local link = dofile("lib/link.lua")
 local SEC = dofile("lib/seclink.lua")
@@ -77,11 +79,9 @@ local thrs = { peripheral.find("vector_thruster") }
 local dockP = peripheral.find("docking_connector")
 
 -- home: a pad called home in pads.lua, else HOME_X/Y/Z in fly.lua. And every
--- dock this drone knows, and the face its connector is held by - for telling
--- docked from landed.
+-- dock this drone knows - for telling docked from landed.
 local home
 local docks = {}          -- { x, z } of every dock, home included
-local latchSide           -- fly's DOCK_SIDE, when it is a face of this computer
 do
   local okP, P = pcall(dofile, "lib/pads.lua")
   if okP and type(P) == "table" then
@@ -105,8 +105,6 @@ do
     if hx then home = { x = tonumber(hx) + 0.5, z = tonumber(hz) + 0.5 } end
   end
   if home then docks[#docks + 1] = home end
-  -- tune.lua may move it; a relay or a slave (a table) cannot be read from here
-  latchSide = read("tune.lua"):match('DOCK_SIDE%s*=%s*"(%a+)"') or src:match('DOCK_SIDE%s*=%s*"(%a+)"')
 end
 local DOCK_NEAR = 4       -- blocks from a dock that count as on it
 
@@ -150,18 +148,13 @@ local function status()
   run.lastFE = stored
   if x and vx == 0 and vy == 0 and vz == 0 then run.frozen = run.frozen + 1 else run.frozen = 0 end
   local still = run.frozen >= 2
-  local held = false
-  if latchSide and redstone and redstone.getOutput then
-    local okR, on = pcall(redstone.getOutput, latchSide)
-    held = okR and on == true
-  end
   local onDock = false
   if x then
     for _, d in ipairs(docks) do
       if (d.x - x) ^ 2 + (d.z - z) ^ 2 <= DOCK_NEAR * DOCK_NEAR then onDock = true break end
     end
   end
-  local docked = (type(name) == "string" and name ~= "") or charging or (still and held and onDock)
+  local docked = (type(name) == "string" and name ~= "") or charging or (still and onDock)
   local landed = still and not docked
   run.landed = landed
   -- in distress the phase says so on every packet, so the base's board shows
