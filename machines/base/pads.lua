@@ -12,4 +12,5 @@ return {
   { name = "spawn", kind = "pad", x = 958, y = 71, z = 505 },
   { name = "rules", kind = "pad", x = -669, y = 64, z = 2828 },
   { name = "un", kind = "pad", x = 1285, y = 93, z = -22 },
+  { name = "kodiak", kind = "pad", x = 2400, y = 72, z = -3269 },
 }
