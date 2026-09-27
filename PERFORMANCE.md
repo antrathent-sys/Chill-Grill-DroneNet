@@ -158,6 +158,140 @@ already been proved at, and 62° tumbles.
 - Landings now touch down at 2.4 b/s median, every one under 5, and 30 of 31
   within 5 blocks of the mark.
 
+### Both descent tumbles, in detail
+
+They are not the same fault, and between them they say what the descent can
+and cannot be pushed to.
+
+**09-26 05-06-30** arrived too fast at a ground it did not know. Still doing
+43 b/s at Y 133 and 26 b/s twelve blocks before contact, it needed 14.4 b/s^2
+to stop and the craft can do 12. It hit and tipped. An open-ground landing
+guesses the ground from the height it took off at; get that wrong low and the
+profile is still diving when the real ground arrives. `LAND_REST_GAP` now aims
+7.5 blocks higher, which helps, but the guess itself is the hazard.
+
+**09-27 11-17-57** lost it in clean air at Y 265, descending 31 b/s on the
+0.12 thrust floor. Attitude authority is thrust times lean, so at the floor
+there is almost none: a disturbance appeared, the mixer asked for 0.50 against
+the 0.25 it had, and the craft departed.
+
+The second one is the answer to "can we descend faster": **a fast descent is
+already the most fragile part of the flight**, because the way to descend fast
+is to take the thrust away, and thrust is what holds the attitude.
+
 The honest summary: the machine is flying near the edge of what its attitude
 control can hold, and every remaining speed lever pushes on that edge. The
-time levers (brake, altitude) do not, which is why they come first.
+time levers do not, which is why they come first.
+
+# The plan
+
+Written 2026-09-28. One change per flight, in this order, because stacked
+changes cost seven flights once before and nobody could say which one did it.
+
+## What we are aiming at
+
+| | now | target |
+|---|---|---|
+| fixed cost of a trip | 64 s | **48 s** |
+| marginal speed | 171 b/s | leave it alone for now |
+| tumbles | 4 in 61 (6.6%) | **under 2%** |
+| landing miss | 0.6 blocks median | hold it |
+| touchdown | 2.4 b/s median | hold it under 5 |
+
+Reliability is a first-class number here, not a footnote. A passenger service
+is judged on the flight that went wrong, and 6.6% is one bad flight in fifteen.
+
+## How each change is judged
+
+1. Fly it. **Ten landings minimum** before reading anything: the trip-time fit
+   has a 2 s error, so a 5 s change needs a handful of trips to show.
+2. `python tools/fleetstats.py --split <the date the change went in>`.
+3. Pass means the number it targeted moved, **and** miss, touchdown speed and
+   tumbles did not get worse.
+4. Two regressions in a row and it goes back to the last known-good tune.
+
+## The queue
+
+**1. Brake on the mark** - committed 7986a21, not yet flown.
+The refitted map. Expected: the gap the landing has to close drops from 112
+blocks to about 24, and with it most of the 22 s of crawling. **Worth about
+12 s of the 64.** Watch for: a brake that overshoots more than 60 blocks and
+triggers a re-cruise, which would cost far more than it saves.
+
+**2. Keep the height the brake gained** - committed a98fa8e, not yet flown.
+Expected: no more zero-thrust coasting at the start of an approach. Only the
+20% of flights that balloon will show it, so read it on those. **About 5 s on
+those flights.** Watch for: an approach that starts so high the descent
+overruns the `LAND_MAX_T` timeout.
+
+**3. `TOUCH_LOG_T` 3.0 -> 1.5** - not written yet.
+Three seconds of every trip are spent logging after the thrust is already off.
+It earned its keep catching the false touchdown, and that bug is now fixed and
+guarded in the mock. **1.5 s, near zero risk** - the craft is on the ground and
+the thrusters are cold. Do it once 1 and 2 have been read.
+
+**4. `LAND_DECEL` 10 -> 12** - not written yet.
+The profile plans to stop at 10 b/s^2 and the craft actually arrests at 11.9
+median, 12.9 best, so the descent is held back by a plan more conservative than
+the machine. **1.5-2 s of the 13 s descent.** The risk is real: 15 was tried
+before and the craft arrived faster than the profile intended, and an arrival
+that does not finish its arrest is what tipped 05-06-30. Pass requires
+touchdown speed to stay under 5 b/s.
+
+**5. The dock approach** - needs 1 flown first.
+Align is 27.9 s against the land path's 34.6, and most of it is the same
+closing problem, so measure it after the brake change before touching
+`DOCK_SETTLE_T` (2.0 s) or `DOCK_ALIGN` (2.0 blocks). There may be nothing
+left to win here.
+
+**6. The climb** - measure first, no change yet.
+250 blocks in 8.5 s, peaking at 56 b/s, with the mixer saturated on a third of
+the rows. `CLIMB_RATE` is 100 and not the cap; the ascent is governed by
+`DECEL`, the same figure the descent uses, at about 6.3 b/s^2. Stopping a climb
+is easier than stopping a fall - gravity and drag both help - so the ascent
+could plausibly plan on more. **Perhaps 1.5 s.** Measure the deceleration
+actually achieved at the top of a climb before proposing a number, and note
+`DECEL` is shared with every other altitude change.
+
+**7. Cruise acceleration** - the big one, and the last one.
+Reaching 186 b/s takes 30 s, so nothing under about 2,500 blocks ever sees top
+speed. The instability that sets the 58 deg ceiling is speed-dependent: yaw
+rate is 9.6 deg/s rms at 68 b/s and 25 at 186. That suggests **leaning harder
+while still slow and easing back as speed builds** - a lean schedule rather
+than one number. It is the only remaining lever on the marginal speed without
+new hardware, and it is the one most likely to end in the sea. Do not start it
+until 1-4 are flown and stable, and fly it over land, short, with a full log.
+
+## Ruled out
+
+- **Cruise altitude.** 350 is the safety altitude (Alex, 2026-09-28). The 21 s
+  of climb and descent it costs stays.
+- **Lowering the thrust floor** (`ATT_MIN_LAND` 0.12) to fall faster. Thrust
+  times lean is the only attitude authority there is, and 11-17-57 departed at
+  the floor in clean air. If anything this wants to go up during a fast
+  descent, not down.
+- **`CRUISE_DEG` past 58.** 62 was flown and diverges on this frame.
+- **More thrust.** There is half the throttle range spare at cruise; it is not
+  the limit.
+
+## Not speed, but on the same list
+
+- **Open-ground ground height.** The landing guesses the ground from the
+  takeoff height when nobody surveyed the far end, and guessing low is what put
+  05-06-30 into the dirt. Platforms carry a real y; open ground does not. This
+  is a reliability item that also happens to be the difference between a
+  landing and an incident.
+- **Attitude margin on descent.** Median worst tilt is 76 deg against a cut at
+  85. Worth knowing whether a higher thrust floor through the fast part of a
+  descent buys margin for a second or two of trip time.
+
+## Results
+
+Fill this in as each change is flown. `fleetstats --split <date>` gives every
+column.
+
+| change | flown | trips | trip constant | miss | touchdown | tumbles |
+|---|---|---|---|---|---|---|
+| baseline 09-26/27 | - | 61 | 64 s | 0.6 | 2.4 b/s | 4 |
+| 1 brake map | | | | | | |
+| 2 keep the height | | | | | | |
