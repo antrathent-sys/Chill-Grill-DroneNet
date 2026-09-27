@@ -1,3 +1,129 @@
+# Open work
+
+Everything not done, newest review first. The design for each lives in its own
+document; this is the index and the running order, so there is one place to
+look. Below this section is the flight-by-flight history that produced it.
+
+Reviewed 2026-09-28.
+
+## Waiting on a decision
+
+Nothing below them can be finished until these are answered. All five are set
+out in [INFRASTRUCTURE.md](INFRASTRUCTURE.md), and the parcel ones in
+[ORDERS.md](ORDERS.md).
+
+1. After the chunk test: do we promise service while Alex is offline?
+2. May the logs move to a private repo and the current write token be revoked?
+3. Platforms only for customers, or open ground as a paid extra?
+4. What do passengers risk, and what is refunded when a ride fails?
+5. Which hubs and what hours at launch?
+6. Parcels: who may create an order, when is it paid, what happens to a failed
+   delivery, how long are records kept?
+
+## Before more customers
+
+| | what | where |
+|---|---|---|
+| 1 | **The chunk test.** A 3,000-block job with no player near, at two speeds. Decides whether the service can run offline at all. | INFRASTRUCTURE.md risk 1 |
+| 2 | **Private logs repo**, device tokens scoped to it, this token revoked. Today any stolen drone can push code every machine runs. | risk 3 |
+| 3 | **Signed, pinned releases** checked in `startup` (ed25519 is in ccryptolib; we ship only part of it). | risk 3 |
+| 4 | **World files.** Places, home and keys per world. A test-world drone was sent to the server HQ because home lives in `fly.lua`. | risk 6 |
+| 5 | **The base journal.** Jobs, the queue and loads survive an ops restart. | ORDERS.md |
+| 6 | **Auto-suspend and a recovery runbook.** The service must say when it cannot promise a ride. | risk 7 |
+| 7 | **Fix the GPS array.** Run `gpscheck <x> <y> <z>` on a known block; a pocket fix at the rules pad was 13.5 blocks and 65 Y out. Open-ground pickups still ride on it. | risk 4 |
+| 8 | **A ride ending at a dock should ferry onto it, not land beside it.** One 01-24 ride set down on the dock structure at 23 degrees. | this session |
+| 9 | **An abort after a unit is assigned tells nobody** - the drone keeps coming. | queue work, 84a48c7 |
+
+## Performance
+
+The measured picture and the ordered flight queue are in
+[PERFORMANCE.md](PERFORMANCE.md). Two changes are committed and unflown (the
+refitted brake map, keeping the height the brake gains); `TOUCH_LOG_T` and
+`LAND_DECEL` are next, and the cruise lean schedule is last. Targets: the 64 s
+fixed cost of a trip down to 48, tumbles from 6.6% to under 2%.
+
+## Service, once the list above is clear
+
+- **Deliveries.** Designed in [DELIVERIES.md](DELIVERIES.md) and largely
+  built: `lib/deliver.lua`, `lib/cargo.lua`, `lib/loader.lua`, `lib/dockseq.lua`
+  and `depot.lua` all exist, and the A side of the test dock places, assembles,
+  fills, pushes and retracts in game. Left: the B side (`depot seq load B`),
+  wiring the sequence to the base so a real drone sticks and releases, what
+  happens to a silo when the pusher goes down with no drone there, and
+  `relay_5`, which nothing has explained.
+- **Walk-up stations.** Designed in [STATIONS.md](STATIONS.md), not built: a
+  touch monitor and a depositor at a dock, so somebody with no pocket computer
+  can pick a place, call a unit for free and pay once it arrives. `taxipad.lua`
+  is the unsealed ancestor and is refused by a known-only base.
+- **The order model.** [ORDERS.md](ORDERS.md) proposes one shape for rides,
+  parcels and loads with one journal behind them. `lib/orders.lua` is unwritten
+  and the decisions above gate it.
+- **Energy against the job.** `lib/mission.lua` plans a trip against the
+  battery and a reserve, and nothing calls it. A landed unit is now dispatched
+  on a 40% floor and no plan at all. (Range itself is not the worry - 0.2% of a
+  battery per 1,000 blocks - but a unit that cannot get home still should not
+  take the job.)
+- **The HQ pad does not charge.** The battery sat flat at 92% while latched.
+  Worth knowing whether that is the pad or the craft.
+
+## Flashy
+
+**Navigation lights.** Gadgets & Gizmos laser pointers are a CC peripheral
+(`laser_pointer`) with `setColor(argb)`, `setRainbow(bool)`, `getRange()`,
+`isFiring()` and `getAxis()`. Aviation convention is red to port, green to
+starboard, white strobe at the tail, which reads as deliberate rather than
+decorative. Colour is a single ARGB number, so pack it as
+`0xFF000000 + r*65536 + g*256 + b`.
+
+Worth driving from the phase machine the same way chimes are: steady on the
+ground, slow strobe in cruise, fast strobe during align and descend. Put it in
+its own coroutine like `lib/chime.lua`, since `setColor` yields.
+
+**Descent altimeter callouts.** `chime.pitchTick(frac)` already exists and is
+still unused. Feed it height above the pad normalised 0..1 during `descend` so
+the tone rises as it settles. Needs a rate limit; the descend phase runs at
+20 Hz and the speaker takes 8 notes a tick.
+
+**Pad lights on approach.** Drone rednets the pad during `align`, pad lights up
+and beeps. Sells the automation more than anything mounted on the drone.
+
+**Mission control monitor.** Monitor wall at the depot: live fleet positions,
+order queue, ETAs. Mostly a rendering job now that telemetry carries real data;
+`lib/opsui.lua` and `lib/screens.lua` already draw most of the pieces.
+
+## Later
+
+- **A second drone**, and what it needs first: altitude lanes by heading, a
+  reservation on each dock slot, and a base that assigns the dock as well as
+  the unit.
+- **More top speed** needs rotational authority, not thrust: wider thruster
+  spacing, canted thrusters or vector bearings for torque about the thrust
+  axis, a lower centre of mass. See PERFORMANCE.md.
+- **An air traffic board** for other people's craft, described at the end of
+  this file. It shares the telemetry format and the screens, and it is the
+  first thing here that other players would use.
+
+## Done since this list was last written
+
+The four-thruster mixer flies (`lib/mixer.lua`, wired and tuned). Position and
+velocity come from CC:Sable. The link layer carries sealed telemetry and sealed
+orders both ways. A depot program exists and drives a real two-sided dock. The
+customer side exists end to end: passes, kiosk, places, queue, fares, ledger.
+Landing accuracy is 0.6 blocks median and docking takes one capture.
+
+Still true from the old Plumbing note: the `HDG_*` motion-heading estimator and
+the gimbal sensor cannot be retired while Sable's orientation quaternion reads
+null, because that was the only other source of yaw.
+
+---
+
+# History
+
+What follows is the flight-by-flight record that produced the list above,
+oldest sections at the bottom. It is kept because the reasoning behind a
+setting is worth more than the setting, but it is not a to-do list: where it
+disagrees with the section above, the section above is current.
+
 **Where it stands, 2026-09-20 (server, hand-built frame).** Two long legs
 (paste.rs cNFSZ 3,060 blocks, JKsLe 2,470) weave the same way from the first
 second of cruise, and the log says why: the handover at 60% of the climb came
@@ -153,57 +279,6 @@ for whoever picks it up:
 - Above ~75 deg of true lean the thrust vector cannot be steered sideways
   without yawing; cap measured lean, not commanded lean.
 Re-introduce one at a time, each with its own flight.
-
-# Backlog
-
-Wanted but not built. Newest ideas at the top of each section.
-
-## Flashy
-
-**Navigation lights.** Gadgets & Gizmos laser pointers are a CC peripheral
-(`laser_pointer`) with `setColor(argb)`, `setRainbow(bool)`, `getRange()`,
-`isFiring()` and `getAxis()`. Aviation convention is red to port, green to
-starboard, white strobe at the tail, which reads as deliberate rather than
-decorative. Colour is a single ARGB number, so pack it as
-`0xFF000000 + r*65536 + g*256 + b`.
-
-Worth driving from the phase machine the same way chimes are: steady on the
-ground, slow strobe in cruise, fast strobe during align and descend. Put it in
-its own coroutine like `lib/chime.lua`, since `setColor` yields.
-
-**Descent altimeter callouts.** `chime.pitchTick(frac)` already exists and is
-unused. Feed it height above the pad normalised 0..1 during `descend` so the
-tone rises as it settles. Needs a rate limit; the descend phase runs at 20 Hz
-and the speaker takes 8 notes a tick.
-
-**Pad lights on approach.** Drone rednets the pad during `align`, pad lights up
-and beeps. Sells the automation more than anything mounted on the drone.
-
-**Mission control monitor.** Monitor wall at the depot: live fleet positions,
-order queue, ETAs. Mostly a rendering job once telemetry and `lib/db.lua` are
-carrying real data.
-
-## Plumbing
-
-**Depot program.** Order intake, validation, dispatch. Design is settled in
-[COMMAND.md](COMMAND.md); `lib/db.lua` and `lib/mission.lua` are the pieces.
-
-**Mission and link layers.** L3 and L4 from [ARCHITECTURE.md](ARCHITECTURE.md).
-`lib/mission.lua` covers the planning half; the queue runner and rednet
-telemetry are unwritten.
-
-**Four-thruster mixer.** Blocked on the airframe and on `probe` output. See
-[FRAMES.md](FRAMES.md) for the axis convention it must use.
-
-**Rewire the controller to CC:Sable.** Position and velocity: **done**, the
-drone now flies on `getLogicalPose().position` and `getLinearVelocity()`.
-
-Still outstanding, and now blocked upstream rather than on measurement: the
-`HDG_*` motion-heading estimator and the gimbal sensor cannot be retired while
-the orientation quaternion reads null, because that was the only source of
-yaw. The three velocity sensors could go, since `getLinearVelocity` covers
-world-frame speed, but body-frame speed still needs either them or a working
-quaternion to rotate with.
 
 ## Measured in game
 
