@@ -58,6 +58,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `paste.lua` | `paste <file>`: a file off the computer through pastebin, then paste.rs if pastebin refuses, printing the real reason (`pastebin put` only ever says Failed; pastebin limits guest pastes per key and IP, and CC's key is shared by everyone). No token needed. Tested by `tools/run_paste_test.py`. |
 | `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
+| `tools/fleetstats.py` | A stat report over every log in `logs/flights`: how flights ended, landing miss and touchdown speed, captures per dock, cruise, energy, and a "worth a look" list. `--since <date>`, `--days`, and `--split <date>` to compare before and after a change. |
 
 ## Hardware
 
@@ -496,6 +497,7 @@ Copy `flightlog` off the CC computer. It lives in the world save under `computer
 ```
 python logs/flightlog_summary.py path/to/flightlog
 python logs/flightlog_summary.py path/to/flightlog --rows 40 --phase brake
+python tools/fleetstats.py --split 2026-09-26 --days
 ```
 
 Flight logs are gitignored, so you can keep them next to the script locally.
