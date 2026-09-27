@@ -3075,6 +3075,15 @@ local function flyLeg()
         else
           phase = (mode == "dock") and "align" or (landAtEnd and "land" or "hold")
           if mode ~= "go" and mode ~= "dock" then goalX, goalZ = pos.x, pos.z end
+          -- Braking leans the craft back, which turns speed into lift: a hard
+          -- brake ends up to 66 blocks above the cruise height. Chasing the
+          -- cruise height back down cut the throttle to ZERO for the first 4 s
+          -- of the approach, and with no thrust there is no lean force either
+          -- - the craft coasted 22 blocks FURTHER from the pad before it
+          -- started closing (2026-09-27 06-46-11 and 04-05-50). Height above
+          -- the cruise altitude costs about a second of extra descent later
+          -- and nothing else, so keep it and get on with the approach.
+          if h > goal then goal = h end
           if phase == "land" then landStart, touchT = t, 0 end
           enter(phase)
         end
