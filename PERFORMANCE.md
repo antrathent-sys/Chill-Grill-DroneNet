@@ -100,17 +100,22 @@ which is why yaw is the weakest axis on this frame and the first to go.
 asks for 13% more room than the craft actually used (median needed/map 0.87),
 and the tightest brake of the lot still only needed 0.94 of it.
 
-| scale | resulting gap: min / median / max |
-|---|---|
-| 1.00 (now) | 26 / 95 / 225 |
-| 0.95 | 6 / 76 / 192 |
-| **0.92** | **-26 / 49 / 161** |
-| 0.90 | -48 / 29 / 140 |
+**Done on 2026-09-28 (7986a21).** A flat `BRAKE_MAP_SCALE` was the first
+idea, but the error is not flat: the map is 6-14% generous at 170-190 b/s and
+**20-32% at 77-106 b/s**, where a short leg has no cruise time to hide it. So
+the map itself was refitted, to the 90th percentile of what each band actually
+used:
 
-A negative gap is an overshoot, and an overshoot only costs a re-cruise past
-`RECRUISE_DIST` (60 blocks); inside that the landing simply closes from the
-other side. **0.92 is the recommendation**: it halves the median crawl and
-its worst case is a 26-block overshoot, comfortably inside 60.
+| what the craft needed | 85 b/s | 105 | 134 | 174 | 189 |
+|---|---|---|---|---|---|
+| median | 329 | 406 | 687 | 992 | 1035 |
+| worst | 342 | 428 | 712 | 1036 | 1097 |
+| map now asks | 443 | 536 | 795 | 1095 | 1165 |
+| **refitted** | **352** | **440** | **715** | **1035** | **1055** |
+
+Against all 56 logged brakes: gap **24 blocks median** against 112, and 7 of
+them overshoot by up to 16 blocks - inside `RECRUISE_DIST` (60), so those land
+from the other side rather than cruising again.
 
 **2. Refit the slow end of the brake map.** The gap is 6-14% of the trigger
 distance at 170-190 b/s but **20-32% at 77-106 b/s** (93-138 blocks of crawl
@@ -120,17 +125,23 @@ this is worth doing properly once the scale factor is flown.
 
 **3. Cruise altitude.** `CRUISE_Y 350` costs 8.5 s climbing and about 13 s
 coming back down: 24% of a trip, paid whatever the distance. Dropping to 250
-would save roughly 7 s. It is a safety altitude, so it needs the terrain along
-the routes checked before it moves - and the hills near c_district are the
-ones to check.
+would save roughly 7 s. **Ruled out** (Alex, 2026-09-28): 350 is the safety
+altitude and is not negotiable.
 
-**4. Faster closing on the approach.** Even with the brake tightened, the last
-50 blocks are flown on the position hold at about 5 b/s. Letting the approach
-carry more speed until later would take several seconds off, but it is a
-control-law change and it trades against the landing accuracy that was only
-just won (0.6 blocks median). Not before 1 and 2.
+**4. Keep the height the brake gained. Done 2026-09-28 (a98fa8e).** Braking
+leans the craft back, which turns speed into lift: 12 of 56 brakes ended
+17-66 blocks above the cruise altitude. The approach used to chase that height
+back down, which **cut the throttle to zero** - and with no thrust there is no
+lean force either, so the craft coasted 22 blocks *further* from the pad over
+the first 4 s before it began closing (06-46-11, 04-05-50). It now keeps the
+height; the extra descent costs about a second.
 
-**5. More speed.** Needs rotational authority, not throttle:
+**5. Faster closing on the last 50 blocks.** They are flown on the position
+hold at about 5 b/s. Letting the approach carry speed later would save several
+seconds, but it trades against the landing accuracy only just won (0.6 blocks
+median). Not until the two changes above have been flown.
+
+**6. More speed.** Needs rotational authority, not throttle:
 wider spacing between the thrusters for a longer moment arm; canted thrusters
 or vector bearings so there is real torque about the thrust axis; a lower
 centre of mass. Without one of those, 58° is the ceiling this frame has
