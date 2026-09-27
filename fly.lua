@@ -199,6 +199,17 @@ local CFG = {
   HDG_EVERY = 4,                      -- read the nav table every N control iterations (each read is a tick;
                                       -- the craft yaws slowly, so heading tolerates being ~0.5 s stale)
   TUMBLE = 85,
+  -- Two ways a flight can go wrong before it has flown anywhere, neither of
+  -- which TUMBLE catches: it only looks at ONE axis past 85 deg.
+  START_TILT_MAX = 25,                -- deg of total tilt: a craft standing over this is not level enough
+                                      -- to launch. On 2026-09-27 (06-31-04) one that had fallen over was
+                                      -- flown again at 77 deg: full thrust, altimeter never moved, 12.5
+                                      -- minutes and 6% of the battery before the tumble guard fired at all
+                                      -- (46/-61 passes neither axis). 0 = no check.
+  STUCK_T = 8,                        -- seconds of STUCK_POWER with no altitude change before giving up.
+  STUCK_POWER = 0.9,                  -- fraction of full thrust that counts as "everything it has". Hover
+                                      -- is about half, so this only ever means asking for all of it and
+                                      -- getting nothing: pinned, held down, snagged, or too heavy. 0 = off.
   DASH_SETTLE = 3.0,                  -- transition this many blocks below goal
   CLIMB_POWER = 0.9,                  -- (legacy, unused: the climb phase runs the altitude cascade)
   -- Vertical rate request: as fast as the remaining distance can stop.
@@ -2160,6 +2171,20 @@ if mode == "pads" then
   do return end
 end
 
+-- Standing level? Asked before the log, the pump or any thrust. A craft on
+-- its side cannot fly, and full thrust under it only pushes it sideways.
+if CFG.START_TILT_MAX > 0 then
+  local okA, ga = pcall(gim.getAngles)
+  if okA and type(ga) == "table" and type(ga[1]) == "number" and type(ga[2]) == "number" then
+    local tilt = math.sqrt(ga[1] * ga[1] + ga[2] * ga[2])
+    if tilt > CFG.START_TILT_MAX then
+      error(string.format("the craft is lying at %.0f deg (%.0f, %.0f) - stand it up before flying. " ..
+        "Nothing is flown from here: full thrust on its side only pushes it along the ground. " ..
+        "CFG.START_TILT_MAX is %d", tilt, ga[1], ga[2], CFG.START_TILT_MAX), 0)
+    end
+  end
+end
+
 do
   local freeKB = ((fs.getFreeSpace and fs.getFreeSpace("/")) or math.huge) / 1024
   if freeKB < CFG.LOG_MIN_KB then
@@ -2888,6 +2913,23 @@ local function flyLeg()
       stillT = 0
     end
     dock.frozen = stillT >= CFG.DOCK_STILL_T
+
+    -- Asking for everything and getting nothing: the altimeter has not moved
+    -- while the throttle is near the stops. Something is holding the craft -
+    -- it fell over, it is snagged, it is too heavy - and no amount of waiting
+    -- fixes it. Undocking holds full thrust against the magnet on purpose,
+    -- and `find` is a thrust search on the spot, so neither counts. A field
+    -- on st, not a local: flyLeg is at CC's limit (tools/check_locals.py).
+    if CFG.STUCK_T > 0 and hStuck and lastPwr >= CFG.STUCK_POWER and mode ~= "find"
+       and not (undockFirst and not released) and not dock.connected then
+      st.gndT = (st.gndT or 0) + dt
+      if st.gndT >= CFG.STUCK_T then
+        error(string.format("not lifting: %.0fs at %.0f%% thrust and the altimeter has not moved (%.1f) - " ..
+          "stuck, held down, or too heavy. Thrust cut", st.gndT, lastPwr * 100, h), 0)
+      end
+    else
+      st.gndT = 0
+    end
 
     lastPhase = phase
     -- A command from the keyboard or the radio, taken at a clean point.

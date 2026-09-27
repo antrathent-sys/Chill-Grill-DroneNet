@@ -63,6 +63,9 @@ local function step(to)
   -- the craft starts ON the pad, so the ground is the start height: landing
   -- tests then exercise the real geometry rather than a 63-block creep
   if sim.h < 64 then sim.h = 64 sim.vv = 0 end
+  -- PINNED=1: something is holding the craft down - it fell over, it is
+  -- snagged. Thrust does nothing to the altitude.
+  if os.getenv('PINNED') then sim.h, sim.vv = 64, 0 end
   -- horizontal: stand-in for the translation controller. Cruise toward the
   -- pad while leaning hard, bleed off otherwise.
   local dx, dz = sim.padX - sim.x, sim.padZ - sim.z
@@ -320,6 +323,13 @@ add("gimbal_sensor_0", "gimbal_sensor", {
     -- (the tuned P_SIGN/R_SIGN assume that). The old positive sign was a
     -- hidden positive-feedback loop that only converged because KP*40 < 1.
     if sim.docked then return { 0, 0 } end   -- latched: the pad owns the pose
+    -- START_TILT=<deg>: the craft is standing at that angle, split over both
+    -- axes, as one that fell over reads. It only leaves that attitude when it
+    -- is flying, which a pinned craft never is.
+    local lean = tonumber(os.getenv("START_TILT") or "")
+    if lean and lean > 0 and (sim.h - 64) < 1 then
+      return { lean * 0.6, -lean * 0.8 }
+    end
     return { -sim.vy * 40, -sim.vx * 40 }
   end,
 })

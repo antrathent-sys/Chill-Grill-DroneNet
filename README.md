@@ -423,6 +423,8 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `DOCK_CAPTURE_T` | Seconds to wait for the magnet before aborting an attempt. |
 | `DOCK_ABORT_DIST` | Blocks of drift that sends the descent back to align. |
 | `DOCK_TRIES` | Capture attempts before giving up and landing on the pad. |
+| `START_TILT_MAX` | Degrees of total tilt above which a flight is refused on the ground. A craft that has fallen over cannot fly, and thrust under it only pushes it along the ground. 0 turns the check off. |
+| `STUCK_T`, `STUCK_POWER` | Seconds at that fraction of full thrust with no altitude change before the flight gives up. Hover is about half thrust, so it only ever means asking for everything and getting nothing. Undocking and `find` are exempt. |
 | `DOCK_RELEASE_T` | Seconds of thrust before `undock` drops the connector. |
 | `CHIME` | Speaker tones on phase changes. Silent if no speaker is attached. |
 

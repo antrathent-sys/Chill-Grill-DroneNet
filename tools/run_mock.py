@@ -64,6 +64,12 @@ SELFTEST = [
     ("dock abort, no pad", ["dock", "100", "70", "50", "90"],
      {"TMAX": "300", "NODOCK": "1", "NO_PAD": "1", "FALL_CHECK": "1.5", "SPOOL": "1.5"},
      ["climb", "cruise", "brake"] + ["align", "descend", "capture"] * 3 + ["land", "touchdown"]),
+    # a craft that fell over: refused on the ground, nothing flown
+    ("refuses to launch on its side", ["90"], {"TMAX": "40", "START_TILT": "77"}, []),
+    ("launches off a slope", ["90"], {"TMAX": "40", "START_TILT": "12"}, ["fly"]),
+    # pinned: full thrust, the altimeter never moves. STUCK_T ends it instead
+    # of burning the battery for 12.5 minutes (2026-09-27 06-31-04)
+    ("gives up when it cannot lift", ["350"], {"TMAX": "120", "PINNED": "1", "END_CHECK": "not lifting"}, ["fly"]),
     ("undock", ["undock", "80"], {"TMAX": "40", "START_DOCKED": "1"}, ["fly"]),
     # the four-thruster airframe carries no velocity sensors: body speed comes
     # from Sable world velocity rotated by the nav-table heading instead
@@ -311,7 +317,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK", "START_TILT", "PINNED", "END_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -521,6 +527,12 @@ def main(argv=None):
             if env.get("UNDOCK_CHECK"):
                 tok, extra = undock_check(logpath)
                 ok = ok and tok
+            if env.get("END_CHECK"):
+                with open(logpath, encoding="utf-8") as fh:
+                    last = [ln for ln in fh if ln.strip()][-1]
+                tok = env["END_CHECK"] in last
+                ok = ok and tok
+                extra = "ended: " + last.split(",")[1][:60]
             if env.get("CONTACT_CHECK"):
                 import csv as _csv
                 with open(logpath, encoding="utf-8") as fh:
