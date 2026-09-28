@@ -73,12 +73,14 @@
 --                      the refit (07-49-24) ran 198 PAST and took 26 s to
 --                      close back, 98.9 s against 88. The sideways swing is
 --                      the real target, and it is flight code, not this map.
---   BRAKE_SIDE_K       tried 2026-09-28 at 1.5 for one flight (08-11-54) and
---                      removed: the brake's sideways speed was 7-14 b/s as
---                      before and it moved 73 blocks across its path (61 the
---                      flight before). During the brake the attitude misses
---                      its command by 20-30 deg; a 15-deg correction is lost
---                      in that. Off (fly.lua default 0).
+--   BRAKE_SIDE_K       flown at 1.5 on two flights 2026-09-28, then taken off
+--                      so the yaw change below is tested alone. Mixed but
+--                      promising: behind a wobbling cruise (08-11-54) it did
+--                      nothing - 7-14 b/s sideways, 73 blocks across; behind a
+--                      calm one (08-14-15) the brake drifted 31 blocks across
+--                      at 2.5 b/s mean, against 61 and 65 at 5.6 and 4.7 on
+--                      the last calm returns without it. Put back at 1.5 once
+--                      the wobble is settled.
 --   YAW_MAX_LEAN 0.8   on test from 2026-09-28 (was 0.6). The cruise wobble -
 --                      a ~1.8 s heading swing in nearly every cruise, growing
 --                      with speed - tracks the yaw demand sitting on this
