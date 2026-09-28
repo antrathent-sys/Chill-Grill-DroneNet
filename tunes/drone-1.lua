@@ -61,20 +61,18 @@
 --                      (04-02-28, 04-31-17, 04-35-26, 04-38-49). The largest
 --                      gap, so the worst case is ~2 s more creep, never an
 --                      early contact.
---   BRAKE_MAP          refitted 2026-09-28 from 56 brakes of 09-26/27, at the
---                      90th percentile of the distance each speed band
---                      actually used (the old map asked 13% more room than
---                      the craft ever needed, and it stopped 112 blocks short
---                      of the mark on the median brake - then crawled the
---                      rest in at 5 b/s, 22 s of every trip). Measured need:
---                      85 b/s 329 median / 342 worst, 105 b/s 406 / 428,
---                      134 b/s 687 / 712, 174 b/s 992 / 1036, 189 b/s
---                      1035 / 1097. Against all 56 brakes the new map leaves
---                      a gap of 24 blocks median, and 7 of them overshoot by
---                      up to 16 - well inside RECRUISE_DIST 60, so those land
---                      from the other side rather than cruising again. The
---                      slow end was the worst offender: at 77-106 b/s the gap
---                      was 20-32% of the whole trigger distance.
+--   BRAKE_MAP          back to the 2026-09-20 map after a one-flight refit
+--                      (7986a21, 09-28). The refit read the ~90-block gap at
+--                      the end of every brake as stopping SHORT and started
+--                      brakes ~65 blocks later. Split along and across the
+--                      route, the old map already stopped on the mark along
+--                      it (20 flights of the 3,669-block route: median +7,
+--                      -76..+121); the gap is SIDEWAYS - the brake swings the
+--                      craft 80-130 blocks to the same side every time, from
+--                      ~20 off the line at brake start. The first flight on
+--                      the refit (07-49-24) ran 198 PAST and took 26 s to
+--                      close back, 98.9 s against 88. The sideways swing is
+--                      the real target, and it is flight code, not this map.
 return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
@@ -85,5 +83,5 @@ return {
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
-  BRAKE_MAP = "40:150,55:215,80:335,110:440,135:715,150:830,175:1035,190:1055,205:1120",
+  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1280",
 }

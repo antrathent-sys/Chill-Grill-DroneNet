@@ -45,10 +45,24 @@ Median over transits past 2,000 blocks (88 s total, 3,669 blocks):
 A dock landing replaces `land` with align 27.9 s + descend 11.7 s + capture
 1.5 s, so it costs about the same.
 
-**The 22 s of closing is the single biggest piece of dead time**, and it
-exists because the brake stops short: over 56 brakes the gap between where
-the brake ends and where the craft is going is **95 blocks median, worst
-225**. Closing that gap on the position hold runs at roughly 5 b/s.
+**The 22 s of closing is the single biggest piece of dead time.** Over 56
+brakes the gap between where the brake ends and where the craft is going is
+**95 blocks median, worst 225**, and closing it on the position hold runs at
+roughly 5 b/s.
+
+**That gap is sideways, not short** (found 2026-09-28, after the refit below
+had flown once). Split along and across the route, 20 flights of the
+3,669-block route:
+
+| at | across the route | along the route |
+|---|---|---|
+| mid-cruise | 7 to 34 off the line | - |
+| brake start | 3 to 43 off (one outlier 93) | - |
+| **brake end** | **54 to 127, the same side every time** | **median +7** (-76 to +121) |
+
+The old map already stopped on the mark along the route. It is the brake
+itself that swings the craft 80-130 blocks to one side, and that is what the
+closing pays for. The next lever is that swing, in the flight code.
 
 ## Are we reaching the speeds? Yes
 
@@ -95,7 +109,7 @@ which is why yaw is the weakest axis on this frame and the first to go.
 
 ## The levers, worst payoff last
 
-**1. Tighten the brake. One number, about 10 s a trip.**
+**1. Tighten the brake. REVERTED - the premise was wrong (see above).**
 `BRAKE_MAP_SCALE` multiplies the whole brake map. Over 56 brakes the map
 asks for 13% more room than the craft actually used (median needed/map 0.87),
 and the tightest brake of the lot still only needed 0.94 of it.
@@ -113,9 +127,12 @@ used:
 | map now asks | 443 | 536 | 795 | 1095 | 1165 |
 | **refitted** | **352** | **440** | **715** | **1035** | **1055** |
 
-Against all 56 logged brakes: gap **24 blocks median** against 112, and 7 of
-them overshoot by up to 16 blocks - inside `RECRUISE_DIST` (60), so those land
-from the other side rather than cruising again.
+That arithmetic compared the whole gap with the map, but the gap was
+sideways. The first flight on the refit (2026-09-28 07-49-24) started braking
+at 1,005 blocks instead of ~1,075, used 1,203 (one of the two longest brakes
+on the route, both ballooning above 410), and ended **198 blocks past** the
+target: 26 s closing back, 98.9 s for a route that takes 88. The map is back
+to the 2026-09-20 one.
 
 **2. Refit the slow end of the brake map.** The gap is 6-14% of the trigger
 distance at 170-190 b/s but **20-32% at 77-106 b/s** (93-138 blocks of crawl
@@ -293,5 +310,6 @@ column.
 | change | flown | trips | trip constant | miss | touchdown | tumbles |
 |---|---|---|---|---|---|---|
 | baseline 09-26/27 | - | 61 | 64 s | 0.6 | 2.4 b/s | 4 |
-| 1 brake map | | | | | | |
-| 2 keep the height | | | | | | |
+| 1 brake map refit | 09-28 07-49-24 | 1 | 98.9 s on an 88 s route | 0.6 | ~2.5 b/s | 0 |
+| - reverted: premise wrong, the gap is sideways | | | | | | |
+| 2 keep the height | 09-28 07-49-24 (with 1) | 1 | - | - | - | 0 |
