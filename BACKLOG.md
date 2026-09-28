@@ -116,6 +116,20 @@ a player waits on the GPS array fix. Airborne standby was considered and not
 recommended: it saves only the 8.5 s climb, and a server restart brings down a
 drone that is in the air.
 
+**Linger after a ride** (Alex, 2026-09-28): after dropping a passenger, stay
+in the area for 5 minutes, available, before going home. Today the beacon
+queues the flight home the moment the ride is done. Two ways:
+
+- *On the pad* (small, beacon only, no flight code): stay landed on the
+  destination platform for 5 minutes with the job cleared. `F.available`
+  already takes a landed unit at 40% battery or more, and the nearest free
+  unit gets the hail. A pickup at that pad needs no flight at all, and a
+  return trip starts at once. It holds the platform for those minutes.
+- *Orbiting overhead* (the showpiece): circle the destination for the same 5
+  minutes. It needs orbit and reroute first, `F.available` taking an orbiting
+  unit, and an energy check before it starts. A pickup from the orbit still
+  pays the ~35 s landing, so it is for being seen, not for speed.
+
 **Navigation lights.** Gadgets & Gizmos laser pointers are a CC peripheral
 (`laser_pointer`) with `setColor(argb)`, `setRainbow(bool)`, `getRange()`,
 `isFiring()` and `getAxis()`. Aviation convention is red to port, green to
