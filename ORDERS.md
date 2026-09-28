@@ -71,11 +71,12 @@ this. The order id is what Alex quotes back to the customer.
 
 ### What a run is
 
-One flight carries two silos of 60 slots, and each silo gives one slot to its
-printed manifest (DELIVERIES.md). That is **7,552 of a 64-stack item** a run,
-1,888 of a 16-stack one, 118 of something that does not stack. A bigger order
-is several runs of the same order, flown one after another, and `ops orders`
-shows how many are done. 10k cobble is two runs.
+Every silo is a **shipment**, and a silo gives one of its 60 slots to its
+invoice (DELIVERIES.md): **3,776 of a 64-stack item** a shipment, 944 of a
+16-stack one, 59 of something that does not stack. The dual loader fills two at
+once, so a flight carries two shipments. 10k cobble is three shipments on two
+flights, and the customer receives three vaults marked 1 of 3, 2 of 3 and
+3 of 3. `ops orders` shows how many are done.
 
 Each run takes about **64 s + distance / 171** in the air (PERFORMANCE.md), plus
 the load at the depot. That is the number `ops quote` puts in front of Alex, so a
@@ -99,7 +100,7 @@ record, one id, from the moment it is accepted until it is finished.
 
 | Field | |
 |---|---|
-| `id` | `O` + a number that never repeats on this base (the epoch second and a counter) |
+| `id` | `C-` and a number one past the highest in `orders.log`: `C-0042`. Short, because customers quote it off their invoice. It cannot repeat while the log survives, and the log is pushed to the repo with `upload` |
 | `kind` | `ride` (a person), `parcel` (goods, from a depot), `restock` (goods, dock to dock) |
 | `who` | a pass's name, a walk-up at a depot (`walkup@pier`), or `ops` |
 | `from` | a place, or coordinates |

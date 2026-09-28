@@ -18,56 +18,93 @@ the whole way to the drop.**
 ```
 ops order add steve 10000 cobble to 1200 70 340 for 1500
       |
-      |  the base plans it: 2 runs  (7,552 + 2,448)
+      |  the base plans it: order C-0042, 3 shipments  (3,776 + 3,776 + 2,448)
+      |  the dual loader fills two at a time, so that is 2 flights
       v
-ops order run O1759050000        (Alex, once per run for now)
+ops order run C-0042             (Alex, once per flight for now)
       |
-      |  load.start  load=O1759050000.1  item=cobble  A=3776 B=3776  manifest
+      |  load.start  load=C-0042.1  item=cobble  A=3776 B=3776  two invoices
       v
-FACTORY DEPOT
+FACTORY DEPOT  (dual loader)
   1. count the intake: is there cobble, and how much?
   2. move exactly A into side A's storage and B into side B's - counted
-  3. print a manifest page for each silo, put it in with the goods
+  3. print an invoice for each silo - shipment 1 of 3, 2 of 3 - in with the goods
   4. place, assemble, fill (the belt empties each side's storage into its silo)
   5. count what went in: that is the confirmation
   6. drone latched -> pusher up -> drone sticks -> pusher down
       |
-      |  load.done  load=O1759050000.1  counted A=3776 B=3776
+      |  load.done  load=C-0042.1  counted A=3776 B=3776
       v
 DRONE  deliver 1200 72 340    (both silos, one drop point)
       |
       |  unit.dropped  sticker=Create_Sticker_0 at 1200 72 340 ...
       v
-BASE   run 1 delivered: 7,552 cobble. 2,448 to go. Next run when Alex says.
+BASE   shipments 1 and 2 delivered: 7,552 cobble. Shipment 3 (2,448) when Alex says.
 ```
 
 ### How the order travels with the cargo
 
-**The load id is the order.** A run's load id is the order id and the run
-number: `O1759050000.1`. Every message a load already sends - `load.start`,
+**The load id is the order.** A flight's load id is the order number and the
+flight: `C-0042.1`. Every message a load already sends - `load.start`,
 `load.step`, `load.lifted`, `load.stuck`, `load.done` - carries its load id, and
 so does every row `cargo.csv` writes for it. When the drone lets a silo go, the
 cargo ledger already works out which load that sticker was holding
 (`CARGO.openFor`), so the drop is tied back to the order and the run without a
 single new message.
 
-**The cargo carries it too.** A CC printer on the depot's network prints one
-page per silo and the depot pushes it into that side's storage with the goods,
-so the belt carries it into the silo:
+**The cargo carries it too: an invoice in every silo.** A CC printer on the
+depot's network prints one invoice per silo and the depot pushes it into that
+side's storage with the goods, so the belt carries it into the silo. It is a
+regular invoice (Alex: "ordered, delivered, cost"), and **every silo is a
+shipment, numbered across the whole order** - 1 of 3, 2 of 3, 3 of 3 - because
+that is what the customer receives. How shipments were paired into flights is
+ours to know, not theirs.
+
+Built as `lib/invoice.lua`; `tools/test_invoice.lua` renders every case and
+checks it fits a CC printed page, which is **25 columns by 21 lines** and not a
+character more. The middle shipment of 10k cobble, paid:
 
 ```
-CINDER TRANSIT DIRECTORATE
-ORDER O1759050000  RUN 1 OF 2
-SILO A OF 2
-3,776 COBBLE
-TO 1200 70 340
-FOR STEVE
-CARGO AT CONSIGNEE'S RISK
+.-------------------------.
+|CINDER                   |
+|TRANSIT DIRECTORATE      |
+|INVOICE          C-0042-2|
+|SHIPMENT           2 OF 3|
+|DATE           2026-09-28|
+|BILL TO             STEVE|
+|SHIP TO       1200 70 340|
+|-------------------------|
+|COBBLESTONE              |
+|ORDERED            10,000|
+|THIS SHIPMENT       3,776|
+|SHIPPED BEFORE      3,776|
+|TO FOLLOW           2,448|
+|-------------------------|
+|TOTAL          1,500 SPUR|
+|PAID           1,500 SPUR|
+|BALANCE DUE  PAID IN FULL|
+|-------------------------|
+|CARGO AT CONSIGNEE'S RISK|
+|NO REFUNDS               |
+|COMPLIANCE APPRECIATED   |
+'-------------------------'
 ```
 
-The customer opens the vault and their receipt is in it, with the id to quote
-if anything is wrong. A page takes one of the silo's 60 slots, so **a silo
-carries 3,776 of a 64-stack item and a run 7,552.** A printer out of paper or
+The last shipment says `ORDER  COMPLETE` in place of what is to follow, and an
+unpaid one shows `PAID  NOTHING YET` and the balance due, exactly - money on an
+invoice is never rounded to cogs. A long customer name is shortened so its
+label stays; coordinates and amounts keep every digit. The page's item name is
+`CINDER INVOICE C-0042-2`, so it reads as what it is in an inventory.
+
+`SHIPPED BEFORE` counts shipments sent earlier in the order, including the one
+that flew alongside this in the same flight - that is what a partial-shipment
+invoice means by it. If a shipment comes up short and the order needs one more
+than planned, earlier invoices say "of 3" and the last says "of 4"; each is
+true as of when it was printed, and the last always says `ORDER COMPLETE`.
+
+The customer opens the vault and their invoice is in it, with the number to
+quote if anything is wrong. A page takes one of the silo's 60 slots, so **a
+silo carries 3,776 of a 64-stack item and a flight of two 7,552.** A printer out of paper or
 ink skips the page and says so; it never holds a delivery up. The records are
 the truth, the page is a courtesy.
 
@@ -75,14 +112,15 @@ The **base writes the page's text** and sends it in `load.start`; the depot
 only prints what it is given. The base knows the order, the depot knows the
 machines, and neither has to learn the other's job.
 
-### Batching, and why it is re-planned every run
+### Batching, and why it is re-planned every flight
 
-The base plans runs from the amount and the item's stack size: two silos a run,
-3,776 of a 64-stack item in each (944 of a 16-stack item, 59 of something that
-does not stack). 10,000 cobble is 3,776 + 3,776 in run 1 and 2,448 in run 2.
+The base plans shipments from the amount and the item's stack size: 3,776 of a
+64-stack item in each silo (944 of a 16-stack item, 59 of something that does
+not stack), two silos a flight on the dual loader. 10,000 cobble is shipments
+of 3,776 + 3,776 on the first flight and 2,448 on the second.
 
 But a plan is only a plan. The intake might be short, the item might stack to
-16 not 64, a belt might stop. So **every run after the first is planned from
+16 not 64, a belt might stop. So **every flight after the first is planned from
 what has actually been counted into silos that were actually dropped**, never
 from what the first plan said. What an order has delivered is the sum of the
 depot's fill counts for silos the drone reported letting go - nothing else.
@@ -121,9 +159,10 @@ run, and the order records what actually went.
 | **the gap** | The depot daemon still runs base-driven loads through the older single-bay `lib/loader.lua`. The two-sided dock only runs by hand (`depot seq`), with the drone's part "taken as done". |
 | **new** | the order record and runs (`lib/orders.lua`); `ops order add / run / paid`, `ops orders`, `ops quote`; the depot running `lib/dockseq.lua` for base-driven loads, staging from the intake and answering the drone's stick through the base; the manifest printer. |
 
-This assumes the factory loader is built like the test dock: two sides, each
-with a placer, assembler, belt, pusher, its own storage and a silo sensor -
-plus one intake chest and, if wanted, a printer.
+**The factory loader is dual** (Alex, 2026-09-28), built like the test dock:
+two sides, each with a placer, assembler, belt, pusher, its own storage and a
+silo sensor - plus one intake chest and a printer, all on the depot's wired
+network.
 
 ### Proven in game first
 
