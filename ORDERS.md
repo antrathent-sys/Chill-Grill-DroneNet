@@ -1,6 +1,8 @@
 # Orders
 
-How a job for the service is described, checked, run and written down.
+How a job for the service is described, checked, run and written down. For the
+whole path an order takes, from the message to the last drop, read
+[WORKFLOW.md](WORKFLOW.md) first.
 Written 2026-09-24 as a proposal: nothing here is built yet. It replaces the
 job and load bookkeeping that grew one feature at a time.
 

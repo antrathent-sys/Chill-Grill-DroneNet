@@ -46,6 +46,9 @@ fixed cost of a trip down to 48, tumbles from 6.6% to under 2%.
 
 ## Service, once the list above is clear
 
+How an order moves end to end, and which steps are built, is in
+[WORKFLOW.md](WORKFLOW.md).
+
 - **Deliveries.** Designed in [DELIVERIES.md](DELIVERIES.md) and largely
   built: `lib/deliver.lua`, `lib/cargo.lua`, `lib/loader.lua`, `lib/dockseq.lua`
   and `depot.lua` all exist, and the A side of the test dock places, assembles,
