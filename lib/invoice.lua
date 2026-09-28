@@ -2,7 +2,8 @@
 --
 -- A regular invoice: who is billed and where the goods go, what was ordered,
 -- what this shipment holds, what was shipped before it and what is still to
--- follow, and the money. Every silo of an order is a shipment, numbered across
+-- follow, and the money. An order of one thing gets all of that; an order of
+-- several gets a packing list of what is in this silo. Every silo of an order is a shipment, numbered across
 -- the whole order (SHIPMENT 2 OF 3), because that is what the customer
 -- receives: three vaults, each saying which one it is. How the shipments were
 -- grouped into flights is ours to know, not theirs.
@@ -67,31 +68,25 @@ end
 --   date       "2026-09-28"
 --   who        "steve"                  billed to
 --   x, y, z                             where it goes
+--   total      1500                     the agreed price, spurs
+--   paid       1500                     received so far, spurs
+-- and then either ONE item, laid out in full:
 --   item       "cobble"
 --   ordered    10000
 --   before     3776                     counted into the shipments before this
 --   this       3776                     counted into this one
---   total      1500                     the agreed price, spurs
---   paid       1500                     received so far, spurs
+-- or SEVERAL, as a packing list of what is in this silo:
+--   items      { { item = "cobble", this = 1224 }, { item = "gravel", this = 2000 } }
+--   complete   true on the order's last shipment
 -- Returns the page title (what the printed page is called as an item) and the
 -- lines, never more than I.H of them, never wider than I.W.
+I.ITEM_LINES = 4          -- item lines a several-item page has room for
+
 function I.page(inv)
-  local ordered = math.floor(tonumber(inv.ordered) or 0)
-  local before = math.floor(tonumber(inv.before) or 0)
-  local this = math.floor(tonumber(inv.this) or 0)
   local total = math.floor(tonumber(inv.total) or 0)
   local paid = math.floor(tonumber(inv.paid) or 0)
-  local toFollow = ordered - before - this
   local due = total - paid
   local no = I.number(inv.order, inv.shipment)
-
-  local follow
-  if toFollow <= 0 then follow = row("ORDER", "COMPLETE")
-  else follow = row("TO FOLLOW", I.thousands(toFollow)) end
-
-  local balance
-  if total > 0 and due <= 0 then balance = row("BALANCE DUE", "PAID IN FULL")
-  else balance = row("BALANCE DUE", I.money(math.max(0, due))) end
 
   local lines = {
     "CINDER",
@@ -103,39 +98,86 @@ function I.page(inv)
     row("BILL TO", inv.who or "", true),
     row("SHIP TO", string.format("%d %d %d", math.floor(tonumber(inv.x) or 0),
       math.floor(tonumber(inv.y) or 0), math.floor(tonumber(inv.z) or 0))),
-    RULE,
-    I.itemName(inv.item),
-    row("ORDERED", I.thousands(ordered)),
-    row("THIS SHIPMENT", I.thousands(this)),
-    row("SHIPPED BEFORE", I.thousands(before)),
-    follow,
-    RULE,
-    row("TOTAL", I.money(total)),
-    row("PAID", paid > 0 and I.money(paid) or "NOTHING YET"),
-    balance,
-    RULE,
-    "CARGO AT CONSIGNEE'S RISK",
-    "NO REFUNDS",
-    "COMPLIANCE APPRECIATED",
   }
+  local function add(l) lines[#lines + 1] = l end
+
+  if type(inv.items) == "table" then
+    -- several items: what is physically in THIS silo, then whether more of the
+    -- order is coming. Each item's running total is on the base (`ops order`);
+    -- the page is what the customer holds.
+    add(("--- THIS SHIPMENT " .. RULE):sub(1, I.W))
+    local shown = 0
+    for i, it in ipairs(inv.items) do
+      if i == I.ITEM_LINES and #inv.items > I.ITEM_LINES then
+        add(row("+ " .. (#inv.items - I.ITEM_LINES + 1) .. " MORE ITEMS", ""))
+        shown = shown + 1
+        break
+      end
+      add(row(I.itemName(it.item), I.thousands(it.this), true))
+      shown = shown + 1
+    end
+    for _ = shown + 1, I.ITEM_LINES do add("") end
+    add(inv.complete and row("ORDER", "COMPLETE") or row("ORDER", "MORE TO FOLLOW"))
+  else
+    local ordered = math.floor(tonumber(inv.ordered) or 0)
+    local before = math.floor(tonumber(inv.before) or 0)
+    local this = math.floor(tonumber(inv.this) or 0)
+    local toFollow = ordered - before - this
+    add(RULE)
+    add(I.itemName(inv.item))
+    add(row("ORDERED", I.thousands(ordered)))
+    add(row("THIS SHIPMENT", I.thousands(this)))
+    add(row("SHIPPED BEFORE", I.thousands(before)))
+    add(toFollow <= 0 and row("ORDER", "COMPLETE") or row("TO FOLLOW", I.thousands(toFollow)))
+  end
+
+  add(RULE)
+  add(row("TOTAL", I.money(total)))
+  add(row("PAID", paid > 0 and I.money(paid) or "NOTHING YET"))
+  add((total > 0 and due <= 0) and row("BALANCE DUE", "PAID IN FULL")
+    or row("BALANCE DUE", I.money(math.max(0, due))))
+  add(RULE)
+  add("CARGO AT CONSIGNEE'S RISK")
+  add("NO REFUNDS")
+  -- an invoice with money owing says where to pay it: bring this page to a
+  -- till (DELIVERIES.md). Paid, it signs off the usual way.
+  add(due > 0 and "PAY AT ANY CINDER TILL" or "COMPLIANCE APPRECIATED")
   return "CINDER INVOICE " .. no, lines
 end
 
---- Shipments for an order: how many silos it takes, and how much goes in each.
--- A silo holds `slots` stacks (60 for a 3x1 vault) and gives one slot to this
--- page, so a 64-stack item fills 59 * 64 = 3,776 of it. The dual loader fills
--- two at once, but a shipment is a silo, not a flight. Returns a list of
--- amounts, the last one partial.
-function I.shipments(amount, stack, slots)
-  amount = math.floor(tonumber(amount) or 0)
-  stack = math.floor(tonumber(stack) or 64)
+--- Pack an order into shipments. lines: { { item = "cobble", amount = 5000,
+-- stack = 64 }, ... } in the order given. A silo holds `slots` stacks (60 for a
+-- 3x1 vault) and gives one slot to its invoice; every item takes whole slots, a
+-- part-stack included. Items fill a silo in order and spill into the next, so
+-- a silo holds one item where it can and two where one runs out part way.
+-- Returns a list of shipments, each a list of { item, amount }.
+function I.pack(lines, slots)
   slots = math.floor(tonumber(slots) or 60)
-  local per = math.max(1, (slots - 1) * math.max(1, stack))
+  local room = math.max(1, slots - 1)
+  local out, cur, free = {}, nil, 0
+  for _, l in ipairs(lines or {}) do
+    local left = math.floor(tonumber(l.amount) or 0)
+    local stack = math.max(1, math.floor(tonumber(l.stack) or 64))
+    while left > 0 do
+      if free == 0 then
+        cur = {}
+        out[#out + 1] = cur
+        free = room
+      end
+      local n = math.min(left, free * stack)
+      cur[#cur + 1] = { item = l.item, amount = n }
+      free = free - math.ceil(n / stack)
+      left = left - n
+    end
+  end
+  return out
+end
+
+--- One item's shipments as plain amounts, for an order of a single thing.
+function I.shipments(amount, stack, slots)
   local out = {}
-  while amount > 0 do
-    local n = math.min(per, amount)
-    out[#out + 1] = n
-    amount = amount - n
+  for _, sh in ipairs(I.pack({ { item = "x", amount = amount, stack = stack } }, slots)) do
+    out[#out + 1] = sh[1].amount
   end
   return out
 end

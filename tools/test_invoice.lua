@@ -88,6 +88,50 @@ fits(t, lines, "free")
 check("no charge says so, rather than owing zero", has(lines, "NO CHARGE"))
 
 print("")
+print("several items: packing an order into silos")
+local sh = I.pack({ { item = "cobble", amount = 5000 }, { item = "gravel", amount = 2000 } })
+check("5,000 cobble + 2,000 gravel is two silos", #sh == 2, #sh)
+check("the first is all cobble: 3,776", #sh[1] == 1 and sh[1][1].item == "cobble" and sh[1][1].amount == 3776)
+check("the second holds the rest of the cobble and all the gravel",
+  #sh[2] == 2 and sh[2][1].amount == 1224 and sh[2][2].item == "gravel" and sh[2][2].amount == 2000)
+sh = I.pack({ { item = "cobble", amount = 3000 }, { item = "gravel", amount = 1000 } })
+check("an item that runs out part way shares its silo with the next",
+  #sh == 2 and sh[1][2].item == "gravel" and sh[1][2].amount == 768 and sh[2][1].amount == 232,
+  sh[1][2] and sh[1][2].amount)
+sh = I.pack({ { item = "cobble", amount = 3776 }, { item = "ender_pearl", amount = 500, stack = 16 } })
+check("a 16-stack item counts its own slots", #sh == 2 and sh[2][1].amount == 500)
+local slotsUsed = 0
+for _, it in ipairs(I.pack({ { item = "a", amount = 100 }, { item = "b", amount = 1 },
+                             { item = "c", amount = 1 } })[1]) do slotsUsed = slotsUsed + math.ceil(it.amount / 64) end
+check("every part-stack takes a whole slot", slotsUsed == 4, slotsUsed)
+
+print("")
+print("several items: the page")
+t, lines = I.page({ order = "C-0050", shipment = 2, shipments = 3, date = "2026-09-28",
+  who = "kodiak", x = 2400, y = 72, z = -3269, total = 2400, paid = 0,
+  items = { { item = "minecraft:cobblestone", this = 1224 }, { item = "minecraft:gravel", this = 2000 } } })
+show(t, lines)
+fits(t, lines, "packing list")
+check("it lists what is in this silo", has(lines, "THIS SHIPMENT") and has(lines, "COBBLESTONE")
+  and has(lines, "1,224") and has(lines, "GRAVEL") and has(lines, "2,000"))
+check("and says more is coming", has(lines, "MORE TO FOLLOW"))
+check("money owing says where to pay it", has(lines, "PAY AT ANY CINDER TILL")
+  and not has(lines, "COMPLIANCE APPRECIATED"))
+t, lines = I.page({ order = "C-0050", shipment = 3, shipments = 3, date = "2026-09-28",
+  who = "kodiak", x = 2400, y = 72, z = -3269, total = 2400, paid = 2400, complete = true,
+  items = { { item = "iron_block", this = 640 } } })
+fits(t, lines, "last of several")
+check("the last says the order is complete", has(lines, "COMPLETE") and not has(lines, "MORE TO FOLLOW"))
+check("paid, it signs off the usual way", has(lines, "COMPLIANCE APPRECIATED") and not has(lines, "PAY AT"))
+local many = {}
+for i = 1, 6 do many[i] = { item = "thing_" .. i, this = 10 } end
+t, lines = I.page({ order = "C-0051", shipment = 1, shipments = 1, date = "2026-09-28",
+  who = "un", x = 1285, y = 93, z = -22, total = 100, paid = 100, complete = true, items = many })
+show(t, lines)
+fits(t, lines, "six items in one silo")
+check("more items than lines: the rest are counted, not dropped silently", has(lines, "+ 3 MORE ITEMS"))
+
+print("")
 print("helpers")
 check("thousands", I.thousands(0) == "0" and I.thousands(999) == "999" and I.thousands(1000) == "1,000"
   and I.thousands(1234567) == "1,234,567" and I.thousands(-4096) == "-4,096")
