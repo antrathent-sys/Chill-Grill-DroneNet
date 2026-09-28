@@ -156,6 +156,12 @@ SELFTEST = [
     # WORLD_BORDER in tune.lua: a target past it (less the 150 margin) is
     # refused before takeoff - no log, no flight; one inside it flies
     ("border refuses", ["go", "100", "50", "90"], {"TMAX": "30", "TUNE": "return { WORLD_BORDER = 200 }"}, []),
+    # BRAKE_SIDE_K in tune.lua: the sideways lean in the brake, on the aimed
+    # path (TRIAD) and the heading split - it must still brake and hand over
+    ("brake side aimed", ["go", "100", "50", "90"], {"TMAX": "90", "TRIAD": "1", "TUNE": "return { BRAKE_SIDE_K = 1.5 }"},
+     ["climb", "cruise", "brake", "hold"]),
+    ("brake side split", ["go", "100", "50", "90"], {"TMAX": "90", "DRIFT": "1", "TUNE": "return { BRAKE_SIDE_K = 1.5 }"},
+     ["climb", "cruise", "brake", "hold"]),
     ("border allows", ["go", "100", "50", "90"], {"TMAX": "90", "TUNE": "return { WORLD_BORDER = 400 }"},
      ["climb", "cruise", "brake", "hold"]),
     ("border checks every leg", ["deliver", "100", "80", "50", "90", "empty"],

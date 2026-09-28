@@ -595,6 +595,19 @@ local CFG = {
   -- (SPEED_GUARD - 2) once the along-speed is gone, the brake falls back to
   -- the total velocity until it is. false = brake the total, as before.
   BRAKE_ALONG = true,
+  -- BRAKE_SIDE_K: with BRAKE_ALONG the brake leans only against the speed
+  -- along its entry direction and leaves the sideways speed to the hold. That
+  -- sideways speed is 5-10 b/s through the whole of every brake (23 at worst),
+  -- built while the craft swings round and never braked, so on 20 flights of
+  -- one route the brake ended 55-130 blocks to the SAME side of the track -
+  -- while along it the brake stopped on the mark (median +7). The ~20 s of
+  -- closing on every trip is that sideways gap (2026-09-28 07-49-24,
+  -- 08-00-51). This leans against the sideways speed as well, BRAKE_SIDE_K
+  -- degrees per b/s, capped at BRAKE_SIDE_MAX, on top of the full along
+  -- brake: a damper on a speed, not the old 45 deg against the total
+  -- velocity that swirled at the end. 0 = off, exactly as before.
+  BRAKE_SIDE_K = 0,
+  BRAKE_SIDE_MAX = 15,                -- deg of sideways lean at most
   CRUISE_AIM = "attitude",
   -- Smooth the aimed cruise lean (body pitch/roll command) over this many
   -- seconds. At 60 deg of lean a few degrees of heading needs a large roll
@@ -2724,6 +2737,14 @@ function FL.brakeWorldAlong(along, ux, uz)
   local k = math.min(1, along / CFG.BRAKE_EASE) * CFG.BRAKE_DEG
   return -ux * k, -uz * k
 end
+-- BRAKE_SIDE_K: add a lean against the sideways speed - across the unit
+-- direction (ux, uz) fixed at brake entry - to the brake vector (bx, bz).
+function FL.brakeSide(bx, bz, ux, uz)
+  if CFG.BRAKE_SIDE_K <= 0 then return bx, bz end
+  local side = -pos.vx * uz + pos.vz * ux                   -- speed along n = (-uz, ux)
+  local c = clamp(CFG.BRAKE_SIDE_K * side, CFG.BRAKE_SIDE_MAX)
+  return bx + uz * c, bz - ux * c                           -- lean along -n, against it
+end
 function FL.brakeLean(speed, hdgDeg)
   local bx, bz = FL.brakeWorld(speed)
   return FL.brakeLeanW(bx, bz, hdgDeg)
@@ -3450,7 +3471,10 @@ local function flyLeg()
           -- along-track only while there is along-speed to kill; below
           -- BRAKE_DONE the brake is only still running because the residual
           -- is too big for the hold, and then it is the total that matters
-          if along >= CFG.BRAKE_DONE then bWx, bWz = FL.brakeWorldAlong(along, st.brkUx, st.brkUz) end
+          if along >= CFG.BRAKE_DONE then
+            bWx, bWz = FL.brakeWorldAlong(along, st.brkUx, st.brkUz)
+            bWx, bWz = FL.brakeSide(bWx, bWz, st.brkUx, st.brkUz)   -- BRAKE_SIDE_K; unchanged when 0
+          end
         end
         if CFG.BRAKE_SLEW then
           -- start from the lean the craft actually has, taken to lie along
@@ -3473,7 +3497,9 @@ local function flyLeg()
         -- with a solution from this very iteration (as cruise)
         if CFG.BRAKE_AIM == "attitude" and tri.q ~= nil and tri.qt == t
            and ATT ~= nil and ATT.leanTarget ~= nil then
-          tp, tr, aimQ = FL.aimLean(tp, tr, bWx, bWz, math.sqrt(bWx * bWx + bWz * bWz), CFG.BRAKE_DEG, a[1], a[2])
+          -- (the cap leaves room for the sideways lean, so the along brake stays full)
+          tp, tr, aimQ = FL.aimLean(tp, tr, bWx, bWz, math.sqrt(bWx * bWx + bWz * bWz),
+            CFG.BRAKE_DEG + (CFG.BRAKE_SIDE_K > 0 and CFG.BRAKE_SIDE_MAX or 0), a[1], a[2])
         end
       end
     elseif CAL and phase ~= "climb" and fresh then
@@ -3808,8 +3834,9 @@ do
   -- ...and the settings it flew. Three flights on 2026-09-19 were analysed as
   -- tests of a tune the drone had never loaded (it had not been rebooted) and
   -- nothing in the log said so. Read this before trusting a flight.
-  why = why .. string.format(" [lean %s body %s braketurn %s]",
-    tostring(CFG.CRUISE_DEG), tostring(CFG.CRUISE_BODY_LEAN), tostring(CFG.BRAKE_TURN_POWER))
+  why = why .. string.format(" [lean %s body %s braketurn %s side %s]",
+    tostring(CFG.CRUISE_DEG), tostring(CFG.CRUISE_BODY_LEAN), tostring(CFG.BRAKE_TURN_POWER),
+    tostring(CFG.BRAKE_SIDE_K))
   why = why:gsub("[,\r\n]", ";"):sub(1, 140)
   pcall(log.writeLine, string.format("%.2f,end:%s%s", TLM.t or 0, why, string.rep(",0", 45)))
 end

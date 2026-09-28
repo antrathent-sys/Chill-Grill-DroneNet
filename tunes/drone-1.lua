@@ -73,6 +73,12 @@
 --                      the refit (07-49-24) ran 198 PAST and took 26 s to
 --                      close back, 98.9 s against 88. The sideways swing is
 --                      the real target, and it is flight code, not this map.
+--   BRAKE_SIDE_K 1.5   on test from 2026-09-28: lean against the sideways
+--                      speed in the brake as well, 1.5 deg per b/s, at most
+--                      15 deg. That speed is 5-10 b/s through every brake
+--                      and nothing braked it (08-00-51: 22 off the line at
+--                      brake start, 48 the other side at the end). Revert:
+--                      delete this line.
 return {
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
@@ -83,5 +89,6 @@ return {
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
+  BRAKE_SIDE_K = 1.5,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1280",
 }
