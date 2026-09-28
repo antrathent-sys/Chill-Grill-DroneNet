@@ -134,6 +134,15 @@ on the route, both ballooning above 410), and ended **198 blocks past** the
 target: 26 s closing back, 98.9 s for a route that takes 88. The map is back
 to the 2026-09-20 one.
 
+On the old map again (2026-09-28 08-00-51, home, dock): braking started at
+1,086 blocks at 174 b/s and ended 75 short and 48 to the side, the sideways
+swing 70 blocks (22 one side at brake start, 48 the other at the end).
+Keep-the-height, flown alone: handed over at 370 still rising 17 b/s, so it
+peaked at 387 and the throttle sat at zero for 1.9 s - but the craft did not
+drift (gap 89 at handover, never more), unlike the 22-block coast it was
+written for. Align 28.0 s, descend 12.1 s from 370, captured 1.4 s: the same
+as the baseline. Harmless and kept; it is not where the time is.
+
 **2. Refit the slow end of the brake map.** The gap is 6-14% of the trigger
 distance at 170-190 b/s but **20-32% at 77-106 b/s** (93-138 blocks of crawl
 on a short leg, where there is no cruise time to hide it). At 85 b/s the map
@@ -313,3 +322,4 @@ column.
 | 1 brake map refit | 09-28 07-49-24 | 1 | 98.9 s on an 88 s route | 0.6 | ~2.5 b/s | 0 |
 | - reverted: premise wrong, the gap is sideways | | | | | | |
 | 2 keep the height | 09-28 07-49-24 (with 1) | 1 | - | - | - | 0 |
+| 2 keep the height, alone (old map back) | 09-28 08-00-51 | 1 | 85.6 s dock-to-dock, model 87.5 | 0 (docked) | ~1.5 b/s | 0 |
