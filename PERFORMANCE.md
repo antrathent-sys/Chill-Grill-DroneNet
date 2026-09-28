@@ -352,4 +352,6 @@ the cutoff. The next speed limit is lift: throttle 0.63 at 65, and ~80 true tilt
 | - 215 b/s, throttle 0.66, 7 low at worst, pitch 71.7; brake 99 short (brakes up here scatter +-50) | | | | | | |
 | 12 heading gain `YAW_KP 0.005 -> 0.007`: slow wander, 27-42 blocks rms off the centreline at 0.005 | 09-28 10-03-51 (6,825 blocks) | 1 | 96.0 s (104 by the 58 model) | 0 | - | 0 |
 | - 255 b/s; heading 6.4 rms, yaw rate 3.7; line 38 rms / 66 worst; brake 196 short (map past its end) | | | | | | |
-| 13 brake map top refitted to six fast brakes: blocks = 9.8 x speed - 700 | | | | | | |
+| 13 brake map top refitted to six fast brakes: blocks = 9.8 x speed - 700 | 09-28 10-12-24, 10-18-21 | 2 | 86.7, 87.0 s | 0.0, 0.4 | - | 0 |
+| - along: 40 short, 132 past - the scatter follows the brake's balloon (r 0.80 over 46 brakes); across: 127, 110 | | | | | | |
+| 14 sideways brake `BRAKE_SIDE_K 1.5` back on (the swing is 130-167 blocks at 214-256 b/s) | | | | | | |

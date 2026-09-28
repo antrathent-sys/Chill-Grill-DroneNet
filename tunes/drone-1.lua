@@ -202,6 +202,16 @@
 --                      1,591 @ 227, 1,780 @ 256 -> blocks = 9.8 x speed - 700,
 --                      scatter +-40-75 (the two at 70 deg sit high). 205:1310,
 --                      220:1460, 235:1600, 250:1750, 265:1900.
+--                      Flown 10-12-24 (40 short) and 10-18-21 (132 past): the
+--                      along-track scatter is the brake's balloon - over 46
+--                      brakes the distance beyond the speed fit follows how
+--                      high it climbs in the brake (r 0.80). Not the map.
+--   BRAKE_SIDE_K 1.5   back on from 2026-09-28, now the wobble is gone. The
+--                      brake's sideways swing grows with speed: 55-90 blocks
+--                      from ~172 b/s, 130-167 from 214-256 (10-03-51, 10-12-24,
+--                      10-18-21), and closing it is most of a 23-31 s approach.
+--                      The one calm-cruise flight with it (08-14-15) drifted 31
+--                      across against 61 and 65 without. Revert: delete.
 return {
   YAW_KP = 0.007,
   YAW_KD = 0.012,
@@ -214,5 +224,6 @@ return {
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
+  BRAKE_SIDE_K = 1.5,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1460,235:1600,250:1750,265:1900",
 }
