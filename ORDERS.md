@@ -91,6 +91,141 @@ the silo is released `DROP_ALT` above the ground, and a wrong y means it falls
 from too high or the drone flies into the ground. So an order takes all three
 of x, y and z, as F3 shows them, the same as the pocket's typed coordinates.
 
+## Running it from the Cinder side
+
+The commands above are for testing and for scripts. Taking real orders on them
+means typing `ops order add steve 10000 cobble to 1200 70 340 for 1500` with a
+customer waiting, and a typo in the coordinates costs a flight. So the order
+book gets screens, in the same style as the control board - a masthead, a list
+with a selection bar, a detail panel, a log, one key per action - and the same
+screens run on the base and on Alex's pocket, so an order can be taken where
+he is when the message arrives.
+
+Five rules make it friendly:
+
+1. **Pick, don't type.** Every field that can be a list is one: customers who
+   have ordered before, the items we sell, each customer's last address and the
+   saved places. Typing is the fallback for something new.
+2. **The machine does the arithmetic.** Shipments, flights, flight time and a
+   suggested price appear as the form fills in, before anything is committed.
+3. **Show exactly what will happen before it happens.** A confirm page with the
+   plan and the first invoice as it will print. ENT accepts.
+4. **One key per action** on the orders list: new, run, paid, invoice, cancel.
+5. **Say what to do, not what went wrong.** "The intake has 900 iron and
+   shipment 2 needs 1,200 - top it up, then R" rather than a code.
+
+### The orders board
+
+A second page of the control board; TAB switches between the fleet and this.
+A mockup - not drawn yet:
+
+```
+===================  ORDERS  ===================
+06:12   3 OPEN   1 LOADING   1,500 SPUR UNPAID
+ ORDER   FOR     WHAT          SHIPPED | C-0042
+>C-0042  STEVE   COBBLE 10K    2 OF 3  | STEVE
+ C-0043  KODIAK  IRON 1.2K     LOADING | 10,000 COBBLESTONE
+ C-0041  UN      GRAVEL 5K     DONE    | TO 1200 70 340
+                                       | 1,500 SPUR UNPAID
+ LOG                                   | NEXT 3 OF 3, 2,448
+ 0610 C-0042 SHIPMENTS 1-2 DROPPED
+ 0611 C-0043 LOADING SIDE A
+ 0611 C-0043 INTAKE SHORT - 900 IRON, NEEDS 1,200
+ N NEW  R RUN  P PAID  I INVOICE  TAB FLEET  Q QUIT
+```
+
+The status line is the three things that need Alex: what is open, what is
+moving, and what is owed. An order that needs him - an intake short, a load
+stuck, delivered and still unpaid - is drawn in the warning colour and the
+board chimes once.
+
+### A new order, five steps
+
+Each step is a list with the likely answer already selected, so a repeat
+customer ordering the usual is five presses of ENT.
+
+```
+NEW ORDER                              WHO   1 / 5
+>STEVE           LAST 1200 70 340   3 ORDERS
+ KODIAK          LAST 2400 72 -3269 1 ORDER
+ UN              LAST 1285 93 -22   2 ORDERS
+ + SOMEONE NEW
+ ENT PICK   TYPE TO SEARCH   Q BACK
+```
+
+1. **Who.** Customers from the orders log, most recent first, with their last
+   address. Or someone new: a name.
+2. **What.** The items on the price list, then anything the intake holds now.
+3. **How many.** Typed, and answered with the shipment arithmetic as you type:
+   `10,000 = 3 shipments on 2 flights. 11,328 would fill them.`
+4. **Where.** The customer's last address first, then the saved places, then
+   coordinates typed as F3 shows them - all three, because a drop needs the
+   ground height.
+5. **Price.** The suggestion from the price list is already filled in; ENT
+   takes it, or type another.
+
+### Confirm
+
+```
+CONFIRM                                  C-0044
+ STEVE        10,000 COBBLESTONE
+ TO           1200 70 340   2,850 FROM FACTORY
+ SHIPMENTS    3, ON 2 FLIGHTS
+ FLYING       ABOUT 4 MIN   (64 S + D/171, x2)
+ PRICE        1,500 SPUR    SUGGESTED 1,420
+ ----------------------------------------------
+ FIRST INVOICE PRINTS AS C-0044-1, 1 OF 3
+ ENT ACCEPT   E EDIT   Q CANCEL
+```
+
+On a screen wide enough (a monitor), the first invoice is drawn beside it
+exactly as it will print - `lib/invoice.lua` already makes the lines.
+
+After ENT, the screen shows the reply to send the customer, word for word, so
+it is the same every time:
+
+```
+C-0044 CONFIRMED. 10,000 COBBLESTONE TO 1200 70 340.
+3 SHIPMENTS. 1,500 SPUR. CARGO AT CONSIGNEE'S RISK.
+```
+
+### The price list: machines/base/prices.lua
+
+The suggested price needs something to suggest from, and a config file on the
+base is the simplest thing that works (kept in the base's machine folder, like
+its places):
+
+```lua
+return {
+  -- what we sell: spurs per 1,000, and the stack size if it is not 64
+  cobble      = { per1k = 120 },
+  gravel      = { per1k = 150 },
+  iron_block  = { per1k = 9000 },
+  ender_pearl = { per1k = 20000, stack = 16 },
+  -- delivery on top of the goods: spurs per 1,000 blocks from the factory
+  delivery    = { per1kBlocks = 100 },
+}
+```
+
+The same file is the supply list the website will show later, so it is written
+once. What we sell is whatever is in it; the form offers nothing else unless
+the intake happens to hold it.
+
+### Who remembers what
+
+Nothing new is stored for any of this. Customers, their last address and what
+they owe are all read back out of `orders.log`; the items and prices come from
+`prices.lua`; places from `pads.lua`. The screens are a view of the order book,
+not a second record of it.
+
+### One order book, several front doors
+
+`lib/orders.lua` holds the rules and the log; the actions - add, run, paid,
+cancel, quote - are functions on it. The commands, the base screens, the
+pocket and, one day, the web Cinder side in SERVICE.md all call those same
+functions. So a new front door is only ever drawing, never logic, and the
+command line stays for testing and scripts.
+
 ## The model
 
 Three things, and only three.
