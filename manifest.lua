@@ -38,7 +38,7 @@ return {
   -- the base server: the control room screens, and the older single wall
   base = {
     "control.lua", "console.lua",
-    "lib/display.lua", "lib/state.lua", "lib/screens.lua", "lib/watch.lua",
+    "lib/display.lua", "lib/state.lua", "lib/screens.lua", "lib/watch.lua", "lib/trip.lua",
     "lib/db.lua", "stickers.lua",
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
     "lib/loader.lua", "station.example.lua", "lib/cargo.lua", "lib/deliver.lua", "depot.lua", "lib/dockseq.lua", "lib/stock.lua",

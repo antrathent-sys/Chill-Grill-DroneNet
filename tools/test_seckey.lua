@@ -131,6 +131,26 @@ run(unlabelled, "watch", "set", string.rep("ab", 32))
 check("no label: saved, with a warning that the feed is sealed to a name", unlabelled.files[".watchkey"] ~= nil
   and printed(unlabelled, "no label"))
 
+print("admin pockets: a key that asks the base for trips")
+local base5 = computer({ drives = { drive_left = "disk" } })
+ok, err = run(base5, "admin", "new", "alex")
+local akeys = S.parseFleetKeys(base5.files[".adminkeys"] or "")
+check("kept in .adminkeys, apart from drones and watchers", ok and akeys["alex"] and #akeys["alex"] == 32
+  and base5.files[".fleetkeys"] == nil and base5.files[".watchkeys"] == nil, err)
+check("on a floppy for the pocket", S.parseKey(base5.files["disk/.adminkey"] or "") == akeys["alex"]
+  and printed(base5, "seckey admin set disk"))
+local pocket = computer({ label = "alex", drives = { d = "disk7" }, files = { ["disk7/.adminkey"] = base5.files["disk/.adminkey"] } })
+ok, err = run(pocket, "admin", "set", "disk")
+check("the pocket saves it as .adminkey and wipes the floppy", ok and S.parseKey(pocket.files[".adminkey"] or "") == akeys["alex"]
+  and pocket.files["disk7/.adminkey"] == nil and printed(pocket, "asks as: alex"), err)
+local base6 = computer({ files = { [".watchkeys"] = "screens=" .. string.rep("ab", 32) .. "\n" }, drives = {} })
+run(base6, "admin", "new", "screens")
+check("a name already a watcher's is refused - the feed is sealed by name", base6.files[".adminkeys"] == nil
+  and printed(base6, "already a watcher"))
+local base7 = computer({ files = { [".adminkeys"] = "alex=" .. string.rep("cd", 32) .. "\n" }, drives = {} })
+run(base7, "watch", "new", "alex")
+check("...and the other way round", base7.files[".watchkeys"] == nil and printed(base7, "already a admin pocket"))
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("seckey tests failed", 0) end

@@ -81,6 +81,13 @@ local bigEnv = tx.seal(big)
 check("40 jobs and 80 places still seal (capped at 8 and 40)", bigEnv ~= nil and #W.parse(big).jobs == 8
   and #W.parse(big).places == 40)
 
+print("admin trips in the summary")
+local st = W.summary({}, 0, 0, {}, 1, { "T-3|drone-1|stopped|1/2|rules|alex", "T-2|drone-2|done|2/2|home|alex" })
+local sp = W.parse(st)
+check("they come back as trips", sp and #sp.trips == 2 and sp.trips[1].id == "T-3" and sp.trips[1].drone == "drone-1"
+  and sp.trips[1].state == "stopped" and sp.trips[1].leg == "1/2" and sp.trips[1].stop == "rules" and sp.trips[1].who == "alex")
+check("a summary without them still parses", #W.parse(W.summary({}, 0, 0, {}, 1)).trips == 0)
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("watch tests failed", 0) end

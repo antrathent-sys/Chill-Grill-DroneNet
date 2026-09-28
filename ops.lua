@@ -173,17 +173,33 @@ local senders = {}
 local WATCH = dofile("lib/watch.lua")
 local watchKeys, nWatch = SEC.readFleetKeys(".watchkeys")
 local watchSenders = {}
-local function feed(body)
-  if nWatch == 0 or not radio then return end
-  for name, key in pairs(watchKeys) do
-    local s = watchSenders[name]
-    if not s then
-      s = SEC.sender(key, name, SEC.DIR.BASE_TO_WATCH, ".watch-" .. name .. ".ctr")
-      watchSenders[name] = s
-    end
-    local okS, env = pcall(s.seal, body)
-    if okS and env then pcall(peripheral.call, radio, "transmit", WATCH.CHANNEL, WATCH.CHANNEL, env) end
+-- The admin pocket (admin.lua): trips of several legs, Go and Cancel, from a
+-- pocket computer with a key of its own (.adminkeys, seckey admin new <name>).
+-- Its requests come sealed ADMIN_TO_BASE on the telemetry channel; the base
+-- vets each and turns it into the drone's order, so drone keys never leave
+-- here. It gets the feed as a watcher does, and its answers on it.
+local TRIP = dofile("lib/trip.lua")
+local ADMIN = { keys = (SEC.readFleetKeys(".adminkeys")), rx = SEC.receiver(), trips = {}, ended = {},
+                seq = 0, seen = {} }
+local function sealTo(cacheKey, id, key, body, ctr)
+  local s = watchSenders[cacheKey]
+  if not s then
+    s = SEC.sender(key, id, SEC.DIR.BASE_TO_WATCH, ctr)
+    watchSenders[cacheKey] = s
   end
+  local okS, env = pcall(s.seal, body)
+  if okS and env then pcall(peripheral.call, radio, "transmit", WATCH.CHANNEL, WATCH.CHANNEL, env) end
+end
+local function feed(body)
+  if not radio then return end
+  for name, key in pairs(watchKeys) do sealTo(name, name, key, body, ".watch-" .. name .. ".ctr") end
+  for name, key in pairs(ADMIN.keys) do sealTo("admin:" .. name, name, key, body, ".admin-" .. name .. ".ctr") end
+end
+-- an answer for one admin pocket only
+function ADMIN.reply(name, ok, text, drone, nonce)
+  local key = ADMIN.keys[name]
+  if not (key and radio) then return end
+  sealTo("admin:" .. name, name, key, F.adminAck(ok, text, nonce, drone), ".admin-" .. name .. ".ctr")
 end
 
 local function senderFor(id)
@@ -506,7 +522,9 @@ local function receive()
   local rx = SEC.receiver()
   while true do
     local _, _, ch, _, msg = os.pullEvent("modem_message")
-    if ch == link.CHANNEL and type(msg) == "table" and msg.sl then
+    if ch == link.CHANNEL and type(msg) == "table" and msg.sl and msg.d == SEC.DIR.ADMIN_TO_BASE then
+      if ADMIN.handle then pcall(ADMIN.handle, msg) end
+    elseif ch == link.CHANNEL and type(msg) == "table" and msg.sl then
       local ok, body = pcall(rx.open, msg, function(id) return fleetKeys[id] end,
                              SEC.DIR.DRONE_TO_BASE, 120000)
       if ok and body then
@@ -1579,13 +1597,97 @@ local function padClearLoop()
   end
 end
 
--- the base's own half of the feed: jobs, queue, rides done and places
+-- ------------------------------------------------------------ admin trips ---
+-- A request from an admin pocket: opened with its own key, checked, acted on,
+-- and answered to that pocket alone.
+function ADMIN.handle(env)
+  local okO, body = pcall(ADMIN.rx.open, env, function(id) return ADMIN.keys[id] end,
+                          SEC.DIR.ADMIN_TO_BASE, 120000)
+  if not (okO and body) then log("refused an admin request from %s: %s", tostring(env.id), tostring(body)) return end
+  local who = body.id
+  local okC, whyC = F.check(body)
+  if not okC or not tostring(body.type):match("^admin%.") or body.type == "admin.ack" then
+    ADMIN.reply(who, false, "not a request: " .. tostring(whyC or body.type), nil, nonce()) return
+  end
+  if not F.fresh(ADMIN.seen, body.nonce, os.clock()) then return end
+  local drone, now = body.drone, os.clock()
+  local trip = ADMIN.trips[drone]
+  if body.type == "admin.trip" then
+    if trip then ADMIN.reply(who, false, drone .. " is on " .. trip.id .. " - cancel it first", drone, nonce()) return end
+    local okA, whyA = F.available(fleet[drone], now)
+    if not okA then ADMIN.reply(who, false, drone .. ": " .. tostring(whyA), drone, nonce()) return end
+    local legs, whyL = TRIP.parse(body.legs, pads)
+    if not legs then ADMIN.reply(who, false, whyL, drone, nonce()) return end
+    ADMIN.seq = ADMIN.seq + 1
+    trip = TRIP.new(string.format("T-%d", ADMIN.seq), drone, legs, who, now)
+    ADMIN.trips[drone] = trip
+    fleet[drone].job = trip.id
+    log("%s for %s by %s: %s", trip.id, drone, who, TRIP.encode(legs))
+    ADMIN.reply(who, true, trip.id .. ": " .. #trip.segs .. " stop" .. (#trip.segs == 1 and "" or "s") .. ", off now", drone, nonce())
+  elseif not trip then
+    ADMIN.reply(who, false, drone .. " is not on a trip", drone, nonce())
+  elseif body.type == "admin.go" then
+    local okG, whyG = TRIP.go(trip)
+    ADMIN.reply(who, okG, whyG, drone, nonce())
+  elseif body.type == "admin.cancel" then
+    local _, whyX = TRIP.cancel(trip)
+    log("%s cancel by %s: %s", trip.id, who, whyX)
+    ADMIN.reply(who, true, trip.id .. " " .. whyX, drone, nonce())
+  end
+end
+
+-- a trip is over: the drone is free again, and the admin who asked is told
+function ADMIN.finish(trip, why)
+  ADMIN.trips[trip.drone] = nil
+  if fleet[trip.drone] and fleet[trip.drone].job == trip.id then fleet[trip.drone].job = nil end
+  trip.endedAt = os.clock()
+  table.insert(ADMIN.ended, 1, trip)
+  while #ADMIN.ended > 4 do table.remove(ADMIN.ended) end
+  log("%s %s: %s", trip.id, trip.state, tostring(why))
+  ADMIN.reply(trip.who, trip.state == "done", trip.id .. " " .. tostring(why), trip.drone, nonce())
+end
+
+-- one look a second at every trip: send the next leg, notice it has left,
+-- that it is down at the stop, and the end
+local function tripLoop()
+  while true do
+    local now = os.clock()
+    for drone, trip in pairs(ADMIN.trips) do
+      local act, text = TRIP.step(trip, fleet[drone], now)
+      if act == "send" then
+        local cmd, whyC = TRIP.command(trip.segs[trip.seg])
+        local sent, whyS = false, whyC
+        if cmd then sent, whyS = order(drone, F.flyCommand(cmd, nonce())) end
+        if sent then
+          TRIP.sent(trip, now)
+          log("%s leg %d/%d: %s fly %s", trip.id, trip.seg, #trip.segs, drone, cmd)
+        else
+          trip.state = "failed"
+          ADMIN.finish(trip, "could not send the leg: " .. tostring(whyS))
+        end
+      elseif act == "end" then
+        ADMIN.finish(trip, text)
+      elseif text then
+        log("%s: %s", trip.id, text)
+        ADMIN.reply(trip.who, true, trip.id .. " " .. text, drone, nonce())
+      end
+    end
+    sleep(1)
+  end
+end
+
+-- the base's own half of the feed: jobs, queue, rides done, places and trips
 local function feedLoop()
-  if nWatch == 0 then while true do sleep(3600) end end
+  if nWatch == 0 and not next(ADMIN.keys) then while true do sleep(3600) end end
   while true do
     local done = 0
     for _, j in pairs(jobs) do if type(j) == "table" and j.state == "done" then done = done + 1 end end
-    feed(WATCH.summary(jobs, #waiting, done, pads, os.clock()))
+    local lines = {}
+    for _, trip in pairs(ADMIN.trips) do lines[#lines + 1] = TRIP.line(trip) end
+    for _, trip in ipairs(ADMIN.ended) do
+      if os.clock() - (trip.endedAt or 0) <= WATCH.DONE_SHOW then lines[#lines + 1] = TRIP.line(trip) end
+    end
+    feed(WATCH.summary(jobs, #waiting, done, pads, os.clock(), lines))
     sleep(WATCH.EVERY)
   end
 end
@@ -2148,5 +2250,5 @@ end
 
 if not knownOnly then log("OPEN: any terminal can call, pass or not - ops known ends it") end
 parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, serveQueue, draw, keys, depotLoop, padClearLoop,
-                    feedLoop)
+                    feedLoop, tripLoop)
 print("ops stopped")

@@ -69,7 +69,7 @@ end
 --- The summary. jobs: ops's jobs by id; queued: how many are waiting for a
 -- unit; done: rides finished since the base started; places: pads.lua's list;
 -- now: os.clock() on the base.
-function W.summary(jobs, queued, done, places, now)
+function W.summary(jobs, queued, done, places, now, trips)
   now = now or 0
   local show = {}
   for _, j in pairs(jobs or {}) do
@@ -92,9 +92,15 @@ function W.summary(jobs, queued, done, places, now)
       ps[#ps + 1] = string.format("%s:%d:%d:%s", clean(p.name), math.floor(p.x), math.floor(p.z), clean(p.kind or "dock"))
     end
   end
+  -- admin trips: lib/trip.lua's T.line for each ("id|drone|state|seg/n|stop|who")
+  local ts = {}
+  for _, line in ipairs(trips or {}) do
+    if #ts >= W.JOBS_MAX then break end
+    ts[#ts + 1] = (tostring(line):gsub("[;:\30\31]", " "))
+  end
   return { v = W.VERSION, type = "ops", t = now, jobs = table.concat(parts, ";"),
            queue = math.floor(tonumber(queued) or 0), done = math.floor(tonumber(done) or 0),
-           places = table.concat(ps, ";") }
+           places = table.concat(ps, ";"), trips = table.concat(ts, ";") }
 end
 
 --- A summary as the watcher uses it: { jobs = { {id, code, drone, state,
@@ -102,7 +108,14 @@ end
 -- or nil if it is not one.
 function W.parse(body)
   if type(body) ~= "table" or body.type ~= "ops" or body.v ~= W.VERSION then return nil end
-  local out = { jobs = {}, places = {}, queue = tonumber(body.queue) or 0, done = tonumber(body.done) or 0 }
+  local out = { jobs = {}, places = {}, trips = {}, queue = tonumber(body.queue) or 0, done = tonumber(body.done) or 0 }
+  for item in tostring(body.trips or ""):gmatch("[^;]+") do
+    local f = {}
+    for v in (item .. "|"):gmatch("([^|]*)|") do f[#f + 1] = v end
+    if str(f[1]) then
+      out.trips[#out.trips + 1] = { id = f[1], drone = f[2], state = f[3], leg = f[4], stop = f[5], who = f[6] }
+    end
+  end
   for item in tostring(body.jobs or ""):gmatch("[^;]+") do
     local f = {}
     for v in (item .. "|"):gmatch("([^|]*)|") do f[#f + 1] = v end

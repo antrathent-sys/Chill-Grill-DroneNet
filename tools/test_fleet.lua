@@ -355,6 +355,16 @@ do
   check("...and needs a unit", not F.check(clr))
 end
 
+print("admin requests")
+check("a trip request passes", F.check(F.adminTrip("drone-1", "stop:rules;stop:home", "a-1")))
+check("...not without legs", not F.check(F.adminTrip("drone-1", "", "a-2")))
+check("...nor with too many characters", not F.check(F.adminTrip("drone-1", string.rep("x", 301), "a-3")))
+check("go and cancel name a drone", F.check(F.adminCmd("go", "drone-1", "a-4")) and F.check(F.adminCmd("cancel", "drone-1", "a-5"))
+  and not F.check(F.adminCmd("go", nil, "a-6")))
+check("an answer has a verdict and a line", F.check(F.adminAck(true, "T-1: off now", "a-7"))
+  and not F.check(F.adminAck(nil, "x", "a-8")) and not F.check(F.adminAck(true, "", "a-9")))
+check("nothing else pretends to be one", not F.check({ v = 1, type = "admin.fly", nonce = "a-10" }))
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("fleet tests failed", 0) end

@@ -106,7 +106,8 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["job.relocate"] = true, ["unit.stick"] = true, ["unit.stuck"] = true,
             ["unit.dropped"] = true, ["depot.hello"] = true, ["load.start"] = true,
             ["load.step"] = true, ["load.lifted"] = true, ["load.stuck"] = true, ["load.done"] = true,
-            ["unit.clear"] = true }
+            ["unit.clear"] = true,
+            ["admin.trip"] = true, ["admin.go"] = true, ["admin.cancel"] = true, ["admin.ack"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -246,6 +247,14 @@ function F.check(m)
     if not args then return false, "args: " .. why end
   elseif m.type == "unit.clear" then
     if not str(m.to) then return false, "no unit" end
+  elseif m.type == "admin.trip" then
+    if not str(m.drone) then return false, "no drone" end
+    if not (str(m.legs) and #m.legs <= 300) then return false, "no legs" end
+  elseif m.type == "admin.go" or m.type == "admin.cancel" then
+    if not str(m.drone) then return false, "no drone" end
+  elseif m.type == "admin.ack" then
+    if type(m.ok) ~= "boolean" then return false, "no verdict" end
+    if not str(m.text) then return false, "no text" end
   elseif m.type == "pad.stats" then
     if not str(m.pad) then return false, "no pad" end
     if not num(m.rides) then return false, "no ride count" end
@@ -572,6 +581,18 @@ end
 
 function F.go(job, nonce)
   return { v = F.VERSION, type = "job.go", nonce = nonce or (job .. "-go"), job = job }
+end
+
+-- The admin pocket's requests (admin.lua -> the base, sealed ADMIN_TO_BASE) and
+-- the base's answer (sealed on the feed channel). legs: lib/trip.lua's string.
+function F.adminTrip(drone, legs, nonce)
+  return { v = F.VERSION, type = "admin.trip", nonce = nonce, drone = drone, legs = legs }
+end
+function F.adminCmd(what, drone, nonce)
+  return { v = F.VERSION, type = "admin." .. what, nonce = nonce, drone = drone }
+end
+function F.adminAck(ok, text, nonce, drone)
+  return { v = F.VERSION, type = "admin.ack", nonce = nonce, ok = ok, text = text, drone = drone }
 end
 
 -- A unit waiting on a pad after a ride: leave it now, someone is coming in to

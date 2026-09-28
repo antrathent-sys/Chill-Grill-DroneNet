@@ -31,7 +31,8 @@ local S = {}
 
 S.VERSION = 1
 S.DIR = { DRONE_TO_BASE = 1, BASE_TO_DRONE = 2,
-          BASE_TO_WATCH = 3 }   -- the base's read-only feed (lib/watch.lua), under a watcher's own key
+          BASE_TO_WATCH = 3,    -- the base's read-only feed (lib/watch.lua), under a watcher's own key
+          ADMIN_TO_BASE = 4 }   -- the admin pocket's requests (admin.lua), under its own key
 S.RESERVE = 64          -- counter values reserved per disk write
 S.ROOT = ""             -- where ccryptolib/ lives; tests point this at the repo
 
@@ -128,6 +129,7 @@ end
 
 S.CUST_HEADER = "Shuttle customer keys - one line per pass you issued."
 S.WATCH_HEADER = "Watcher keys - screens and towers that only see the feed, one line each."
+S.ADMIN_HEADER = "Admin pocket keys - they ask the base for trips, one line each. Keep this computer private."
 
 --- The text of a key list, sorted by id, under a comment line: the one place
 -- the file format is written, so seckey and provision cannot drift apart.

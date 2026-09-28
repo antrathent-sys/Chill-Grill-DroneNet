@@ -20,6 +20,8 @@ local DEPOTHEX = "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a090807060504030201
 local DEPOTKEY = S.parseKey(DEPOTHEX)
 local KEY2HEX = "2f2e2d2c2b2a292827262524232221201f1e1d1c1b1a19181716151413121110"
 local KEY2 = S.parseKey(KEY2HEX)
+local ADMINHEX = "3f3e3d3c3b3a393837363534333231302f2e2d2c2b2a29282726252423222120"
+local ADMINKEY = S.parseKey(ADMINHEX)
 local CARGO = dofile(DIR .. "/../lib/cargo.lua")
 local unpack = table.unpack or unpack
 local function pack(...) return { n = select("#", ...), ... } end
@@ -129,6 +131,7 @@ local function base(opts)
   local depotRx = S.receiver()
   local depotTx = S.sender(DEPOTKEY, "depot-pier", S.DIR.DRONE_TO_BASE, nil)
   local drone2Tx = S.sender(KEY2, "drone-2", S.DIR.DRONE_TO_BASE, nil)   -- opts.drone2: a second unit
+  local adminTx = S.sender(ADMINKEY, "alex", S.DIR.ADMIN_TO_BASE, nil)     -- the admin pocket
   w.depotHeard = {}
   w.pos = { x = drone.x or 1892.5, z = drone.z or 365.5 }
   -- sealed when it is sent, not when it is scheduled: the counter has to rise
@@ -325,7 +328,8 @@ local function base(opts)
   -- opts.later: { { t, message } } the drone sends, sealed, at time t;
   -- { t, message, "depot" } sends it sealed with depot-pier's key instead
   for _, l in ipairs(opts.later or {}) do
-    w.later[#w.later + 1] = { at = l[1], body = l[2], fromDepot = l[3] == "depot", fromDrone2 = l[3] == "drone2" }
+    w.later[#w.later + 1] = { at = l[1], body = l[2], fromDepot = l[3] == "depot", fromDrone2 = l[3] == "drone2",
+                              fromAdmin = l[3] == "admin" }
   end
   for _, k in ipairs(opts.keysAt or {}) do w.later[#w.later + 1] = { at = k[1], ev = { "key", env.keys[k[2]] } } end
 
@@ -342,7 +346,7 @@ local function base(opts)
     if kind == "later" then
       local l = table.remove(w.later, idx)
       if l.fn then l.fn() return nextEvent() end
-      local tx = l.fromDepot and depotTx or (l.fromDrone2 and drone2Tx) or droneTx
+      local tx = l.fromDepot and depotTx or (l.fromDrone2 and drone2Tx) or (l.fromAdmin and adminTx) or droneTx
       local ev = l.ev or { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL, tx.seal(l.body) }
       ev.n = #ev
       return ev
@@ -849,6 +853,53 @@ check("the feed is its own channel: the drones' channel carries none of it", (fu
 end)())
 w = base({ args = {}, keysAt = { { 9, "q" } } }):run()
 check("no .watchkeys: nothing is sent on the feed", w.err == nil and #w.fed == 0, #w.fed)
+
+print("an admin trip from the pocket")
+local AK = "alex=" .. ADMINHEX .. "\n"
+local function acks(ww)
+  local rxA, out = S.receiver(), {}
+  for _, env2 in ipairs(ww.fed) do
+    local b = rxA.open(env2, function(id) return id == "alex" and ADMINKEY or nil end, S.DIR.BASE_TO_WATCH)
+    if b and b.type == "admin.ack" then out[#out + 1] = b end
+  end
+  return out
+end
+local function flies(ww)
+  local out = {}
+  for _, b in ipairs(ww.orders) do if b.type == "ops.fly" then out[#out + 1] = b.args end end
+  return out
+end
+w = base({ args = {}, keysAt = { { 40, "q" } }, files = { [".adminkeys"] = AK },
+           later = { { 3, F.adminTrip("drone-1", "stop:pier;stop:home", "adm-1"), "admin" },
+                     { 25, F.adminCmd("go", "drone-1", "adm-2"), "admin" } } }):run()
+local f1, a1 = flies(w), acks(w)
+local said = {}
+for _, a in ipairs(a1) do said[#said + 1] = a.text end
+check("the trip is taken and answered", w.err == nil and a1[1] and a1[1].ok == true
+  and a1[1].text:find("T-1: 2 stops", 1, true) ~= nil, w.err or table.concat(said, " / "))
+check("its first leg goes to the drone as an order: ferry pier", f1[1] == "ferry pier", table.concat(f1, " / "))
+check("down at the pier it says so, and waits for Go", table.concat(said, " / "):find("down at pier", 1, true) ~= nil,
+  table.concat(said, " / "))
+check("Go sends the next leg: ferry home", f1[2] == "ferry home", table.concat(f1, " / "))
+w = base({ args = {}, keysAt = { { 12, "q" } }, files = { [".adminkeys"] = AK },
+           later = { { 3, F.adminTrip("drone-1", "stop:nowhere", "adm-3"), "admin" } } }):run()
+local a2 = acks(w)
+check("a place the base does not know is refused, and nothing flies", a2[1] and a2[1].ok == false
+  and a2[1].text:find("nowhere", 1, true) ~= nil and #flies(w) == 0, a2[1] and a2[1].text)
+w = base({ args = {}, keysAt = { { 12, "q" } }, files = { [".adminkeys"] = AK },
+           later = { { 3, F.adminTrip("drone-1", "stop:pier", "adm-4"), "depot" } } }):run()
+check("a request sealed with any other key - a depot's - is not an admin's: nothing flies", w.err == nil and #flies(w) == 0
+  and #acks(w) == 0)
+w = base({ args = {}, keysAt = { { 12, "q" } },
+           later = { { 3, F.adminTrip("drone-1", "stop:pier", "adm-5"), "admin" } } }):run()
+check("no .adminkeys: no admin at all", w.err == nil and #flies(w) == 0)
+w = base({ args = {}, keysAt = { { 20, "q" } }, files = { [".adminkeys"] = AK },
+           later = { { 3, F.adminTrip("drone-1", "stop:pier;stop:home", "adm-6"), "admin" },
+                     { 4, F.adminCmd("cancel", "drone-1", "adm-7"), "admin" } } }):run()
+local a3, said3 = acks(w), {}
+for _, a in ipairs(a3) do said3[#said3 + 1] = a.text end
+check("cancel in the air: it will end at this leg's stop, and does", table.concat(said3, " / "):find("will end at pier", 1, true)
+  and table.concat(said3, " / "):find("cancelled - down at pier", 1, true) ~= nil and #flies(w) == 1, table.concat(said3, " / "))
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end
