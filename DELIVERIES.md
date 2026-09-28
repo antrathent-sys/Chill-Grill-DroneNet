@@ -27,11 +27,13 @@ ops order run C-0042             (Alex, once per flight for now)
       v
 FACTORY DEPOT  (dual loader)
   1. count the intake: is there cobble, and how much?
-  2. move exactly A into side A's storage and B into side B's - counted
-  3. print an invoice for each silo - shipment 1 of 3, 2 of 3 - in with the goods
-  4. place, assemble, fill (the belt empties each side's storage into its silo)
-  5. count what went in: that is the confirmation
-  6. drone latched -> pusher up -> drone sticks -> pusher down
+  2. check both staging vaults: empty, or only leftover cobble
+  3. move exactly A and B into them, and read them back
+  4. place, assemble, fill (the belt empties each staging vault into its silo)
+  5. check the staging vaults are empty: what left is what went in
+     (3-5 repeat in rounds when a staging vault is smaller than a silo)
+  6. print each invoice from that count - shipment 1 of 3, 2 of 3 - put it in last
+  7. drone latched -> pusher up -> drone sticks -> pusher down
       |
       |  load.done  load=C-0042.1  counted A=3776 B=3776
       v
@@ -53,8 +55,10 @@ cargo ledger already works out which load that sticker was holding
 single new message.
 
 **The cargo carries it too: an invoice in every silo.** A CC printer on the
-depot's network prints one invoice per silo and the depot pushes it into that
-side's storage with the goods, so the belt carries it into the silo. It is a
+depot's network prints one invoice per silo, **after the fill has been
+measured**, and the depot pushes it into that side's staging vault so the belt
+carries it in after the goods - see "Checking the staging vaults" below for why
+it goes in last. It is a
 regular invoice (Alex: "ordered, delivered, cost"), and **every silo is a
 shipment, numbered across the whole order** - 1 of 3, 2 of 3, 3 of 3 - because
 that is what the customer receives. How shipments were paired into flights is
@@ -146,10 +150,12 @@ depot's fill counts for silos the drone reported letting go - nothing else.
 
 ### The intake
 
-**One intake chest that Alex fills by hand,** on the depot's wired network,
-named `intake` in the dock's `dock.lua`. For each run the depot:
+**One intake that Alex fills by hand,** on the depot's wired network, named
+`intake` in the dock's `dock.lua`. It should be a vault rather than a chest: a
+full flight stages 118 slots, and a double chest holds 54 (see the limits
+below). For each flight the depot:
 
-- moves only the order's item out of it; anything else in there stays put
+- moves only the order's items out of it; anything else in there stays put
 - moves exactly each side's amount, and counts what the move returned
 - if the intake is **short**, loads what is there up to the run's size and
   reports how many; the next run is planned from the rest
@@ -160,15 +166,60 @@ That is the whole of the batching machinery: the belt already empties a side's
 storage into its silo, so putting exactly the right amount into that storage
 is putting exactly the right amount into the silo.
 
-### Two counts, and what happens when they disagree
+### Checking the staging vaults
 
-- **Staged**: what the move from the intake into a side's storage returned.
-- **Filled**: what left that storage into the silo (the dock sequence already
-  measures this - it is how it knows a fill is done).
+Each side's storage - the vault the belt empties into that side's silo - is
+where a shipment is put together, and it is **the only place a shipment's
+contents can ever be measured.** Once a silo is assembled it is a physics
+object, not an inventory, and no computer can read what is in it. So the
+staging vaults are checked at every step (Alex, 2026-09-28), and between them
+they are what makes an invoice's numbers true.
 
-They should match. If the fill comes up short - a silo full, a belt stopped -
-the load reports both, the shortfall stays in the side's storage for the next
-run, and the order records what actually went.
+1. **How big it is.** The depot reads each staging vault's slot count and
+   stages in rounds no bigger than that. A one-block vault is 20 slots - a
+   third of a silo - so it takes three rounds of stage and fill to fill one.
+2. **Empty before anything goes in.** Anything already there would ride to a
+   customer who never ordered it. Leftovers of the same item - a fill that came
+   up short last time - count toward this shipment, since cobble is cobble. Any
+   other item stops the load, and the depot says what it found and on which
+   side.
+3. **Read back after staging.** The vault must now hold exactly what the depot
+   moved into it: the right items, the right counts. What the move reported is
+   only believed when the vault agrees.
+4. **Empty again after the fill.** What left the vault is what went into the
+   silo. If something is still there - the silo filled early, the belt stopped -
+   the shipment is what actually left, and the rest waits for this order's next
+   flight, where check 2 counts it.
+5. **Everything balances.** For every item: what left the intake equals what
+   went into silos plus what is still staged. If it does not, something other
+   than the depot touched a vault - a player, a stray hopper - and the load
+   stops before the drone is called, with the numbers on screen.
+
+**The invoice goes in last, printed from check 4's count, not from the plan.**
+Once the fill has been measured, the page is printed and pushed into the empty
+staging vault, the belt - still at its loading level - carries it into the
+silo, and the vault is checked empty once more. So the invoice always says
+what is in the silo, even when the fill came up short. The slot it takes was
+kept free for it (59 for goods, 1 for the page).
+
+### How complex an order can be
+
+No limit in the software: an order is any number of items in any amounts,
+packed into as many shipments as it takes. The limits are physical, and
+knowing them is how an order gets quoted honestly:
+
+| limit | what sets it |
+|---|---|
+| **59 kinds of item per silo** | each takes at least one of its 59 slots. More kinds mean more silos, never a refused order |
+| **4 items listed per invoice** | the page is 21 lines. A fifth kind in one silo shows as `+ n MORE ITEMS`; nothing is lost, it just is not all printed |
+| **2 silos per flight** | the dual loader. Past the first two, every two shipments cost another flight: about a minute in the air, plus the load |
+| **the intake** | a full flight stages 118 slots. A chest holds 27 and a double chest 54, so **the intake should be a vault**, or it gets topped up between flights |
+| **one destination** | an order goes to one place. A customer with two addresses is two orders |
+| **items by name only** | the depot moves items by their name, so things that differ only inside - enchanted books, potions, tipped arrows, named or worn tools - all look alike. An order for `enchanted_book` takes whichever books are in the intake. Keep those out of a shared intake, or load them by hand |
+
+And one guard for the most likely mistake: `ops order add` prints the plan -
+shipments and flights - and asks before accepting anything over 10 shipments,
+because 100,000 typed for 10,000 is one keystroke away.
 
 ### What exists and what is new
 
@@ -176,7 +227,7 @@ run, and the order records what actually went.
 |---|---|
 | **exists** | `ops load send` runs one load at a depot and flies a `deliver` after it. The two-sided dock sequence (`lib/dockseq.lua`) places, assembles, fills, pushes and retracts, proven on the test dock. `cargo.csv` records every silo; `unit.dropped` reports every release; a drop with two silos and one point lets both go there. |
 | **the gap** | The depot daemon still runs base-driven loads through the older single-bay `lib/loader.lua`. The two-sided dock only runs by hand (`depot seq`), with the drone's part "taken as done". |
-| **new** | the order record and runs (`lib/orders.lua`); `ops order add / run / paid`, `ops orders`, `ops quote`; the depot running `lib/dockseq.lua` for base-driven loads, staging from the intake and answering the drone's stick through the base; the manifest printer. |
+| **new** | the order record and runs (`lib/orders.lua`); `ops order add / run / paid`, `ops orders`, `ops quote`; the depot running `lib/dockseq.lua` for base-driven loads, staging from the intake with the five staging checks, and answering the drone's stick through the base; the invoice printer. |
 
 **The factory loader is dual** (Alex, 2026-09-28), built like the test dock:
 two sides, each with a placer, assembler, belt, pusher, its own storage and a
@@ -188,7 +239,8 @@ network.
 Each is one quick test, and the first decides the batching design:
 
 1. **The depot can move a counted amount from a chest into a side's storage** -
-   `pushItems` into a Create connected silo, over a wired modem.
+   `pushItems` into a Create connected silo, over a wired modem - and read the
+   staging vault's slot count with `size()`.
 2. **A printed page put in a side's storage rides the belt into the silo** with
    the goods, and is still there when the vault is opened after a drop.
 3. **A two-sided load where the base answers "stick"**, with a real drone
