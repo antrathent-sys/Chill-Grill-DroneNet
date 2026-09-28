@@ -343,3 +343,7 @@ column.
 gimbal angles, which overstates it. TUMBLE (85) checks each axis on its own; true tilt is
 acos(cos p x cos r). At 65: pitch peak 68-69, roll 52-57, true tilt 62-64 mean / 76 peak - 16 deg clear of
 the cutoff. The next speed limit is lift: throttle 0.63 at 65, and ~80 true tilt sank at full throttle.
+
+| change | flown | trips | trip constant | miss | touchdown | tumbles |
+|---|---|---|---|---|---|---|
+| 10 speed (`CRUISE_DEG 65 -> 70`) + brake map top raised (205:1310 ... 250:1730) | | | | | | |

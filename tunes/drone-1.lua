@@ -150,17 +150,32 @@
 --                      the heading after takeoff (the cruise waits for it,
 --                      CRUISE_YAW_GATE 15 deg, 8 s at most) and a looser heading.
 --                      Revert: KP 0.01 and delete the KD line.
+--                      Flown 09-13-09: the wobble gone (yaw rate 2.4 deg/s),
+--                      heading looser (5.6 rms), climb 2.3 s longer.
+--                      (Tilt corrected: the tumble check is per axis, and at
+--                      65 pitch peaked 68-69 - 16 clear of 85, not 2.4.)
+--   CRUISE_DEG 70      on test from 2026-09-28 (Alex). Pitch should peak near
+--                      74 against TUMBLE 85; true tilt near 67. Expect ~235-245
+--                      b/s, though 3,669 blocks is too short to reach it. Lift
+--                      is the next limit: throttle 0.63 at 65, maybe ~0.75 at
+--                      70; ALT_PROTECT pulls the lean cap back if it sinks 15
+--                      below. Revert: 65.
+--   BRAKE_MAP top      raised with it: both 65 brakes needed more than the map
+--                      gave - 1,347 from 213 b/s and 1,383 from 210, against
+--                      ~1,320 - and overshot 40 and 84. 205:1310, 220:1450,
+--                      235:1590 (~9.3 per b/s from 195's 1,218), and 250:1730
+--                      for the extra speed.
 return {
   YAW_KP = 0.005,
   YAW_KD = 0.012,
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
-  CRUISE_DEG = 65,
+  CRUISE_DEG = 70,
   CRUISE_BODY_LEAN = 30,
   LAND_SETTLE_XZ = 4,
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
-  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1280,220:1400,235:1520",
+  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1450,235:1590,250:1730",
 }
