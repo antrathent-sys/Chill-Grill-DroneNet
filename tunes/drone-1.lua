@@ -258,6 +258,18 @@
 --                      at 40 blocks out, 8 b/s instead of 4. Capped at
 --                      CRUISE_TRACK_VMAX 25. Watch for it swinging across the
 --                      line. Revert: delete the line.
+--                      Flown 12-42-58 onwards: line 14 rms, 14 across after
+--                      the brake.
+--   BRAKE_MAP low end  refitted 2026-09-28 for short hops. Every brake from
+--                      under ~140 b/s on record overshot: the craft is still
+--                      accelerating hard (10-17 b/s^2) when the brake starts,
+--                      so the swing takes longer, and BRAKE_EASE 60 weakens
+--                      anything under 60 b/s. Needed: 484 @ 67 (the 492-block
+--                      hop, 153 past), 463-541 @ 77-87 (15 flights), 593-664 @
+--                      102-106 (12), 801-831 @ 129-136 (7). 40:300, 55:410,
+--                      70:490, 85:520, 105:625, 135:815; 150 up unchanged.
+--                      (A later brake could ease off at 20 b/s instead of 60 -
+--                      parked for now: the long flights are accurate.)
 return {
   YAW_KP = 0.007,
   YAW_KD = 0.012,
@@ -273,5 +285,5 @@ return {
   BRAKE_TURN_POWER = 0.55,
   BRAKE_SIDE_K = 1.5,
   BRAKE_HOLD_POWER = 0.38,
-  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1460,235:1560,250:1680,265:1800",
+  BRAKE_MAP = "40:300,55:410,70:490,85:520,105:625,135:815,150:950,175:1100,190:1180,205:1310,220:1460,235:1560,250:1680,265:1800",
 }
