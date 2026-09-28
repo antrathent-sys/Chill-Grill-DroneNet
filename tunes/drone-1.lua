@@ -240,6 +240,15 @@
 --                      against a +-40 deg/s yaw wobble; the yaw is ~3 deg/s now.
 --                      Alex's call: aim by the centreline, not the nose.
 --                      Watch the roll. Revert: 30.
+--                      Flown 11-04-00 (69.3 s on the standard route, 78.5 the
+--                      best before; approach 7.5 s) and 11-06-56 (long route,
+--                      91.0 s): the line held to 11-16 rms / 24-28 worst (30-68
+--                      / up to 97 at 30), roll error no worse (4.9-5.7).
+--   BRAKE_MAP top      trimmed 2026-09-28 for the throttle floor: floor-on
+--                      brakes need 1,393-1,440 from 215-219 b/s and 1,721-1,821
+--                      from 262 (the long one balloons more). 11-06-56 stopped
+--                      151 short from 263 on 1,880. Fit 1,415 + 7.9 per b/s
+--                      over 217: 235:1560, 250:1680, 265:1800 (<=220 unchanged).
 return {
   YAW_KP = 0.007,
   YAW_KD = 0.012,
@@ -254,5 +263,5 @@ return {
   BRAKE_TURN_POWER = 0.55,
   BRAKE_SIDE_K = 1.5,
   BRAKE_HOLD_POWER = 0.38,
-  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1460,235:1600,250:1750,265:1900",
+  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1460,235:1560,250:1680,265:1800",
 }
