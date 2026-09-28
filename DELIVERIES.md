@@ -276,6 +276,62 @@ Proven in game first, in order:
 3. Whether packages still on their way count in `stock()` or not, which decides
    how soon after one request the next can trust the numbers.
 
+### Several orders at once: allocated, not set aside
+
+Alex asked (2026-09-28): a staging vault for every order in progress, or keep
+track in software? **In software.** The factory's storage is one pool, and an
+order is a claim on it, not a pile of its own:
+
+- **reserved** = what every open order still has to ship, per item
+- **available** = the latest `depot stock` count, less what is reserved
+
+`ops order add` checks a new order against *available*, not against stock, so
+two orders can never both be promised the last 3,000 cobble. A shortfall is
+said out loud when the order is taken - accept it as waiting on the factory, or
+don't. Nothing new is stored for this: the reservations are worked out from
+`orders.log`, the stock from the ticker.
+
+Why not physical staging per order:
+
+- **Only one flight is ever about to leave.** One drone, one dual loader: the
+  two staging vaults hold the shipments for the flight being loaded, and that is
+  all a staging vault is ever for. An order waiting its turn has no reason to be
+  anywhere but in storage, where the ticker can count it.
+- **Items are the same by id.** An order does not need *its* cobble, only
+  cobble. Setting some aside earns nothing.
+- **Every move is a chance to miscount.** Storage to an order's vault to the
+  loader is two moves where one will do, and more hardware to route packages
+  through.
+
+What software allocation depends on, and how it is kept honest:
+
+- **The pool has to be Cinder's alone.** If anything else takes from those
+  vaults - a hand, another logistics request, a shop on the same network - a
+  reservation can be broken without anyone knowing. So the storage network is
+  locked to Cinder (a locked Create logistics network only lets its owner tune
+  blocks to it), and nothing else is attached to it.
+- **What arrives is what counts.** The ticker's request returns how many it
+  actually sent; if a shipment comes up short, the flight carries what arrived,
+  and the order's next flight is planned from what was really shipped - the rule
+  the batching already follows.
+
+Two things the software way gets for free:
+
+- **Staging ahead.** The staging vaults are empty the moment the silos leave
+  (staging check 4), so the next flight's shipments can be requested while the
+  drone is still in the air. When it docks, the fill starts at once instead of
+  waiting on packages. More speed with no more hardware.
+- **Two orders on one flight.** Silo A for one order and silo B for another,
+  going to two places, is already how `deliver A and B` works - one drop each.
+  Allocation decides it; the loader does not care whose shipment is on which
+  side.
+
+When physical staging per order *would* earn its keep: storage that has to be
+shared with something that is not Cinder's; items that are only told apart by
+their insides (enchanted books, potions), where the one promised has to be
+physically kept; or several loaders working at once - and even then that is a
+pair of staging vaults per loader, not per order.
+
 ### What exists and what is new
 
 | | |
