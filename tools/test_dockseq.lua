@@ -408,5 +408,43 @@ check("ON empties: fill is OFF, empty is ON", D.beltFor(CFG, "fill", "A") == fal
   and D.beltFor(CFG, "empty", "A") == true)
 check("a side with no belt: left alone", D.beltFor(CFG, "fill", "B") == nil)
 
+print("the placer's feed: a payload burns three silo blocks")
+local FCFG = D.check({
+  sides = { A = { place = "r10", assemble = "r6", pusher = "r7", belt = "r1", feed = "chestA" } },
+  storage = { "store" }, belt_on = "empties",
+  wait = { pulse = 1, place = 2, assemble = 3, push = 2, retract = 2, step = 1 },
+  fill = { settle = 4, start = 10, max = 60 },
+})
+check("a feed is read; a payload is 3 create_connected silo blocks unless dock.lua says otherwise",
+  FCFG and FCFG.sides.A.feed[1] == "chestA" and FCFG.silo_blocks == 3
+  and FCFG.silo_item == "create_connected:item_silo")
+bad({ sides = { A = { pusher = "r", feed = 4 } } }, "a feed that is not a name is refused")
+bad({ sides = { A = { pusher = "r" } }, silo_blocks = 2.5 }, "half a silo block is refused")
+w = dock({ store = 3000 })
+w.io.feed = function() return 2 end
+ok, whyL, at = D.load(FCFG, "A", w.io, 640)
+check("two blocks in the feed: called off before the placer fires or the drone is asked",
+  not ok and at == "feed" and not firstOn(w, "r10") and #w.asked == 0
+  and tostring(whyL):find("has 2 silo blocks", 1, true) ~= nil, whyL)
+w = dock({ store = 3000 })
+w.io.feed = function() return nil end
+ok, whyL = D.load(FCFG, "A", w.io, 640)
+check("a feed that cannot be read: called off, nothing placed", not ok and not firstOn(w, "r10")
+  and tostring(whyL):find("cannot be read", 1, true) ~= nil, whyL)
+w = dock({ store = 3000 })
+w.flow = -64
+w.io.feed = function() return 3 end
+ok, whyL, at = D.load(FCFG, "A", w.io, 640)
+check("three: it places and loads", ok and at == "done" and firstOn(w, "r10") ~= nil, whyL)
+w = dock({ store = 3000, silo = "empty" })
+w.flow = -64
+w.io.feed = function() return 0 end
+ok, whyL = D.load(FCFG, "A", w.io, 640)
+check("an empty silo already waiting needs nothing from the feed", ok, whyL)
+w = dock({ store = 3000 })
+w.flow = -64
+ok, whyL = D.load(CFG, "A", w.io, 640)
+check("a side with no feed in dock.lua is not counted (the test dock today)", ok, whyL)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("dockseq tests failed", 0) end

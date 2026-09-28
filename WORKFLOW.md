@@ -45,6 +45,7 @@ Done once, then kept up.
 | **The catalogue** - what we sell | one of each item in reference chests or vaults at the base; `ops catalogue read` | BUILT |
 | **The factory's stock** | Stock Links on every storage vault, one Stock Ticker, a wired modem on it; `depot stock` | UNTESTED |
 | **The dual loader** at the factory | two sides, each: placer, assembler, belt, pusher, staging vault, silo sensor | BUILT, run by hand only (`depot seq`) |
+| **Silo supply**: a payload burns 3 silo blocks | silos held as factory stock; a Factory Gauge restocker on a packager at each placer's feed, target 6; the depot counts the feed before it places | the count BUILT (`feed` in dock.lua); the restockers DESIGNED |
 | **Staging from stock** | a packager on each staging vault (`cinder-A`, `cinder-B`) so the ticker can deliver into it; a hand-filled intake as the fallback | DESIGNED |
 | **The invoice printer** | a CC printer on the depot's network, paper and black dye in it | DESIGNED (the page itself is BUILT, `lib/invoice.lua`) |
 | **A till**, if customers pay in person | a chest a computer reads, at a Cinder location | DESIGNED |
@@ -105,6 +106,8 @@ What Alex gets to price with:
   Several items pack in order, spilling into the next silo. 10k cobble is 3.
   (The packing is BUILT, `lib/invoice.lua`.)
 - **Flights** - two shipments a flight on the dual loader. 10k cobble is 2.
+- **Silos** - three silo blocks a shipment, so 9 for 10k cobble. They come out
+  of stock like the goods.
 - **Time** - each flight about `64 s + distance / 171`, plus the load
   (PERFORMANCE.md).
 - **Stock** - available, which is the factory's count less what open orders
@@ -145,7 +148,9 @@ Each flight, in order:
    runs the **five staging checks**: the vault's size, empty before, read back
    after, empty after the fill, and everything balancing. Anything wrong stops
    the load before the drone is asked for anything. DESIGNED.
-4. **Place, assemble, fill.** BUILT (`lib/dockseq.lua`, proven on side A).
+4. **Place, assemble, fill.** The side's feed must hold 3 silo blocks first,
+   or the load stops there. BUILT (`lib/dockseq.lua`, proven on side A; the
+   feed count on the desktop).
 5. **The invoice goes in last,** printed from the count the fill actually
    measured, so it always says what is in the silo: SHIPMENT 2 OF 3, what this
    one holds, what came before, what is still to follow, the money. DESIGNED
@@ -186,6 +191,7 @@ the customer it is done.
 | what happens | what the system does | what Alex does |
 |---|---|---|
 | Not enough in stock or the intake | ships what arrived, invoice printed from the real count, the rest planned as one more shipment | nothing, or tell the customer it is split |
+| A placer's feed is short of silos | calls the load off at `feed` before anything moves, says which side and how many | check that side's restocker, and `depot stock` for silos |
 | Something foreign in a staging vault | stops the load, says what and which side | clear it |
 | The counts do not balance | stops before the drone is called, numbers on screen | find what touched a vault |
 | A fill comes up short | the shipment is what left; the rest waits in the vault and counts toward the next flight | nothing |
@@ -205,6 +211,7 @@ Built and waiting on the game:
    long it takes.
 3. A printed page riding the belt into a silo and still there after the drop.
 4. A two-sided load where the base answers "stick" to a real drone.
+5. A restocker holding a placer's feed at 6 silo blocks while loads draw 3.
 
 And to build, smallest first (ORDERS.md, DELIVERIES.md): `lib/orders.lua` and
 the order book commands (useful the day they exist, even flying runs by hand),

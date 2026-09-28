@@ -383,6 +383,16 @@ if cmd == "stock" then
   for _, e in ipairs(entries) do
     lines[#lines + 1] = string.format("%10d  %-28s %s", e.count, e.label:sub(1, 28), e.name)
   end
+  -- the loader's silos are stock too, and every payload burns some
+  local DS = dofile("lib/dockseq.lua")
+  local silos = "silos: NONE in stock - the loader cannot make a payload"
+  for _, e in ipairs(entries) do
+    if e.name == DS.SILO_ITEM then
+      local p = math.floor(e.count / DS.SILO_BLOCKS)
+      silos = string.format("silos: %d blocks - %d payloads, %d dual flights", e.count, p, math.floor(p / 2))
+    end
+  end
+  table.insert(lines, 2, silos)
   for _, line in ipairs(lines) do print(line) end
   local h = fs.open("stock.txt", "w")
   if h then h.write(table.concat(lines, "\n") .. "\n") h.close() end
@@ -608,6 +618,21 @@ if cmd == "seq" then
     end
     return n
   end
+  -- silo blocks in a side's feed, the inventory its placer draws from; nil
+  -- when dock.lua names none for the side, or it cannot be read
+  local function feedCount(sd)
+    local list = sd and cfg.sides[sd] and cfg.sides[sd].feed
+    if not list then return nil end
+    local n = 0
+    for _, inv in ipairs(list) do
+      local okL, items = pcall(peripheral.call, inv, "list")
+      if not (okL and type(items) == "table") then return nil end
+      for _, it in pairs(items) do
+        if it.name == cfg.silo_item then n = n + (it.count or 0) end
+      end
+    end
+    return n
+  end
   -- a side's sensor: is there a silo in its bay? nil when there is no sensor
   -- for the side, or it cannot be read. Two kinds: an optical_sensor (a ray:
   -- hasHit, and what it hit and how far) and an Avionics laser_sensor (a
@@ -661,6 +686,15 @@ if cmd == "seq" then
       if s and s.storage then
         psay(string.format("storage %s: %s, %s items", sd, table.concat(s.storage, ", "),
           tostring(storageCount(sd) or "unreadable")))
+      end
+    end
+    for _, sd in ipairs(DS.SIDES) do
+      local s = cfg.sides[sd]
+      if s and s.feed then
+        local n = feedCount(sd)
+        local p = n and math.floor(n / cfg.silo_blocks)
+        psay(string.format("feed %s: %s, %s", sd, table.concat(s.feed, ", "), n
+          and string.format("%d silo blocks (%d payload%s)", n, p, p == 1 and "" or "s") or "unreadable"))
       end
     end
     if #cfg.storage > 0 then psay("storage: " .. table.concat(cfg.storage, ", ")) end
@@ -735,7 +769,7 @@ if cmd == "seq" then
   -- detector, or it cannot be read
   local io = {
     set = function(relay, on) return drive({ relay = relay }, on) end,
-    sleep = sleep, now = os.clock, count = storageCount, silo = silo, present = present,
+    sleep = sleep, now = os.clock, count = storageCount, feed = feedCount, silo = silo, present = present,
     stopped = function() return stop end,
     say = function(step, text) psay(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text)) end,
     -- The drone's part. In service the base answers these: the drone is

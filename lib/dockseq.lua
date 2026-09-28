@@ -26,6 +26,13 @@
 --   UNLOAD  pusher up. the drone lets go. pusher down. empty the silo into
 --           storage. An empty silo is now waiting on this side.
 --
+-- A silo is a consumable: it goes with the cargo and the customer keeps it,
+-- and one payload burns 3 silo blocks (Alex, 2026-09-28). A side whose
+-- placer draws from a FEED named in dock.lua has that feed counted before it
+-- places: with fewer blocks than a payload takes, the load is called off
+-- there, before anything moves and before the drone is asked for anything.
+-- Keeping the feed full is Create's job (a restocker on it), not this file's.
+--
 -- Whether a silo is in a bay is SEEN when the dock has a detector for that
 -- side - a Create Avionics laser_sensor, whose power goes high when it sees
 -- a silo and low when it does not - and remembered otherwise (io.silo),
@@ -48,6 +55,8 @@ local D = {}
 
 D.SIDES = { "A", "B" }
 D.DEVICES = { "place", "assemble", "belt", "pusher" }
+D.SILO_ITEM = "create_connected:item_silo"   -- what the placers put down
+D.SILO_BLOCKS = 3                             -- blocks one payload burns (Alex, 2026-09-28)
 -- seconds; every one of them can be set in dock.lua
 D.WAIT = {
   pulse = 1,       -- how long a one-shot machine (the placer) is pulsed
@@ -97,6 +106,16 @@ function D.check(c)
           o.storage[#o.storage + 1] = inv
         end
       end
+      -- what this side's placer draws its silo blocks from (a name or a
+      -- list), counted before it places
+      if s.feed ~= nil then
+        local list = type(s.feed) == "table" and s.feed or { s.feed }
+        o.feed = {}
+        for _, inv in ipairs(list) do
+          if not str(inv) then return nil, side .. ".feed must be an inventory's name" end
+          o.feed[#o.feed + 1] = inv
+        end
+      end
       if not o.pusher then return nil, "side " .. side .. " needs a pusher" end
       out.sides[side] = o
     end
@@ -111,6 +130,14 @@ function D.check(c)
   end
   out.belt_on = c.belt_on
   for _, o in pairs(out.sides) do o.belt_on = o.belt_on or c.belt_on end
+  -- what a silo is, and how many blocks a payload takes
+  if c.silo_item ~= nil and not str(c.silo_item) then return nil, "silo_item must be an item id" end
+  out.silo_item = c.silo_item or D.SILO_ITEM
+  if c.silo_blocks ~= nil and not (num(c.silo_blocks) and c.silo_blocks >= 1
+      and c.silo_blocks == math.floor(c.silo_blocks)) then
+    return nil, "silo_blocks must be a whole number of blocks"
+  end
+  out.silo_blocks = c.silo_blocks or D.SILO_BLOCKS
   -- a detector per side: a laser_sensor's name. silo_when says which power
   -- means a silo is there: "high" (Alex's dock, 2026-09-24: the sensor goes
   -- low when there is no silo) or "low". "hit" and "blocked" still work, as
@@ -178,6 +205,8 @@ end
 --   sleep(s), now()
 --   count(side) -> number|nil       items in that side's storage (or the
 --                                   dock's, when the side has none of its own)
+--   feed(side) -> number|nil        silo blocks in that side's feed, or nil
+--                                   when it cannot be read
 --   drone(step) -> ok, why          the drone's part: "dock" (latched here),
 --                                   "stick", "release". Test mode asks a
 --                                   person; a depot asks the base.
@@ -340,6 +369,20 @@ function D.load(cfg, side, io, items)
       r.say("an empty silo is waiting on side " .. side)
     else
       if not (s.place and s.assemble) then error({ why = "no silo here, and no placer or assembler to make one" }, 0) end
+      if s.feed then
+        -- a payload takes a whole silo: count the feed before anything moves
+        r.step = "feed"
+        local n = io.feed and io.feed(side)
+        if n == nil then
+          error({ why = "side " .. side .. "'s silo feed cannot be read - check its name with depot probe" }, 0)
+        end
+        if n < cfg.silo_blocks then
+          error({ why = string.format("side %s's placer has %d silo block%s and a payload takes %d"
+            .. " - check its restocker, and the factory's silos (depot stock)",
+            side, n, n == 1 and "" or "s", cfg.silo_blocks) }, 0)
+        end
+        r.say(string.format("%d silo blocks in the feed", n))
+      end
       r.step = "place"
       r.say("placing a silo on side " .. side)
       r.pulse(s.place)                 -- it places as the signal FALLS

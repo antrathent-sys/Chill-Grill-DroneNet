@@ -348,6 +348,33 @@ two sides, each with a placer, assembler, belt, pusher, its own storage and a
 silo sensor - plus one intake chest and a printer, all on the depot's wired
 network.
 
+### Silo supply: a payload burns 3
+
+The silo goes with the cargo and the customer keeps it, so every shipment uses
+three `create_connected:item_silo` blocks (Alex, 2026-09-28) and every dual
+flight six. Keeping the placers fed:
+
+- **Silos are factory stock.** They sit in the linked vaults like anything
+  else, made there or bought in, and `depot stock` counts them in payloads and
+  dual flights, or says NONE. Once the factory has a line that makes them, a
+  Factory Gauge in production mode can hold that count up too.
+- **Create tops up each placer's feed, not our code.** A packager on the
+  inventory the placer draws from, and a Factory Gauge on that packager: on a
+  packager it is a *restocker*. Filter it to the item silo, target 6 (two
+  payloads), address `cinder-silo-A` / `cinder-silo-B` (the frogport by that
+  packager). When the feed falls below 6 it requests the difference, or all
+  the network has if that is less. Create has a known restocker bug: promises
+  pile up when a target empties faster than packages arrive. At 3 blocks every
+  few minutes that should not happen. If it does, the feed just holds more.
+- **The depot counts the feed before it places.** Put `feed = "<inventory>"` on
+  a side in dock.lua. With fewer than 3 silo blocks in it, the load is called
+  off at `feed` before the placer fires or the drone is asked for anything: a
+  placer with 2 blocks cannot make a whole silo. `depot seq` shows each feed's
+  count. BUILT, tested on the desktop.
+- **They go in the price.** Three silo blocks are part of what every shipment
+  costs. When the order book is built, a quote counts them like goods (10k
+  cobble is 3 shipments, 9 blocks) and says so when the factory is short.
+
 ### Proven in game first
 
 Each is one quick test, and the first decides the batching design:
@@ -406,8 +433,9 @@ That covers both jobs:
 | **Parcel**: a customer sends something | a depot | anywhere | drop at a pad or coordinates, or let go at a dock |
 | **Restock**: top up a dock's silo | any dock with stock | a dock | let go at the dock, which empties it |
 
-Every job uses one vault, restocks included, unless a dock can take a box
-apart and reuse the vault (unproven). The vault's cost goes in the parcel fare.
+Every job uses one silo, three silo blocks on the dual loader, restocks
+included, unless a dock can take a box apart and reuse it (unproven). Its cost
+goes in the fare (silo supply, above).
 
 ## A parcel, start to finish
 

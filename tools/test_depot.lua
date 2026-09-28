@@ -329,6 +329,28 @@ w = depot({})
 w = w:run("depot.lua", { "seq" }, 5)
 check("no dock.lua: says where it comes from", w.text:find("machines/depot-pier/dock.lua", 1, true) ~= nil, w.text)
 
+print("the placer's feed")
+local FDOCK = DOCK:gsub('pusher = "redstone_relay_2" }', 'pusher = "redstone_relay_2", feed = "minecraft:chest_7" }')
+local function feedDock(lines, blocks)
+  local fw = seqDock(lines)
+  fw.files["dock.lua"] = FDOCK
+  fw.periph["minecraft:chest_7"] = { type = "minecraft:chest", m = { list = function()
+    return { [1] = { name = "create_connected:item_silo", count = blocks }, [2] = { name = "minecraft:dirt", count = 9 } }
+  end } }
+  return fw
+end
+w = feedDock({}, 7)
+w = w:run("depot.lua", { "seq" }, 5)
+check("depot seq shows each feed's silo blocks and the payloads they make, counting nothing else",
+  w.text:find("7 silo blocks (2 payloads)", 1, true) ~= nil, w.text)
+w = feedDock({ "y" }, 2)
+w = w:run("depot.lua", { "seq", "load", "A" }, 30)
+check("a feed short of a payload: the load is called off at the feed, nothing placed",
+  w.text:find("called off at feed", 1, true) ~= nil and (function()
+    for _, st in ipairs(w.sets) do if st.k:find("^redstone_relay_0:") and st.on then return false end end
+    return true
+  end)(), w.text)
+
 print("the lasers across the bays")
 -- laser_sensor_3 watches side A, laser_sensor_4 side B; relay 0 places a silo
 -- on A, which blocks A's beam
@@ -534,6 +556,23 @@ sender(w)
 w = w:run("depot.lua", { "stock", "send", "10", "netherite_block", "cinder-A" }, 5)
 check("something the factory does not hold is refused", #asked == 1
   and w.text:find("holds none", 1, true) ~= nil)
+
+print("depot stock: the loader's silos")
+w = depot({ station = false })
+w.periph["Create_StockTicker_0"] = { type = "Create_StockTicker", m = {
+  stock = function()
+    return { [1] = { name = "minecraft:cobblestone", displayName = "Cobblestone", count = 500, maxCount = 64 },
+             [2] = { name = "create_connected:item_silo", displayName = "Item Silo", count = 312, maxCount = 64 } }
+  end,
+  requestFiltered = function() error("nothing should be asked") end,
+} }
+w = w:run("depot.lua", { "stock" }, 5)
+check("counted in payloads and dual flights", w.text:find("312 blocks - 104 payloads, 52 dual flights", 1, true) ~= nil,
+  w.err or w.text)
+w = depot({ station = false, lines = {} })
+sender(w)
+w = w:run("depot.lua", { "stock" }, 5)
+check("none in stock: it says so", w.text:find("silos: NONE", 1, true) ~= nil, w.err or w.text)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end
