@@ -60,6 +60,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
 | [SERVICE.md](SERVICE.md) | The plan for running the business outside the game: a Cinder side and a customer side on a small host, the base as the bridge, and the contract between them. Planned, not decided. |
 | [PERFORMANCE.md](PERFORMANCE.md) | What the craft does and what stops it doing more: trip time = 64 s + distance/171, where the 64 s goes, why the limit is attitude and not thrust, and the levers in order. |
+| `tools/schematic.py` | A bill of materials from a Create schematic (`.nbt`): every item a build takes, copycats' hidden materials included, split into what we supply and what to source elsewhere, with the `ops order add` line for our part. `--selftest` checks the block-to-item rules. |
 | `tools/fleetstats.py` | A stat report over every log in `logs/flights`: how flights ended, landing miss and touchdown speed, captures per dock, cruise, energy, and a "worth a look" list. `--since <date>`, `--days`, and `--split <date>` to compare before and after a change. |
 
 ## Hardware

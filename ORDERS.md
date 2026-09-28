@@ -80,6 +80,45 @@ A stack size other than 64 goes on the item as `ender_pearl:16`. Get it wrong
 and nothing breaks: the depot knows every item's real stack size when it moves
 it, and each flight is planned from what was actually counted.
 
+### From a schematic
+
+Alex's idea (2026-09-28): a customer sends the Create schematic (`.nbt`) of what
+they want to build, and we quote the part we can supply. A schematic is every
+block placed, so the whole bill of materials is in it:
+
+```
+python tools/schematic.py build.nbt --supply machines/base/supply.txt --who steve --to 1200 70 340
+```
+
+It lists every item the build takes, splits it into **what we supply** and
+**what to source elsewhere**, and prints the `ops order add` line for our part,
+ready to paste. The first one tried was a small aircraft: 604 blocks, 1,264
+items of 32 kinds, and 640 of those - concrete powder, wool, andesite, glass -
+are the kind of thing a factory sells; the rest are engines, thrusters and
+copycats.
+
+Blocks are not items one for one, and the tool knows the common cases: a door
+or a bed is two blocks and one item, a double slab one block and two slabs, a
+wall torch is a torch, water is nothing to buy, three candles in a block are
+three candles. **Copycats are two things**: the copycat, and the block it is
+disguised as - and the disguise is where the materials hide. In that aircraft
+289 light grey concrete powder and 272 black wool were never placed as blocks
+at all; they were painted onto copycats. The schematic keeps what each copycat
+consumed (`Item` on Create's, `consumedItem` per part on Copycats+ ones), so
+they are counted exactly.
+
+What it cannot see: anything inside a block (a chest's contents, an engine's
+fuel, a redstone link's frequency items), items that differ only by their data
+(dyed, enchanted, named - counted by kind alone), and a schematic saved without
+block data, which loses every copycat's material. Create's own schematic and
+quill saves it. Belts are flagged for a check by hand, since a belt is laid from
+belt items by length rather than block by block.
+
+**What we supply is a list, one item per line**, in `machines/base/supply.txt`
+once the factory's range is known. The tool is desktop-only: a Discord
+attachment lands on Alex's PC, not in the game. Customers' schematics are
+theirs and stay out of this public repo.
+
 ### What a run is
 
 Every silo is a **shipment**, and a silo gives one of its 60 slots to its
