@@ -71,8 +71,9 @@ this. The order id is what Alex quotes back to the customer.
 
 ### What a run is
 
-One flight carries two silos of 60 stacks. That is **7,680 of a 64-stack item**,
-1,920 of a 16-stack one, 120 of something that does not stack. A bigger order
+One flight carries two silos of 60 slots, and each silo gives one slot to its
+printed manifest (DELIVERIES.md). That is **7,552 of a 64-stack item** a run,
+1,888 of a 16-stack one, 118 of something that does not stack. A bigger order
 is several runs of the same order, flown one after another, and `ops orders`
 shows how many are done. 10k cobble is two runs.
 

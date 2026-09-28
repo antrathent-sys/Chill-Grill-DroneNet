@@ -6,6 +6,151 @@ same queue, dispatch, watchdog, job record and ledger as a ride. Written
 Who can send, and how they pay, is in [STATIONS.md](STATIONS.md): anyone can
 walk up to a depot and pay coins, and members with a pocket computer have more.
 
+## The minimum delivery (2026-09-28)
+
+What Alex wants working first, before anything around it: **take an order,
+fill the factory's loader by hand, have the loader count what went into the
+silos and split a big order into runs, and keep the order attached to the cargo
+the whole way to the drop.**
+
+### The chain, for one order
+
+```
+ops order add steve 10000 cobble to 1200 70 340 for 1500
+      |
+      |  the base plans it: 2 runs  (7,552 + 2,448)
+      v
+ops order run O1759050000        (Alex, once per run for now)
+      |
+      |  load.start  load=O1759050000.1  item=cobble  A=3776 B=3776  manifest
+      v
+FACTORY DEPOT
+  1. count the intake: is there cobble, and how much?
+  2. move exactly A into side A's storage and B into side B's - counted
+  3. print a manifest page for each silo, put it in with the goods
+  4. place, assemble, fill (the belt empties each side's storage into its silo)
+  5. count what went in: that is the confirmation
+  6. drone latched -> pusher up -> drone sticks -> pusher down
+      |
+      |  load.done  load=O1759050000.1  counted A=3776 B=3776
+      v
+DRONE  deliver 1200 72 340    (both silos, one drop point)
+      |
+      |  unit.dropped  sticker=Create_Sticker_0 at 1200 72 340 ...
+      v
+BASE   run 1 delivered: 7,552 cobble. 2,448 to go. Next run when Alex says.
+```
+
+### How the order travels with the cargo
+
+**The load id is the order.** A run's load id is the order id and the run
+number: `O1759050000.1`. Every message a load already sends - `load.start`,
+`load.step`, `load.lifted`, `load.stuck`, `load.done` - carries its load id, and
+so does every row `cargo.csv` writes for it. When the drone lets a silo go, the
+cargo ledger already works out which load that sticker was holding
+(`CARGO.openFor`), so the drop is tied back to the order and the run without a
+single new message.
+
+**The cargo carries it too.** A CC printer on the depot's network prints one
+page per silo and the depot pushes it into that side's storage with the goods,
+so the belt carries it into the silo:
+
+```
+CINDER TRANSIT DIRECTORATE
+ORDER O1759050000  RUN 1 OF 2
+SILO A OF 2
+3,776 COBBLE
+TO 1200 70 340
+FOR STEVE
+CARGO AT CONSIGNEE'S RISK
+```
+
+The customer opens the vault and their receipt is in it, with the id to quote
+if anything is wrong. A page takes one of the silo's 60 slots, so **a silo
+carries 3,776 of a 64-stack item and a run 7,552.** A printer out of paper or
+ink skips the page and says so; it never holds a delivery up. The records are
+the truth, the page is a courtesy.
+
+The **base writes the page's text** and sends it in `load.start`; the depot
+only prints what it is given. The base knows the order, the depot knows the
+machines, and neither has to learn the other's job.
+
+### Batching, and why it is re-planned every run
+
+The base plans runs from the amount and the item's stack size: two silos a run,
+3,776 of a 64-stack item in each (944 of a 16-stack item, 59 of something that
+does not stack). 10,000 cobble is 3,776 + 3,776 in run 1 and 2,448 in run 2.
+
+But a plan is only a plan. The intake might be short, the item might stack to
+16 not 64, a belt might stop. So **every run after the first is planned from
+what has actually been counted into silos that were actually dropped**, never
+from what the first plan said. What an order has delivered is the sum of the
+depot's fill counts for silos the drone reported letting go - nothing else.
+
+### The intake
+
+**One intake chest that Alex fills by hand,** on the depot's wired network,
+named `intake` in the dock's `dock.lua`. For each run the depot:
+
+- moves only the order's item out of it; anything else in there stays put
+- moves exactly each side's amount, and counts what the move returned
+- if the intake is **short**, loads what is there up to the run's size and
+  reports how many; the next run is planned from the rest
+- if it is **empty**, refuses the run with "the intake has no cobble" and
+  touches nothing
+
+That is the whole of the batching machinery: the belt already empties a side's
+storage into its silo, so putting exactly the right amount into that storage
+is putting exactly the right amount into the silo.
+
+### Two counts, and what happens when they disagree
+
+- **Staged**: what the move from the intake into a side's storage returned.
+- **Filled**: what left that storage into the silo (the dock sequence already
+  measures this - it is how it knows a fill is done).
+
+They should match. If the fill comes up short - a silo full, a belt stopped -
+the load reports both, the shortfall stays in the side's storage for the next
+run, and the order records what actually went.
+
+### What exists and what is new
+
+| | |
+|---|---|
+| **exists** | `ops load send` runs one load at a depot and flies a `deliver` after it. The two-sided dock sequence (`lib/dockseq.lua`) places, assembles, fills, pushes and retracts, proven on the test dock. `cargo.csv` records every silo; `unit.dropped` reports every release; a drop with two silos and one point lets both go there. |
+| **the gap** | The depot daemon still runs base-driven loads through the older single-bay `lib/loader.lua`. The two-sided dock only runs by hand (`depot seq`), with the drone's part "taken as done". |
+| **new** | the order record and runs (`lib/orders.lua`); `ops order add / run / paid`, `ops orders`, `ops quote`; the depot running `lib/dockseq.lua` for base-driven loads, staging from the intake and answering the drone's stick through the base; the manifest printer. |
+
+This assumes the factory loader is built like the test dock: two sides, each
+with a placer, assembler, belt, pusher, its own storage and a silo sensor -
+plus one intake chest and, if wanted, a printer.
+
+### Proven in game first
+
+Each is one quick test, and the first decides the batching design:
+
+1. **The depot can move a counted amount from a chest into a side's storage** -
+   `pushItems` into a Create connected silo, over a wired modem.
+2. **A printed page put in a side's storage rides the belt into the silo** with
+   the goods, and is still there when the vault is opened after a drop.
+3. **A two-sided load where the base answers "stick"**, with a real drone
+   latched, not the depot pretending.
+
+### Building it, smallest first
+
+1. `lib/orders.lua`, pure and tested on the desktop: the order, runs from an
+   amount and a stack size, the silo split, re-planning from counts, the log.
+2. `ops order add`, `ops orders`, `ops order paid`, `ops quote` - the order
+   book. Useful the day it exists, before anything flies it.
+3. The depot runs `lib/dockseq.lua` for base-driven loads: stage from the
+   intake, print, fill, push, and ask the base to have the drone stick.
+4. `ops order run`: the next run, through the load queue that already exists,
+   with the order's load id, amounts, manifest and a `deliver` liftoff built
+   from the order's coordinates. The drop and `load.done` update the order.
+
+Then, once it has carried real orders: chaining runs without Alex saying
+"next", and the rest of this document.
+
 ## Where a delivery can start and end
 
 It follows from the dock/pad split:
