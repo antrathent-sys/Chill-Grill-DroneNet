@@ -362,4 +362,5 @@ the cutoff. The next speed limit is lift: throttle 0.63 at 65, and ~80 true tilt
 | - brake 35 past, 28 across; steady decel 21.6 (18.6 on the last ballooned brake); approach 15.7 s; balloon 60 - at the floor's release | | | | | | |
 | 15, long route | 09-28 10-36-02 (6,824) | 1 | 96.8 s | 0 | - | 0 |
 | - brake +1 along (on the mark), 107 across - from the cruise: 93 off the line, back at 21 b/s; balloon 67 | | | | | | |
-| 16 body lean `CRUISE_BODY_LEAN 30 -> 15`: sideways accel follows heading error, r -0.83..-0.94 | | | | | | |
+| 16 body lean `CRUISE_BODY_LEAN 30 -> 15`: sideways accel follows heading error, r -0.83..-0.94 | 09-28 11-04-00 | 1 | **69.3 s** (78.5 best before) | 1 | - | 0 |
+| - line 16 rms / 28 worst (12-68 / up to 97 at 30); brake 31 short, 25 across; approach 7.5 s (15.5-20.7); roll and lean error unchanged | | | | | | |
