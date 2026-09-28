@@ -330,4 +330,5 @@ column.
 | 5 yaw damping (`YAW_KD 0.02 -> 0.014`) | 09-28 08-32-20, 08-35-07 | 2 | - | - | - | **2** |
 | - reverted: the heading swing grew from the climb until it rolled over, twice | | | | | | |
 | known-good again (KD 0.02, max 0.6) | 09-28 08-39-44 | 1 | 86.5 s | 1 | - | 0 |
-| 6 heading gain (`YAW_KP 0.02 -> 0.01`): margin 30/16 -> 45/25 deg (climb/cruise) | | | | | | |
+| 6 heading gain (`YAW_KP 0.02 -> 0.01`): margin 30/16 -> 45/25 deg (climb/cruise) | 09-28 08-45-40 | 1 | 90.1 s dock-to-dock | 1 (docked) | - | 0 |
+| - calm cruise (yaw rate 2.4 deg/s late, tilt 75, thrust 0.56); heading error 2.5 rms vs 1.0; the climb turn to heading is slower (77 deg behind at 6 s, no overshoot). One flight - on 0.02 3 of 23 were calm too | | | | | | |
