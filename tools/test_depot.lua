@@ -500,5 +500,40 @@ w = depot({ station = false }):run("depot.lua", { "stock" }, 5)
 check("no ticker on the network: says how to fit one", w.err == nil
   and w.text:find("no Stock Ticker on this network", 1, true) ~= nil, w.err or w.text)
 
+print("depot stock send: one request, by hand, to test the route")
+local asked = {}
+local function sender(w)
+  w.periph["Create_StockTicker_0"] = { type = "Create_StockTicker", m = {
+    stock = function()
+      return { [1] = { name = "minecraft:cobblestone", displayName = "Cobblestone", count = 12400, maxCount = 64 } }
+    end,
+    requestFiltered = function(address, filter)
+      asked[#asked + 1] = { address = address, filter = filter }
+      return filter._requestCount or 12400
+    end,
+  } }
+end
+w = depot({ station = false, lines = { "y" } })
+sender(w)
+w = w:run("depot.lua", { "stock", "send", "3776", "cobblestone", "cinder-A" }, 5)
+check("after a yes, one request: the count, the item's full id, the packager's address",
+  w.err == nil and #asked == 1 and asked[1].address == "cinder-A"
+  and asked[1].filter.name == "minecraft:cobblestone" and asked[1].filter._requestCount == 3776
+  and w.text:find("sending 3776", 1, true) ~= nil, w.err or #asked)
+w = depot({ station = false, lines = { "n" } })
+sender(w)
+w = w:run("depot.lua", { "stock", "send", "100", "cobblestone", "cinder-A" }, 5)
+check("anything but yes sends nothing", #asked == 1 and w.text:find("nothing sent", 1, true) ~= nil)
+w = depot({ station = false, lines = { "y" } })
+sender(w)
+w = w:run("depot.lua", { "stock", "send", "9000", "cobblestone", "cinder-A" }, 5)
+check("more than one silo of it is refused, even after a yes", #asked == 1
+  and w.text:find("not sent", 1, true) ~= nil, w.text)
+w = depot({ station = false, lines = { "y" } })
+sender(w)
+w = w:run("depot.lua", { "stock", "send", "10", "netherite_block", "cinder-A" }, 5)
+check("something the factory does not hold is refused", #asked == 1
+  and w.text:find("holds none", 1, true) ~= nil)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

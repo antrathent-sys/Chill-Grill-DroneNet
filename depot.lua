@@ -20,7 +20,10 @@
 --   depot stock                  what the factory holds, through its Stock
 --                                Ticker: Stock Links on the vaults, a wired
 --                                modem on the ticker. Read only. Kept in
---                                stock.txt and pushed like the probe log
+--                                stock.txt and pushed like the probe log.
+--                                `stock send <count> <item> <address>` asks
+--                                the ticker for one silo's worth at most, to
+--                                test the packagers and the route
 --   depot seq                    the two-sided dock (dock.lua): `seq load A`,
 --                                `seq unload B`, with you standing in for the
 --                                drone - ENT when it has latched, stuck or let go
@@ -333,8 +336,10 @@ end
 -- ----------------------------------------------------------------- stock ---
 -- What the factory holds, through its Stock Ticker (lib/stock.lua): Stock
 -- Links on every storage vault, the ticker on their network, a wired modem on
--- the ticker. READ ONLY - nothing here asks the ticker to send anything. The
--- snapshot is kept in stock.txt and pushed to this machine's folder.
+-- the ticker. Read only, apart from `stock send`, which asks - after a y - for
+-- at most one silo of one item, through lib/stock's S.request, the only way
+-- anything asks. The snapshot is kept in stock.txt and pushed to this
+-- machine's folder.
 if cmd == "stock" then
   local STOCK = dofile("lib/stock.lua")
   local ticker = STOCK.findTicker(peripheral.getNames(), function(n)
@@ -348,6 +353,28 @@ if cmd == "stock" then
   end
   local entries, why = STOCK.read(ticker, peripheral.call)
   if not entries then print(why) return end
+  if (args[2] or ""):lower() == "send" then
+    -- One request, by hand: the test of the ticker, the packagers and the
+    -- package route before the loader relies on them. At most one silo of
+    -- the item (59 stacks), and it asks first.
+    local count, word, address = tonumber(args[3]), args[4], args[5]
+    if not (count and word and address) then
+      print("depot stock send <count> <item> <address>    e.g. depot stock send 3776 cobblestone cinder-A")
+      return
+    end
+    local item
+    for _, e in ipairs(entries) do
+      if e.name == word or e.name:match(":(.+)$") == word then item = item or e end
+    end
+    if not item then print(word .. ": the factory holds none of that") return end
+    local cap = 59 * (item.stack or 64)
+    print(string.format("send %d %s to %s? the factory holds %d", count, item.label, address, item.count))
+    if not confirm("send it") then print("nothing sent") return end
+    local sent, whyS = STOCK.request(ticker, peripheral.call, address, item.name, count, cap)
+    if not sent then print("not sent: " .. tostring(whyS)) return end
+    print(string.format("the ticker is sending %d - watch the vault at %s fill", sent, address))
+    return
+  end
   local total = 0
   for _, e in ipairs(entries) do total = total + e.count end
   local okT, stamp = pcall(os.date, "%m-%d %H:%M")

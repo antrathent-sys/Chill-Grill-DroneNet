@@ -40,7 +40,7 @@ function S.findTicker(names, methods)
   return nil
 end
 
---- Everything the factory holds: { name, label, count }, one per item id, most
+--- Everything the factory holds: { name, label, count, stack }, one per item id, most
 -- first. The same item with different data inside (enchanted, named) arrives
 -- as separate entries and is added together here - items are told apart by id,
 -- as the catalogue does. Returns entries, or nil and why.
@@ -54,7 +54,8 @@ function S.read(ticker, call)
     if type(d) == "table" and str(d.name) then
       local e = byName[d.name]
       if not e then
-        e = { name = d.name, label = str(d.displayName) and d.displayName or d.name, count = 0 }
+        e = { name = d.name, label = str(d.displayName) and d.displayName or d.name, count = 0,
+              stack = tonumber(d.maxCount) or 64 }
         byName[d.name] = e
         out[#out + 1] = e
       end
