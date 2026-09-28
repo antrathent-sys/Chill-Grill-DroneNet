@@ -43,7 +43,7 @@ return {
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
     "lib/loader.lua", "station.example.lua", "lib/cargo.lua", "lib/deliver.lua", "depot.lua", "lib/dockseq.lua",
     "ops.lua", "lib/opsui.lua", "lib/tui.lua", "lib/display.lua",
-    "lib/ledger.lua", "lib/queue.lua", "lib/invoice.lua", "tariff.example.lua",
+    "lib/ledger.lua", "lib/queue.lua", "lib/invoice.lua", "lib/catalogue.lua", "tariff.example.lua",
     -- making customers' passes: provision copies these onto each one
     "provision.lua", "lib/provision.lua", "kiosk.lua", "hail.lua", "lib/hailui.lua",
   },

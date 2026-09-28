@@ -36,6 +36,10 @@
 --                        assembled, lifted to the drone, stuck on, lift off.
 --                        `ops load` alone lists its commands (station.lua)
 --   ops cargo [n]        the last n loads: what went into each silo and where
+--   ops catalogue        what we supply: read from reference chests and vaults
+--   ops catalogue read [inventory ...]   read them (the last ones if none are
+--                        named) and keep the catalogue in the repo
+--   ops catalogue find <word>            what an order would take a word to mean
 --                        each one was dropped (cargo.csv)
 --
 -- It runs on the base computer and, just as happily, on an ender pocket
@@ -1043,6 +1047,82 @@ if cmd == "cargo" then
       print(string.format("  %-6s %s", s.silo, CARGO.describe(s.items, 4)))
       print(string.format("         -> %s: %s", s.dest ~= "" and s.dest or "no destination", fate))
     end
+  end
+  return
+end
+
+if cmd == "catalogue" or cmd == "catalog" then
+  -- What Cinder supplies: one of each item in reference inventories at the
+  -- base - a chest, a vault, a row of either. Reading them gives every item's
+  -- exact id, name and stack size; the list goes to catalogue.lua here and to
+  -- the repo, where tools/schematic.py quotes builds against it.
+  local CAT = dofile("lib/catalogue.lua")
+  local FILE = "catalogue.lua"
+  local entries, sources = CAT.load(FILE, fs)
+  local sub = (args[2] or "list"):lower()
+  if sub == "read" then
+    local invs = {}
+    for i = 3, #args do invs[#invs + 1] = args[i] end
+    if #invs == 0 then invs = sources or {} end
+    if #invs == 0 then
+      print("ops catalogue read <inventory> [inventory ...]")
+      print("  the reference chests and vaults: one of each item we supply")
+      print("  inventories this computer can see:")
+      local any = false
+      for _, nm in ipairs(peripheral.getNames()) do
+        local okM, methods = pcall(peripheral.getMethods, nm)
+        local isInv = false
+        for _, m in ipairs(okM and methods or {}) do if m == "list" then isInv = true end end
+        if isInv then print("    " .. nm) any = true end
+      end
+      if not any then print("    none - a wired modem on each chest or vault, turned on") end
+      return
+    end
+    local got, problems = CAT.read(invs, peripheral.call)
+    for _, pr in ipairs(problems) do print("  " .. pr) end
+    if #got == 0 then print("nothing read - the catalogue is unchanged") return end
+    local h = fs.open(FILE, "w")
+    if not h then print("cannot write " .. FILE) return end
+    h.write(CAT.serialize(got, invs))
+    h.close()
+    local before = entries and #entries or 0
+    print(string.format("%d items from %d inventor%s (was %d)", #got, #invs, #invs == 1 and "y" or "ies", before))
+    -- kept in the repo, in this computer's machine folder, like its places
+    local okM, MACHINE = pcall(dofile, "lib/machine.lua")
+    local folder = okM and type(MACHINE) == "table" and MACHINE.folder(os.getComputerLabel and os.getComputerLabel())
+    if not folder then
+      print("NOT kept in the repo: label this computer first (label set base)")
+    elseif not (fs.exists("upload.lua") and http and shell) then
+      print("NOT kept in the repo: needs http, upload.lua and a .ghtoken here")
+    else
+      local okU = pcall(shell.run, "upload", "sync", FILE, folder .. "/" .. FILE)
+      print(okU and ("kept in the repo: " .. folder .. "/" .. FILE) or "the push to the repo failed - ops catalogue read again")
+    end
+    return
+  end
+  if not entries or #entries == 0 then
+    print("no catalogue yet: put one of each item we supply in a chest or vault here,")
+    print("then ops catalogue read <inventory> [inventory ...]")
+    return
+  end
+  if sub == "find" then
+    local word = table.concat({ (table.unpack or unpack)(args, 3) }, " ")
+    if word == "" then print("ops catalogue find <word>") return end
+    local e, near = CAT.find(entries, word)
+    if e then
+      print(string.format("%s = %s  (%s, stacks to %d)", word, e.name, e.label, e.stack))
+    elseif near and #near > 0 then
+      print(word .. " is not one thing we supply. did you mean:")
+      for _, n in ipairs(near) do print(string.format("  %-40s %s", n.name, n.label)) end
+    else
+      print(word .. ": not in the catalogue - we do not supply it")
+    end
+    return
+  end
+  print(string.format("CINDER CATALOGUE - %d items, from %s", #entries,
+    (sources and #sources > 0) and table.concat(sources, ", ") or "?"))
+  for _, e in ipairs(entries) do
+    print(string.format("  %-28s %-34s %2d", e.label:sub(1, 28), e.name:sub(1, 34), e.stack))
   end
   return
 end

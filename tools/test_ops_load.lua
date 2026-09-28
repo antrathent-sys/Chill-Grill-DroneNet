@@ -214,6 +214,19 @@ local function base(opts)
       return l
     end } }
   end
+  -- opts.catalogue: { [peripheral name] = { { name, displayName, maxCount }, ... } }
+  for inv, items in pairs(opts.catalogue or {}) do
+    periph[inv] = { type = "minecraft:chest", m = {
+      list = function()
+        local l = {}
+        for i, it in ipairs(items) do l[i * 2] = { name = it[1], count = 1 } end
+        return l
+      end,
+      getItemDetail = function(slot)
+        local it = items[slot / 2]
+        return it and { name = it[1], count = 1, displayName = it[2], maxCount = it[3] } or nil
+      end } }
+  end
   if opts.intake then
     periph["minecraft:chest_0"] = { type = "minecraft:chest", m = {
       list = function()
@@ -227,6 +240,11 @@ local function base(opts)
     getNames = function() local t = {} for n in pairs(periph) do t[#t + 1] = n end table.sort(t) return t end,
     getType = function(n) return periph[n] and periph[n].type end,
     isPresent = function(n) return periph[n] ~= nil end,
+    getMethods = function(n)
+      local t = {}
+      for m in pairs(periph[n] and periph[n].m or {}) do t[#t + 1] = m end
+      return t
+    end,
     call = function(n, m, ...)
       if not periph[n] then error("no peripheral " .. tostring(n), 2) end
       return periph[n].m[m](...)
@@ -721,6 +739,38 @@ check("no silo to read: what left the intake is written instead", w.err == nil
 w = base({ args = { "load", "run", "drone-1", "1000" } }):run()
 check("nothing to count from: still written, marked not counted", (w.files["cargo.csv"] or ""):find(",?,0,", 1, true)
   and has(w, "not counted"), w.files["cargo.csv"])
+
+print("the catalogue: reference chests and a vault at the base")
+local SHELF = {
+  ["minecraft:chest_5"] = { { "minecraft:cobblestone", "Cobblestone", 64 },
+                            { "minecraft:ender_pearl", "Ender Pearl", 16 } },
+  ["create:item_vault_9"] = { { "minecraft:cobblestone", "Cobblestone", 64 },
+                              { "minecraft:light_gray_concrete_powder", "Light Gray Concrete Powder", 64 } },
+}
+w = base({ args = { "catalogue", "read", "minecraft:chest_5", "create:item_vault_9" }, catalogue = SHELF, push = true }):run()
+local cat = w.files["catalogue.lua"] or ""
+check("reads a chest and a vault together, each item once", w.err == nil
+  and select(2, cat:gsub("{ name = ", "")) == 3 and has(w, "3 items from 2 inventories"), w.err or cat)
+check("with the stack size the game gives", cat:find('"minecraft:ender_pearl", label = "Ender Pearl", stack = 16', 1, true) ~= nil)
+check("and keeps it in the repo, in the base's folder, like its places",
+  w.ran[1] == "upload sync catalogue.lua machines/base/catalogue.lua" and has(w, "kept in the repo"), w.ran[1])
+local kept = cat
+
+w = base({ args = { "catalogue", "read" }, catalogue = SHELF, files = { ["catalogue.lua"] = kept } }):run()
+check("`read` alone reads the same inventories again", w.err == nil and has(w, "3 items from 2 inventories"), w.err or w.text)
+
+w = base({ args = { "catalogue", "read" }, catalogue = SHELF }):run()
+check("the first time, with nothing named, it lists the inventories it can see",
+  has(w, "minecraft:chest_5") and has(w, "create:item_vault_9") and not has(w, "redstone_relay"))
+
+w = base({ args = { "catalogue", "find", "light", "gray", "concrete", "powder" }, files = { ["catalogue.lua"] = kept } }):run()
+check("find turns a name into the id an order will use",
+  has(w, "minecraft:light_gray_concrete_powder") and has(w, "stacks to 64"), w.text)
+w = base({ args = { "catalogue", "find", "netherite" }, files = { ["catalogue.lua"] = kept } }):run()
+check("and says plainly when we do not supply something", has(w, "we do not supply it"))
+
+w = base({ args = { "catalogue" }, files = { ["catalogue.lua"] = kept } }):run()
+check("the list names where it came from", has(w, "CINDER CATALOGUE - 3 items") and has(w, "create:item_vault_9"))
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end

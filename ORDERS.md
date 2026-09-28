@@ -76,9 +76,39 @@ now (Alex, 2026-09-28): screens were drawn up and set aside.
 ops order add kodiak 5000 cobble 2000 gravel 640 iron_block to 2400 72 -3269 for 2400
 ```
 
-A stack size other than 64 goes on the item as `ender_pearl:16`. Get it wrong
-and nothing breaks: the depot knows every item's real stack size when it moves
-it, and each flight is planned from what was actually counted.
+Items are named the way the catalogue knows them (below): the id, the id
+without its namespace, or the display name with underscores - and the
+catalogue carries each one's stack size, so ender pearls pack as 16s without
+being told. Something not in the catalogue is refused, with what it might have
+meant. And if a stack size is ever wrong, nothing breaks: the depot knows every
+item's real stack size when it moves it, and each flight is planned from what
+was actually counted.
+
+### The catalogue
+
+What Cinder supplies is **whatever is in the reference inventories at the
+base** (Alex, 2026-09-28): one of each item, in a chest, a vault, or a row of
+either. Adding a product is dropping one in; dropping one is taking it out.
+
+```
+ops catalogue read minecraft:chest_5 create:item_vault_9    the first time
+ops catalogue read                                          after that - same inventories
+ops catalogue                                               what we supply
+ops catalogue find ender pearl                              what an order would take that to mean
+```
+
+Reading them gives every item's **exact id** - modded namespaces included, no
+typos - its **display name** and its **stack size**, straight from the game.
+Duplicates count once, so the same item in two chests is one line. The result
+is `catalogue.lua`, kept in the repo as `machines/base/catalogue.lua` the same
+way the base keeps its places, and put back by `startup` on every boot. From
+there `tools/schematic.py` on the desktop quotes a customer's build against it,
+and it is the catalogue a website or a Discord post would show later.
+
+Two things it cannot tell apart: items that differ only inside - enchanted
+books with different enchantments, potions - are one entry, by id. And a name
+two mods both use (`andesite`) is not guessed at: `find` offers both, and the
+full id settles it.
 
 ### From a schematic
 
@@ -87,7 +117,7 @@ they want to build, and we quote the part we can supply. A schematic is every
 block placed, so the whole bill of materials is in it:
 
 ```
-python tools/schematic.py build.nbt --supply machines/base/supply.txt --who steve --to 1200 70 340
+python tools/schematic.py build.nbt --who steve --to 1200 70 340
 ```
 
 It lists every item the build takes, splits it into **what we supply** and
@@ -114,8 +144,10 @@ block data, which loses every copycat's material. Create's own schematic and
 quill saves it. Belts are flagged for a check by hand, since a belt is laid from
 belt items by length rather than block by block.
 
-**What we supply is a list, one item per line**, in `machines/base/supply.txt`
-once the factory's range is known. The tool is desktop-only: a Discord
+**What we supply is the catalogue** (above): the tool reads
+`machines/base/catalogue.lua` from the repo by itself, shows each item by its
+catalogue name, and counts slots with the real stack sizes. `--supply` takes
+another catalogue or a plain list instead. The tool is desktop-only: a Discord
 attachment lands on Alex's PC, not in the game. Customers' schematics are
 theirs and stay out of this public repo.
 

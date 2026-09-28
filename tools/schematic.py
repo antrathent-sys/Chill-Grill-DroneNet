@@ -2,9 +2,14 @@
 """A bill of materials from a Create schematic (.nbt), and the order for our part.
 
     python tools/schematic.py build.nbt
-    python tools/schematic.py build.nbt --supply machines/base/supply.txt
-    python tools/schematic.py build.nbt --supply supply.txt --who steve --to 1200 70 340
+    python tools/schematic.py build.nbt --who steve --to 1200 70 340
+    python tools/schematic.py build.nbt --supply some_other_list.txt
     python tools/schematic.py --selftest
+
+What we supply is the catalogue: one of each item in reference chests and
+vaults at the base, read by `ops catalogue read` and kept in the repo as
+machines/base/catalogue.lua. This picks that file up by itself; --supply names
+another catalogue, or a plain list with one item per line.
 
 A customer sends the schematic of what they want to build; this says every
 item it takes, which of those Cinder supplies, and prints the `ops order add`
@@ -24,6 +29,7 @@ No third-party packages: the NBT reader is the dozen lines it takes.
 """
 import argparse
 import collections
+import re
 import gzip
 import io
 import math
@@ -184,13 +190,27 @@ def short(item):
     return item.split(":", 1)[1] if item.startswith("minecraft:") else item
 
 
+CATALOGUE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "machines", "base", "catalogue.lua")
+CAT_LINE = re.compile(r'\{\s*name\s*=\s*"([^"]+)",\s*label\s*=\s*"((?:[^"\\]|\\.)*)",\s*stack\s*=\s*(\d+)')
+
+
 def read_supply(path):
-    """One item per line; `#` comments; `minecraft:` may be left off."""
-    out = set()
-    for line in open(path, encoding="utf-8"):
+    """What we supply: item -> (label, stack). Either the base's catalogue.lua
+    (one `{ name = .., label = .., stack = .. }` a line) or a plain list, one
+    item per line, `#` comments, `minecraft:` optional."""
+    out = {}
+    text = open(path, encoding="utf-8").read()
+    found = CAT_LINE.findall(text)
+    if found:
+        for name, label, stack in found:
+            out[name] = (label.replace('\\"', '"'), int(stack))
+        return out
+    for line in text.splitlines():
         line = line.split("#", 1)[0].strip()
         if line:
-            out.add(line if ":" in line else "minecraft:" + line)
+            name = line if ":" in line else "minecraft:" + line
+            out[name] = (short(name), 64)
     return out
 
 
@@ -208,7 +228,8 @@ def report(path, items, notes, supply=None, who=None, to=None, stacks=None):
         print()
         print(title)
         for it, n in sorted(d.items(), key=lambda kv: (-kv[1], kv[0])):
-            print("   %7d  %s" % (n, short(it)))
+            label = supply[it][0] if supply and it in supply else ""
+            print("   %7d  %-40s %s" % (n, short(it), label))
 
     if supply is None:
         table(items, "everything it takes:")
@@ -224,7 +245,7 @@ def report(path, items, notes, supply=None, who=None, to=None, stacks=None):
         print()
         print("the order for our part:")
         print("   ops order add %s %s %s for <price>" % (who or "<who>", pairs, where))
-        silos = sum(math.ceil(n / 64) for n in ours.values())
+        silos = sum(math.ceil(n / max(1, supply[it][1])) for it, n in ours.items())
         print("   about %d slot%s: %d silo%s" % (silos, "" if silos == 1 else "s",
               max(1, math.ceil(silos / 59)), "" if math.ceil(silos / 59) <= 1 else "s"))
 
@@ -309,6 +330,23 @@ def selftest():
     check("a potted poppy is a pot and a poppy",
           items["minecraft:flower_pot"] == 1 and items["minecraft:poppy"] == 1)
     check("a wall sign is a sign", items["minecraft:oak_sign"] == 1)
+    import tempfile
+    cat = ('-- sources: minecraft:chest_5\nreturn {\n'
+           '  { name = "minecraft:ender_pearl", label = "Ender Pearl", stack = 16 },\n'
+           '  { name = "create:andesite_alloy", label = "Andesite \\"Alloy\\"", stack = 64 },\n}\n')
+    with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8") as f:
+        f.write(cat)
+    sup = read_supply(f.name)
+    os.unlink(f.name)
+    check("the base's catalogue is read: ids, names and stack sizes",
+          sup.get("minecraft:ender_pearl") == ("Ender Pearl", 16) and "create:andesite_alloy" in sup, sup)
+    check("a quote mark in a name survives", sup.get("create:andesite_alloy", ("",))[0] == 'Andesite "Alloy"',
+          sup.get("create:andesite_alloy"))
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
+        f.write("# a plain list\ncobblestone\ncreate:zinc_ingot\n")
+    sup = read_supply(f.name)
+    os.unlink(f.name)
+    check("a plain list still works", "minecraft:cobblestone" in sup and "create:zinc_ingot" in sup, sup)
     print("")
     print("%d failed" % fails if fails else "all passed")
     return 1 if fails else 0
@@ -317,7 +355,8 @@ def selftest():
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("schematic", nargs="?")
-    ap.add_argument("--supply", help="what we supply: one item per line")
+    ap.add_argument("--supply", help="what we supply: a catalogue.lua or a list, one item a line "
+                                     "(default: the base's catalogue in machines/base, if it is there)")
     ap.add_argument("--who", help="the customer, for the order line")
     ap.add_argument("--to", nargs=3, type=int, metavar=("X", "Y", "Z"))
     ap.add_argument("--selftest", action="store_true")
@@ -328,7 +367,10 @@ def main(argv=None):
         ap.print_help()
         return 2
     items, notes = bill(load(a.schematic))
-    supply = read_supply(a.supply) if a.supply else None
+    path = a.supply or (CATALOGUE if os.path.exists(CATALOGUE) else None)
+    supply = read_supply(path) if path else None
+    if supply is not None and not a.supply:
+        print("(what we supply: %s, %d items)" % (os.path.relpath(path), len(supply)))
     report(a.schematic, items, notes, supply, a.who, a.to)
     return 0
 
