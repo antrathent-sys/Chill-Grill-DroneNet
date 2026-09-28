@@ -226,6 +226,20 @@
 --                      the goal. The brakes should come out shorter and more
 --                      alike; expect the map to need taking down after.
 --                      Revert: delete.
+--                      Flown 10-31-58 (78.5 s, the best on the standard route;
+--                      brake 35 past, decel 21.6, balloon 60) and 10-36-02
+--                      (long route, 96.8 s: brake ON the mark along, +1, but
+--                      107 across - carried in from the cruise; balloon 67).
+--   CRUISE_BODY_LEAN 15  from 2026-09-28, was 30. In every cruise the sideways
+--                      acceleration follows the heading error ~0.5 s later
+--                      (r -0.83 to -0.94 on six flights): with 30 deg of the
+--                      lean held on the body, each degree the nose wanders
+--                      tips part of it sideways. The long run (10-36-02) went
+--                      93 off the line, came back at 21 b/s and crossed it in
+--                      the brake to end 107 out. Body lean went in on 09-19
+--                      against a +-40 deg/s yaw wobble; the yaw is ~3 deg/s now.
+--                      Alex's call: aim by the centreline, not the nose.
+--                      Watch the roll. Revert: 30.
 return {
   YAW_KP = 0.007,
   YAW_KD = 0.012,
@@ -233,7 +247,7 @@ return {
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
   CRUISE_DEG = 67,
-  CRUISE_BODY_LEAN = 30,
+  CRUISE_BODY_LEAN = 15,
   LAND_SETTLE_XZ = 4,
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
