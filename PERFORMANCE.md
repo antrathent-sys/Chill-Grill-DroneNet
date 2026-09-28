@@ -358,4 +358,5 @@ the cutoff. The next speed limit is lift: throttle 0.63 at 65, and ~80 true tilt
 | - 260 b/s; brake 67 short (balloon 26 - small balloon, short brake), 60 across (swing 73); closing 16 s | | | | | | |
 | 14 sideways brake `BRAKE_SIDE_K 1.5` back on (the swing is 130-167 blocks at 214-256 b/s) | 09-28 10-24-27 | 1 | 82.7 s dock | 0 (docked) | - | 0 |
 | - works: sideways speed 0.3 b/s mean (2.7-9.3 before), drift 4 blocks (43-136), 14 off the line (73-167); along 72 past | | | | | | |
-| 15 brake throttle floor `BRAKE_HOLD_POWER 0.38` (decel follows throttle, r 0.56 over 38 brakes) | | | | | | |
+| 15 brake throttle floor `BRAKE_HOLD_POWER 0.38` (decel follows throttle, r 0.56 over 38 brakes) | 09-28 10-31-58 | 1 | **78.5 s** (best on the route) | 2 | - | 0 |
+| - brake 35 past, 28 across; steady decel 21.6 (18.6 on the last ballooned brake); approach 15.7 s; balloon 60 - at the floor's release | | | | | | |
