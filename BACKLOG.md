@@ -106,6 +106,16 @@ How an order moves end to end, and which steps are built, is in
 
 ## Flashy
 
+**Formation and escorts** (Alex, 2026-09-28). A wingman holds a slot beside a
+leader, stepped up at least 15 blocks, from the leader's telemetry relayed by
+the base. Cruise only, and proven first against a ghost leader so one drone is
+enough. Plan in [FORMATION.md](FORMATION.md). It needs orders in flight from
+the base first (hold/land through the beacon). The same movable hold point
+gives **orbit** (a timed circle round the ATC tower) and **follow**; following
+a player waits on the GPS array fix. Airborne standby was considered and not
+recommended: it saves only the 8.5 s climb, and a server restart brings down a
+drone that is in the air.
+
 **Navigation lights.** Gadgets & Gizmos laser pointers are a CC peripheral
 (`laser_pointer`) with `setColor(argb)`, `setRainbow(bool)`, `getRange()`,
 `isFiring()` and `getAxis()`. Aviation convention is red to port, green to
