@@ -62,4 +62,8 @@ return {
   -- passes are NOT made from this: `provision` on the base writes them, with
   -- kiosk.lua as their startup and no updater or token on them at all.
   pocket = { "hail.lua", "lib/display.lua", "lib/hailui.lua", "lib/tui.lua" },
+
+  -- Alex's admin pocket: the fleet from the feed, trips of several legs, Go and
+  -- Cancel, all asked of the base (seckey admin set disk, label it, run admin)
+  admin = { "admin.lua", "lib/watch.lua", "lib/state.lua" },
 }
