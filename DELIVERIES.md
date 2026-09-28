@@ -91,8 +91,27 @@ character more. The middle shipment of 10k cobble, paid:
 ```
 
 The last shipment says `ORDER  COMPLETE` in place of what is to follow, and an
-unpaid one shows `PAID  NOTHING YET` and the balance due, exactly - money on an
-invoice is never rounded to cogs. A long customer name is shortened so its
+unpaid one shows `PAID  NOTHING YET`, the balance due exactly - money on an
+invoice is never rounded to cogs - and signs off `PAY AT ANY CINDER TILL`
+instead of the usual line, because the invoice is also how it gets paid
+(ORDERS.md, "Paying against an invoice").
+
+**An order of several items** gets a packing list instead of the one-item
+figures: what is physically in this silo, and whether more of the order is
+coming.
+
+```
+|--- THIS SHIPMENT -------|
+|COBBLESTONE         1,224|
+|GRAVEL              2,000|
+|                         |
+|                         |
+|ORDER      MORE TO FOLLOW|
+```
+
+Four item lines fit; a silo with more kinds than that says `+ 3 MORE ITEMS`
+on the last rather than dropping them silently. Each item's running total is on
+the base, in `ops order <id>`. A long customer name is shortened so its
 label stays; coordinates and amounts keep every digit. The page's item name is
 `CINDER INVOICE C-0042-2`, so it reads as what it is in an inventory.
 
