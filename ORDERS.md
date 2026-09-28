@@ -25,6 +25,70 @@ Two consequences:
   order that silo belonged to, whether a delivery was ever paid for: each
   has to be matched by time and name.
 
+## Taking an order today
+
+Decided 2026-09-28: orders arrive by word of mouth, and Alex takes them. A
+customer messages on Discord, Alex agrees a price, and **types the order into
+the base**. There is no website, no bot and no form yet.
+
+The rule that makes that worth building properly: **an order typed in by hand
+and an order that arrives from a website later must be the same record.**
+Everything downstream - loading, flying, the drop, the charge, the log - reads
+the record and never asks how it got there. So when a form or a bot turns up,
+it calls the same `orders.add()` Alex's command does, and nothing past that line
+changes.
+
+The whole flow, as it runs now:
+
+1. A customer asks: *10k cobble to 1200 70 340.*
+2. Alex quotes it. `ops quote` does the arithmetic so every quote is made the
+   same way: how many runs, how far, how long each takes, a suggested charge.
+3. He agrees a price and enters it: `ops order add`.
+4. The base checks it, writes it to `orders.log`, and works out the runs.
+5. It flies them when a drone and the depot are free: ferry to the depot, load,
+   drop at the coordinates, home - once per run.
+6. Money arrives however it arrives (in person, a bank transfer). Alex marks
+   it: `ops order paid`. Paying is a fact about the order, not something the
+   base has to collect.
+7. He tells the customer it is done. That stays manual too, for now.
+
+Steps 1-3 and 7 are the only manual ones, and they are the only ones a website
+or a bot would ever replace.
+
+### The commands
+
+```
+ops quote <amount> <item> to <x> <y> <z>
+ops order add <who> <amount> <item> to <x> <y> <z> for <price>
+ops orders                      open orders, runs done and to go
+ops order <id>                  one order, every event
+ops order paid <id> [note]      money received
+ops order cancel <id> <why>
+```
+
+`who` is free text - a Discord name, an MC name - because nobody has a pass for
+this. The order id is what Alex quotes back to the customer.
+
+### What a run is
+
+One flight carries two silos of 60 stacks. That is **7,680 of a 64-stack item**,
+1,920 of a 16-stack one, 120 of something that does not stack. A bigger order
+is several runs of the same order, flown one after another, and `ops orders`
+shows how many are done. 10k cobble is two runs.
+
+Each run takes about **64 s + distance / 171** in the air (PERFORMANCE.md), plus
+the load at the depot. That is the number `ops quote` puts in front of Alex, so a
+customer can be told how long 10k takes, not only what it costs.
+
+### Delivered where
+
+A delivery is a **drop**: the drone holds over the coordinates and lets the
+silo go. It never lands, so the rule that keeps passengers to platforms does
+not apply - coordinates are fine. What it does need is the **ground height**:
+the silo is released `DROP_ALT` above the ground, and a wrong y means it falls
+from too high or the drone flies into the ground. So an order takes all three
+of x, y and z, as F3 shows them, the same as the pocket's typed coordinates.
+
 ## The model
 
 Three things, and only three.
@@ -39,8 +103,12 @@ record, one id, from the moment it is accepted until it is finished.
 | `who` | a pass's name, a walk-up at a depot (`walkup@pier`), or `ops` |
 | `from` | a place, or coordinates |
 | `to` | one or more drops, each a place or coordinates, in order |
-| `cargo` | parcels: what was declared, then what was counted into each silo |
-| `fare` | quoted when accepted, charged when it ends (or refunded) |
+| `item` | parcels: what was ordered, by the name the depot sees |
+| `amount` | parcels: how many, and so how many runs |
+| `cargo` | parcels: what was counted into each silo, run by run |
+| `price` | agreed with the customer when the order is taken |
+| `paid` | when the money arrived and a note of how - set by hand |
+| `fare` | rides: quoted when accepted, charged when it ends |
 | `state` | see below |
 
 **A leg** is one thing one machine does towards an order: a drone flies
@@ -150,23 +218,32 @@ dropped - is never run a second time.
 
 Small steps, each tested on the desktop before it goes near a drone:
 
-1. **`lib/orders.lua`**, pure: the order and leg states, the checks, the log
-   line format, and rebuilding from the log.
-2. **Rides go through it.** ops writes `orders.log` for the flow that already
-   works, and picks it up again after a restart. Nothing new for customers.
-3. **Parcels.** `ops order parcel <from depot> <to> [and <to>]` makes an order
-   whose legs the board runs: ferry, load (the dock sequence, answered by the
-   base instead of `depot seq`'s "taken as done"), deliver, home.
-4. **`ops orders`**: what is open, what each leg is doing, what ended and why.
+Parcels first now, because that is what word of mouth sells; rides already
+work and can move over afterwards.
 
-## Decisions for Alex
+1. **`lib/orders.lua`**, pure: the record, the checks, the log line format,
+   runs from an amount, and rebuilding every open order from the log.
+2. **The order book.** `ops order add`, `ops orders`, `ops order <id>`,
+   `ops order paid`, `ops order cancel`, and `ops quote`. Useful the day it
+   exists even with nothing flying it: Alex can take orders, track them and
+   see what is unpaid, and fly runs with the commands he has now.
+3. **Flying it.** An open order's runs become legs the board runs: ferry, load
+   (the dock sequence, answered by the base instead of `depot seq`'s "taken as
+   done"), drop, home. One run at a time.
+4. **Rides go through it too**, so a base restart stops forgetting them.
 
-- **Who can make a parcel order?** Only ops, walk-ups at a depot, passes, or
-  all three?
-- **When is a parcel paid for?** When it is accepted, when it is loaded, or
-  when it is delivered?
+## Decisions
+
+- **Who can make a parcel order?** **Ops only**, for now (Alex, 2026-09-28):
+  orders come by word of mouth and Alex enters them. Walk-ups and passes can
+  follow once the order book exists; they would call the same `orders.add()`.
+- **When is a parcel paid for?** Payment happens outside the system, so the
+  order records it rather than collecting it: `ops order paid` when it
+  arrives. Whether Alex wants it before the first run or after the last is his
+  to say each time; `ops orders` shows what is unpaid either way.
 - **A delivery that cannot be made** (no clear drop, a drone in distress):
-  bring it back to the depot it came from, drop it at the base, or keep it on
-  the drone until ops decides?
+  *open.* Proposed: the drone keeps the silo and brings it back to the depot
+  it came from, and the order goes to `held` until Alex decides.
 - **How long the base keeps finished orders** before only the summary is
-  left.
+  left: *open.* Proposed: every finished order is pushed to the repo with
+  `upload` and folded to one line when `orders.log` passes 200 KB.
