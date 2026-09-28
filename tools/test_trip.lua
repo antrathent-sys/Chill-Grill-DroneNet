@@ -121,6 +121,50 @@ T.cancel(t8)
 check("at a stop: ends at the next look", T.step(t8, u8, 61) == "end" and t8.state == "cancelled")
 check("Go is only for a trip at a stop", not T.go(T.new("T-9", "d", T.parse("stop:rules", PLACES), "a", 0)))
 
+print("stopping in the air")
+local t10 = T.new("T-10", "drone-1", T.parse("stop:rules;stop:home", PLACES), "alex", 0)
+local u10 = flying(t10)
+u10.ord, u10.seen, u10.legKind = true, 20, "cruise"
+local okS, whyS, overS, actS = T.cancel(t10, u10, 20)
+check("a drone that takes orders in the air is told to stop", okS and actS == "stop" and not overS
+  and t10.state == "stopping" and whyS:find("hover", 1, true) ~= nil, whyS)
+check("braking: still stopping", T.step(t10, u10, 30) == nil and t10.state == "stopping")
+u10.seen, u10.legKind, u10.x, u10.z = 40, "wait", 1200.4, 600.7
+local aS, tS = T.step(t10, u10, 40)
+check("hovering: holding, and says where", aS == nil and t10.state == "holding" and tS:find("1200 600", 1, true) ~= nil, tS)
+check("holding: it waits", T.step(t10, u10, 200) == nil and t10.state == "holding")
+local okH, whyH, overH, actH = T.cancel(t10, u10, 201)
+check("Cancel while holding: home, and the trip is over", okH and overH and actH == "home" and t10.state == "cancelled", whyH)
+local t11 = T.new("T-11", "drone-1", T.parse("stop:rules", PLACES), "alex", 0)
+local u11 = flying(t11)
+u11.ord, u11.seen = true, 20
+T.cancel(t11, u11, 20)
+u11.seen, u11.legKind = 30, "wait"
+T.step(t11, u11, 30)
+u11.seen, u11.legKind = 400, "dock"
+local eH, whyEH = T.step(t11, u11, 400)
+check("no new trip before its own wait ran out: it went home, the trip ended", eH == "end" and t11.state == "ended", whyEH)
+local t12 = T.new("T-12", "drone-1", T.parse("stop:rules", PLACES), "alex", 0)
+local u12 = flying(t12)
+u12.ord, u12.seen = true, 20
+T.cancel(t12, u12, 20)
+u12.seen = 150
+check("never hovers: failed", T.step(t12, u12, 150) == "end" and t12.state == "failed" and t12.why:find("did not stop", 1, true), t12.why)
+local t13 = T.new("T-13", "drone-1", T.parse("stop:rules", PLACES), "alex", 0)
+local u13 = flying(t13)
+u13.ord, u13.seen, u13.landed = true, 20, true
+local _, why13, _, act13 = T.cancel(t13, u13, 20)
+check("down already: no stop, it ends at its stop as before", act13 == nil and t13.state == "flying", why13)
+local t14 = T.new("T-14", "drone-1", T.parse("stop:rules", PLACES), "alex", 0)
+local u14 = flying(t14)
+u14.ord, u14.seen = true, 1
+check("heard from too long ago: no stop either", select(4, T.cancel(t14, u14, 40)) == nil)
+check("canStop: in the air, fresh, takes orders", T.canStop({ seen = 10, ord = true }, 12)
+  and not T.canStop({ seen = 10 }, 12) and not T.canStop({ seen = 10, ord = true, docked = true }, 12)
+  and not T.canStop({ seen = 10, ord = true, phase = "sos" }, 12) and not T.canStop(nil, 12))
+local t15 = T.new("T-15", "drone-1", T.parse("stop:rules", PLACES), "alex", 0, true)
+check("a trip begun in the air says so", t15.air == true and T.step(t15, { seen = 0 }, 0) == "send")
+
 print("the feed line")
 check("id|drone|state|leg|stop|who", T.line(t5) == "T-5|drone-1|ended|1/2|rules|alex", T.line(t5))
 

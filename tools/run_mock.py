@@ -196,6 +196,29 @@ SELFTEST = [
     ("approach profile, dock", ["dock", "100", "70", "50", "120"], {"TMAX": "150",
      "TUNE": "return { APPROACH_DECEL = 2 }", "END_CHECK": "appr 2"},
      ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
+    # ORDERS_IN_FLIGHT (2026-09-29): the beacon hands in unit.stop / unit.goto
+    # as a local event mid-flight. The mock flies to its pad whatever the
+    # target, so these check what happens in what order, not where the brake
+    # ends: stop -> hover -> wait (the "fly" phase), then the new destination
+    # from the hover, or home once STOP_WAIT has gone by.
+    ("stop in flight, then goto", ["land", "1500", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
+     "TUNE": "return { ORDERS_IN_FLIGHT = true }", "ORDER_AT": "30:stop|45:goto:land 100 64 50", "LAND_CHECK": "3"},
+     ["climb", "cruise", "hold", "fly", "climb", "land", "touchdown"]),
+    ("goto in flight stops first", ["land", "1500", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
+     "TUNE": "return { ORDERS_IN_FLIGHT = true }", "ORDER_AT": "30:goto:land 100 64 50", "LAND_CHECK": "3"},
+     ["climb", "cruise", "hold", "fly", "climb", "land", "touchdown"]),
+    ("goto a dock in flight", ["land", "1500", "64", "50"], {"TMAX": "250", "PADS": "pier:100,70,50",
+     "TUNE": "return { ORDERS_IN_FLIGHT = true }", "ORDER_AT": "30:goto:ferry pier"},
+     ["climb", "cruise", "hold", "fly", "climb", "align", "descend", "capture", "docked"]),
+    ("stop, no orders: home", ["land", "1500", "64", "50"], {"TMAX": "250", "PADS": "home:100,70,50",
+     "TUNE": "return { ORDERS_IN_FLIGHT = true, STOP_WAIT = 10 }", "ORDER_AT": "30:stop"},
+     ["climb", "cruise", "hold", "fly", "climb", "align", "descend", "capture", "docked"]),
+    ("a goto it cannot fly is refused", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
+     "TUNE": "return { ORDERS_IN_FLIGHT = true }", "ORDER_AT": "20:goto:ferry nowhere", "LAND_CHECK": "3"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
+    ("orders ignored when off", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
+     "ORDER_AT": "20:stop", "LAND_CHECK": "3"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
     ("border allows", ["go", "100", "50", "90"], {"TMAX": "90", "TUNE": "return { WORLD_BORDER = 400 }"},
      ["climb", "cruise", "brake", "hold"]),
     ("border checks every leg", ["deliver", "100", "80", "50", "90", "empty"],
@@ -357,7 +380,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK", "START_TILT", "PINNED", "END_CHECK", "BEACON", "BEACON_PARENT", "BEACON_CHECK", "BEACON_BY"):
+              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK", "START_TILT", "PINNED", "END_CHECK", "BEACON", "BEACON_PARENT", "BEACON_CHECK", "BEACON_BY", "ORDER_AT"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath

@@ -494,6 +494,7 @@ local function note(d)
   local wasLanded = f.landed
   f.landed = not f.docked and d.phase == "landed"      -- still, on the ground, not latched
   f.energy, f.spd = d.energy, d.spd
+  f.legKind, f.ord = d.legKind, d.ord == 1       -- "wait": hovering after a stop; ord: it takes orders in the air
   -- worth knowing: usually a dock it could not latch onto, and it is not
   -- charging there
   if f.landed and not wasLanded then
@@ -1613,25 +1614,52 @@ function ADMIN.handle(env)
   local drone, now = body.drone, os.clock()
   local trip = ADMIN.trips[drone]
   if body.type == "admin.trip" then
-    if trip then ADMIN.reply(who, false, drone .. " is on " .. trip.id .. " - cancel it first", drone, nonce()) return end
-    local okA, whyA = F.available(fleet[drone], now)
-    if not okA then ADMIN.reply(who, false, drone .. ": " .. tostring(whyA), drone, nonce()) return end
+    -- in the air and able to take orders there, not on a customer's job: it
+    -- stops, hovers and goes from there, replacing any trip it is on
+    local f = fleet[drone]
+    local air = TRIP.canStop(f, now) and (trip ~= nil or not f.job)
+    if trip and not air then ADMIN.reply(who, false, drone .. " is on " .. trip.id .. " - cancel it first", drone, nonce()) return end
+    if not air then
+      local okA, whyA = F.available(f, now)
+      if not okA then ADMIN.reply(who, false, drone .. ": " .. tostring(whyA), drone, nonce()) return end
+    end
     local legs, whyL = TRIP.parse(body.legs, pads)
     if not legs then ADMIN.reply(who, false, whyL, drone, nonce()) return end
     ADMIN.seq = ADMIN.seq + 1
-    trip = TRIP.new(string.format("T-%d", ADMIN.seq), drone, legs, who, now)
+    local id = string.format("T-%d", ADMIN.seq)
+    if trip then
+      trip.state = "cancelled"
+      ADMIN.finish(trip, "replaced by " .. id)
+    end
+    trip = TRIP.new(id, drone, legs, who, now, air)
     ADMIN.trips[drone] = trip
     fleet[drone].job = trip.id
-    log("%s for %s by %s: %s", trip.id, drone, who, TRIP.encode(legs))
-    ADMIN.reply(who, true, trip.id .. ": " .. #trip.segs .. " stop" .. (#trip.segs == 1 and "" or "s") .. ", off now", drone, nonce())
+    log("%s for %s by %s: %s%s", trip.id, drone, who, TRIP.encode(legs), air and " (from the air)" or "")
+    ADMIN.reply(who, true, trip.id .. ": " .. #trip.segs .. " stop" .. (#trip.segs == 1 and "" or "s")
+      .. (air and ", from the air" or ", off now"), drone, nonce())
   elseif not trip then
     ADMIN.reply(who, false, drone .. " is not on a trip", drone, nonce())
   elseif body.type == "admin.go" then
     local okG, whyG = TRIP.go(trip)
     ADMIN.reply(who, okG, whyG, drone, nonce())
   elseif body.type == "admin.cancel" then
-    local _, whyX = TRIP.cancel(trip)
+    local _, whyX, over, act = TRIP.cancel(trip, fleet[drone], now)
     log("%s cancel by %s: %s", trip.id, who, whyX)
+    local sent, whyS = true, nil
+    if act == "stop" then
+      sent, whyS = order(drone, F.stop(drone, nonce()))
+    elseif act == "home" then
+      local cmd = TRIP.command({ vias = {}, stop = TRIP.place(pads, "home") or {} })
+      sent, whyS = false, "no place called home"
+      if cmd then sent, whyS = order(drone, F.goto(drone, cmd, nonce())) end
+    end
+    if not sent then
+      log("%s: could not reach %s: %s", trip.id, drone, tostring(whyS))
+      ADMIN.reply(who, false, trip.id .. " could not reach " .. drone .. ": " .. tostring(whyS), drone, nonce())
+      if act == "stop" then trip.state = "flying" end
+      return
+    end
+    if over then ADMIN.finish(trip, whyX) return end
     ADMIN.reply(who, true, trip.id .. " " .. whyX, drone, nonce())
   end
 end
@@ -1657,10 +1685,12 @@ local function tripLoop()
       if act == "send" then
         local cmd, whyC = TRIP.command(trip.segs[trip.seg])
         local sent, whyS = false, whyC
-        if cmd then sent, whyS = order(drone, F.flyCommand(cmd, nonce())) end
+        -- the first flight of a trip begun in the air goes to that flight
+        local inAir = trip.air and trip.seg == 1
+        if cmd then sent, whyS = order(drone, inAir and F.goto(drone, cmd, nonce()) or F.flyCommand(cmd, nonce())) end
         if sent then
           TRIP.sent(trip, now)
-          log("%s leg %d/%d: %s fly %s", trip.id, trip.seg, #trip.segs, drone, cmd)
+          log("%s leg %d/%d: %s %s %s", trip.id, trip.seg, #trip.segs, drone, inAir and "goto" or "fly", cmd)
         else
           trip.state = "failed"
           ADMIN.finish(trip, "could not send the leg: " .. tostring(whyS))

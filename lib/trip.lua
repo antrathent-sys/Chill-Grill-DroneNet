@@ -12,9 +12,16 @@
 -- ops.fly order, and the drone's own telemetry says when it has left and
 -- when it is down at the stop.
 --
--- Cancel: at a stop, or before the first flight, the trip ends at once.
--- In the air it ends at the next stop, until fly can stop and hover on an
--- order (the second stage).
+-- Cancel: at a stop, or before the first flight, the trip ends at once. In
+-- the air, a drone whose telemetry says it takes orders there (ord, fly.lua
+-- ORDERS_IN_FLIGHT) is told to stop: it brakes, hovers and waits - the trip
+-- is "holding" - for a new trip from the pocket, which it flies from the
+-- hover; Cancel again, or nothing within its wait, sends it home. A drone
+-- that cannot stop in the air ends the trip at this leg's stop instead.
+--
+-- A new trip for a drone in the air that takes orders replaces the one it is
+-- on: it stops, and goes from the hover. Its first flight is sent to the
+-- flight itself (unit.goto) rather than to the beacon (ops.fly).
 --
 -- Over the radio a trip's legs are one string: "stop:rules;via:market;stop:home".
 --
@@ -31,6 +38,7 @@ T.FRESH = 15          -- s: telemetry older than this is no news
 T.NEAR_PAD = 8        -- blocks from a pad's centre that count as down there
 T.NEAR_DOCK = 6       -- ... from a dock's (a missed capture sets down beside it)
 T.VIAS = false        -- true once fly has a route mode
+T.STOP_MAX = 90       -- s from a stop order to seeing it hover before it is failed
 
 local floor, sqrt = math.floor, math.sqrt
 local function str(v) return type(v) == "string" and v ~= "" end
@@ -114,13 +122,20 @@ function T.command(seg)
 end
 
 --- A new trip for drone, not started yet.
-function T.new(id, drone, legs, who, now)
+-- air: the drone is in the air, so the first flight goes to the flight itself.
+function T.new(id, drone, legs, who, now, air)
   return { id = id, drone = drone, who = who, legs = legs, segs = T.segments(legs), seg = 1,
-           state = "send", at = now or 0 }
+           state = "send", at = now or 0, air = air or nil }
 end
 
 local function fresh(u, now) return type(u) == "table" and num(u.seen) and now - u.seen <= T.FRESH end
 local function down(u) return u.docked or u.landed end
+local function waiting(u) return type(u) == "table" and u.legKind == "wait" end
+
+--- In the air, heard from lately, and able to take a stop there.
+function T.canStop(u, now)
+  return fresh(u, now) and u.ord and not down(u) and u.phase ~= "sos" and true or false
+end
 
 --- Is the unit down at place p?
 function T.at(u, p)
@@ -145,8 +160,22 @@ function T.sent(trip, now) trip.state, trip.at, trip.away = "sent", now, nil end
 function T.step(trip, u, now)
   local s = trip.state
   if s == "send" then return "send" end
-  if s ~= "sent" and s ~= "flying" and s ~= "stopped" then return nil end
+  if s ~= "sent" and s ~= "flying" and s ~= "stopped" and s ~= "stopping" and s ~= "holding" then return nil end
   if type(u) == "table" and u.sos then return finish(trip, "failed", "the drone is in distress") end
+  if s == "stopping" then
+    if fresh(u, now) and waiting(u) then
+      trip.state, trip.at = "holding", now
+      return nil, string.format("hovering at %d %d - a new trip, or Cancel for home", floor(u.x or 0), floor(u.z or 0))
+    end
+    if fresh(u, now) and down(u) then return finish(trip, "cancelled", "cancelled - it was already down") end
+    if now - trip.at > T.STOP_MAX then return finish(trip, "failed", "it did not stop") end
+    return nil
+  end
+  if s == "holding" then
+    -- its own wait ran out and it is on its way home
+    if fresh(u, now) and not waiting(u) then return finish(trip, "ended", "no new trip in time - it went home") end
+    return nil
+  end
   if s == "sent" then
     if fresh(u, now) and not down(u) then trip.state, trip.at = "flying", now return nil end
     if now - trip.at > T.LEAVE_MAX then return finish(trip, "failed", "it never took off") end
@@ -192,16 +221,29 @@ function T.go(trip)
   return true, "going on to " .. trip.segs[trip.seg + 1].stop.name
 end
 
---- Cancel from the pocket. Before the first flight or at a stop it ends at
--- once (the next step says so); in the air it ends at this leg's stop.
-function T.cancel(trip)
+--- Cancel from the pocket. Returns ok, what to tell the admin, whether the
+-- trip is over now, and what to order the drone, if anything:
+--   "stop"  stop in the air and hover (u can: T.canStop) - the trip holds
+--   "home"  it was holding: home now, and the trip is over
+-- Before the first flight it is over at once; at a stop the next step ends it;
+-- in the air, a drone that cannot stop ends the trip at this leg's stop.
+function T.cancel(trip, u, now)
   if trip.state == "send" then
     trip.state, trip.why = "cancelled", "cancelled before it flew"
     return true, trip.why, true
   end
+  if trip.state == "holding" then
+    trip.state, trip.why = "cancelled", "cancelled - home from the hover"
+    return true, trip.why, true, "home"
+  end
+  if trip.state == "stopping" then return true, "already stopping", false end
+  if trip.state == "flying" and T.canStop(u, now or 0) then
+    trip.state, trip.at = "stopping", now or 0
+    return true, "stopping - it will hover and wait for a new trip", false, "stop"
+  end
   trip.cancel = true
   if trip.state == "stopped" then return true, "cancelled", false end
-  return true, "will end at " .. trip.segs[trip.seg].stop.name .. " (stopping in the air comes later)", false
+  return true, "will end at " .. trip.segs[trip.seg].stop.name .. " (this drone cannot stop in the air)", false
 end
 
 --- One line for the base's feed: "id|drone|state|seg/n|stop|who".

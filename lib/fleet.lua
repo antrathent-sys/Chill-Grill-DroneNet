@@ -106,7 +106,7 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["job.relocate"] = true, ["unit.stick"] = true, ["unit.stuck"] = true,
             ["unit.dropped"] = true, ["depot.hello"] = true, ["load.start"] = true,
             ["load.step"] = true, ["load.lifted"] = true, ["load.stuck"] = true, ["load.done"] = true,
-            ["unit.clear"] = true,
+            ["unit.clear"] = true, ["unit.stop"] = true, ["unit.goto"] = true,
             ["admin.trip"] = true, ["admin.go"] = true, ["admin.cancel"] = true, ["admin.ack"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
@@ -245,8 +245,13 @@ function F.check(m)
   elseif m.type == "ops.fly" then
     local args, why = F.flyArgs(m.args)
     if not args then return false, "args: " .. why end
-  elseif m.type == "unit.clear" then
+  elseif m.type == "unit.clear" or m.type == "unit.stop" then
     if not str(m.to) then return false, "no unit" end
+  elseif m.type == "unit.goto" then
+    if not str(m.to) then return false, "no unit" end
+    local args, why = F.flyArgs(m.args)
+    if not args then return false, "args: " .. why end
+    if not (args:match("^ferry%s") or args:match("^land%s")) then return false, "in the air: ferry or land only" end
   elseif m.type == "admin.trip" then
     if not str(m.drone) then return false, "no drone" end
     if not (str(m.legs) and #m.legs <= 300) then return false, "no legs" end
@@ -599,6 +604,16 @@ end
 -- land there. It goes home, as it would at the end of its wait.
 function F.clear(drone, why, nonce)
   return { v = F.VERSION, type = "unit.clear", nonce = nonce, to = drone, why = why }
+end
+
+-- Orders in the air (fly.lua ORDERS_IN_FLIGHT): the beacon beside the flight
+-- hands them to fly. stop: brake, hover and wait for where next. goto: the
+-- same stop, then fly there - "ferry <dock>" or "land <x y z>".
+function F.stop(drone, nonce)
+  return { v = F.VERSION, type = "unit.stop", nonce = nonce, to = drone }
+end
+function F.goto(drone, args, nonce)
+  return { v = F.VERSION, type = "unit.goto", nonce = nonce, to = drone, args = args }
 end
 
 -- A landed drone is not on a charger. It still takes the next job - one that

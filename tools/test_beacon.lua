@@ -185,6 +185,7 @@ local function drone(opts)
     end,
     getComputerLabel = function() return opts.label or "drone-1" end,
     getComputerID = function() return 7 end,
+    pullEventRaw = function(want) return env.os.pullEvent(want) end,
   }, { __index = os })
   -- opts.fails: the numbers of the flights that fail (a crash, a refusal)
   w.marked = {}
@@ -530,6 +531,38 @@ w = run(drone({ nokey = true }))
 check("no key: nothing sent, says how", #w.sent == 0 and w.text:find("seckey set disk", 1, true) ~= nil)
 w = run(drone({ noradio = true }))
 check("no modem: says so", #w.sent == 0 and w.text:find("no wireless or ender modem", 1, true) ~= nil)
+
+print("orders in the air")
+-- a flight the base stops and then sends elsewhere: the beacon listens beside
+-- it and fly sees each order as a local event
+w = drone({ name = "pad", cycles = 1, inbox = { order(F.flyCommand("land 1500 64 50", "ops-30")) },
+            holdEvents = { { at = 3, order = order(F.stop("drone-1", "ops-31")) },
+                           { at = 5, order = order(F.goto("drone-1", "ferry pier", "ops-32")) },
+                           { at = 7, order = order(F.flyCommand("ferry home", "ops-33")) },
+                           { at = 9, order = order({ v = 1, type = "unit.goto", nonce = "ops-34", args = "land 1 2; reboot" }) },
+                           { at = 10, order = order(F.goto("drone-1", "go 5 5", "ops-35")) },
+                           { at = 11, order = order(F.stop("drone-2", "ops-36")) } } })
+w.flightOrders = {}
+w.env.shell = { run = function(cmd)
+  w.runs[#w.runs + 1] = cmd
+  w.ordersFlag = _G.DRONENET_ORDERS
+  if cmd == "fly land 1500 64 50" then
+    while w.clock < 14 do
+      local ev, a, b = w.env.os.pullEvent()
+      if ev == "dronenet_order" then w.flightOrders[#w.flightOrders + 1] = a .. (b and (" " .. b) or "") end
+    end
+  end
+  return true
+end }
+run(w)
+check("the flight runs with the beacon listening beside it", w.err == nil and w.runs[1] == "fly land 1500 64 50"
+  and w.ordersFlag == true and _G.DRONENET_ORDERS == nil, w.err)
+check("stop, then goto, reach fly as local events", table.concat(w.flightOrders, " / ") == "stop / goto ferry pier",
+  table.concat(w.flightOrders, " / "))
+check("an order for the ground is not taken in the air", w.text:find("in flight - ops.fly not taken", 1, true) ~= nil)
+check("a goto with shell characters, or not a ferry or land, is refused before fly sees it",
+  #w.flightOrders == 2 and w.text:find("order unit.goto ignored", 1, true) ~= nil)
+check("another drone's stop is not this one's", #w.flightOrders == 2)
 
 print("")
 print(string.format("%d passed, %d failed", pass, fail))

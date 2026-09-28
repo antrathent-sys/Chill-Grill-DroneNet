@@ -365,6 +365,13 @@ check("an answer has a verdict and a line", F.check(F.adminAck(true, "T-1: off n
   and not F.check(F.adminAck(nil, "x", "a-8")) and not F.check(F.adminAck(true, "", "a-9")))
 check("nothing else pretends to be one", not F.check({ v = 1, type = "admin.fly", nonce = "a-10" }))
 
+print("orders in the air")
+check("a stop names its unit", F.check(F.stop("drone-1", "s-1")) and not F.check(F.stop(nil, "s-2")))
+check("a goto is a ferry or a landing", F.check(F.goto("drone-1", "ferry pier", "s-3"))
+  and F.check(F.goto("drone-1", "land 100 64 50", "s-4")) and not F.check(F.goto("drone-1", "go 5 5", "s-5")))
+check("...with nothing a shell would read twice", not F.check(F.goto("drone-1", "land 1 2; reboot", "s-6"))
+  and not F.check(F.goto("drone-1", nil, "s-7")))
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("fleet tests failed", 0) end

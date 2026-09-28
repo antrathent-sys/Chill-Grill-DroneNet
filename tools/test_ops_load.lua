@@ -164,13 +164,30 @@ local function base(opts)
     if not body then return end
     w.orders[#w.orders + 1] = body
     if drone.silent then return end
-    -- a ferry to the pier: it is there, docked, 5 s later; any other flight
-    -- (a delivery) leaves the dock
-    if body.type == "ops.fly" and body.args == "ferry pier" then
+    -- a ferry to the pier: it is there, docked, 5 s later (drone.flightSecs);
+    -- any other flight (a delivery) leaves the dock. drone.ord: it takes
+    -- orders in the air - a stop hovers it (legKind wait) 3 s later, a goto
+    -- sends it on from wherever it is. Only the newest of these comes true.
+    local function arriveIn(secs, x, z)
       w.flying = true
-      w.later[#w.later + 1] = { at = w.clock + 5, fn = function() w.pos = { x = 1950.5, z = 400.5 } w.flying = false end }
+      local entry = { at = w.clock + secs }
+      entry.fn = function() if w.arrival == entry then w.pos = { x = x, z = z } w.flying = false w.legKind = nil end end
+      w.arrival = entry
+      w.later[#w.later + 1] = entry
+    end
+    local AT = { pier = { 1950.5, 400.5 }, home = { 1892.5, 365.5 } }
+    if body.type == "ops.fly" and body.args == "ferry pier" then
+      arriveIn(drone.flightSecs or 5, 1950.5, 400.5)
     elseif body.type == "ops.fly" and body.args:match("^deliver") then
       w.flying = true
+    elseif body.type == "unit.stop" and drone.ord and w.flying then
+      local entry = { at = w.clock + 3 }
+      entry.fn = function() if w.arrival == entry then w.legKind = "wait" end end
+      w.arrival = entry
+      w.later[#w.later + 1] = entry
+    elseif body.type == "unit.goto" and drone.ord and w.flying then
+      local p = AT[body.args:match("^ferry (%S+)") or ""]
+      if p then w.legKind = nil arriveIn(drone.flightSecs or 5, p[1], p[2]) end
     end
     if body.type == "unit.stick" then
       local ok = not drone.stickFails
@@ -189,14 +206,14 @@ local function base(opts)
     if not docked and drone.landed and not w.flying then phase = "landed" end
     if drone.sos and w.clock >= drone.sos then phase = "sos" end
     local s = { t = w.clock, phase = phase, h = 98.5, e = 0,
-                x = w.pos.x, z = w.pos.z, vx = 0, vz = 0, vv = 0 }
+                x = w.pos.x, z = w.pos.z, vx = 0, vz = 0, vv = 0, ord = (drone.ord and w.flying) and 1 or nil }
     -- the depot is awake while the drone is at the pier
     if depot and not depot.asleep and math.abs(w.pos.x - 1950.5) < 1 and (w.lastHello or -99) + 10 <= w.clock then
       w.lastHello = w.clock
       fromDepot(F.depotHello("depot-pier", depot.interrupted, depot.interrupted and "stick" or nil, "h-" .. w.clock), 0.1)
     end
     return { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL,
-             droneTx.seal(LINK.packet("drone-1", w.seq, s, { energy = 50 }, { pct = 80 }, { connected = docked }, 0, 0, nil,
+             droneTx.seal(LINK.packet("drone-1", w.seq, s, { energy = 50 }, { pct = 80 }, { connected = docked }, 0, 0, w.legKind,
                drone.mode or "idle")) }
   end
 
@@ -900,6 +917,54 @@ local a3, said3 = acks(w), {}
 for _, a in ipairs(a3) do said3[#said3 + 1] = a.text end
 check("cancel in the air: it will end at this leg's stop, and does", table.concat(said3, " / "):find("will end at pier", 1, true)
   and table.concat(said3, " / "):find("cancelled - down at pier", 1, true) ~= nil and #flies(w) == 1, table.concat(said3, " / "))
+
+print("stopping in the air, and a new trip from there")
+local function kinds(ww)
+  local out = {}
+  for _, b in ipairs(ww.orders) do
+    if b.type == "ops.fly" or b.type == "unit.stop" or b.type == "unit.goto" then
+      out[#out + 1] = b.type .. (b.args and (":" .. b.args) or "")
+    end
+  end
+  return table.concat(out, " ")
+end
+local function saidAll(ww) local t = {} for _, a in ipairs(acks(ww)) do t[#t + 1] = a.text end return table.concat(t, " / ") end
+w = base({ args = {}, keysAt = { { 70, "q" } }, files = { [".adminkeys"] = AK }, drone = { ord = true, flightSecs = 30 },
+           later = { { 3, F.adminTrip("drone-1", "stop:pier", "adm-20"), "admin" },
+                     { 10, F.adminCmd("cancel", "drone-1", "adm-21"), "admin" },
+                     { 24, F.adminTrip("drone-1", "stop:home", "adm-22"), "admin" } } }):run()
+local s4 = saidAll(w)
+check("Cancel in the air: the drone is told to stop", w.err == nil and s4:find("stopping - it will hover", 1, true) ~= nil,
+  w.err or s4)
+check("once it hovers the pocket hears where", s4:find("hovering at", 1, true) ~= nil, s4)
+check("a new trip from the hover replaces the old one", s4:find("T-1 replaced by T-2", 1, true) ~= nil
+  and s4:find("T-2: 1 stop, from the air", 1, true) ~= nil, s4)
+check("and goes to the flight itself, not the beacon: stop, then goto", kinds(w) == "ops.fly:ferry pier unit.stop unit.goto:ferry home",
+  kinds(w))
+check("down at home, the trip is done", s4:find("T-2 down at home - trip done", 1, true) ~= nil, s4)
+w = base({ args = {}, keysAt = { { 50, "q" } }, files = { [".adminkeys"] = AK }, drone = { ord = true, flightSecs = 30 },
+           later = { { 3, F.adminTrip("drone-1", "stop:pier", "adm-30"), "admin" },
+                     { 10, F.adminCmd("cancel", "drone-1", "adm-31"), "admin" },
+                     { 20, F.adminCmd("cancel", "drone-1", "adm-32"), "admin" } } }):run()
+local s5 = saidAll(w)
+check("Cancel again while it hovers: home, and the trip is over", kinds(w) == "ops.fly:ferry pier unit.stop unit.goto:ferry home"
+  and s5:find("T-1 cancelled - home from the hover", 1, true) ~= nil, kinds(w) .. " | " .. s5)
+w = base({ args = {}, keysAt = { { 50, "q" } }, files = { [".adminkeys"] = AK }, drone = { ord = true, flightSecs = 30 },
+           later = { { 3, F.adminTrip("drone-1", "stop:pier", "adm-40"), "admin" },
+                     { 10, F.adminTrip("drone-1", "stop:home", "adm-41"), "admin" } } }):run()
+local s6 = saidAll(w)
+check("a new trip mid-flight, no Cancel first: straight to a goto (fly stops by itself first)",
+  kinds(w) == "ops.fly:ferry pier unit.goto:ferry home" and s6:find("T-2 down at home - trip done", 1, true) ~= nil,
+  kinds(w) .. " | " .. s6)
+w = base({ args = {}, keysAt = { { 50, "q" } }, files = { [".adminkeys"] = AK }, drone = { flightSecs = 30 },
+           later = { { 3, F.adminTrip("drone-1", "stop:pier;stop:home", "adm-50"), "admin" },
+                     { 10, F.adminCmd("cancel", "drone-1", "adm-51"), "admin" },
+                     { 12, F.adminTrip("drone-1", "stop:home", "adm-52"), "admin" } } }):run()
+local s7 = saidAll(w)
+check("a drone that cannot stop in the air: no stop sent, the trip ends at its stop",
+  kinds(w) == "ops.fly:ferry pier" and s7:find("cannot stop in the air", 1, true) ~= nil
+  and s7:find("cancelled - down at pier", 1, true) ~= nil, kinds(w) .. " | " .. s7)
+check("...and a new trip for it in the air is refused", s7:find("is on T-1 - cancel it first", 1, true) ~= nil, s7)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end

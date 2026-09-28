@@ -85,6 +85,7 @@ function link.packet(id, seq, s, mon, fuel, dock, nLegs, legIdx, legKind, mode)
     off = round(link.offLine(s.x, s.z, s.sx, s.sz, s.tx, s.tz), 0),
     energy = round(mon.energy, 1), drain = round(mon.rate, 2), fe = round(fuel.pct, 1),
     dock = dock.connected and 1 or 0, sat = s.sat and 1 or 0,
+    ord = s.ord,
   }
 end
 

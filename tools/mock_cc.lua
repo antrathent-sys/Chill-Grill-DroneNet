@@ -160,7 +160,21 @@ local cmdAt = os.getenv('CMD_AT')
 -- protocol, but only if the controller opened a modem of that kind
 -- ("wired" or "wireless") - which is what CMD_RADIO_STRICT decides.
 local radioAt = os.getenv('RADIO_AT')
+-- ORDER_AT="25:stop|60:goto:land 100 64 50" hands in the beacon's in-flight
+-- orders at those times, as the local event it queues (dronenet_order)
+local orderQ = {}
+for item in (os.getenv('ORDER_AT') or ""):gmatch("[^|]+") do
+  local at, what, rest = item:match("^([%d%.]+):(%a+):?(.*)$")
+  orderQ[#orderQ + 1] = { at = tonumber(at), what = what, args = rest ~= "" and rest or nil }
+end
+if #orderQ > 0 then _G.DRONENET_ORDERS = true end
 os.pullEvent = function()
+  if orderQ[1] then
+    local o = orderQ[1]
+    if T < o.at then coroutine.yield(o.at - T) end
+    table.remove(orderQ, 1)
+    return "dronenet_order", o.what, o.args
+  end
   if radioAt then
     local at, word, proto, kind = radioAt:match("^([%d%.]+):(%a+):([%w%-]+):(%a+)$")
     at = tonumber(at)

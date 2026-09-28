@@ -120,9 +120,23 @@ local DOCK_NEAR = 4       -- blocks from a dock that count as on it
 -- Every flight the beacon starts is marked while it runs, so fly knows it
 -- was started from here and simply returns, rather than starting a second
 -- beacon inside itself (fly.lua BEACON_AFTER).
-local function runFly(line)
+--
+-- Beside every flight the beacon also listens for the base's orders in the
+-- air - unit.stop and unit.goto (fly.lua ORDERS_IN_FLIGHT) - opens them here
+-- like any other order, and hands them to fly as a local event. alone: the
+-- flight already has a listener of its own beside it (the hold above an
+-- obstructed landing), and two would race for the same packet.
+local INFLIGHT = {}            -- INFLIGHT.listen, set once openOrder exists
+local function runFly(line, alone)
   _G.DRONENET_FROM_BEACON = true
-  local flew = shell.run("fly " .. line)
+  local flew
+  if alone or not INFLIGHT.listen then
+    flew = shell.run("fly " .. line)
+  else
+    _G.DRONENET_ORDERS = true
+    parallel.waitForAny(function() flew = shell.run("fly " .. line) end, INFLIGHT.listen)
+    _G.DRONENET_ORDERS = nil
+  end
   _G.DRONENET_FROM_BEACON = nil
   return flew
 end
@@ -370,6 +384,25 @@ local function openOrder(ch, env)
     return msg
 end
 
+-- beside a flight: the base's orders in the air, handed to fly. Nothing here
+-- may end this coroutine - parallel would take the flight down with it - so
+-- a bad packet is caught, and Ctrl+T is left to fly, which lands on it.
+function INFLIGHT.listen()
+  while true do
+    local ev, _, ch, _, env = os.pullEventRaw("modem_message")
+    local okO, msg = false, nil
+    if ev == "modem_message" then okO, msg = pcall(openOrder, ch, env) end
+    if not okO then msg = nil end
+    if msg and msg.type == "unit.stop" then
+      os.queueEvent("dronenet_order", "stop")
+    elseif msg and msg.type == "unit.goto" then
+      os.queueEvent("dronenet_order", "goto", F.flyArgs(msg.args))
+    elseif msg then
+      print("in flight - " .. tostring(msg.type) .. " not taken")
+    end
+  end
+end
+
 local function netLoop()
   while true do
     local _, _, ch, _, env = os.pullEvent("modem_message")
@@ -547,7 +580,7 @@ local function holdForSpot()
   local target, timedOut
   local deadline = os.clock() + RELOCATE_WAIT
   local flew = true
-  local function hover() flew = runFly(tostring(job.holdY)) end
+  local function hover() flew = runFly(tostring(job.holdY), true) end
   local function listen()
     local asked = false
     while true do

@@ -314,6 +314,19 @@ local CFG = {
   -- CMD_PROTO. It is not authentication - anything on the cable can still send
   -- a word - that is the signed link in COMMAND.md. false = the old listener.
   CMD_RADIO_STRICT = true,
+  -- Orders in flight (Alex, 2026-09-29): stop and hover, then go somewhere
+  -- else. The beacon listens beside every flight it starts for the base's
+  -- sealed unit.stop and unit.goto, opens them exactly as it opens any other
+  -- order, and hands them in as a local event (dronenet_order) - nothing new
+  -- comes in over the air here.
+  --   stop  brake now, to the point on the track the brake map says it can
+  --         stop at - the same brake that ends every cruise - hover there,
+  --         and wait STOP_WAIT s for where next. Nothing comes: home.
+  --   goto  the same stop, then the new destination from the hover, the way
+  --         the second leg of a delivery starts: ferry <dock> or land <x y z|place>.
+  -- false = both are ignored and the flight goes on as ordered.
+  ORDERS_IN_FLIGHT = false,
+  STOP_WAIT = 300,
   -- Telemetry (lib/link.lua, MISSIONCONTROL.md): a small status packet about
   -- once a second on the first wireless modem (the ender modem). SEND-ONLY:
   -- raw modem.transmit, never rednet.open or modem.open on that modem, so no
@@ -2373,6 +2386,22 @@ local function nextLeg()
     dashDeg = CFG.CRUISE_DEG
     cruiseY = goal
     dock.armed = true
+  elseif L.leg == "land" then
+    -- a landing flown from wherever the craft is (ORDERS_IN_FLIGHT): the
+    -- same go that `fly land x y z` flies, finishing in the land phase
+    mode = "go" landAtEnd = true
+    tgtX, tgtZ = L.x, L.z
+    goalX, goalZ = L.x, L.z
+    landGround = L.ground + CFG.LAND_REST_GAP
+    goal = L.y
+    dashDeg = CFG.CRUISE_DEG
+    cruiseY = goal
+  elseif L.leg == "wait" then
+    -- stopped in the air on an order: hover here until the next one
+    mode = "fly"
+    goalX, goalZ = pos.x, pos.z
+    goal = alt.getHeight()
+    L.since = os.clock()
   else
     error("unknown leg " .. tostring(L.leg), 0)
   end
@@ -2749,6 +2778,67 @@ function FL.mapAt(m, x, a, b)
   return p[b] + (x - p[a]) * (q[b] - p[b]) / (q[a] - p[a])
 end
 
+-- ---------- orders in flight (ORDERS_IN_FLIGHT) ----------
+FL.ORD = {}     -- ORD.legs: where to go once stopped, from a goto order
+
+-- Where a stop from cruise ends: the brake distance ahead, along the line
+-- being flown when the craft is on it (else along its velocity), so the
+-- brake that ends every cruise ends this one too, at a point it can reach.
+function FL.stopPoint(px, pz, vx, vz, sx, sz, tx, tz)
+  local gs = math.sqrt(vx * vx + vz * vz)
+  if gs < 1 then return px, pz end
+  local ux, uz = vx / gs, vz / gs
+  if sx and sz and tx and tz then
+    local lx, lz = tx - sx, tz - sz
+    local ln = math.sqrt(lx * lx + lz * lz)
+    if ln > 1 and (lx * ux + lz * uz) / ln > 0.5 then ux, uz = lx / ln, lz / ln end
+  end
+  local d = FL.brakeDistance(math.min(gs, 150), gs)
+  return px + ux * d, pz + uz * d
+end
+
+-- the modes a stop applies to: flights to somewhere, and hovers
+function FL.stoppable(m) return m == "go" or m == "dock" or m == "fly" or m == "land" end
+
+function FL.landLegs(x, y, z, cruise)
+  return { { leg = "land", x = blockCentre(x), z = blockCentre(z), ground = y,
+             y = tonumber(cruise) or math.max(CFG.CRUISE_Y, y + CFG.LAND_CRUISE_UP) } }
+end
+
+-- Home, when a stop waited STOP_WAIT and no orders came: docked if it can.
+function FL.homeLegs()
+  local hp = PAD.home()
+  if CFG.DOCK_SIDE and hp.kind ~= "pad" then
+    return { { leg = "dock", x = blockCentre(hp.x), z = blockCentre(hp.z), padY = hp.y,
+               y = hp.cruiseY or CFG.CRUISE_Y, trimX = hp.trimX, trimZ = hp.trimZ } }
+  end
+  return FL.landLegs(hp.x, hp.y, hp.z, hp.cruiseY)
+end
+
+-- A goto's destination as legs: the two things the base sends -
+-- "ferry <dock>" and "land <x> <y> <z>" (or "land <place>"). nil and why else.
+function FL.orderLegs(args)
+  local w = {}
+  for s in tostring(args or ""):gmatch("%S+") do w[#w + 1] = s end
+  if w[1] == "ferry" and w[2] then
+    if not CFG.DOCK_SIDE then return nil, "ferry needs CFG.DOCK_SIDE" end
+    local okP, pad = pcall(PAD.dock, w[2])
+    if not okP then return nil, tostring(pad) end
+    return { { leg = "dock", x = blockCentre(pad.x), z = blockCentre(pad.z), padY = pad.y,
+               y = tonumber(w[3]) or pad.cruiseY or CFG.CRUISE_Y, trimX = pad.trimX, trimZ = pad.trimZ } }
+  elseif w[1] == "land" and w[2] then
+    local x, y, z, cruise = tonumber(w[2]), tonumber(w[3]), tonumber(w[4]), w[5]
+    if not x then
+      local okP, p = pcall(PAD.named, w[2])
+      if not okP then return nil, tostring(p) end
+      x, y, z, cruise = p.x, p.y, p.z, w[3] or p.cruiseY
+    end
+    if not (x and y and z) then return nil, "land needs x y z or a place" end
+    return FL.landLegs(x, y, z, cruise)
+  end
+  return nil, "in the air: ferry <dock> or land <x y z|place>"
+end
+
 function FL.brakeDistance(fs, gs)
   local m = FL.brakeMap()
   if m then return math.max(0, FL.mapAt(m, gs, 1, 2) * CFG.BRAKE_MAP_SCALE) end
@@ -3036,6 +3126,22 @@ local function flyLeg()
       elseif r == "undock" then
         dock.armed = false dockExtend(false)
         chime.play("undocked") print("connector released")
+      elseif r == "stop" and phase ~= "touchdown" and phase ~= "docked" and FL.stoppable(mode) then
+        -- an order in flight: stop and hover, then wait for where next.
+        -- From cruise it brakes now, to where the brake map says it can
+        -- stop; a brake already under way just ends in a hover instead of a
+        -- landing; anything slower holds where it is.
+        if phase == "cruise" then
+          tgtX, tgtZ = FL.stopPoint(pos.x, pos.z, pos.vx, pos.vz, st.trkX, st.trkZ, tgtX, tgtZ)
+          phase = "brake" brakeStart = t st.brkWx = nil st.brkUx = nil chime.play("brake")
+        elseif phase ~= "brake" then
+          tgtX, tgtZ = pos.x, pos.z
+          phase = "hold" goal = h enter("hold")
+        end
+        goalX, goalZ = tgtX, tgtZ
+        mode, landAtEnd, legKind, dock.armed = "go", false, "cruise", false
+        legs, legIdx = { { leg = "wait" } }, 0
+        print(string.format("stop: hovering at %.0f,%.0f, then waiting for orders", tgtX, tgtZ))
       end
     end
 
@@ -3783,6 +3889,14 @@ local function flyLeg()
         return
       end
     end
+    -- hovering after a stop: off as soon as a goto comes, or home once
+    -- STOP_WAIT has gone by without one
+    if legKind == "wait" and (FL.ORD.legs or t - (legs[legIdx].since or t) > CFG.STOP_WAIT) then
+      print(FL.ORD.legs and "orders: off again" or ("no orders in " .. CFG.STOP_WAIT .. " s - home"))
+      legs, legIdx = FL.ORD.legs or FL.homeLegs(), 0
+      FL.ORD.legs = nil
+      return
+    end
     sleep(0.05)
   end
 end
@@ -3790,7 +3904,11 @@ end
 -- A mission is legs flown back to back. Each call to flyLeg starts with all
 -- of its own state fresh, which is what makes a leg boundary a clean break.
 local function controlLoop()
-  if not legs then return flyLeg() end
+  if not legs then
+    flyLeg()
+    -- a single flight stopped by an order goes on as a mission from here
+    if not legs then return end
+  end
   while nextLeg() do flyLeg() end
   chime.play("delivered", true)
   print("mission complete")
@@ -3803,7 +3921,7 @@ end
 local WORDS = { land = true, hold = true, undock = true }
 
 local function cmdLoop()
-  if not (CFG.CMD_KEYS or CFG.CMD_RADIO) then while true do sleep(3600) end end
+  if not (CFG.CMD_KEYS or CFG.CMD_RADIO or CFG.ORDERS_IN_FLIGHT) then while true do sleep(3600) end end
   if CFG.CMD_RADIO and rednet and peripheral.getNames then
     for _, nm in ipairs(peripheral.getNames()) do
       if peripheral.getType(nm) == "modem" then
@@ -3834,6 +3952,22 @@ local function cmdLoop()
       if WORDS[word] then
         cmdReq = word
         print("command from " .. tostring(a) .. ": " .. word)
+      end
+    elseif ev == "dronenet_order" and CFG.ORDERS_IN_FLIGHT then
+      -- from the beacon beside this flight: already opened and checked there
+      if a == "goto" then
+        local L2, why = FL.orderLegs(b)
+        if L2 then
+          FL.ORD.legs = L2
+          if legKind ~= "wait" then cmdReq = "stop" end
+          print("order: " .. tostring(b) .. (legKind ~= "wait" and " - stopping first" or ""))
+        else
+          print("order refused: " .. tostring(why))
+        end
+      elseif a == "stop" then
+        FL.ORD.legs = nil
+        cmdReq = "stop"
+        print("order: stop and hover")
       end
     end
   end
@@ -3888,6 +4022,9 @@ local function linkLoop()
   end
 end
 
+-- telemetry says whether this flight takes orders in the air, so the base
+-- knows a stop will be heard (a flight not started by a beacon has no one listening)
+TLM.ord = (CFG.ORDERS_IN_FLIGHT and _G.DRONENET_ORDERS) and 1 or nil
 local loops = { controlLoop, posLoop, monLoop, chime.loop, cmdLoop }
 if CFG.TELEM_ON and LINK then loops[#loops + 1] = linkLoop end
 local ok, err = pcall(parallel.waitForAny, unpack_(loops))

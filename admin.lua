@@ -16,7 +16,9 @@
 -- Keys:
 --   fleet   up/down pick a unit, Enter opens it, Q quits
 --   unit    N new trip, G go on from a stop, C cancel its trip, H home,
---           Backspace back
+--           Backspace back. In the air C stops it: it hovers and waits for a
+--           new trip (N or H turn it round from there; C again sends it
+--           home). N or H while it is flying turn it round too.
 --   trip    S add a stop, W add a waypoint, Backspace drops the last leg,
 --           Enter sends it, Q back without sending
 --   place   up/down, Enter picks, Backspace back
@@ -196,7 +198,7 @@ local function drawUnit()
     at(6, "no trip", colours.lightGrey)
   end
   at(9, "N new trip   G go on", colours.white)
-  at(10, "C cancel     H home", colours.white)
+  at(10, "C stop/cancel H home", colours.white)
   footer("BKSP back")
 end
 

@@ -270,7 +270,13 @@
 --                      70:490, 85:520, 105:625, 135:815; 150 up unchanged.
 --                      (A later brake could ease off at 20 b/s instead of 60 -
 --                      parked for now: the long flights are accurate.)
+--   ORDERS_IN_FLIGHT   on 2026-09-29: the admin pocket's Cancel stops the
+--                      drone in the air (brakes on the map, hovers, waits 5
+--                      min for a new trip, then home), and a new trip for it
+--                      in the air turns it round from the hover. Nothing
+--                      changes on a flight nobody stops. Revert: delete the line.
 return {
+  ORDERS_IN_FLIGHT = true,
   YAW_KP = 0.007,
   YAW_KD = 0.012,
   YAW_MAX_LEAN = 0.6,
