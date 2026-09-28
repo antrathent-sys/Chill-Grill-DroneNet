@@ -303,17 +303,20 @@ Why not physical staging per order:
   loader is two moves where one will do, and more hardware to route packages
   through.
 
-What software allocation depends on, and how it is kept honest:
+**Taking from storage by hand breaks nothing** (Alex asked, 2026-09-28).
+Nothing here keeps a count of its own that could go stale: stock is read fresh
+from the ticker whenever it is needed, the ticker's request returns how many it
+actually sent, and every shipment is whatever really arrived - its invoice
+printed from that count, the order's next flight planned from what was really
+shipped. So the worst a withdrawal can do is leave an order that was already
+promised short, and it waits for the factory to make the rest. Nothing ships
+wrong, and nothing is silent about it. The clean habit is to take from what is
+**available**, not what is **reserved** - then no promise is touched at all -
+and the order book will show that split per item.
 
-- **The pool has to be Cinder's alone.** If anything else takes from those
-  vaults - a hand, another logistics request, a shop on the same network - a
-  reservation can be broken without anyone knowing. So the storage network is
-  locked to Cinder (a locked Create logistics network only lets its owner tune
-  blocks to it), and nothing else is attached to it.
-- **What arrives is what counts.** The ticker's request returns how many it
-  actually sent; if a shipment comes up short, the flight carries what arrived,
-  and the order's next flight is planned from what was really shipped - the rule
-  the batching already follows.
+The lock is for everyone else: a locked Create logistics network only lets its
+owner tune blocks to it, so another player's requester or a shop cannot draw on
+Cinder's storage without anyone knowing.
 
 Two things the software way gets for free:
 
