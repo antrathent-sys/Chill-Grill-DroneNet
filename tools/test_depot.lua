@@ -466,5 +466,39 @@ w = seqDock({ "y" })
 w = w:run("depot.lua", { "seq", "load", "A", "640" }, 150)
 check("...and a count still works beside it", w.err == nil and w.text:find("640 items", 1, true) ~= nil, w.err or w.text)
 
+print("depot stock: what the factory holds, through its Stock Ticker")
+local requested = 0
+local function ticker(w)
+  w.periph["Create_StockTicker_0"] = { type = "Create_StockTicker", m = {
+    stock = function(detailed)
+      return {
+        [1] = { name = "minecraft:gravel", displayName = "Gravel", count = 900 },
+        [2] = { name = "minecraft:cobblestone", displayName = "Cobblestone", count = 12000 },
+        [3] = { name = "minecraft:cobblestone", displayName = "Cobblestone", count = 400 },
+      }
+    end,
+    requestFiltered = function() requested = requested + 1 return 0 end,
+    getStockItemDetail = function() error("needs a slot", 0) end,
+  } }
+end
+w = depot({ station = false })
+ticker(w)
+w.files["upload.lua"] = "-- pretend"
+w.env.http = {}
+w.ran = {}
+w.env.shell = { run = function(...) w.ran[#w.ran + 1] = table.concat({ ... }, " ") return true end }
+w = w:run("depot.lua", { "stock" }, 5)
+check("it finds the ticker and reads every linked vault, needing no station.lua",
+  w.err == nil and w.text:find("2 kinds, 13300 items", 1, true) ~= nil, w.err or w.text)
+check("most first, the same item added together",
+  w.text:find("12400  Cobblestone", 1, true) ~= nil and w.text:find("12400", 1, true) < w.text:find("900  Gravel", 1, true))
+check("kept in stock.txt and pushed to this machine's folder",
+  (w.files["stock.txt"] or ""):find("Cobblestone", 1, true) ~= nil
+  and w.ran[1] == "upload sync stock.txt machines/depot-pier/stock.txt", w.ran[1])
+check("read only: it never asks the ticker to send anything", requested == 0, requested)
+w = depot({ station = false }):run("depot.lua", { "stock" }, 5)
+check("no ticker on the network: says how to fit one", w.err == nil
+  and w.text:find("no Stock Ticker on this network", 1, true) ~= nil, w.err or w.text)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

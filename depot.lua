@@ -17,6 +17,10 @@
 --   depot probe map              every relay on in turn: say what moved and
 --                                which side, and relays.lua - the map - goes
 --                                in this machine's folder
+--   depot stock                  what the factory holds, through its Stock
+--                                Ticker: Stock Links on the vaults, a wired
+--                                modem on the ticker. Read only. Kept in
+--                                stock.txt and pushed like the probe log
 --   depot seq                    the two-sided dock (dock.lua): `seq load A`,
 --                                `seq unload B`, with you standing in for the
 --                                drone - ENT when it has latched, stuck or let go
@@ -82,6 +86,28 @@ local function psay(s)
   probeLines[#probeLines + 1] = s
   print(s)
 end
+-- A file pushed to this machine's own folder in the repo, so it can be read
+-- without standing at this computer: the probe log, the stock snapshot.
+local function pushFile(file)
+  local okM, MACHINE = pcall(dofile, "lib/machine.lua")
+  local folder = okM and type(MACHINE) == "table" and MACHINE.folder(id) or nil
+  if not folder then
+    print(string.format("kept in %s - label this computer to keep it in the repo (label set test-dock)", file))
+    return
+  end
+  local into = folder .. "/" .. file
+  if not (fs.exists("upload.lua") and http and shell) then
+    print(string.format("kept in %s - `paste %s` to send it (no http or upload.lua here)", file, file))
+    return
+  end
+  print("pushing " .. file .. " to " .. into .. " ...")
+  local okU, whyU = pcall(shell.run, "upload", "sync", file, into)
+  if not okU then
+    print("push failed: " .. tostring(whyU))
+    print("`paste " .. file .. "` sends it instead")
+  end
+end
+
 local function probeSave()
   if #probeLines == 0 then return end
   local h = fs.open(PROBE_LOG, fs.exists(PROBE_LOG) and "a" or "w")
@@ -91,24 +117,7 @@ local function probeSave()
   for _, line in ipairs(probeLines) do h.write(line .. "\n") end
   h.close()
   probeLines = {}
-  -- and push it, so it can be read without standing at this computer
-  local okM, MACHINE = pcall(dofile, "lib/machine.lua")
-  local folder = okM and type(MACHINE) == "table" and MACHINE.folder(id) or nil
-  if not folder then
-    print(string.format("kept in %s - label this computer to keep it in the repo (label set test-dock)", PROBE_LOG))
-    return
-  end
-  local into = folder .. "/" .. PROBE_LOG
-  if not (fs.exists("upload.lua") and http and shell) then
-    print(string.format("kept in %s - `paste %s` to send it (no http or upload.lua here)", PROBE_LOG, PROBE_LOG))
-    return
-  end
-  print("pushing " .. PROBE_LOG .. " to " .. into .. " ...")
-  local okU, whyU = pcall(shell.run, "upload", "sync", PROBE_LOG, into)
-  if not okU then
-    print("push failed: " .. tostring(whyU))
-    print("`paste " .. PROBE_LOG .. "` sends it instead")
-  end
+  pushFile(PROBE_LOG)
 end
 
 local function inventoryOf(n)
@@ -319,6 +328,39 @@ local function drive(face, on)
   end
   if face.relay then return pcall(peripheral.call, face.relay, "setOutput", face.side, on) end
   return pcall(redstone.setOutput, face.side, on)
+end
+
+-- ----------------------------------------------------------------- stock ---
+-- What the factory holds, through its Stock Ticker (lib/stock.lua): Stock
+-- Links on every storage vault, the ticker on their network, a wired modem on
+-- the ticker. READ ONLY - nothing here asks the ticker to send anything. The
+-- snapshot is kept in stock.txt and pushed to this machine's folder.
+if cmd == "stock" then
+  local STOCK = dofile("lib/stock.lua")
+  local ticker = STOCK.findTicker(peripheral.getNames(), function(n)
+    local okM, ms = pcall(peripheral.getMethods, n)
+    return okM and ms or {}
+  end)
+  if not ticker then
+    print("no Stock Ticker on this network: put a wired modem on it and turn it on,")
+    print("with Stock Links on the vaults tuned to the ticker's network")
+    return
+  end
+  local entries, why = STOCK.read(ticker, peripheral.call)
+  if not entries then print(why) return end
+  local total = 0
+  for _, e in ipairs(entries) do total = total + e.count end
+  local okT, stamp = pcall(os.date, "%m-%d %H:%M")
+  local lines = { string.format("%s stock via %s, %s: %d kinds, %d items", tostring(id or "depot"), ticker,
+    okT and tostring(stamp) or tostring(os.clock()), #entries, total) }
+  for _, e in ipairs(entries) do
+    lines[#lines + 1] = string.format("%10d  %-28s %s", e.count, e.label:sub(1, 28), e.name)
+  end
+  for _, line in ipairs(lines) do print(line) end
+  local h = fs.open("stock.txt", "w")
+  if h then h.write(table.concat(lines, "\n") .. "\n") h.close() end
+  pushFile("stock.txt")
+  return
 end
 
 if cmd == "probe" then

@@ -221,6 +221,61 @@ And one guard for the most likely mistake: `ops order add` prints the plan -
 shipments and flights - and asks before accepting anything over 10 shipments,
 because 100,000 typed for 10,000 is one keystroke away.
 
+### The factory's stock
+
+The catalogue says what we sell; this says what the factory actually holds
+(Alex, 2026-09-28): **Create 6 Stock Links on every storage vault**, all on one
+logistics network, **one Stock Ticker** tuned to it, and **a wired modem on the
+ticker** joining it to the depot computer. The ticker sees every linked vault
+as one inventory.
+
+```
+depot stock          what the factory holds, most first - read only
+```
+
+It prints every item across the linked vaults with its count, keeps the
+snapshot in `stock.txt` and pushes it to the depot's machine folder, the same
+way the probe log goes. Built on `lib/stock.lua`, from Create's own peripheral
+source: `stock(true)` returns every item with its id, name and count.
+
+What it opens up, in order:
+
+1. **An order checked against stock when it is taken** - "the factory has 6,200
+   cobble; this order needs 10,000" - before anything flies.
+2. **Advertising what is actually there**: the catalogue's items with the
+   factory's counts, rounded down so a post never promises more than exists.
+3. **The intake goes away.** The ticker does more than count: `requestFiltered`
+   packs exact amounts out of storage and sends them to a packager by its
+   address. Give each staging vault a packager - `cinder-A`, `cinder-B` - and
+   route packages to them, and the depot can ask for exactly one shipment
+   straight into the staging vault it is for. Create's own logistics does the
+   counting and the carrying; the staging checks above still confirm it
+   arrived. The hand-filled intake stays as the fallback.
+
+**One line in the ticker's source decides how requests are made.** A filter's
+`_requestCount` is how many to send, and *without it the ticker sends every
+matching item there is*. One request that forgets its count empties the factory
+of that item. So nothing in this repo builds a request by hand: `S.request` in
+`lib/stock.lua` is the only way to ask, and it refuses - without ever calling the
+ticker - unless the count is whole, above zero, and no more than the cap it is
+given (one shipment). Its tests prove no request without a count can reach the
+ticker, and `depot stock` never asks for anything at all.
+
+**Stock is only live while the factory is loaded.** A Stock Link drops out
+about 20 s after its chunk unloads. Either the factory is force-loaded - live
+stock, and nothing waits on a drone to wake it - or the stock is as of the last
+time a drone's chunk loader woke the depot. Every snapshot is stamped with when
+it was taken, so a stale one says so.
+
+Proven in game first, in order:
+
+1. `depot stock` lists the factory's vaults - the ticker, the links and the
+   modem are all working.
+2. A request with a count, to a packager's address, arrives in a staging vault,
+   exactly - and how long it takes.
+3. Whether packages still on their way count in `stock()` or not, which decides
+   how soon after one request the next can trust the numbers.
+
 ### What exists and what is new
 
 | | |
