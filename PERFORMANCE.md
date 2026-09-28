@@ -323,4 +323,6 @@ column.
 | - reverted: premise wrong, the gap is sideways | | | | | | |
 | 2 keep the height | 09-28 07-49-24 (with 1) | 1 | - | - | - | 0 |
 | 2 keep the height, alone (old map back) | 09-28 08-00-51 | 1 | 85.6 s dock-to-dock, model 87.5 | 0 (docked) | ~1.5 b/s | 0 |
-| 3 sideways brake (`BRAKE_SIDE_K 1.5`) | | | | | | |
+| 3 sideways brake (`BRAKE_SIDE_K 1.5`) | 09-28 08-11-54 | 1 | 76.8 s (cruise wobbled) | 1.5 | - | 0 |
+| - removed: sideways speed unchanged (7-14 b/s), 73 blocks across vs 61 | | | | | | |
+| 4 yaw authority (`YAW_MAX_LEAN 0.6 -> 0.8`) | | | | | | |

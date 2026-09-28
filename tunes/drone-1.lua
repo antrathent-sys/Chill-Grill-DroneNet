@@ -73,14 +73,25 @@
 --                      the refit (07-49-24) ran 198 PAST and took 26 s to
 --                      close back, 98.9 s against 88. The sideways swing is
 --                      the real target, and it is flight code, not this map.
---   BRAKE_SIDE_K 1.5   on test from 2026-09-28: lean against the sideways
---                      speed in the brake as well, 1.5 deg per b/s, at most
---                      15 deg. That speed is 5-10 b/s through every brake
---                      and nothing braked it (08-00-51: 22 off the line at
---                      brake start, 48 the other side at the end). Revert:
---                      delete this line.
+--   BRAKE_SIDE_K       tried 2026-09-28 at 1.5 for one flight (08-11-54) and
+--                      removed: the brake's sideways speed was 7-14 b/s as
+--                      before and it moved 73 blocks across its path (61 the
+--                      flight before). During the brake the attitude misses
+--                      its command by 20-30 deg; a 15-deg correction is lost
+--                      in that. Off (fly.lua default 0).
+--   YAW_MAX_LEAN 0.8   on test from 2026-09-28 (was 0.6). The cruise wobble -
+--                      a ~1.8 s heading swing in nearly every cruise, growing
+--                      with speed - tracks the yaw demand sitting on this
+--                      clamp: calm cruises never reach it (peak 0.14-0.28),
+--                      normal ones sit on 0.6 for 4-39% of the late cruise,
+--                      and the three that reached 83-87 deg of tilt (09-27
+--                      06-38-38, 06-46-11; 09-28 08-11-54) for 48-73%, with
+--                      the thrust cap hit as well. The yaw runs out of
+--                      authority as the air's yaw moment grows with speed.
+--                      It only acts when the demand is past 0.6, so a calm
+--                      cruise flies as before. Revert: back to 0.6.
 return {
-  YAW_MAX_LEAN = 0.6,
+  YAW_MAX_LEAN = 0.8,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
   CRUISE_DEG = 58,
@@ -89,6 +100,5 @@ return {
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
-  BRAKE_SIDE_K = 1.5,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1280",
 }
