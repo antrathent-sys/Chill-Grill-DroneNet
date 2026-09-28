@@ -336,4 +336,10 @@ column.
 | - 184 b/s (172 at 58), throttle 0.59, yaw calm, tilt 69 mean / 71.5 peak | | | | | | |
 | 8 speed (`CRUISE_DEG 60 -> 65`) + brake map to 235 b/s | 09-28 09-02-59 | 1 | 79.3 s (87 at 58-60) | 3.3 | - | 0 |
 | - 212 b/s, still accelerating; wobble back (yaw 17 deg/s), tilt peak 82.6 - 2.4 under the cutoff | | | | | | |
-| 9 plain yaw cut (`KP 0.005, KD 0.012`) at 65: margin 12 -> 38 deg modelled | | | | | | |
+| 9 plain yaw cut (`KP 0.005, KD 0.012`) at 65: margin 12 -> 38 deg modelled | 09-28 09-13-09 | 1 | 89.2 s dock | 1 (docked) | - | 0 |
+| - wobble gone (yaw rate 2.4 deg/s); heading looser (5.6 rms); climb +2.3 s; brake 84 past; 210 b/s | | | | | | |
+
+**Tilt, corrected (2026-09-28).** The "tilt" quoted above for 65 (82.6 peak) was hypot(pitch, roll) of the
+gimbal angles, which overstates it. TUMBLE (85) checks each axis on its own; true tilt is
+acos(cos p x cos r). At 65: pitch peak 68-69, roll 52-57, true tilt 62-64 mean / 76 peak - 16 deg clear of
+the cutoff. The next speed limit is lift: throttle 0.63 at 65, and ~80 true tilt sank at full throttle.
