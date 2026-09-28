@@ -116,16 +116,31 @@
 --                      ones at 0.75-1.00. Faster cruise means more throttle,
 --                      which makes the yaw respond harder and eats some of
 --                      the margin KP 0.01 bought - 60, not 62. Revert: 58.
+--                      Flown 08-55-38: 184 b/s (172 at 58), throttle 0.59,
+--                      yaw calm (2.3 deg/s late, heading 1.9 deg rms), actual
+--                      tilt 69 mean / 71.5 peak.
+--   CRUISE_DEG 65      on test from 2026-09-28 (Alex: "push it to 65 or
+--                      higher"). The actual tilt runs ~9 deg over the lean
+--                      (66-67 at 58, 69 at 60), so 65 should sit near 74 and
+--                      peak near 77 on a calm cruise - 8 deg under TUMBLE 85,
+--                      where fly cuts the thrust. That, not thrust, is the
+--                      ceiling: 67 would peak near 80. Expected ~210 b/s.
+--                      Revert: 60.
+--   BRAKE_MAP 220/235  added for the higher speed: past its last point the map
+--                      runs on in a straight line (6.7 blocks per b/s from
+--                      190-205), and brake distance grows faster than that, so
+--                      the new points are a little steeper - 8 per b/s.
+--                      Untried above 205.
 return {
   YAW_KP = 0.01,
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
-  CRUISE_DEG = 60,
+  CRUISE_DEG = 65,
   CRUISE_BODY_LEAN = 30,
   LAND_SETTLE_XZ = 4,
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
-  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1280",
+  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1280,220:1400,235:1520",
 }

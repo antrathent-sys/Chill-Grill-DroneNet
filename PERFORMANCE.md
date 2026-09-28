@@ -332,4 +332,6 @@ column.
 | known-good again (KD 0.02, max 0.6) | 09-28 08-39-44 | 1 | 86.5 s | 1 | - | 0 |
 | 6 heading gain (`YAW_KP 0.02 -> 0.01`): margin 30/16 -> 45/25 deg (climb/cruise) | 09-28 08-45-40 | 1 | 90.1 s dock-to-dock | 1 (docked) | - | 0 |
 | - calm cruise (yaw rate 2.4 deg/s late, tilt 75, thrust 0.56); heading error 2.5 rms vs 1.0; the climb turn to heading is slower (77 deg behind at 6 s, no overshoot). One flight - on 0.02 3 of 23 were calm too | | | | | | |
-| 7 speed (`CRUISE_DEG 58 -> 60`) on KP 0.01 | | | | | | |
+| 7 speed (`CRUISE_DEG 58 -> 60`) on KP 0.01 | 09-28 08-55-38 | 1 | 86.8 s | - | - | 0 |
+| - 184 b/s (172 at 58), throttle 0.59, yaw calm, tilt 69 mean / 71.5 peak | | | | | | |
+| 8 speed (`CRUISE_DEG 60 -> 65`) + brake map to 235 b/s: tilt ~74 / ~77 peak expected, TUMBLE 85 is the ceiling | | | | | | |
