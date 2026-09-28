@@ -81,19 +81,24 @@
 --                      at 2.5 b/s mean, against 61 and 65 at 5.6 and 4.7 on
 --                      the last calm returns without it. Put back at 1.5 once
 --                      the wobble is settled.
---   YAW_MAX_LEAN 0.8   on test from 2026-09-28 (was 0.6). The cruise wobble -
---                      a ~1.8 s heading swing in nearly every cruise, growing
---                      with speed - tracks the yaw demand sitting on this
---                      clamp: calm cruises never reach it (peak 0.14-0.28),
---                      normal ones sit on 0.6 for 4-39% of the late cruise,
---                      and the three that reached 83-87 deg of tilt (09-27
---                      06-38-38, 06-46-11; 09-28 08-11-54) for 48-73%, with
---                      the thrust cap hit as well. The yaw runs out of
---                      authority as the air's yaw moment grows with speed.
---                      It only acts when the demand is past 0.6, so a calm
---                      cruise flies as before. Revert: back to 0.6.
+--   YAW_MAX_LEAN       0.8 flown once (08-28-07) and put back to 0.6: the
+--                      heading swing got BIGGER (yaw rate 33 deg/s rms late
+--                      in the cruise, ~20 normally). The clamp was not the
+--                      cause of the wobble - it was capping it.
+--   YAW_KD 0.014       on test from 2026-09-28 (fly.lua 0.02). The yaw
+--                      follows its command 0.3 s late (correlation 0.93 on
+--                      every flight), and the command is mostly this rate
+--                      term (0.35-0.67 rms against 0.10-0.36 for the heading
+--                      term). A rate loop with that delay at KD 0.02 crosses
+--                      over at 3.2-3.7 rad/s - a 1.8 s period, exactly the
+--                      wobble - with only 26-35 deg of phase margin; the
+--                      worst flight had the least (08-11-54, 26), the calm
+--                      one the most (08-14-15, 35). 0.014 puts it near 45.
+--                      Heading stiffness (YAW_KP) is unchanged. Revert: delete
+--                      the line.
 return {
-  YAW_MAX_LEAN = 0.8,
+  YAW_MAX_LEAN = 0.6,
+  YAW_KD = 0.014,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
   CRUISE_DEG = 58,

@@ -325,4 +325,6 @@ column.
 | 2 keep the height, alone (old map back) | 09-28 08-00-51 | 1 | 85.6 s dock-to-dock, model 87.5 | 0 (docked) | ~1.5 b/s | 0 |
 | 3 sideways brake (`BRAKE_SIDE_K 1.5`) | 09-28 08-11-54 | 1 | 76.8 s (cruise wobbled) | 1.5 | - | 0 |
 | - removed: sideways speed unchanged (7-14 b/s), 73 blocks across vs 61 | | | | | | |
-| 4 yaw authority (`YAW_MAX_LEAN 0.6 -> 0.8`) | | | | | | |
+| 4 yaw authority (`YAW_MAX_LEAN 0.6 -> 0.8`) | 09-28 08-28-07 | 1 | 82.3 s | 0.6 | - | 0 |
+| - put back: the swing grew (yaw rate 33 deg/s rms, ~20 normally); the clamp was capping it | | | | | | |
+| 5 yaw damping (`YAW_KD 0.02 -> 0.014`): 0.3 s delay, 26-35 deg of margin at 1.8 s | | | | | | |
