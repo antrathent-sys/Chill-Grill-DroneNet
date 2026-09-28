@@ -3941,11 +3941,18 @@ if CFG.AUTO_UPLOAD and http and fs.exists("upload.lua") then
   end)
   if not sent then print("auto-upload failed: " .. tostring(why)) end
 end
+-- Whether the beacon is running (it started this flight) or is about to be
+-- (BEACON_AFTER, below). Either way it sends the parked drone's telemetry
+-- itself and listens for orders, so fly must not sit parked in front of it:
+-- a flight the beacon started that ended DOCKED used to stay here until
+-- someone pressed Q at the keyboard, and the beacon heard nothing meanwhile.
+local beaconNext = _G.DRONENET_FROM_BEACON
+  or (CFG.BEACON_AFTER and shell and shell.run and fs.exists("beacon.lua") and fs.exists(".dronekey"))
 -- Parked (TELEM_DOCKED). Still one sender at a time: the flight's linkLoop is
 -- gone, and the new one's sealer reserves a fresh counter block from
 -- .dronekey.ctr before its first packet.
 if ok and dock.connected and CFG.TELEM_ON and CFG.TELEM_DOCKED and LINK and LINK.findRadio(peripheral)
-   and (not CFG.TELEM_SEAL or fs.exists(".dronekey")) then
+   and (not CFG.TELEM_SEAL or fs.exists(".dronekey")) and not beaconNext then
   legs, legIdx, legKind = nil, 0, nil
   TLM.t = TLM.t or 0
   TLM.phase, TLM.vx, TLM.vz, TLM.vv = "docked", 0, 0, 0
@@ -3963,8 +3970,7 @@ if ok and dock.connected and CFG.TELEM_ON and CFG.TELEM_DOCKED and LINK and LINK
 end
 if not ok and not tostring(err):find("Terminated") then print(err) end
 -- BEACON_AFTER: a flight the beacon did not start hands over to it
-if CFG.BEACON_AFTER and not _G.DRONENET_FROM_BEACON and shell and shell.run
-   and fs.exists("beacon.lua") and fs.exists(".dronekey") then
+if beaconNext and not _G.DRONENET_FROM_BEACON then
   print("handing over to the beacon so the base can reach this drone - Q in it for the shell")
   local okB, whyB = pcall(shell.run, "beacon")
   if not okB then print("beacon: " .. tostring(whyB)) end

@@ -311,7 +311,7 @@ _G.shell = { run = function(cmd)
   -- BEACON: starting the beacon is recorded beside the log, for the check
   if os.getenv("BEACON") and tostring(cmd):match("^beacon") then
     local bf = io.open((os.getenv("HARNESS_LOG") or "harness_flightlog") .. ".beacon", "w")
-    if bf then bf:write("started\n") bf:close() end
+    if bf then bf:write(string.format("started %.1f\n", os.clock())) bf:close() end
     return true
   end
   error("simulated upload failure", 0)

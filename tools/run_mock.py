@@ -181,6 +181,13 @@ SELFTEST = [
      ["climb", "cruise", "brake", "land", "touchdown"]),
     ("beacon after a dock", ["dock", "100", "70", "50", "120"], {"TMAX": "150", "BEACON": "1", "BEACON_CHECK": "1"},
      ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
+    # docked with a radio and a key: without a beacon fly parks and sends
+    # telemetry until Q (the case above this list); with one it must not - it
+    # hands over at once, or the drone is deaf until someone presses Q
+    ("docked, radio on, beacon follows", ["dock", "100", "70", "50", "120"],
+     {"TMAX": "150", "TELEM": "1", "TELEM_KEY": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "BEACON": "1", "BEACON_CHECK": "1", "BEACON_BY": "100"},
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # APPROACH_DECEL in tune.lua: the faster approach must still settle and
     # land on the spot, and still dock
     ("approach profile, land", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
@@ -350,7 +357,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK", "START_TILT", "PINNED", "END_CHECK", "BEACON", "BEACON_PARENT", "BEACON_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK", "START_TILT", "PINNED", "END_CHECK", "BEACON", "BEACON_PARENT", "BEACON_CHECK", "BEACON_BY"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
@@ -554,7 +561,8 @@ def main(argv=None):
             if env.get("TRIAD"):
                 tok, extra = triad_check(logpath)
                 ok = ok and tok
-            if env.get("TELEM"):
+            # (a beacon case only fits a radio and a key; its check is BEACON_CHECK)
+            if env.get("TELEM") and not env.get("BEACON_CHECK"):
                 tok, extra = telem_check(logpath, env)
                 ok = ok and tok
             if env.get("UNDOCK_CHECK"):
@@ -563,8 +571,16 @@ def main(argv=None):
             if env.get("BEACON_CHECK"):
                 started = os.path.exists(logpath + ".beacon")
                 tok = started == (env["BEACON_CHECK"] == "1")
+                at = None
+                if started:
+                    parts = open(logpath + ".beacon", encoding="utf-8").read().split()
+                    at = float(parts[1]) if len(parts) > 1 else None
+                # BEACON_BY: it must have started by then (simulated s) - not
+                # after sitting parked until the time ran out
+                if started and env.get("BEACON_BY") and (at is None or at > float(env["BEACON_BY"])):
+                    tok = False
                 ok = ok and tok
-                extra = "beacon " + ("started" if started else "not started")
+                extra = "beacon " + (("started at T=%.1f" % at if at is not None else "started") if started else "not started")
             if env.get("END_CHECK"):
                 with open(logpath, encoding="utf-8") as fh:
                     last = [ln for ln in fh if ln.strip()][-1]
