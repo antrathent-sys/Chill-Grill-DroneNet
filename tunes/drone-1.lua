@@ -165,17 +165,28 @@
 --                      ~1,320 - and overshot 40 and 84. 205:1310, 220:1450,
 --                      235:1590 (~9.3 per b/s from 195's 1,218), and 250:1730
 --                      for the extra speed.
+--                      Flown 09-42-03: 227 b/s at the brake and still gaining
+--                      11 b/s^2, but past the airframe: throttle on its 0.80
+--                      ceiling, 15 blocks below cruise height (ALT_PROTECT's
+--                      threshold), lean error 8.5 rms (4.7 at 65), pitch peak
+--                      76.7. Brake needed 1,591 from 227 against 1,515 - 78
+--                      past, 83.8 s against 79.3 at 65 on the same route.
+--   CRUISE_DEG 67      from 2026-09-28 (Alex): between 65 (calm, throttle
+--                      0.63, room for cargo) and 70 (out of throttle empty).
+--   BRAKE_MAP top      refitted to the two measured points above 205: 1,365
+--                      from 211 b/s and 1,591 from 227 - about 14 blocks per
+--                      b/s up here. 220:1490, 235:1700, 250:1910.
 return {
   YAW_KP = 0.005,
   YAW_KD = 0.012,
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
-  CRUISE_DEG = 70,
+  CRUISE_DEG = 67,
   CRUISE_BODY_LEAN = 30,
   LAND_SETTLE_XZ = 4,
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
-  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1450,235:1590,250:1730",
+  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1490,235:1700,250:1910",
 }
