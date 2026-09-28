@@ -85,20 +85,15 @@
 --                      heading swing got BIGGER (yaw rate 33 deg/s rms late
 --                      in the cruise, ~20 normally). The clamp was not the
 --                      cause of the wobble - it was capping it.
---   YAW_KD 0.014       on test from 2026-09-28 (fly.lua 0.02). The yaw
---                      follows its command 0.3 s late (correlation 0.93 on
---                      every flight), and the command is mostly this rate
---                      term (0.35-0.67 rms against 0.10-0.36 for the heading
---                      term). A rate loop with that delay at KD 0.02 crosses
---                      over at 3.2-3.7 rad/s - a 1.8 s period, exactly the
---                      wobble - with only 26-35 deg of phase margin; the
---                      worst flight had the least (08-11-54, 26), the calm
---                      one the most (08-14-15, 35). 0.014 puts it near 45.
---                      Heading stiffness (YAW_KP) is unchanged. Revert: delete
---                      the line.
+--   YAW_KD             0.014 TUMBLED on its first flight (2026-09-28 08-32-20),
+--                      7.5 s into the cruise: the heading swung from the climb
+--                      on, each swing bigger (-25, +17, -19, +16, -40, +54
+--                      deg) until 54 deg off with the cruise lean on it
+--                      rolled over. The rate term is the heading loop's
+--                      damping; the analysis behind 0.014 looked at the rate
+--                      loop alone and missed that. Back to fly.lua's 0.02.
 return {
   YAW_MAX_LEAN = 0.6,
-  YAW_KD = 0.014,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
   CRUISE_DEG = 58,
