@@ -1532,12 +1532,25 @@ end
 local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true,
                      ["unit.dropped"] = true, ["depot.hello"] = true, ["load.step"] = true,
                      ["load.lifted"] = true, ["load.done"] = true }
+-- A drone speaks only for itself. Sealed is not enough: any key in
+-- .fleetkeys opens a packet, a depot's included, and these name their drone in
+-- the message. Unbound, a depot's key - on a computer in somebody else's base
+-- - could mark a ride done (and charge its fare), fail a job, write a false
+-- drop into cargo.csv or raise a false distress, in any drone's name. The
+-- beacon seals with the same id it reports as, so a real drone always matches.
+local OWN_KEY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true,
+                  ["unit.dropped"] = true }
 
 -- sealedBy: whose key opened it, for what came sealed on the radio
 function handle(from, msg, customer, sealedBy)
   do
     if type(msg) == "table" and from ~= nil and DRONE_ONLY[msg.type] then
       log("ignored a %s by plain radio from %s - drones speak sealed", tostring(msg.type), tostring(from))
+      msg = nil
+    end
+    if type(msg) == "table" and OWN_KEY[msg.type] and (sealedBy == nil or sealedBy ~= msg.drone) then
+      log("ignored a %s for %s sealed by %s - a drone speaks only for itself", tostring(msg.type),
+        tostring(msg.drone), tostring(sealedBy))
       msg = nil
     end
     if type(msg) == "table" and (F.check(msg)) then

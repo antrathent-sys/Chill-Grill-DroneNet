@@ -315,8 +315,11 @@ local function base(opts)
       ev = pack(coroutine.yield())
     end
   end }
-  -- opts.later: { { t, message } } the drone sends, sealed, at time t
-  for _, l in ipairs(opts.later or {}) do w.later[#w.later + 1] = { at = l[1], body = l[2] } end
+  -- opts.later: { { t, message } } the drone sends, sealed, at time t;
+  -- { t, message, "depot" } sends it sealed with depot-pier's key instead
+  for _, l in ipairs(opts.later or {}) do
+    w.later[#w.later + 1] = { at = l[1], body = l[2], fromDepot = l[3] == "depot" }
+  end
   for _, k in ipairs(opts.keysAt or {}) do w.later[#w.later + 1] = { at = k[1], ev = { "key", env.keys[k[2]] } } end
 
   -- what CC would deliver next: something queued, else the next thing due
@@ -771,6 +774,25 @@ check("and says plainly when we do not supply something", has(w, "we do not supp
 
 w = base({ args = { "catalogue" }, files = { ["catalogue.lua"] = kept } }):run()
 check("the list names where it came from", has(w, "CINDER CATALOGUE - 3 items") and has(w, "create:item_vault_9"))
+
+print("a drone speaks only for itself")
+-- (the board's log is its screen, not print: what happened is judged by the files)
+w = base({ args = {}, keysAt = { { 8, "q" } },
+           later = { { 5, F.dropped("drone-1", "Create_Sticker_0", true, 1, 2, 3, "x-drop"), "depot" } } }):run()
+check("a drop in drone-1's name sealed with a depot's key is ignored: nothing written",
+  w.err == nil and w.files["cargo.csv"] == nil, w.err or w.files["cargo.csv"])
+w = base({ args = {}, keysAt = { { 8, "q" } },
+           later = { { 5, F.dropped("drone-1", "Create_Sticker_0", true, 1, 2, 3, "d-own") } } }):run()
+check("the drone's own drop still lands", w.err == nil and (w.files["cargo.csv"] or ""):find("delivered", 1, true) ~= nil,
+  w.err)
+w = base({ args = {}, keysAt = { { 8, "q" } },
+           later = { { 5, F.distress("drone-1", "fake", 1, 2, 3, "x-sos"), "depot" } } }):run()
+check("a distress in drone-1's name sealed with a depot's key: no incident", w.err == nil
+  and w.files["incidents.csv"] == nil, w.err or w.files["incidents.csv"])
+w = base({ args = {}, keysAt = { { 8, "q" } },
+           later = { { 5, F.distress("drone-1", "real", 1, 2, 3, "d-sos") } } }):run()
+check("the drone's own distress still raises one", w.err == nil and (w.files["incidents.csv"] or ""):find("real", 1, true) ~= nil,
+  w.err or tostring(w.files["incidents.csv"]))
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end

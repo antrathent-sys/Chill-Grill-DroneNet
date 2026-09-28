@@ -44,6 +44,31 @@ refitted brake map, keeping the height the brake gains); `TOUCH_LOG_T` and
 `LAND_DECEL` are next, and the cruise lean schedule is last. Targets: the 64 s
 fixed cost of a trip down to 48, tumbles from 6.6% to under 2%.
 
+## Keys at other people's places
+
+Depots (and an ATC tower) will sit in other people's bases, where anyone who
+can reach the computer can read its key file. The rule: a key there is its
+own, never a drone's; it can only speak for itself; and revoking it is one
+line deleted from `.fleetkeys`.
+
+- **Fixed 2026-09-28:** drone reports (`job.state`, `job.ack`, `unit.dropped`,
+  `unit.distress`, `unit.stuck`) are ignored unless sealed by the drone they
+  name. Before, any fleet key - a depot's - could mark a ride done and charge
+  its fare, fake a drop or raise a false distress in a drone's name.
+- **Open: the dock cable.** A docked drone takes `land`, `hold` and `undock`
+  from anything on its wired network, unsigned (`CMD_RADIO_STRICT` means wired
+  only, not authenticated). If the docking connector bridges the dock's
+  network to the drone's - fly.lua's notes say it does, the 32/32 peripheral
+  test said it did not - anyone at a depot could undock a latched drone. Test
+  the bridge at a depot; if it is real, those words need sealing (the signed
+  link in COMMAND.md) before depots go in other people's bases. It is flight
+  code: its own change, its own test.
+- **Open, small:** a depot's key can send telemetry, which files it in the
+  fleet under the depot's own name. Nothing can pick it as a drone yet, but
+  telemetry should be accepted from drone keys only.
+- **The tower:** its own read-only key; the base re-seals a trimmed feed for it
+  (proposed, not built).
+
 ## Service, once the list above is clear
 
 How an order moves end to end, and which steps are built, is in
