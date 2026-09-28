@@ -31,6 +31,7 @@ local SEC = dofile("lib/seclink.lua")
 local args = { ... }
 local FLEET, DRONE, KEYNAME = ".fleetkeys", ".dronekey", ".dronekey"
 local CUSTS, CUST, CUSTNAME = ".custkeys", ".custkey", ".custkey"
+local WATCHES, WATCH, WATCHNAME = ".watchkeys", ".watchkey", ".watchkey"
 
 -- Mount paths of every disk drive with a floppy in it, attached directly or
 -- over a wired network (a docked drone sees the base's drives through the
@@ -95,11 +96,83 @@ end
 local function usage()
   print("base:  seckey new <id> | list | show <id> | drop <id>")
   print("       seckey cust new|list|show|drop <name>")
+  print("       seckey watch new|list|show|drop <name>")
   print("drone: seckey set <hex> | set disk | check")
   print("cust:  seckey cust set <hex> | cust set disk")
+  print("watch: seckey watch set <hex> | watch set disk")
 end
 
 local cmd = args[1]
+
+-- -------------------------------------------------------------- watchers ---
+-- A watcher only SHOWS the fleet: the control room's monitors on a computer of
+-- their own, a tower. The base re-sends what it hears sealed with the
+-- watcher's own key (lib/watch.lua). That key opens the feed and nothing else:
+-- no drone, depot or base accepts anything sealed with it.
+if cmd == "watch" then
+  local sub, id = args[2], args[3]
+  local keys = SEC.readFleetKeys(WATCHES)
+  local function hand(hex)
+    local disks = floppies()
+    if #disks > 0 then
+      writeText(disks[1] .. "/" .. WATCHNAME, hex .. "\n")
+      print("written to the floppy in " .. disks[1] .. " - on the watcher: seckey watch set disk")
+    else
+      print("on the watcher, type:")
+      print("seckey watch set " .. hex:sub(1, 16) .. " " .. hex:sub(17, 32) .. " " .. hex:sub(33, 48) .. " " .. hex:sub(49, 64))
+    end
+  end
+  if sub == "new" then
+    if not id or not id:match("^[%w%-_]+$") or #id > 32 then
+      print("seckey watch new <name>   e.g. seckey watch new screens") return
+    end
+    if keys[id] then print("replacing " .. id .. "'s key - it will need the new one") end
+    print("gathering randomness...")
+    keys[id] = SEC.newKey()
+    writeText(WATCHES, SEC.formatFleetKeys(keys, SEC.WATCH_HEADER))
+    print("key for " .. id .. " saved in " .. WATCHES .. " - restart ops to start its feed")
+    hand(SEC.keyHex(keys[id]))
+    print("then on the watcher:  label set " .. id)
+  elseif sub == "list" then
+    local ids = {}
+    for k in pairs(keys) do ids[#ids + 1] = k end
+    table.sort(ids)
+    if #ids == 0 then print("no watcher keys - seckey watch new <name>") end
+    for _, k in ipairs(ids) do print(string.format("%-16s %s...", k, SEC.keyHex(keys[k]):sub(1, 4))) end
+  elseif sub == "show" then
+    if not (id and keys[id]) then print("no key for " .. tostring(id)) return end
+    hand(SEC.keyHex(keys[id]))
+  elseif sub == "drop" then
+    if not (id and keys[id]) then print("no key for " .. tostring(id)) return end
+    keys[id] = nil
+    writeText(WATCHES, SEC.formatFleetKeys(keys, SEC.WATCH_HEADER))
+    print("forgot " .. id .. " - restart ops and its feed stops")
+  elseif sub == "set" then
+    local src, fromFile
+    if args[3] == "disk" then
+      for _, mount in ipairs(floppies()) do
+        local pth = mount .. "/" .. WATCHNAME
+        if fs.exists(pth) then src, fromFile = readText(pth), pth break end
+      end
+      if not src then print("no watcher key on any floppy this computer can see") return end
+    else
+      src = table.concat(args, "", 3)
+    end
+    local key, why = SEC.parseKey(src)
+    if not key then print("not a key: " .. tostring(why)) return end
+    writeText(WATCH, SEC.keyHex(key) .. "\n")
+    print("watcher key saved in " .. WATCH .. " (" .. SEC.keyHex(key):sub(1, 4) .. "...)")
+    if fromFile then fs.delete(fromFile) print("wiped it from the floppy") end
+    if not os.getComputerLabel() then
+      print("WARNING: no label. The feed is sealed to a name - run  label set <the name it was made for>")
+    else
+      print("this computer watches as: " .. myId())
+    end
+  else
+    usage()
+  end
+  return
+end
 
 -- ------------------------------------------------------------- customers ---
 if cmd == "cust" then

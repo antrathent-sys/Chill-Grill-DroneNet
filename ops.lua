@@ -167,6 +167,25 @@ end
 local radio = link.findRadio(peripheral)
 if radio then peripheral.call(radio, "open", link.CHANNEL) end
 local senders = {}
+-- The read-only feed (lib/watch.lua): screens on a computer of their own, and
+-- outside watchers, get what the base hears, sealed again with a key of their
+-- own that commands nothing. .watchkeys, made with seckey watch new <name>.
+local WATCH = dofile("lib/watch.lua")
+local watchKeys, nWatch = SEC.readFleetKeys(".watchkeys")
+local watchSenders = {}
+local function feed(body)
+  if nWatch == 0 or not radio then return end
+  for name, key in pairs(watchKeys) do
+    local s = watchSenders[name]
+    if not s then
+      s = SEC.sender(key, name, SEC.DIR.BASE_TO_WATCH, ".watch-" .. name .. ".ctr")
+      watchSenders[name] = s
+    end
+    local okS, env = pcall(s.seal, body)
+    if okS and env then pcall(peripheral.call, radio, "transmit", WATCH.CHANNEL, WATCH.CHANNEL, env) end
+  end
+end
+
 local function senderFor(id)
   if senders[id] ~= nil then return senders[id] end
   local key = fleetKeys[id]
@@ -491,7 +510,8 @@ local function receive()
       local ok, body = pcall(rx.open, msg, function(id) return fleetKeys[id] end,
                              SEC.DIR.DRONE_TO_BASE, 120000)
       if ok and body then
-        if body.type == "tlm" and link.check(body) then note(body)
+        if body.type == "tlm" and link.check(body) then note(body) feed(WATCH.wrap(body))
+        elseif body.type == "plan" then feed(WATCH.wrap(body))
         elseif F.TYPES[body.type] and handle then pcall(handle, nil, body, nil, msg.id) end
       else
         rejected = rejected + 1
@@ -1559,6 +1579,17 @@ local function padClearLoop()
   end
 end
 
+-- the base's own half of the feed: jobs, queue, rides done and places
+local function feedLoop()
+  if nWatch == 0 then while true do sleep(3600) end end
+  while true do
+    local done = 0
+    for _, j in pairs(jobs) do if type(j) == "table" and j.state == "done" then done = done + 1 end end
+    feed(WATCH.summary(jobs, #waiting, done, pads, os.clock()))
+    sleep(WATCH.EVERY)
+  end
+end
+
 local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true,
                      ["unit.dropped"] = true, ["depot.hello"] = true, ["load.step"] = true,
                      ["load.lifted"] = true, ["load.done"] = true }
@@ -2116,5 +2147,6 @@ local function keys()
 end
 
 if not knownOnly then log("OPEN: any terminal can call, pass or not - ops known ends it") end
-parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, serveQueue, draw, keys, depotLoop, padClearLoop)
+parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, serveQueue, draw, keys, depotLoop, padClearLoop,
+                    feedLoop)
 print("ops stopped")

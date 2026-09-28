@@ -5,6 +5,14 @@
 --   control identify   show each monitor's number and name on it, to set them up
 --   control insecure   also accept PLAINTEXT packets (bench testing only)
 --
+-- On the base it listens to the drones with .fleetkeys. On a computer of its
+-- own it runs from the base's read-only feed instead (lib/watch.lua) - and
+-- then it also shows what only the base knows: the real job, who it is for,
+-- from and to, the queue and rides done. For that:
+--   on the base:     seckey watch new screens       (then restart ops)
+--   on this one:     seckey watch set disk   and   label set screens
+-- It never needs a drone's key: the feed key opens the feed and nothing else.
+--
 --   DRONE     3x4 blocks, portrait     the unit: fuel, state, position, task
 --   TACTICAL  6x4 blocks, landscape    the world map and a data rail
 --   ORDER     3x4 blocks, portrait     the job in hand, its stage, today's counts
@@ -23,6 +31,7 @@
 --   set dronenet.spawn 0,0
 -- Make it start on boot with:  startup autorun control
 
+local WATCH = dofile("lib/watch.lua")
 local D = dofile("lib/display.lua")
 local S = dofile("lib/state.lua")
 local SC = dofile("lib/screens.lua")
@@ -137,14 +146,21 @@ local okS, SEC = pcall(dofile, "lib/seclink.lua")
 if not okS or type(SEC) ~= "table" then SEC = nil end
 local fleet, nKeys = {}, 0
 if SEC then fleet, nKeys = SEC.readFleetKeys(".fleetkeys") end
+-- no drone keys here, but a watcher key: run from the base's feed
+local me = os.getComputerLabel and os.getComputerLabel()
+local watchKey = (SEC and nKeys == 0 and not demo and not insecure) and SEC.readKeyFile(".watchkey") or nil
+local watching = watchKey ~= nil and me ~= nil
 local model = D.newModel()
-model.link = insecure and "INSECURE" or ((SEC and nKeys > 0) and ("SEALED " .. nKeys .. " KEY" .. (nKeys == 1 and "" or "S")) or "NO KEYS")
+model.link = insecure and "INSECURE" or (watching and "SEALED FEED")
+  or ((SEC and nKeys > 0) and ("SEALED " .. nKeys .. " KEY" .. (nKeys == 1 and "" or "S")) or "NO KEYS")
 model.rejected = 0
 local track = S.newTrack()
 local t0 = os.clock()
-local sim = demo and S.mock(D) or nil
-if not demo and not insecure and nKeys == 0 then
-  print("control: no .fleetkeys - every packet will be refused. On this computer: seckey new <drone id>")
+local sim = demo and S.mock(D, { ops = true }) or nil
+if watchKey and not me then
+  print("control: a watcher key but no label - label set <the name it was made for>")
+elseif not demo and not insecure and nKeys == 0 and not watching then
+  print("control: no keys - every packet will be refused. Screens on their own computer: seckey watch set disk")
 end
 
 local function receive()
@@ -154,15 +170,32 @@ local function receive()
     print("control: no wireless modem - every unit will show OFFLINE")
     while true do sleep(3600) end
   end
-  peripheral.call(radio, "open", link.CHANNEL)
+  local chan = watching and WATCH.CHANNEL or link.CHANNEL
+  peripheral.call(radio, "open", chan)
   local rx = SEC and SEC.receiver()
-  print("control: listening on " .. radio .. " channel " .. link.CHANNEL .. " - " .. model.link)
+  print("control: listening on " .. radio .. " channel " .. chan .. " - " .. model.link
+    .. (watching and (" as " .. me) or ""))
   while true do
     local _, _, ch, _, msg = os.pullEvent("modem_message")
-    if ch == link.CHANNEL and type(msg) == "table" then
+    if ch == chan and type(msg) == "table" then
       local now = os.clock() - t0
       local body
-      if msg.sl then
+      if watching then
+        -- the feed: sealed to this computer's name; another watcher's is not ours to count
+        if msg.sl and msg.id == me then
+          local ok, b = pcall(rx.open, msg, function(id) return id == me and watchKey or nil end,
+                              SEC.DIR.BASE_TO_WATCH, 120000)
+          if ok and b then
+            body = WATCH.unwrap(b)
+            if body.type == "ops" then
+              model.ops, model.opsAt = WATCH.parse(body), now
+              body = nil
+            end
+          else
+            model.rejected = model.rejected + 1
+          end
+        end
+      elseif msg.sl then
         if rx then
           local ok, b = pcall(rx.open, msg, function(id) return fleet[id] end, SEC.DIR.DRONE_TO_BASE, 120000)
           if ok and b then body = b else model.rejected = model.rejected + 1 end
@@ -195,8 +228,16 @@ local function draw()
       sim.tick(FRAME)
       st = sim.state()
     else
-      st = S.build(model, os.clock() - t0, { D = D, track = track, pads = pads, spawn = spawn,
-                                             clock = S.clock(os.time()), day = os.day() })
+      local now = os.clock() - t0
+      local ops, feedState
+      if watching then
+        local fresh = model.opsAt and now - model.opsAt <= WATCH.STALE
+        ops, feedState = fresh and model.ops or nil, fresh and "OK" or "LOST"
+      end
+      -- the base's places, from the feed, when this computer has no pads.lua
+      local where = (#pads == 0 and model.ops and model.ops.places) or pads
+      st = S.build(model, now, { D = D, track = track, pads = where, spawn = spawn, ops = ops, feed = feedState,
+                                 clock = S.clock(os.time()), day = os.day() })
     end
     for _, s in ipairs(screens) do
       SC.render(s.role, s.canvas, st)

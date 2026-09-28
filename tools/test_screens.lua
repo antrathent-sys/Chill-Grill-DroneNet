@@ -68,6 +68,7 @@ check("heading for a pad is INBOUND", S.stateWord({ phase = "cruise", legKind = 
 check("hovering is HOLD", S.stateWord({ phase = "hold", legKind = "hover" }, "LIVE") == "HOLD")
 check("the beacon on the ground, not docked, is STANDBY", S.stateWord({ phase = "idle", dock = 0 }, "LIVE") == "STANDBY")
 check("the beacon docked is CRADLED", S.stateWord({ phase = "docked", dock = 1 }, "LIVE") == "CRADLED")
+check("waiting on a pad after a ride is ON CALL", S.stateWord({ phase = "landed", dock = 0, mode = "linger" }, "LIVE") == "ON CALL")
 
 print("a job followed from telemetry (mock loop)")
 local sim = S.mock(D)
@@ -217,6 +218,50 @@ check("on a job: destination", rowOf(t, "DEPOT") == 12)
 check("current stage label white", t.grid[16].f:sub(t.grid[16].s:find("FLY", 1, true), t.grid[16].s:find("FLY", 1, true)) == SC.K.white)
 t = render("order", 31, 27, states[131])
 check("after the loop: returned counted with its label", rowOf(t, "RETURNED") == 20 or rowOf(t, "RTN") == 20)
+
+print("from the base's feed")
+local fed = S.mock(D, { ops = true })
+local fedAt = {}
+for _, when in ipairs({ 4, 30, 60, 90 }) do
+  while fed.t + 0.5 <= when do fed.tick(0.5) end
+  fedAt[when] = fed.state()
+end
+local allFed, badFed = true, nil
+for name, sizes in pairs(SIZES) do
+  for _, sz in ipairs(sizes) do
+    for when, st in pairs(fedAt) do
+      local ok, err = pcall(function()
+        local good, y = wellFormed(render(name, sz[1], sz[2], st))
+        assert(good, "row " .. tostring(y) .. " malformed")
+      end)
+      if not ok then allFed, badFed = false, string.format("%s %dx%d at %s: %s", name, sz[1], sz[2], when, err) end
+    end
+  end
+end
+check("every screen renders from the feed at every size", allFed, badFed)
+t = render("order", 28, 26, fedAt[30])
+check("the real job: its code, who for, from, to", rowOf(t, "J-0042") == 1 and rowOf(t, "FOR") == 11 and rowOf(t, "ALEX") == 11
+  and rowOf(t, "FROM") == 12 and rowOf(t, "HOME") == 12 and rowOf(t, "TO") == 13 and rowOf(t, "DEPOT") == 13)
+check("riding is the FLY stage", t.grid[16].f:sub(t.grid[16].s:find("FLY", 1, true), t.grid[16].s:find("FLY", 1, true)) == SC.K.white)
+check("SERVICE: rides done and the queue, instead of today's guesses", rowOf(t, "SERVICE") == 18 and (rowOf(t, "RIDES") == 20 or rowOf(t, "RDS") == 20)
+  and rowOf(t, "QUEUE") == 20 and rowOf(t, "TODAY") == nil)
+t = render("order", 28, 26, fedAt[60])
+check("at the destination: DRP", t.grid[16].f:sub(t.grid[16].s:find("DRP", 1, true), t.grid[16].s:find("DRP", 1, true)) == SC.K.white)
+t = render("drone", 28, 26, fedAt[30])
+check("drone task: TAXI J-0042 FOR ALEX TO DEPOT", rowOf(t, "TAXI J-0042") == 19 and rowOf(t, "FOR ALEX") == 20
+  and rowOf(t, "TO DEPOT") == 21)
+t = render("tactical", 60, 26, fedAt[30])
+check("system: the feed and the queue", rowOf(t, "BASE", 42) ~= nil and rowOf(t, "FEED OK", 42) ~= nil
+  and rowOf(t, "QUEUE", 42) ~= nil)
+local oncall = S.mock(D)
+local pk = oncall.model.drones["drone-1"].pkt
+pk.mode, pk.phase, pk.dock, pk.wait = "linger", "landed", 0, 432
+t = render("drone", 28, 26, oncall.state())
+check("on call: the state strip, free for a hail, and when it goes home", rowOf(t, "ON CALL") == 11
+  and rowOf(t, "FREE FOR A HAIL") == 19 and rowOf(t, "HOME IN 07:12") == 20)
+local lost = S.build(fed.model, fed.t, { D = D, track = S.newTrack(), clock = "0000", feed = "LOST" })
+t = render("tactical", 60, 26, lost)
+check("a feed gone quiet says so", rowOf(t, "FEED LOST", 42) ~= nil)
 
 print("guards")
 local tiny = render("drone", 15, 10, states[30])

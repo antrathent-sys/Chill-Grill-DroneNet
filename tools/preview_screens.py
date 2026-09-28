@@ -21,8 +21,8 @@ except ImportError:
     sys.exit(2)
 
 RENDER = b"""
-function(D, S, SC, t, sizes)
-  local sim = S.mock(D)
+function(D, S, SC, t, sizes, ops)
+  local sim = S.mock(D, { ops = ops })
   local st = sim.state()
   while sim.t + 0.5 <= t do sim.tick(0.5) st = sim.state() end
   local out = {}
@@ -77,6 +77,7 @@ def main():
     ap.add_argument("--tactical", default="60x26")
     ap.add_argument("--order", default="28x26")
     ap.add_argument("--scale", type=int, default=2)
+    ap.add_argument("--ops", action="store_true", help="as run from the base's feed: real jobs, queue, rides")
     a = ap.parse_args()
 
     L = LuaRuntime(unpack_returned_tuples=True, encoding=None)
@@ -88,7 +89,7 @@ def main():
     for name in ("drone", "tactical", "order"):
         w, h = (int(v) for v in getattr(a, name).lower().split("x"))
         sizes[(name + "_w").encode()], sizes[(name + "_h").encode()] = w, h
-    screens, pal_s = L.eval(RENDER)(D, S, SC, a.t, sizes)
+    screens, pal_s = L.eval(RENDER)(D, S, SC, a.t, sizes, a.ops)
     pal = {}
     for kv in pal_s.decode().split(","):
         k, v = kv.split("=")

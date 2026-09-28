@@ -139,7 +139,9 @@ local function base(opts)
   local function fromDepot(body, delay)
     w.later[#w.later + 1] = { at = w.clock + (delay or 0.3), body = body, fromDepot = true }
   end
+  w.fed = {}                    -- what went out on the feed channel, sealed
   local function transmit(ch, _, env2)
+    if ch == 7213 then w.fed[#w.fed + 1] = env2 return end
     if ch ~= LINK.CHANNEL or type(env2) ~= "table" or not env2.sl then return end
     if env2.id == "depot-pier" then
       local dbody = depotRx.open(env2, function(id) return id == "depot-pier" and DEPOTKEY or nil end, S.DIR.BASE_TO_DRONE, 120000)
@@ -819,6 +821,34 @@ w = base({ args = {}, drone = { docked = false, landed = true }, drone2 = true, 
            later = { inbound2(3, 1893, 366, 1), inbound2(6, 1893, 366, 2) } }):run()
 check("a unit parked there that is NOT waiting (set down after a fault) is left to the operator",
   w.err == nil and clears(w) == 0, w.err or clears(w))
+
+print("the read-only feed for screens on their own computer")
+local WHEX = "0f0e0d0c0b0a09080706050403020100f0e0d0c0b0a090807060504030201000"
+local WKEY = S.parseKey(WHEX)
+local WATCHLIB = dofile(DIR .. "/../lib/watch.lua")
+w = base({ args = {}, keysAt = { { 9, "q" } }, files = { [".watchkeys"] = "screens=" .. WHEX .. "\n" } }):run()
+local wrx = S.receiver()
+local fedTlm, fedOps, fedOther = 0, 0, 0
+for _, env2 in ipairs(w.fed) do
+  local b = wrx.open(env2, function(id) return id == "screens" and WKEY or nil end, S.DIR.BASE_TO_WATCH)
+  if b then
+    WATCHLIB.unwrap(b)
+    if b.type == "tlm" and b.id == "drone-1" then fedTlm = fedTlm + 1
+    elseif b.type == "ops" and WATCHLIB.parse(b) and #WATCHLIB.parse(b).places == 2 then fedOps = fedOps + 1 end
+  else
+    fedOther = fedOther + 1
+  end
+end
+check("the base relays drone-1's telemetry, sealed to the watcher, drone-1's id kept", w.err == nil and fedTlm >= 3,
+  w.err or (fedTlm .. " tlm"))
+check("and its own summary, with the places it knows", fedOps >= 3, fedOps)
+check("every packet on the feed opens with the watcher's key, in order", fedOther == 0 and #w.fed >= 6, fedOther)
+check("the feed is its own channel: the drones' channel carries none of it", (function()
+  for _, b in ipairs(w.orders) do if b.type == "tlm" or b.type == "ops" then return false end end
+  return true
+end)())
+w = base({ args = {}, keysAt = { { 9, "q" } } }):run()
+check("no .watchkeys: nothing is sent on the feed", w.err == nil and #w.fed == 0, #w.fed)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end

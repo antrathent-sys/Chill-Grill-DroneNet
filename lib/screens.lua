@@ -55,7 +55,7 @@ SC.MAP = { half = 5000, bpp = 128, cols = 40, ox = 2, oy = 2, grid = 2000, rings
 
 SC.STATE_COLOUR = {
   CRUISE = "ice", INBOUND = "ice", CRADLED = "lgrey", STANDBY = "lgrey", LANDED = "amber", HOLD = "amber", MAINT = "amber",
-  OFFLINE = "red",
+  OFFLINE = "red", ["ON CALL"] = "ice",
 }
 SC.STAGES = { "QUE", "PCK", "FLY", "DRP" }
 
@@ -233,9 +233,15 @@ function SC.drawDrone(c, st)
   if o and o.unit == u.id then
     local line = SC.words(o.kind .. " " .. o.code, w)
     if line then put(c, 1, 19, line, K.white) end
-    local to = st.dest and st.dest.name or o.to
+    local y = 20
+    local forLine = o.who and SC.words("FOR " .. o.who, w)
+    if forLine then put(c, 1, y, forLine, K.lgrey) y = y + 1 end
+    local to = o.to or (st.dest and st.dest.name)
     local toLine = to and SC.words("TO " .. to, w)
-    if toLine then put(c, 1, 20, toLine, K.grey) end
+    if toLine then put(c, 1, y, toLine, K.grey) end
+  elseif u.state == "ON CALL" then
+    put(c, 1, 19, "ON CALL - FREE FOR A HAIL", K.ice)
+    if type(u.wait) == "number" then put(c, 1, 20, "HOME IN " .. SC.countdown(u.wait), K.grey) end
   else
     put(c, 1, 19, "STANDING BY", K.grey)
   end
@@ -447,7 +453,15 @@ function SC.drawOrder(c, st)
   local scale = fitScale(5, s, 3, w * 2 - 3)
   c:bigText(5, scale == 3 and 13 or 15, s, dim and K.grey or K.white, scale)
 
-  if o then
+  if o and o.who then
+    -- a real job, from the base's feed: who it is for, from and to
+    local who = SC.words(o.who, w - 4)
+    if who then lr(c, 11, 1, w, "FOR", K.grey, who, K.white) end
+    local from = o.from and SC.words(o.from, w - 5)
+    if from then lr(c, 12, 1, w, "FROM", K.grey, from, K.lgrey) end
+    local to = o.to and SC.words(o.to, w - 3)
+    if to then lr(c, 13, 1, w, "TO", K.grey, to, K.white) end
+  elseif o then
     lr(c, 11, 1, w, "TYPE", K.grey, o.kind, K.white)
     local to = o.to and SC.words(o.to, w - 3)
     if to then lr(c, 12, 1, w, "TO", K.grey, to, K.white) end
@@ -457,7 +471,13 @@ function SC.drawOrder(c, st)
   SC.stageRail(c, 15, 1, w, o and o.stage or 0, dim)
 
   local k = st.counters
-  if k and c.h >= 22 then
+  if st.today and c.h >= 22 then
+    -- from the base: rides finished since it started, and who is waiting
+    sub(c, 18, 1, w, "SERVICE")
+    local half = floor(w / 2)
+    counter(c, 1, 19, half, st.today.rides, "RIDES", "RDS", K.ice, K.ice)
+    counter(c, half + 1, 19, w, st.today.queue, "QUEUE", "Q", st.today.queue > 0 and K.amber or K.lgrey, K.grey)
+  elseif k and c.h >= 22 then
     sub(c, 18, 1, w, "TODAY")
     local half = floor(w / 2)
     counter(c, 1, 19, half, k.out, "OUT", "OUT", K.ice, K.ice)

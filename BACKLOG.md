@@ -69,8 +69,11 @@ line deleted from `.fleetkeys`.
 - **Open, small:** a depot's key can send telemetry, which files it in the
   fleet under the depot's own name. Nothing can pick it as a drone yet, but
   telemetry should be accepted from drone keys only.
-- **The tower:** its own read-only key; the base re-seals a trimmed feed for it
-  (proposed, not built).
+- **The tower:** a watcher on the base's read-only feed (`lib/watch.lua`,
+  built 2026-09-28 for the screens): its own key from `seckey watch new`,
+  opening the feed and nothing else. Still to do for the tower: trim what it
+  gets (position, height, speed, heading, phase; no routes, homes or
+  customers) and only units within about 1,000 blocks of it.
 
 ## Service, once the list above is clear
 

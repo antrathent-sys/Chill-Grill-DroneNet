@@ -505,7 +505,9 @@ local function sendLoop()
   while true do
     local s, mon, fuel, dock = status()
     run.seq = run.seq + 1
-    send(link.packet(id, run.seq, s, mon, fuel, dock, 0, 0, nil, linger and "linger" or "idle"))
+    local pkt = link.packet(id, run.seq, s, mon, fuel, dock, 0, 0, nil, linger and "linger" or "idle")
+    if linger then pkt.wait = math.max(0, math.floor(linger.untilT - os.clock())) end   -- for the screens
+    send(pkt)
     if run.seq == 1 or run.seq % PLAN_EVERY == 0 then
       send(link.planPacket(id, run.seq, nil, 0, home, "idle", s))
     end

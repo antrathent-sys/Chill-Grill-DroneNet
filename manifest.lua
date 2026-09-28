@@ -38,7 +38,7 @@ return {
   -- the base server: the control room screens, and the older single wall
   base = {
     "control.lua", "console.lua",
-    "lib/display.lua", "lib/state.lua", "lib/screens.lua",
+    "lib/display.lua", "lib/state.lua", "lib/screens.lua", "lib/watch.lua",
     "lib/db.lua", "stickers.lua",
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
     "lib/loader.lua", "station.example.lua", "lib/cargo.lua", "lib/deliver.lua", "depot.lua", "lib/dockseq.lua", "lib/stock.lua",
@@ -47,6 +47,10 @@ return {
     -- making customers' passes: provision copies these onto each one
     "provision.lua", "lib/provision.lua", "kiosk.lua", "hail.lua", "lib/hailui.lua",
   },
+
+  -- the control room's monitors on a computer of their own, run from the base's
+  -- read-only feed (seckey watch set disk, label it, startup autorun control)
+  screens = { "control.lua", "lib/display.lua", "lib/state.lua", "lib/screens.lua", "lib/watch.lua" },
 
   -- the computer at a dock that works its loading station (startup autorun depot)
   depot = { "depot.lua", "lib/loader.lua", "lib/dockseq.lua", "lib/stock.lua", "lib/cargo.lua", "station.example.lua", "stickers.lua" },

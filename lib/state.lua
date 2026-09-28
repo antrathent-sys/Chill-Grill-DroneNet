@@ -3,7 +3,12 @@
 --   { units = { unit, ... }, focus = 1, unit = units[1],
 --     order = {...} or nil, dest = {...} or nil, base = {...} or nil, spawn = {...} or nil,
 --     log = { { t = "hhmm", msg = "..." }, ... }, system = { { name, value, level }, ... },
---     counters = { out = n, returned = n }, clock = "hhmm" }
+--     counters = { out = n, returned = n }, today = { rides = n, queue = n } or nil,
+--     clock = "hhmm" }
+--
+-- ctx.ops is the base's own knowledge, when the screens run from its feed
+-- (lib/watch.lua): the real job a unit is on - who for, from, to - wins over
+-- the one followed from telemetry, and TODAY counts rides and the queue.
 --
 -- Built from what the drones actually send (lib/display.lua's model of the
 -- sealed telemetry) plus what the base remembers between frames - the event
@@ -43,6 +48,7 @@ end
 function S.stateWord(p, link)
   if not p or link == "LOST" or link == "NONE" then return "OFFLINE" end
   local ph = tostring(p.phase or "")
+  if p.mode == "linger" then return "ON CALL" end      -- beacon: waiting on a pad after a ride, free
   if p.dock == 1 or ph == "docked" then return "CRADLED" end
   if ph == "align" or ph == "descend" or ph == "capture" or p.legKind == "dock" or p.mode == "dock" then
     return "INBOUND"
@@ -150,6 +156,7 @@ function S.build(model, now, ctx)
       u.fuel, u.fe, u.dock = p.energy, p.fe, p.dock
       u.mode, u.leg, u.legs, u.legKind = p.mode, p.leg, p.legs, p.legKind
       u.tx, u.tz, u.eta = p.tx, p.tz, p.eta
+      u.wait = p.wait                                  -- seconds left on call, before it goes home
     end
     units[#units + 1] = u
     S.observe(track, u, base, ctx.pads, clock)
@@ -166,7 +173,17 @@ function S.build(model, now, ctx)
 
   local order
   local o = track.order
-  if o then
+  local job
+  if ctx.ops and u then
+    for _, j in ipairs(ctx.ops.jobs or {}) do
+      if tostring(j.drone or ""):upper() == u.id then job = j break end
+    end
+  end
+  if job then
+    order = { code = job.code, kind = "TAXI", unit = u.id, stage = job.stage or 1,
+              who = job.who and job.who:upper(), from = job.from and job.from:upper(),
+              to = (job.to and job.to:upper()) or (dest and dest.name), eta = dest and dest.eta }
+  elseif o then
     if dest then o.to = dest.name end
     order = { code = o.code, kind = o.kind, unit = o.unit, stage = o.stage, to = o.to, eta = dest and dest.eta }
   end
@@ -187,9 +204,18 @@ function S.build(model, now, ctx)
     elseif rej > 0 then value, level = "REJ " .. rej, "fault" end
     system[#system + 1] = { name = "LINK", value = value, level = level }
   end
+  if ctx.feed then
+    system[#system + 1] = { name = "BASE", value = ctx.feed == "OK" and "FEED OK" or "FEED LOST",
+                            level = ctx.feed == "OK" and "ok" or "fault" }
+  end
+  local today
+  if ctx.ops then
+    today = { rides = ctx.ops.done or 0, queue = ctx.ops.queue or 0 }
+    if today.queue > 0 then system[#system + 1] = { name = "QUEUE", value = tostring(today.queue), level = "info" } end
+  end
 
   return { units = units, focus = 1, unit = u, order = order, dest = dest, base = base, spawn = ctx.spawn,
-           log = track.log, system = system, counters = track.counters, clock = clock }
+           log = track.log, system = system, counters = track.counters, today = today, clock = clock }
 end
 
 -- --------------------------------------------------------------------- mock
@@ -226,9 +252,26 @@ function S.mockPacket(s)
   return p
 end
 
+--- The base's side of the mock, for the feed: a taxi job for the mock unit
+-- through the loop - queued while it is cradled, riding out, at the
+-- destination during the hover - and nothing on the way home.
+function S.mockOps(s)
+  local stage, state
+  if s < 8 then stage, state = 1, "assigned"
+  elseif s < 58 then stage, state = 3, "riding"
+  elseif s < 66 then stage, state = 4, "done" end
+  local jobs = {}
+  if stage then
+    jobs[1] = { id = "j-1727000042-drone-1", code = "J-0042", drone = "drone-1", state = state, stage = stage,
+                who = "alex", from = "home", to = "depot" }
+  end
+  return { jobs = jobs, queue = s < 40 and 1 or 0, done = 12 + (s >= 58 and 1 or 0), places = {} }
+end
+
 --- A self-running stand-in for live telemetry: sim.tick(dt) advances it,
--- sim.state() is the table the screens draw. Deterministic in sim.t.
-function S.mock(D)
+-- sim.state() is the table the screens draw. Deterministic in sim.t. With
+-- opts.ops it also plays the base's feed (S.mockOps).
+function S.mock(D, opts)
   local sim = { t = 0, track = S.newTrack(), model = D.newModel() }
   sim.model.home = { x = HOME.x, z = HOME.z }
   sim.model.link, sim.model.rejected = "SEALED 1 KEY", 0
@@ -239,7 +282,10 @@ function S.mock(D)
     D.ingest(sim.model, p, sim.t)
   end
   function sim.state()
+    local withOps = opts and opts.ops
     return S.build(sim.model, sim.t, { D = D, track = sim.track, pads = sim.pads,
+                                       ops = withOps and S.mockOps(sim.t % S.MOCK_CYCLE) or nil,
+                                       feed = withOps and "OK" or nil,
                                        clock = S.clock(13 + sim.t / 60), day = 1 })
   end
   sim.tick(0)

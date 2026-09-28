@@ -112,6 +112,25 @@ local bad = computer({ label = "drone-9" })
 run(bad, "set", "nothex")
 check("a bad key is refused", bad.files[".dronekey"] == nil and printed(bad, "not a key"))
 
+print("watchers: a key that only opens the feed")
+local base4 = computer({ drives = { drive_left = "disk" } })
+ok, err = run(base4, "watch", "new", "screens")
+local wkeys = S.parseFleetKeys(base4.files[".watchkeys"] or "")
+check("kept in .watchkeys, apart from the drones' keys", ok and wkeys["screens"] and #wkeys["screens"] == 32
+  and base4.files[".fleetkeys"] == nil, err)
+check("on a floppy for the watcher", S.parseKey(base4.files["disk/.watchkey"] or "") == wkeys["screens"])
+local screensPC = computer({ label = "screens", drives = { d = "disk5" }, files = { ["disk5/.watchkey"] = base4.files["disk/.watchkey"] } })
+ok, err = run(screensPC, "watch", "set", "disk")
+check("the watcher saves it as .watchkey and wipes the floppy", ok and S.parseKey(screensPC.files[".watchkey"] or "") == wkeys["screens"]
+  and screensPC.files["disk5/.watchkey"] == nil and screensPC.files[".dronekey"] == nil, err)
+check("and says what name it watches as", printed(screensPC, "watches as: screens"))
+run(base4, "watch", "drop", "screens")
+check("drop forgets it", S.parseFleetKeys(base4.files[".watchkeys"] or "")["screens"] == nil)
+local unlabelled = computer({ drives = {} })
+run(unlabelled, "watch", "set", string.rep("ab", 32))
+check("no label: saved, with a warning that the feed is sealed to a name", unlabelled.files[".watchkey"] ~= nil
+  and printed(unlabelled, "no label"))
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("seckey tests failed", 0) end
