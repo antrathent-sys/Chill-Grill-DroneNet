@@ -327,4 +327,7 @@ column.
 | - removed: sideways speed unchanged (7-14 b/s), 73 blocks across vs 61 | | | | | | |
 | 4 yaw authority (`YAW_MAX_LEAN 0.6 -> 0.8`) | 09-28 08-28-07 | 1 | 82.3 s | 0.6 | - | 0 |
 | - put back: the swing grew (yaw rate 33 deg/s rms, ~20 normally); the clamp was capping it | | | | | | |
-| 5 yaw damping (`YAW_KD 0.02 -> 0.014`): 0.3 s delay, 26-35 deg of margin at 1.8 s | | | | | | |
+| 5 yaw damping (`YAW_KD 0.02 -> 0.014`) | 09-28 08-32-20, 08-35-07 | 2 | - | - | - | **2** |
+| - reverted: the heading swing grew from the climb until it rolled over, twice | | | | | | |
+| known-good again (KD 0.02, max 0.6) | 09-28 08-39-44 | 1 | 86.5 s | 1 | - | 0 |
+| 6 heading gain (`YAW_KP 0.02 -> 0.01`): margin 30/16 -> 45/25 deg (climb/cruise) | | | | | | |

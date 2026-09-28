@@ -92,7 +92,21 @@
 --                      rolled over. The rate term is the heading loop's
 --                      damping; the analysis behind 0.014 looked at the rate
 --                      loop alone and missed that. Back to fly.lua's 0.02.
+--                      The known-good flight after (08-39-44) was clean.
+--   YAW_KP 0.01        on test from 2026-09-28 (fly.lua 0.02). Modelled as
+--                      the whole loop this time - heading term, rate term and
+--                      the 0.3 s delay, with the yaw response fitted from the
+--                      logs (79 deg/s^2 per unit of command in the climb, 160
+--                      in cruise: it follows the throttle). Phase margin at
+--                      KP 0.02: 30 deg in the climb, 16 in cruise with a
+--                      1.9 s period - the wobble. KD 0.014 dropped the climb
+--                      to 21, the swing that tumbled twice. KP 0.01: 45 in the
+--                      climb, 25 in cruise. Alex's read ("yaw P gain too
+--                      high"). 0.01 flew on 2026-09-19 and cut the yaw swing
+--                      but loosened roll tracking - before CRUISE_BODY_LEAN
+--                      took the roll off the yaw. Revert: delete the line.
 return {
+  YAW_KP = 0.01,
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,

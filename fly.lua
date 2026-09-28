@@ -1041,8 +1041,8 @@ end
 -- (fly's other output scrolls the tune line off the top of a CC terminal)
 if arg and arg[1] == "tune" then
   print("tune.lua " .. tostring(CFG.TUNE_REPORT or "?"))
-  print(string.format("in effect: YAW_MAX_LEAN %s  YAW_KD %s  YAW_OFFSET %s  CRUISE_DEG %s  BRAKE_MAP %s",
-    tostring(CFG.YAW_MAX_LEAN), tostring(CFG.YAW_KD), tostring(CFG.YAW_OFFSET), tostring(CFG.CRUISE_DEG),
+  print(string.format("in effect: YAW_KP %s  YAW_KD %s  YAW_MAX_LEAN %s  YAW_OFFSET %s  CRUISE_DEG %s  BRAKE_MAP %s",
+    tostring(CFG.YAW_KP), tostring(CFG.YAW_KD), tostring(CFG.YAW_MAX_LEAN), tostring(CFG.YAW_OFFSET), tostring(CFG.CRUISE_DEG),
     (CFG.BRAKE_MAP ~= "" and CFG.BRAKE_MAP or "(none - margin " .. tostring(CFG.BRAKE_MARGIN) .. ")")))
   print("name for tunes/<name>.lua in the repo: " .. tostring((os.getComputerLabel and os.getComputerLabel())
     or ("drone-" .. tostring(os.getComputerID and os.getComputerID() or "?"))))
@@ -3834,9 +3834,11 @@ do
   -- ...and the settings it flew. Three flights on 2026-09-19 were analysed as
   -- tests of a tune the drone had never loaded (it had not been rebooted) and
   -- nothing in the log said so. Read this before trusting a flight.
-  why = why .. string.format(" [lean %s body %s braketurn %s side %s yawkd %s yawmax %s]",
+  -- the yaw gains first: a tumble's message is long and the row is cut at 140
+  why = why .. string.format(" [yawkp %s yawkd %s yawmax %s lean %s body %s braketurn %s side %s]",
+    tostring(CFG.YAW_KP), tostring(CFG.YAW_KD), tostring(CFG.YAW_MAX_LEAN),
     tostring(CFG.CRUISE_DEG), tostring(CFG.CRUISE_BODY_LEAN), tostring(CFG.BRAKE_TURN_POWER),
-    tostring(CFG.BRAKE_SIDE_K), tostring(CFG.YAW_KD), tostring(CFG.YAW_MAX_LEAN))
+    tostring(CFG.BRAKE_SIDE_K))
   why = why:gsub("[,\r\n]", ";"):sub(1, 140)
   pcall(log.writeLine, string.format("%.2f,end:%s%s", TLM.t or 0, why, string.rep(",0", 45)))
 end
