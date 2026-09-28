@@ -105,12 +105,23 @@
 --                      high"). 0.01 flew on 2026-09-19 and cut the yaw swing
 --                      but loosened roll tracking - before CRUISE_BODY_LEAN
 --                      took the roll off the yaw. Revert: delete the line.
+--                      First flights (08-45-40 and after): calm cruise, yaw
+--                      rate ~2.4 deg/s late, heading error 2.2 deg rms (1.0
+--                      on 0.02) - a little looser, as expected.
+--   CRUISE_DEG 60      on test from 2026-09-28, up from 58 (Alex: "bump speed
+--                      before we tune too much"). 62 tumbled on 09-19 with the
+--                      thrust at its cap and the roll swinging 60+ deg - on
+--                      the old yaw gains, whose wobble was eating the thrust:
+--                      calm cruises at 58 peak at 0.56-0.62 throttle, wobbly
+--                      ones at 0.75-1.00. Faster cruise means more throttle,
+--                      which makes the yaw respond harder and eats some of
+--                      the margin KP 0.01 bought - 60, not 62. Revert: 58.
 return {
   YAW_KP = 0.01,
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,
-  CRUISE_DEG = 58,
+  CRUISE_DEG = 60,
   CRUISE_BODY_LEAN = 30,
   LAND_SETTLE_XZ = 4,
   LAND_SETTLE_MAX = 40,
