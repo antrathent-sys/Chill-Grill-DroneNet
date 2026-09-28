@@ -131,8 +131,28 @@
 --                      190-205), and brake distance grows faster than that, so
 --                      the new points are a little steeper - 8 per b/s.
 --                      Untried above 205.
+--                      Flown 09-02-59: 212 b/s at the brake, still gaining
+--                      5.9 b/s^2 (the 3,669-block route is too short to top
+--                      out), 79.3 s against ~87, throttle 0.64 (thrusters
+--                      0.85). The brake stopped 40 past. But the wobble came
+--                      back - yaw rate 17 deg/s late, heading 7.3 rms - and
+--                      the tilt ran 75 mean, 82.6 PEAK: 2.4 under TUMBLE 85.
+--   YAW_KP 0.005, YAW_KD 0.012  on test from 2026-09-28 (were 0.01 / 0.02),
+--                      Alex's call: a plain cut before gain scheduling. The
+--                      yaw responds in proportion to throttle (~270 deg/s^2
+--                      per unit, 328 at 65 deg), so at 65 the response was 205
+--                      against ~95 in the climb, and the phase margin fell to
+--                      12 deg. Modelled with the 0.3 s delay: 0.005 / 0.012
+--                      gives 50 in the climb, 47 cruising at 58, 38 at 65. Both
+--                      gains come down together - the damping-to-heading ratio
+--                      stays high, unlike KD 0.014 on KP 0.02, which tumbled.
+--                      The cost: a softer yaw everywhere, so a slower turn onto
+--                      the heading after takeoff (the cruise waits for it,
+--                      CRUISE_YAW_GATE 15 deg, 8 s at most) and a looser heading.
+--                      Revert: KP 0.01 and delete the KD line.
 return {
-  YAW_KP = 0.01,
+  YAW_KP = 0.005,
+  YAW_KD = 0.012,
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,
   YAW_OFFSET = 225,

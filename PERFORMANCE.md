@@ -334,4 +334,6 @@ column.
 | - calm cruise (yaw rate 2.4 deg/s late, tilt 75, thrust 0.56); heading error 2.5 rms vs 1.0; the climb turn to heading is slower (77 deg behind at 6 s, no overshoot). One flight - on 0.02 3 of 23 were calm too | | | | | | |
 | 7 speed (`CRUISE_DEG 58 -> 60`) on KP 0.01 | 09-28 08-55-38 | 1 | 86.8 s | - | - | 0 |
 | - 184 b/s (172 at 58), throttle 0.59, yaw calm, tilt 69 mean / 71.5 peak | | | | | | |
-| 8 speed (`CRUISE_DEG 60 -> 65`) + brake map to 235 b/s: tilt ~74 / ~77 peak expected, TUMBLE 85 is the ceiling | | | | | | |
+| 8 speed (`CRUISE_DEG 60 -> 65`) + brake map to 235 b/s | 09-28 09-02-59 | 1 | 79.3 s (87 at 58-60) | 3.3 | - | 0 |
+| - 212 b/s, still accelerating; wobble back (yaw 17 deg/s), tilt peak 82.6 - 2.4 under the cutoff | | | | | | |
+| 9 plain yaw cut (`KP 0.005, KD 0.012`) at 65: margin 12 -> 38 deg modelled | | | | | | |
