@@ -187,7 +187,7 @@ What to build or set up, in order:
 
 | # | What | Why |
 |---|---|---|
-| 1 | The chunk test: an autonomous 3,000-block job, no player near, at two speeds | Go or no-go for offline service (risk 1) |
+| 1 | ~~The chunk test~~ **done, it works** - the fleet keeps flying with nobody near | offline service is on |
 | 2 | Private logs repo, device tokens scoped to it, the current token revoked | Risks 3 and 4 |
 | 3 | Signed, pinned releases checked in `startup` | Risk 3 |
 | 4 | World files, and places and home kept per world | Risk 6 |
@@ -247,15 +247,31 @@ Loader). Talk to the admins before scaling: routes, loaded chunks, how many
 craft. A service the admins like survives. One that lags their server
 doesn't.
 
-## Decisions for Alex
+## Decided (Alex, 2026-09-28)
 
-1. After the chunk test: do we promise service while you're offline, or only
-   while you're on?
-2. May logs move to a private repo, with the current token revoked?
-3. Platforms only for customers, or open ground as a paid extra?
-4. Passengers: do they ride at their own risk, and what is refunded or
-   compensated when a ride fails?
-5. Service area and hours for launch: which hubs, and when.
+1. **The chunk test passed** - Alex had already flown it. A craft carrying the
+   pack's chunk loader keeps being simulated with no player near, at cruise
+   speed. **Service runs while he is offline.** Risk 1 above is downgraded: the
+   loader works on this pack at 180 b/s, whatever the mod page warns. The
+   unexplained stop of 09-19 stays unexplained, and every log still ends with
+   an END row so the next one is caught.
+2. **Logs stay in the public repo for now.** The token on each device can still
+   write the code every device runs, and ride destinations are still published
+   as coordinates. Not fixed, accepted knowingly, and still the right first
+   thing to do the day the fleet is worth stealing.
+3. **Platforms only.** Open ground stays off the menu: "dangerous, and I do not
+   know how to handle liability". The pocket already prefers a platform within
+   40 blocks; what is left is to stop offering open ground at all when no
+   platform is in range, rather than showing the checklist.
+4. **Transit is at the passenger's own risk. Nothing is refunded.** Cinder is a
+   cold corporation and says so plainly. That is a policy the screens should
+   state before the fare is taken, not something a customer discovers after a
+   bad landing - the honesty is what makes it acceptable, and it is on brand.
+5. **24/7.** No service hours, so the auto-suspend work is about the service
+   knowing when it *cannot* fly, not about opening times.
+6. **Parcels: the first depot goes to an offsite factory** for bulk material,
+   with orders sent out from there. Orders arrive by Discord message against a
+   published list of supplies. See "Selling from a factory" below.
 
 ## Sources
 

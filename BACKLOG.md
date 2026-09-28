@@ -6,19 +6,21 @@ look. Below this section is the flight-by-flight history that produced it.
 
 Reviewed 2026-09-28.
 
-## Waiting on a decision
+## Decided, and what each one now means
 
-Nothing below them can be finished until these are answered. All five are set
-out in [INFRASTRUCTURE.md](INFRASTRUCTURE.md), and the parcel ones in
-[ORDERS.md](ORDERS.md).
+Answered 2026-09-28, written up in [INFRASTRUCTURE.md](INFRASTRUCTURE.md).
 
-1. After the chunk test: do we promise service while Alex is offline?
-2. May the logs move to a private repo and the current write token be revoked?
-3. Platforms only for customers, or open ground as a paid extra?
-4. What do passengers risk, and what is refunded when a ride fails?
-5. Which hubs and what hours at launch?
-6. Parcels: who may create an order, when is it paid, what happens to a failed
-   delivery, how long are records kept?
+| decided | what it leaves to do |
+|---|---|
+| The chunk test passed: **service runs while Alex is offline** | nothing - it works at cruise speed with nobody near |
+| **Logs stay public** for now, token unchanged | accepted knowingly; revisit when the fleet is worth stealing |
+| **Platforms only**, no open ground | stop offering the open-ground checklist when no platform is in range |
+| **Own risk, no refunds** - Cinder is a cold corporation | say so on the pass before the fare is taken |
+| **24/7** | auto-suspend is about not being able to fly, not opening hours |
+| First depot at an **offsite factory**, orders by Discord against a published list | the stock feed, the reservation rule, and the bridge from a message to a job |
+
+Still open from [ORDERS.md](ORDERS.md): who may create a parcel order, when it
+is paid, and what happens to one that cannot be delivered.
 
 ## Before more customers
 
