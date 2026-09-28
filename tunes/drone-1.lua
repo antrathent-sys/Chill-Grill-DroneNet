@@ -212,6 +212,20 @@
 --                      10-18-21), and closing it is most of a 23-31 s approach.
 --                      The one calm-cruise flight with it (08-14-15) drifted 31
 --                      across against 61 and 65 without. Revert: delete.
+--                      Flown 10-24-27: it works - sideways speed in the brake
+--                      0.3 b/s mean (2.7-9.3 on the four before), 4 blocks of
+--                      sideways drift (43-136), 14 off the line at the end
+--                      (73-167). 82.7 s home to the dock, the best there yet.
+--                      The approach is now the along-track miss (72 past).
+--   BRAKE_HOLD_POWER 0.38  on test from 2026-09-28: a throttle floor through
+--                      the steady part of the brake (fly.lua, off by default).
+--                      Over 38 brakes from 150+ b/s the deceleration follows
+--                      the throttle (r 0.56): 21.6-23.8 b/s^2 at 0.36-0.41,
+--                      18.6-18.8 at 0.29-0.30, where the height loop cut it
+--                      after a balloon - the long brakes. It lets go 60 above
+--                      the goal. The brakes should come out shorter and more
+--                      alike; expect the map to need taking down after.
+--                      Revert: delete.
 return {
   YAW_KP = 0.007,
   YAW_KD = 0.012,
@@ -225,5 +239,6 @@ return {
   LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
   BRAKE_SIDE_K = 1.5,
+  BRAKE_HOLD_POWER = 0.38,
   BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1460,235:1600,250:1750,265:1900",
 }

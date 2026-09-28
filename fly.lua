@@ -366,6 +366,19 @@ local CFG = {
   -- BRAKE_TURN_ERR, the floor re-engages each time and it climbed 137 blocks
   -- in one brake (flightlog 23-40-25, second brake). 0 = no altitude guard.
   BRAKE_TURN_HIGH = 20,               -- blocks above the goal at which the floor gives up
+  -- BRAKE_HOLD_POWER: a throttle floor for the rest of the brake, after the
+  -- swing-round, while the along-speed is still above BRAKE_EASE. A brake that
+  -- balloons (lift from the lean-back at 200+ b/s) has the height loop cut the
+  -- throttle toward the 0.25 floor, and with less thrust it slows less: over 38
+  -- brakes from 150+ b/s the steady deceleration follows the throttle (r 0.56)
+  -- - 21.6-23.8 b/s^2 at 0.36-0.41, 18.6-18.8 at 0.29-0.30 - and the long
+  -- brakes are the ballooned ones (distance past the speed fit against balloon
+  -- height, r 0.80 over 46; 2026-09-28). It lets go BRAKE_HOLD_HIGH above the
+  -- goal - a brake floor once climbed 137 blocks - and ramps in and out at the
+  -- turn floor's rates. At the brake's ~57 deg of tilt 0.38 pushes up less than
+  -- the craft weighs: the balloon is the sails, not this. 0 = off.
+  BRAKE_HOLD_POWER = 0,
+  BRAKE_HOLD_HIGH = 60,               -- blocks above the goal at which it lets go
   BRAKE_TURN_IN = 1.5,                -- throttle/s ramping the floor in
   BRAKE_TURN_OUT = 1.0,               -- throttle/s ramping it out
   BRAKE_EASE = 15,                    -- b/s under which the brake lean bleeds off toward zero. At 4 the brake
@@ -2583,6 +2596,24 @@ function FL.brakeTurnFloor(st, a, tp, tr, dt, e)
   return st.turnLvl
 end
 
+-- BRAKE_HOLD_POWER: the throttle floor for the steady part of the brake -
+-- along-speed above BRAKE_EASE, and not BRAKE_HOLD_HIGH over the goal (e is
+-- goal - height) - ramped in and out at the turn floor's rates. 0 when off.
+function FL.brakeHoldFloor(st, dt, e)
+  if CFG.BRAKE_HOLD_POWER <= 0 then return 0 end
+  local along = st.brkUx and (pos.vx * st.brkUx + pos.vz * st.brkUz) or 0
+  local on = along > CFG.BRAKE_EASE and not (e and e < -CFG.BRAKE_HOLD_HIGH)
+  local want = on and CFG.BRAKE_HOLD_POWER or 0
+  st.holdLvl = st.holdLvl or 0
+  st.holdLvl = st.holdLvl + clamp(want - st.holdLvl,
+    (want > st.holdLvl and CFG.BRAKE_TURN_IN or CFG.BRAKE_TURN_OUT) * (dt or 0.1))
+  if on and not st.holdSaid then
+    st.holdSaid = true
+    print(string.format("brake: holding %.2f throttle through the brake", CFG.BRAKE_HOLD_POWER))
+  end
+  return st.holdLvl
+end
+
 -- CRUISE_BODY_LEAN: turn the world lean command (cWx, cWz) with the nose by
 -- the heading's error from the leg's yaw target, capped at CRUISE_BODY_LEAN,
 -- so the lean holds its place on the body while the nose wobbles.
@@ -3331,7 +3362,9 @@ local function flyLeg()
         -- BRAKE_TURN_POWER: keep enough thrust to rotate while reversing
         -- (tpS/trS: the throttle is set before this iteration's lean, so the
         -- error is measured against the lean the craft is already turning to)
-        if phase == "brake" then pwr = math.max(pwr, FL.brakeTurnFloor(st, a, tpS, trS, dt, e)) end
+        if phase == "brake" then
+          pwr = math.max(pwr, FL.brakeTurnFloor(st, a, tpS, trS, dt, e), FL.brakeHoldFloor(st, dt, e))
+        end
         -- and never the whole throttle: the attitude loop needs the headroom
         pwr = math.min(pwr, CFG.CRUISE_MAX_POWER)
       end
@@ -3835,10 +3868,10 @@ do
   -- tests of a tune the drone had never loaded (it had not been rebooted) and
   -- nothing in the log said so. Read this before trusting a flight.
   -- the yaw gains first: a tumble's message is long and the row is cut at 140
-  why = why .. string.format(" [yawkp %s yawkd %s yawmax %s lean %s body %s braketurn %s side %s]",
+  why = why .. string.format(" [yawkp %s yawkd %s yawmax %s lean %s body %s braketurn %s side %s hold %s]",
     tostring(CFG.YAW_KP), tostring(CFG.YAW_KD), tostring(CFG.YAW_MAX_LEAN),
     tostring(CFG.CRUISE_DEG), tostring(CFG.CRUISE_BODY_LEAN), tostring(CFG.BRAKE_TURN_POWER),
-    tostring(CFG.BRAKE_SIDE_K))
+    tostring(CFG.BRAKE_SIDE_K), tostring(CFG.BRAKE_HOLD_POWER))
   why = why:gsub("[,\r\n]", ";"):sub(1, 140)
   pcall(log.writeLine, string.format("%.2f,end:%s%s", TLM.t or 0, why, string.rep(",0", 45)))
 end

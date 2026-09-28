@@ -162,6 +162,14 @@ SELFTEST = [
      ["climb", "cruise", "brake", "hold"]),
     ("brake side split", ["go", "100", "50", "90"], {"TMAX": "90", "DRIFT": "1", "TUNE": "return { BRAKE_SIDE_K = 1.5 }"},
      ["climb", "cruise", "brake", "hold"]),
+    # BRAKE_HOLD_POWER in tune.lua: a throttle floor through the brake - it must
+    # still brake, hand over and land
+    ("brake hold", ["go", "100", "50", "90"], {"TMAX": "90", "TRIAD": "1",
+     "TUNE": "return { BRAKE_HOLD_POWER = 0.38, BRAKE_EASE = 2 }", "END_CHECK": "hold 0.38"},
+     ["climb", "cruise", "brake", "hold"]),
+    ("brake hold, land", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
+     "TUNE": "return { BRAKE_HOLD_POWER = 0.38 }", "END_CHECK": "hold 0.38"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
     ("border allows", ["go", "100", "50", "90"], {"TMAX": "90", "TUNE": "return { WORLD_BORDER = 400 }"},
      ["climb", "cruise", "brake", "hold"]),
     ("border checks every leg", ["deliver", "100", "80", "50", "90", "empty"],
