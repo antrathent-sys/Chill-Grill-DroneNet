@@ -12,7 +12,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | [BACKLOG.md](BACKLOG.md) | The index of open work: what is waiting on a decision, what comes before more customers, and what each design document covers. The flight-by-flight history that produced it is kept below the index. |
 | `ARCHITECTURE.md` | The layer stack for the autonomous controller: control, leg, mission, link. Decided before the code. |
 | `COMMAND.md` | The ground side: order intake, package assembly, fleet dispatch, and the rednet protocol between depot and drone. |
-| `MISSIONCONTROL.md` | The base computer: mission records, planning and dispatch over the dock cable, the telemetry packet, and the monitor display. Scoped, not built. |
+| `MISSIONCONTROL.md` | The base computer: mission records, planning and dispatch, the telemetry packet, and the monitor display. Written for a dock cable; there are none now, everything is sealed radio. Scoped, not built. |
 | `lib/db.lua` | Log-structured key/value store for the depot, built for CC's 1 MB disk. Tested by `tools/run_db_test.py`. |
 | `lib/attitude.lua` | Full orientation quaternion from three orthogonal nav tables plus the gimbal, by TRIAD. Tolerates any one table being at its singularity. |
 | `lib/mixer.lua` | Four-thruster allocation: lift, pitch, roll from differential thrust; horizontal force and yaw rate from nozzle vectoring. |

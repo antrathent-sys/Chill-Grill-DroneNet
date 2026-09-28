@@ -4,7 +4,6 @@
 --   ops list             one snapshot of the fleet, then quit
 --   ops fly <who> <...>  fly a command on a drone: ops fly any ferry pier
 --   ops send <who> <pad> shorthand for: ops fly <who> ferry <pad>
---   ops land|hold|undock <who>     the in-flight words fly already takes
 --   ops stats            what the taxi pads have reported
 --   ops closed           run the board but turn radio hails away
 --   ops open             take hails from ANY terminal, pass or not, and keep
@@ -660,21 +659,20 @@ if cmd == "fly" or cmd == "send" or cmd == "land" or cmd == "hold" or cmd == "un
     who, line2 = args[2], "ferry " .. tostring(args[3] or "")
     if not args[3] then print("ops send <drone|any> <pad>") return end
   end
+  if cmd == "land" or cmd == "hold" or cmd == "undock" then
+    -- fly's own in-flight words. fly takes them only on a WIRED modem
+    -- (CMD_RADIO_STRICT), and no dock is ever cabled (Alex, 2026-09-28), so
+    -- nothing at the base can reach a drone that way. This used to broadcast
+    -- on the base's cable and print "sent" with no drone able to hear it.
+    -- From the base these need a sealed in-flight order, not built yet.
+    print(cmd .. " cannot reach a drone from here: fly takes it only from its own cable, and no dock is cabled")
+    print("on board: " .. ({ land = "L", hold = "H", undock = "U" })[cmd]
+      .. " on the pod; from the base it needs a sealed order (not built - BACKLOG)")
+    return
+  end
   if not who then print("ops " .. cmd .. " <drone|any> ...") return end
   print("listening 3 s so the board is current...")
   parallel.waitForAny(receive, function() sleep(3) end)
-
-  if cmd == "land" or cmd == "hold" or cmd == "undock" then
-    -- fly's own in-flight words. fly only ever takes these on a WIRED modem
-    -- (CMD_RADIO_STRICT), so this reaches a drone that is on a cable and
-    -- nothing else; a drone in the air on radio alone cannot be stopped this
-    -- way, and that is fly's rule, not ops's.
-    if who:lower() == "any" then print("name the drone for " .. cmd) return end
-    local okB = pcall(rednet.broadcast, { cmd = cmd }, "drone-cmd")
-    print(okB and (cmd .. " sent on the cable (fly takes it by word, not by name)")
-                or ("no wired modem here, so " .. cmd .. " cannot be sent"))
-    return
-  end
 
   local near = padByName(args[3]) or nil
   local argsOk, whyArgs = F.flyArgs(line2)
@@ -1359,7 +1357,7 @@ end
 
 if cmd ~= "watch" then
   print("ops: watch | list | fly <who> <...> | send <who> <pad> | poke <who> | free <who>")
-  print("     | jobs [n] | land|hold|undock <who> | stats | closed")
+  print("     | jobs [n] | stats | closed")
   return
 end
 

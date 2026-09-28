@@ -49,6 +49,12 @@ terminal, like the other `lib/` modules.
 
 ## Transport, and what may travel over it
 
+**Superseded: there are no cables.** The fleet has run on radio since
+2026-09-20, and no dock is ever cabled (Alex, 2026-09-28): everything between a
+drone, a dock or depot and the base is wireless, sealed with `lib/seclink.lua`,
+and orders are sealed with the drone's own key. The cable row and "cable only"
+below are the original plan, kept as history.
+
 | Path | When | Carries |
 |---|---|---|
 | **Cable** (the docking connector bridges the base wired network in) | docked | mission assignment, flightlog summary back, full telemetry |
