@@ -366,4 +366,6 @@ the cutoff. The next speed limit is lift: throttle 0.63 at 65, and ~80 true tilt
 | - line 16 rms / 28 worst (12-68 / up to 97 at 30); brake 31 short, 25 across; approach 7.5 s (15.5-20.7); roll and lean error unchanged | | | | | | |
 | 16, long route | 09-28 11-06-56 (6,826) | 1 | 91.0 s | 0.6 | - | 0 |
 | - line 11 rms / 24 worst (30-68 / up to 97 at 30); brake 151 SHORT from 263 b/s, 20 across; roll error 4.9 | | | | | | |
-| 17 brake map top trimmed for the floor: 235:1560, 250:1680, 265:1800 | | | | | | |
+| 17 brake map top trimmed for the floor: 235:1560, 250:1680, 265:1800 | 09-28 12-06-01, 12-22-54 (standard route) | 2 | 78.1, 84.5 s | 0, 0 | - | 0 |
+| - brakes 11 past, 55 short; long route not yet flown on it. Body 15 over 5 flights: line 11-42 rms, three brakes 48-78 across | | | | | | |
+| 18 centreline steering `CRUISE_TRACK_K 0.1 -> 0.2` | | | | | | |

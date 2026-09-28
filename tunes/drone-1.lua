@@ -249,6 +249,15 @@
 --                      from 262 (the long one balloons more). 11-06-56 stopped
 --                      151 short from 263 on 1,880. Fit 1,415 + 7.9 per b/s
 --                      over 217: 235:1560, 250:1680, 265:1800 (<=220 unchanged).
+--                      Flown on the standard route (12-06-01, 12-22-54): 11
+--                      past, 55 short. Body 15 over five flights: line 11, 16,
+--                      27, 34, 42 rms - better than 12-68 at 30 but not solved;
+--                      three brakes still ended 48-78 to the side.
+--   CRUISE_TRACK_K 0.2  from 2026-09-28 (fly.lua 0.1): the pull back to the
+--                      centreline, in b/s of sideways demand per block off -
+--                      at 40 blocks out, 8 b/s instead of 4. Capped at
+--                      CRUISE_TRACK_VMAX 25. Watch for it swinging across the
+--                      line. Revert: delete the line.
 return {
   YAW_KP = 0.007,
   YAW_KD = 0.012,
@@ -257,6 +266,7 @@ return {
   YAW_OFFSET = 225,
   CRUISE_DEG = 67,
   CRUISE_BODY_LEAN = 15,
+  CRUISE_TRACK_K = 0.2,
   LAND_SETTLE_XZ = 4,
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
