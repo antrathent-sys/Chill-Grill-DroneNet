@@ -350,4 +350,6 @@ the cutoff. The next speed limit is lift: throttle 0.63 at 65, and ~80 true tilt
 | - 227 b/s, but throttle on its 0.80 ceiling and 15 blocks low; lean error doubled; brake 78 past | | | | | | |
 | 11 lean 67, brake map top refitted to 1,365 @ 211 and 1,591 @ 227 | 09-28 09-55-21 | 1 | 81.9 s | 0.9 | - | 0 |
 | - 215 b/s, throttle 0.66, 7 low at worst, pitch 71.7; brake 99 short (brakes up here scatter +-50) | | | | | | |
-| 12 heading gain `YAW_KP 0.005 -> 0.007`: slow wander, 27-42 blocks rms off the centreline at 0.005 | | | | | | |
+| 12 heading gain `YAW_KP 0.005 -> 0.007`: slow wander, 27-42 blocks rms off the centreline at 0.005 | 09-28 10-03-51 (6,825 blocks) | 1 | 96.0 s (104 by the 58 model) | 0 | - | 0 |
+| - 255 b/s; heading 6.4 rms, yaw rate 3.7; line 38 rms / 66 worst; brake 196 short (map past its end) | | | | | | |
+| 13 brake map top refitted to six fast brakes: blocks = 9.8 x speed - 700 | | | | | | |

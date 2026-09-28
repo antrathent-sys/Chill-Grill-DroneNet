@@ -191,6 +191,17 @@
 --                      still more than ~15 blocks rms off, CRUISE_TRACK_K (the
 --                      steering back to the centreline, 0.1 b/s per block) is
 --                      the next change. Revert: 0.005.
+--                      Flown 10-03-51, the first long cruise (6,825 blocks,
+--                      96.0 s): 255 b/s and still gaining, height within 7,
+--                      throttle 0.68 (on the ceiling 14%), pitch peak 70.5,
+--                      heading 6.4 rms (7.9 on 0.005), yaw rate 3.7. Line still
+--                      38 rms / 66 worst. Brake 196 SHORT: past 250 the map
+--                      ran on in a straight line and asked 1,976 for 1,780.
+--   BRAKE_MAP top      refitted 2026-09-28 to all six brakes flown above 205:
+--                      1,383 @ 210, 1,347 @ 213, 1,331 @ 215, 1,540 @ 223,
+--                      1,591 @ 227, 1,780 @ 256 -> blocks = 9.8 x speed - 700,
+--                      scatter +-40-75 (the two at 70 deg sit high). 205:1310,
+--                      220:1460, 235:1600, 250:1750, 265:1900.
 return {
   YAW_KP = 0.007,
   YAW_KD = 0.012,
@@ -203,5 +214,5 @@ return {
   LAND_SETTLE_MAX = 40,
   LAND_REST_GAP = 7.5,
   BRAKE_TURN_POWER = 0.55,
-  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1490,235:1700,250:1910",
+  BRAKE_MAP = "40:170,55:265,80:420,110:560,135:800,150:950,175:1100,190:1180,205:1310,220:1460,235:1600,250:1750,265:1900",
 }
