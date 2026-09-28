@@ -146,7 +146,7 @@ local function drone(opts)
     if select("#", ...) == 2 then return sideBySide(...) end
     return w.mainLoop(...)
   end }
-  w.mainLoop = function(a, b, net)
+  w.mainLoop = function(a, b, net, linger)
     local co = coroutine.create(a)
     for _ = 1, w.cycles do
       local ok, e = coroutine.resume(co)
@@ -156,6 +156,16 @@ local function drone(opts)
       local ok, e = pcall(net)
       if ok then return end
       if not tostring(e):find("no more orders", 1, true) then error(e, 0) end
+    end
+    -- opts.waitOut: let this many seconds pass for the wait on the pad
+    if linger and opts.waitOut then
+      local lco = coroutine.create(linger)
+      for _ = 1, opts.waitOut do
+        local ok, e = coroutine.resume(lco)
+        if not ok then error(e, 0) end
+        if coroutine.status(lco) == "dead" then return end
+        w.clock = w.clock + 1
+      end
     end
     b()
   end
@@ -318,10 +328,12 @@ check("the same order twice flies once", #w.runs == 1, #w.runs)
 
 print("a taxi job, end to end")
 local req = F.request({ name = "pier", x = 100, y = 70, z = -50 }, { x = 1200, z = 340 }, "pier-1")
-w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-1", req)), order(F.go("j-1", "pier-2")) } }))
+w = run(drone({ name = "pad", cycles = 1, waitOut = 700,
+                inbox = { order(F.assign("j-1", req)), order(F.go("j-1", "pier-2")) } }))
 check("first it ferries to the pad", w.runs[1] == "fly ferry pier", w.runs[1] or "nothing")
 check("then it lands at the destination", w.runs[2] == "fly land 1200 340", w.runs[2] or "nothing")
-check("then it takes itself home", w.runs[3] == "fly ferry home", w.runs[3] or "nothing")
+check("then, ten minutes on, it takes itself home", w.runs[3] == "fly ferry home" and w.clock >= 600,
+  (w.runs[3] or "nothing") .. " at " .. w.clock)
 local states = {}
 for _, s in ipairs(saidOfType(w, "job.state")) do states[#states + 1] = s.state end
 check("and it says where it is at each step: " .. table.concat(states, " "),
@@ -337,6 +349,42 @@ local acks = saidOfType(w, "job.ack")
 check("a second job while carrying someone is refused", #acks == 2 and acks[1].ok == true and acks[2].ok == false
   and acks[2].why:find("already on j-1", 1, true) ~= nil, acks[2] and acks[2].why)
 check("and it is not flown", #w.runs == 1, #w.runs)
+
+print("waiting on the pad after a ride")
+local reqL = F.request({ name = "pier", x = 100, y = 70, z = -50 }, { x = 1200, z = 340 }, "pier-L1")
+local function lingerTlm(w)
+  for _, b in ipairs(w.opened) do if b.type == "tlm" and b.mode == "linger" then return b end end
+end
+w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-L1", reqL)), order(F.go("j-L1", "pier-L2")) } }))
+check("after the ride it stays: no flight home yet", #w.runs == 2 and w.text:find("waiting here 10 min", 1, true) ~= nil,
+  table.concat(w.runs, " / "))
+check("and says so on its telemetry, mode linger", lingerTlm(w) ~= nil)
+check("the wait is kept on disk for a reboot", (w.files[".linger"] or ""):match("^%d+ ferry home$") ~= nil, w.files[".linger"])
+w = run(drone({ name = "pad", cycles = 1, waitOut = 700,
+                inbox = { order(F.assign("j-L2", reqL)), order(F.go("j-L2", "pier-L3")) } }))
+check("ten minutes and no hail: home, and the wait is forgotten", w.runs[3] == "fly ferry home" and w.files[".linger"] == nil,
+  tostring(w.runs[3]))
+w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-L3", reqL)), order(F.go("j-L3", "pier-L4")),
+                order(F.clear("drone-1", "drone-2 is coming in to land here", "ops-c1")) } }))
+check("told another drone is coming in: home at once", w.runs[3] == "fly ferry home" and w.clock < 60
+  and w.text:find("clearing the pad (drone-2 is coming in to land here)", 1, true) ~= nil, tostring(w.runs[3]) .. " at " .. w.clock)
+local reqL2 = F.request({ name = "market", x = 300, y = 70, z = 40 }, { x = 9, z = 9 }, "mkt-1")
+w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-L4", reqL)), order(F.go("j-L4", "pier-L5")),
+                order(F.assign("j-L5", reqL2)) } }))
+check("a new job while waiting: it goes for that, not home", w.runs[3] == "fly ferry market" and w.files[".linger"] == nil,
+  tostring(w.runs[3]))
+w = run(drone({ name = "pad", cycles = 1, stored = 300000,
+                inbox = { order(F.assign("j-L6", reqL)), order(F.go("j-L6", "pier-L7")) } }))
+check("30% battery: no wait, straight home", w.runs[3] == "fly ferry home", tostring(w.runs[3]))
+w = run(drone({ name = "pad", cycles = 1, files = { ["fly.lua"] = AT_HOME },
+                inbox = { order(F.assign("j-L8", reqL)), order(F.go("j-L8", "pier-L9")) } }))
+check("a ride that ends at home does not wait", w.runs[3] == "fly ferry home", tostring(w.runs[3]))
+w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.clear("drone-1", "x", "ops-c2")) } }))
+check("a clear order with no wait running flies nothing", #w.runs == 0 and w.text:find("staying put", 1, true) ~= nil)
+w = run(drone({ name = "pad", cycles = 1, waitOut = 30, files = { [".linger"] = "1 ferry home" } }))
+check("rebooted after the wait ran out: home", w.runs[1] == "fly ferry home", tostring(w.runs[1]))
+w = run(drone({ name = "pad", cycles = 1, waitOut = 30, files = { [".linger"] = "1 ferry home; shutdown" } }))
+check("a .linger that is not a fly command is thrown away", #w.runs == 0 and w.files[".linger"] == nil)
 
 print("a counter that keeps rising across the flights of a job")
 -- fly seals with the same key and counter file while it flies, so beacon has
@@ -363,7 +411,7 @@ check("so the customer hears every step: " .. table.concat(st9, " "),
 print("collected from where the customer stands, not just a pad")
 local hail = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "pocket-1", "alex")
 -- resting where it should: the customer's ground (70) plus the rest gap
-w = run(drone({ name = "pad", cycles = 1, height = 77.5,
+w = run(drone({ name = "pad", cycles = 1, height = 77.5, waitOut = 700,
                 inbox = { order(F.assign("j-7", hail)), order(F.go("j-7", "pocket-2")) } }))
 check("it lands beside the customer", w.runs[1] == "fly land 812 71 -344", w.runs[1] or "nothing")
 check("then flies them to the destination", w.runs[2] == "fly land 1200 340", w.runs[2] or "nothing")
@@ -376,7 +424,7 @@ local hailO = F.request({ x = 812, y = 71, z = -344 }, { x = 1200, z = 340 }, "p
 -- first landing: on something (90, where 77.5 is the ground); the second, at
 -- the customer's new spot, rests where it should
 local function heights(w) return (#w.runs <= 2) and 90 or 77.5 end
-w = run(drone({ name = "pad", cycles = 1, height = heights,
+w = run(drone({ name = "pad", cycles = 1, height = heights, waitOut = 700,
                 inbox = { order(F.assign("j-o", hailO)), order(F.go("j-o", "pocket-o2")) },
                 holdEvents = { { at = 20, order = order(F.relocate("j-o", 850, 71, -300, "pocket-o3")) } } }))
 local stO = {}

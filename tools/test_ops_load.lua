@@ -18,6 +18,8 @@ local KEYHEX = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 local KEY = S.parseKey(KEYHEX)
 local DEPOTHEX = "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100"
 local DEPOTKEY = S.parseKey(DEPOTHEX)
+local KEY2HEX = "2f2e2d2c2b2a292827262524232221201f1e1d1c1b1a19181716151413121110"
+local KEY2 = S.parseKey(KEY2HEX)
 local CARGO = dofile(DIR .. "/../lib/cargo.lua")
 local unpack = table.unpack or unpack
 local function pack(...) return { n = select("#", ...), ... } end
@@ -42,6 +44,7 @@ local function base(opts)
   local w = { files = {}, printed = {}, clock = 0, queue = {}, timers = {}, nTimer = 0, later = {},
               sets = {}, level = {}, orders = {}, lines = opts.lines or { "y" }, nextTlm = 0.5, seq = 0 }
   w.files[".fleetkeys"] = "drone-1=" .. KEYHEX .. "\ndepot-pier=" .. DEPOTHEX .. "\n"
+    .. (opts.drone2 and ("drone-2=" .. KEY2HEX .. "\n") or "")
   w.files["pads.lua"] = 'return { { name = "home", x = 1892, y = 91, z = 365, kind = "dock" }, '
     .. '{ name = "pier", x = 1950, y = 70, z = 400, kind = "dock" } }'
   if opts.station ~= false then w.files["station.lua"] = STATION:format(opts.station or "{ secs = 5 }") end
@@ -125,6 +128,7 @@ local function base(opts)
   local depot = opts.depot
   local depotRx = S.receiver()
   local depotTx = S.sender(DEPOTKEY, "depot-pier", S.DIR.DRONE_TO_BASE, nil)
+  local drone2Tx = S.sender(KEY2, "drone-2", S.DIR.DRONE_TO_BASE, nil)   -- opts.drone2: a second unit
   w.depotHeard = {}
   w.pos = { x = drone.x or 1892.5, z = drone.z or 365.5 }
   -- sealed when it is sent, not when it is scheduled: the counter has to rise
@@ -187,7 +191,8 @@ local function base(opts)
       fromDepot(F.depotHello("depot-pier", depot.interrupted, depot.interrupted and "stick" or nil, "h-" .. w.clock), 0.1)
     end
     return { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL,
-             droneTx.seal(LINK.packet("drone-1", w.seq, s, { energy = 50 }, { pct = 80 }, { connected = docked }, 0, 0, nil, "idle")) }
+             droneTx.seal(LINK.packet("drone-1", w.seq, s, { energy = 50 }, { pct = 80 }, { connected = docked }, 0, 0, nil,
+               drone.mode or "idle")) }
   end
 
   local relay = function(name)
@@ -318,7 +323,7 @@ local function base(opts)
   -- opts.later: { { t, message } } the drone sends, sealed, at time t;
   -- { t, message, "depot" } sends it sealed with depot-pier's key instead
   for _, l in ipairs(opts.later or {}) do
-    w.later[#w.later + 1] = { at = l[1], body = l[2], fromDepot = l[3] == "depot" }
+    w.later[#w.later + 1] = { at = l[1], body = l[2], fromDepot = l[3] == "depot", fromDrone2 = l[3] == "drone2" }
   end
   for _, k in ipairs(opts.keysAt or {}) do w.later[#w.later + 1] = { at = k[1], ev = { "key", env.keys[k[2]] } } end
 
@@ -335,7 +340,7 @@ local function base(opts)
     if kind == "later" then
       local l = table.remove(w.later, idx)
       if l.fn then l.fn() return nextEvent() end
-      local tx = l.fromDepot and depotTx or droneTx
+      local tx = l.fromDepot and depotTx or (l.fromDrone2 and drone2Tx) or droneTx
       local ev = l.ev or { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL, tx.seal(l.body) }
       ev.n = #ev
       return ev
@@ -793,6 +798,27 @@ w = base({ args = {}, keysAt = { { 8, "q" } },
            later = { { 5, F.distress("drone-1", "real", 1, 2, 3, "d-sos") } } }):run()
 check("the drone's own distress still raises one", w.err == nil and (w.files["incidents.csv"] or ""):find("real", 1, true) ~= nil,
   w.err or tostring(w.files["incidents.csv"]))
+
+print("a unit waiting on a pad is cleared for one coming in")
+-- drone-2 in the air, its target (tx, tz) where drone-1 stands (1892.5, 365.5)
+local function inbound2(t, tx, tz, seq)
+  return { t, LINK.packet("drone-2", seq, { t = t, phase = "cruise", h = 350, x = 2400, z = 900, vx = -150, vz = 0,
+    vv = 0, tx = tx, tz = tz }, { energy = 80 }, { pct = 90 }, { connected = false }, 1, 1, "land", "go"), "drone2" }
+end
+local function clears(ww) local n = 0 for _, b in ipairs(ww.orders) do if b.type == "unit.clear" then n = n + 1 end end return n end
+local WAITING = { docked = false, landed = true, mode = "linger" }
+w = base({ args = {}, drone = WAITING, drone2 = true, keysAt = { { 12, "q" } },
+           later = { inbound2(3, 1893, 366, 1), inbound2(6, 1893, 366, 2), inbound2(9, 1893, 366, 3) } }):run()
+check("drone-2 on its way to land where drone-1 waits: drone-1 is told to clear the pad", w.err == nil and clears(w) >= 1,
+  w.err or clears(w))
+check("...once, not every second", clears(w) == 1, clears(w))
+w = base({ args = {}, drone = WAITING, drone2 = true, keysAt = { { 12, "q" } },
+           later = { inbound2(3, 3000, 3000, 1), inbound2(6, 3000, 3000, 2) } }):run()
+check("drone-2 going somewhere else: drone-1 keeps waiting", w.err == nil and clears(w) == 0, w.err or clears(w))
+w = base({ args = {}, drone = { docked = false, landed = true }, drone2 = true, keysAt = { { 12, "q" } },
+           later = { inbound2(3, 1893, 366, 1), inbound2(6, 1893, 366, 2) } }):run()
+check("a unit parked there that is NOT waiting (set down after a fault) is left to the operator",
+  w.err == nil and clears(w) == 0, w.err or clears(w))
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end

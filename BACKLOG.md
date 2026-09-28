@@ -120,11 +120,17 @@ drone that is in the air.
 in the area for 5 minutes, available, before going home. Today the beacon
 queues the flight home the moment the ride is done. Two ways:
 
-- *On the pad* (small, beacon only, no flight code): stay landed on the
-  destination platform for 5 minutes with the job cleared. `F.available`
-  already takes a landed unit at 40% battery or more, and the nearest free
-  unit gets the hail. A pickup at that pad needs no flight at all, and a
-  return trip starts at once. It holds the platform for those minutes.
+- *On the pad* - **BUILT 2026-09-28, 10 minutes** (Alex), untested in game.
+  After a ride the beacon clears the job and stays landed on the destination
+  platform, telemetry mode `linger`, free for the next hail: the nearest free
+  unit gets it, and a hail at that pad boards on the spot. It goes home when
+  the 10 minutes are up, at once on the base's `unit.clear` - sent when
+  another drone in the air has its target on that spot (occupancy, from
+  telemetry: `F.inbound`) - or for a new job or an operator's order instead.
+  No wait below 40% battery or when the ride ended at home. Kept in `.linger`,
+  so a reboot on the pad still goes home on time. A unit parked on a pad
+  for any other reason is only reported when someone is coming in, never
+  moved.
 - *Orbiting overhead* (the showpiece): circle the destination for the same 5
   minutes. It needs orbit and reroute first, `F.available` taking an orbiting
   unit, and an energy check before it starts. A pickup from the orbit still

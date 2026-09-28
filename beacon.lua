@@ -60,6 +60,15 @@ local MAX_TRIES = 3
 local HOLD = "hold-for-a-new-spot"   -- not a fly command: the main loop's marker
 local PLAN_EVERY = 10    -- a route packet on the first and every this many
 local CHARGE_FE = 200    -- FE gained between packets that counts as charging
+-- After a ride the unit waits on the destination pad this long, free for the
+-- next hail, before going home (Alex, 2026-09-28: 10 minutes). It leaves
+-- early when the base says another drone is coming in to land there
+-- (unit.clear), when a job or an operator's order comes, and not at all on a
+-- low battery: landed, it is not charging, and below F.LANDED_MIN the base
+-- would not give it a job anyway. Kept in .linger, so a reboot on the pad
+-- still goes home on time.
+local LINGER = 600
+local LINGERF = ".linger"
 
 local id = (os.getComputerLabel and os.getComputerLabel()) or ("drone-" .. tostring(os.getComputerID()))
 local key = SEC.readKeyFile(".dronekey")
@@ -176,8 +185,36 @@ local orderSealer          -- made on first use, shares .dronekey.ctr with the
 
 local job          -- { id, pad, tx, tz, ty, step } while carrying someone
 local pending      -- the fly command line the main loop should run next
+local linger       -- { home = <fly line>, untilT = <os.clock> } while waiting on a pad after a ride
 local seenNonce = {}
 local orderSeq = 0
+
+-- the wait is kept on disk as "<deadline in epoch ms> <fly line>"
+local function epochMs() return os.epoch and os.epoch("utc") or math.floor(os.clock() * 1000) end
+local function setLinger(v)
+  linger = v
+  if linger then
+    local h = fs.open(LINGERF, "w")
+    if h then
+      h.write(string.format("%.0f %s", math.floor(epochMs() + (linger.untilT - os.clock()) * 1000), linger.home))
+      h.close()
+    end
+  elseif fs.exists(LINGERF) then
+    fs.delete(LINGERF)
+  end
+end
+if fs.exists(LINGERF) then      -- a wait that was running when the computer stopped
+  local h = fs.open(LINGERF, "r")
+  local text = h and h.readAll() or ""
+  if h then h.close() end
+  local ms, line = text:match("^(%d+) (.+)$")
+  line = line and F.flyArgs(line)
+  if ms and line then
+    linger = { home = line, untilT = os.clock() + math.max(0, (tonumber(ms) - epochMs()) / 1000) }
+  else
+    fs.delete(LINGERF)
+  end
+end
 
 local function myNonce()
   orderSeq = orderSeq + 1
@@ -333,6 +370,7 @@ local function netLoop()
           say(F.ack(job.id, id, false, "carrying someone", myNonce()))
         else
           pending = F.flyArgs(msg.args)
+          setLinger(nil)          -- the operator's order replaces the wait
           if run.sos then print("distress cleared by the base's order") end
           run.sos = nil
           say(F.ack("ops", id, true, nil, myNonce()))
@@ -349,6 +387,7 @@ local function netLoop()
           -- already on station where the customer is: they walk to it
           job = { id = msg.job, pad = msg.pad, tx = msg.tx, tz = msg.tz, ty = msg.ty,
                   px = msg.px, py = msg.py, pz = msg.pz, step = "waiting", board = true }
+          setLinger(nil)
           say(F.ack(msg.job, id, true, nil, myNonce()))
           print("")
           print("taxi job " .. job.id .. ": boarding here")
@@ -356,6 +395,7 @@ local function netLoop()
         else
           job = { id = msg.job, pad = msg.pad, tx = msg.tx, tz = msg.tz, ty = msg.ty,
                   px = msg.px, py = msg.py, pz = msg.pz, step = "pickup" }
+          setLinger(nil)
           say(F.ack(msg.job, id, true, nil, myNonce()))
           pending = F.legCommand("pickup", msg)
           print("")
@@ -363,6 +403,16 @@ local function netLoop()
           announce("enroute", "on the way to " .. tostring(job.pad))
           return
         end
+      elseif msg.type == "unit.clear" then
+        -- another drone is coming in to land where this one waits: go now
+        if linger then
+          pending = linger.home
+          setLinger(nil)
+          print("")
+          print("clearing the pad (" .. tostring(msg.why or "a drone is coming in") .. ") - home")
+          return
+        end
+        print("asked to clear the pad, but not waiting on one - staying put")
       elseif msg.type == "unit.stick" then
         local okS, whyS, detail = stickFor(msg)
         print("")
@@ -421,8 +471,19 @@ local function jobStep(flew)
   elseif job.step == "ride" then
     if flew then
       announce("done", "landed")
-      job.step = "home"
-      pending = F.legCommand("home", job)
+      local homeLeg = F.legCommand("home", job)
+      local x, _, z = position()
+      local atHome = home and x and (home.x - x) ^ 2 + (home.z - z) ^ 2 <= DOCK_NEAR * DOCK_NEAR
+      local batt = level(accs, "getEnergy", "getCapacity")
+      if LINGER > 0 and not atHome and not (batt and batt < F.LANDED_MIN) then
+        -- stay on the pad, free for the next hail, then home
+        job = nil
+        setLinger({ home = homeLeg, untilT = os.clock() + LINGER })
+        print(string.format("waiting here %d min for the next hail, then home", math.floor(LINGER / 60)))
+      else
+        job.step = "home"
+        pending = homeLeg
+      end
     else
       distress("transit flight failed")
       announce("failed", "unit down at " .. here())
@@ -444,7 +505,7 @@ local function sendLoop()
   while true do
     local s, mon, fuel, dock = status()
     run.seq = run.seq + 1
-    send(link.packet(id, run.seq, s, mon, fuel, dock, 0, 0, nil, "idle"))
+    send(link.packet(id, run.seq, s, mon, fuel, dock, 0, 0, nil, linger and "linger" or "idle"))
     if run.seq == 1 or run.seq % PLAN_EVERY == 0 then
       send(link.planPacket(id, run.seq, nil, 0, home, "idle", s))
     end
@@ -458,8 +519,9 @@ local function sendLoop()
     -- "hrd" is how many packets have arrived on the order channel: 0 while the
     -- base is poking means nothing is reaching this drone at all, which is a
     -- different problem from an order it cannot open
-    term.write(string.format("#%d %s  batt %s  FE %s  hrd %d", run.seq, s.phase:upper(),
-      pct(mon.energy), pct(fuel.pct), run.heard or 0):sub(1, w))
+    term.write((string.format("#%d %s  batt %s  FE %s  hrd %d", run.seq, s.phase:upper(),
+      pct(mon.energy), pct(fuel.pct), run.heard or 0)
+      .. (linger and string.format("  wait %ds", math.max(0, math.floor(linger.untilT - os.clock()))) or "")):sub(1, w))
     sleep(PERIOD)
   end
 end
@@ -516,10 +578,28 @@ local function holdForSpot()
   end
 end
 
+-- the wait on the pad running out: home
+local function lingerLoop()
+  while true do
+    if linger and os.clock() >= linger.untilT then
+      pending = linger.home
+      setLinger(nil)
+      print("")
+      print("no hail while waiting - home")
+      return
+    end
+    sleep(1)
+  end
+end
+
 print(string.format("beacon: %s on %s channel %d, sealed%s", id, radio, link.CHANNEL,
   home and "" or " - home unknown (fly pad add home, or HOME_X/Z in fly.lua)"))
 print(string.format("F = fly, Q = stop  -  taking sealed orders on %s ch %d", radio, link.CHANNEL))
 reportDrops()                 -- from a delivery flown from the shell, before this started
+if linger then
+  print(string.format("waiting on this pad after a ride - home in %d s unless a hail comes",
+    math.max(0, math.floor(linger.untilT - os.clock()))))
+end
 while true do
   local choice
   pending = nil
@@ -532,7 +612,7 @@ while true do
         return
       end
     end
-  end, netLoop)
+  end, netLoop, lingerLoop)
   print("")
   if choice == "q" then
     if job then announce("failed", "the drone was stopped at its keyboard") end
@@ -545,6 +625,7 @@ while true do
     line = read()
   end
   if not (line and line:match("%S")) then print("nothing flown") end
+  if choice == "f" and line and line:match("%S") then setLinger(nil) end   -- flown by hand instead
   -- a job is more than one flight: the pickup, then the ride, then the way
   -- home. jobStep queues the next one, so keep going while it does.
   while line and line:match("%S") do

@@ -332,5 +332,29 @@ check("a docked one takes it at any battery (it is on the charger)",
 check("one in the air does not", (F.available({ seen = 10, docked = false, landed = false }, 11)) == false)
 
 print("")
+print("who is coming in to land where a unit is parked")
+do
+  local fl = {
+    ["drone-1"] = { seen = 100, landed = true, x = 500.5, z = 200.5, mode = "linger" },
+    ["drone-2"] = { seen = 100, x = 900, z = 900, tx = 503, tz = 198 },          -- flying, target 3.6 away
+    ["drone-3"] = { seen = 100, x = 0, z = 0, tx = 700, tz = 700 },              -- flying somewhere else
+  }
+  check("a drone in the air with its target on the parked one's spot is inbound",
+    F.inbound(fl, "drone-1", 101) == "drone-2", tostring(F.inbound(fl, "drone-1", 101)))
+  fl["drone-2"].tx = 520
+  check("a target 20 blocks off is not", F.inbound(fl, "drone-1", 101) == nil)
+  fl["drone-2"].tx, fl["drone-2"].landed = 503, true
+  check("one already on the ground is not coming in", F.inbound(fl, "drone-1", 101) == nil)
+  fl["drone-2"].landed = nil
+  check("one not heard from in 15 s is not", F.inbound(fl, "drone-1", 120) == nil)
+  check("a unit never counts itself", F.inbound({ ["drone-1"] = { seen = 1, x = 0, z = 0, tx = 0, tz = 0 } }, "drone-1", 1) == nil)
+  check("an unknown unit has nobody coming", F.inbound(fl, "drone-9", 101) == nil)
+  local clr = F.clear("drone-1", "drone-2 is coming in to land here", "ops-c1")
+  check("the clear order passes the check", F.check(clr) and clr.to == "drone-1", select(2, F.check(clr)))
+  clr.to = nil
+  check("...and needs a unit", not F.check(clr))
+end
+
+print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("fleet tests failed", 0) end

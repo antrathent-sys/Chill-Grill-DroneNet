@@ -454,6 +454,7 @@ local function note(d)
   f.seen = os.clock()
   f.x, f.z, f.y = d.x, d.z, d.y
   f.phase, f.mode = d.phase, d.mode
+  f.tx, f.tz = d.tx, d.tz                    -- where it is going: who is coming in to land where
   f.docked = (d.dock == 1) or d.phase == "docked"
   local wasLanded = f.landed
   f.landed = not f.docked and d.phase == "landed"      -- still, on the ground, not latched
@@ -1527,6 +1528,37 @@ local function depotLoop()
   end
 end
 
+-- ------------------------------------------------------------ pad clear ---
+-- A unit waiting on a pad after a ride (the beacon's linger, 10 minutes)
+-- leaves it for anyone coming in to land there (Alex, 2026-09-28). Coming in
+-- is read off telemetry: another drone in the air whose target is where the
+-- waiting one stands. It goes home now instead of at the end of its wait. A
+-- unit parked there for any other reason - set down after a fault - is only
+-- reported, once: it may not be fit to fly, and the operator decides.
+local CLEAR_AGAIN = 10            -- s before asking a waiting unit again
+local function padClearLoop()
+  while true do
+    local now = os.clock()
+    for id, f in pairs(fleet) do
+      if (f.landed or f.docked) and not f.job and f.seen and now - f.seen <= 15 then
+        local inb = F.inbound(fleet, id, now)
+        if inb and f.mode == "linger" then
+          if not f.clearAsked or now - f.clearAsked >= CLEAR_AGAIN then
+            f.clearAsked = now
+            local sent = order(id, F.clear(id, inb .. " is coming in to land here", nonce()))
+            log("%s is coming in where %s waits - %s", inb, id, sent and "sent it home" or "could not reach it")
+          end
+        elseif inb and f.warned ~= inb then
+          f.warned = inb
+          log("%s is coming in where %s is parked - move one of them", inb, id)
+        end
+        if not inb then f.warned = nil end
+      end
+    end
+    sleep(1)
+  end
+end
+
 local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true,
                      ["unit.dropped"] = true, ["depot.hello"] = true, ["load.step"] = true,
                      ["load.lifted"] = true, ["load.done"] = true }
@@ -2084,5 +2116,5 @@ local function keys()
 end
 
 if not knownOnly then log("OPEN: any terminal can call, pass or not - ops known ends it") end
-parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, serveQueue, draw, keys, depotLoop)
+parallel.waitForAny(receive, serve, watchdog, tracker, till, lock, serveQueue, draw, keys, depotLoop, padClearLoop)
 print("ops stopped")

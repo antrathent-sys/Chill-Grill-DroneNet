@@ -105,7 +105,8 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["fare.ask"] = true, ["fare.quote"] = true, ["unit.distress"] = true,
             ["job.relocate"] = true, ["unit.stick"] = true, ["unit.stuck"] = true,
             ["unit.dropped"] = true, ["depot.hello"] = true, ["load.start"] = true,
-            ["load.step"] = true, ["load.lifted"] = true, ["load.stuck"] = true, ["load.done"] = true }
+            ["load.step"] = true, ["load.lifted"] = true, ["load.stuck"] = true, ["load.done"] = true,
+            ["unit.clear"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
 -- handed to shell.run, so the characters allowed are only the ones a fly
@@ -243,6 +244,8 @@ function F.check(m)
   elseif m.type == "ops.fly" then
     local args, why = F.flyArgs(m.args)
     if not args then return false, "args: " .. why end
+  elseif m.type == "unit.clear" then
+    if not str(m.to) then return false, "no unit" end
   elseif m.type == "pad.stats" then
     if not str(m.pad) then return false, "no pad" end
     if not num(m.rides) then return false, "no ride count" end
@@ -571,6 +574,12 @@ function F.go(job, nonce)
   return { v = F.VERSION, type = "job.go", nonce = nonce or (job .. "-go"), job = job }
 end
 
+-- A unit waiting on a pad after a ride: leave it now, someone is coming in to
+-- land there. It goes home, as it would at the end of its wait.
+function F.clear(drone, why, nonce)
+  return { v = F.VERSION, type = "unit.clear", nonce = nonce, to = drone, why = why }
+end
+
 -- A landed drone is not on a charger. It still takes the next job - one that
 -- missed its dock and set down beside it must not sit out the queue - but
 -- only while it has this much battery left.
@@ -591,6 +600,28 @@ function F.available(d, now, maxAge)
     return false, string.format("landed, not charging, battery %d%%", math.floor(d.energy))
   end
   return true
+end
+
+-- Is another drone coming in to land where this one is parked? Read off
+-- telemetry: heard from recently, in the air, and its target within `near`
+-- blocks of the parked one. Returns the incoming drone's id, or nil.
+F.CLEAR_NEAR = 8
+function F.inbound(fleet, id, now, near, maxAge)
+  local me = fleet and fleet[id]
+  if not (type(me) == "table" and num(me.x) and num(me.z)) then return nil end
+  near = near or F.CLEAR_NEAR
+  local names = {}
+  for oid in pairs(fleet) do names[#names + 1] = oid end
+  table.sort(names)
+  for _, oid in ipairs(names) do
+    local d = fleet[oid]
+    if oid ~= id and type(d) == "table" and num(d.seen) and now - d.seen <= (maxAge or 15)
+       and not d.docked and not d.landed and num(d.tx) and num(d.tz)
+       and (d.tx - me.x) ^ 2 + (d.tz - me.z) ^ 2 <= near * near then
+      return oid
+    end
+  end
+  return nil
 end
 
 --- How many units could take a job right now: what a customer's list shows
