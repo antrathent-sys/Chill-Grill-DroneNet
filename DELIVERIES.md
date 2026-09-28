@@ -399,19 +399,22 @@ What is missing:
    after every unload until the staging vault reads empty, and from then on
    the ticker sees what came in like anything else in storage. Printed pages
    (the invoice riding in a returned shipment) are filtered out to a bin on
-   the way. DESIGNED.
+   the way. DESIGNED; Alex is building the hardware (2026-09-28).
 2. **Receiving, driven by the base.** An inbound job: the drone ferries to the
    depot and latches; the depot unloads each side against what the cargo
    ledger says the silo holds, clears it, and reports the counts. A returned
    delivery's items go back to available stock (what happens to its order is
-   still the open failed-delivery decision). DESIGNED.
+   still the open failed-delivery decision). DESIGNED, agreed (Alex,
+   2026-09-28); it follows the depot running the loader for the base.
 3. **Surplus silos.** Recycling in place covers a depot that sends at least as
    often as it receives, which is the factory. A bay already holding an empty
    silo cannot take another, so a depot that mostly receives would need to
    take a silo apart into blocks again and put them in the placer's feed.
    Unproven: whether firing the assembler again, or a drill, turns an
    assembled silo back into blocks. Test that before building a depot that
-   mostly receives.
+   mostly receives. Alex's answer (2026-09-28): **receiving vaults** - a depot
+   that receives gets its own vaults for what comes in, apart from the
+   staging vaults that send.
 
 ### Proven in game first
 

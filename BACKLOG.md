@@ -59,7 +59,8 @@ How an order moves end to end, and which steps are built, is in
   depot takes silos in as well as sending them, and refills the emptied silo
   rather than placing a new one. The unload and the reuse exist; clearing the
   staging vault to storage and base-driven receiving do not (DELIVERIES.md,
-  "Receiving, and recycling silos").
+  "Receiving, and recycling silos"). Alex is building the clearing path and
+  receiving vaults; base-driven receiving is agreed, after base-driven loads.
 - **Walk-up stations.** Designed in [STATIONS.md](STATIONS.md), not built: a
   touch monitor and a depositor at a dock, so somebody with no pocket computer
   can pick a place, call a unit for free and pay once it arrives. `taxipad.lua`
