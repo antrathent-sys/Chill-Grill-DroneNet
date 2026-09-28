@@ -170,6 +170,14 @@ SELFTEST = [
     ("brake hold, land", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
      "TUNE": "return { BRAKE_HOLD_POWER = 0.38 }", "END_CHECK": "hold 0.38"},
      ["climb", "cruise", "brake", "land", "touchdown"]),
+    # APPROACH_DECEL in tune.lua: the faster approach must still settle and
+    # land on the spot, and still dock
+    ("approach profile, land", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
+     "TUNE": "return { APPROACH_DECEL = 2 }", "END_CHECK": "appr 2", "LAND_CHECK": "3"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
+    ("approach profile, dock", ["dock", "100", "70", "50", "120"], {"TMAX": "150",
+     "TUNE": "return { APPROACH_DECEL = 2 }", "END_CHECK": "appr 2"},
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     ("border allows", ["go", "100", "50", "90"], {"TMAX": "90", "TUNE": "return { WORLD_BORDER = 400 }"},
      ["climb", "cruise", "brake", "hold"]),
     ("border checks every leg", ["deliver", "100", "80", "50", "90", "empty"],

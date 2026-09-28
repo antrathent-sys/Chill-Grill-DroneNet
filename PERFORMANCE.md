@@ -369,3 +369,4 @@ the cutoff. The next speed limit is lift: throttle 0.63 at 65, and ~80 true tilt
 | 17 brake map top trimmed for the floor: 235:1560, 250:1680, 265:1800 | 09-28 12-06-01, 12-22-54 (standard route) | 2 | 78.1, 84.5 s | 0, 0 | - | 0 |
 | - brakes 11 past, 55 short; long route not yet flown on it. Body 15 over 5 flights: line 11-42 rms, three brakes 48-78 across | | | | | | |
 | 18 centreline steering `CRUISE_TRACK_K 0.1 -> 0.2` | | | | | | |
+| (built, off) faster approach `APPROACH_DECEL`: beyond 8 blocks a steady-deceleration profile, 12 b/s at most; inside 8 the hold as before | | | | | | |

@@ -766,6 +766,20 @@ local CFG = {
   -- RECRUISE_DIST out re-cruised - lean to the cap, accelerate, brake again -
   -- in 2-3 hops and 15-25 s. The hold's own taper (PKP) brings it in; the
   -- normal limits return within 30 blocks. false = re-cruise, as before.
+  -- APPROACH_DECEL: close the gap left after the brake on a steady-
+  -- deceleration profile instead of the hold's straight PKP x distance. The
+  -- hold asks 0.2 b/s per block, capped at VMAX 8: 8 b/s at 40 blocks, 4 at 20,
+  -- 2 at 10, 1 at 5 - so the last 20 blocks crawl, and closing a 40-100 block
+  -- gap took 15-20 s on every trip of 2026-09-28. Beyond APPROACH_NEAR it asks
+  -- what the hold asks at APPROACH_NEAR plus sqrt(2 x APPROACH_DECEL x (gap -
+  -- APPROACH_NEAR)), at most APPROACH_FAST_VMAX, and never less than the hold
+  -- would; inside APPROACH_NEAR the hold is exactly as before, so the settle
+  -- and the landing are untouched. land, align and hold only - never the
+  -- descent - and not while gliding in (APPROACH_GLIDE has its own limit).
+  -- In b/s^2; 0 = off, exactly as before.
+  APPROACH_DECEL = 0,
+  APPROACH_NEAR = 8,                  -- blocks: inside this, the hold as before
+  APPROACH_FAST_VMAX = 12,            -- b/s: the most the profile asks for
   APPROACH_GLIDE = true,
   APPROACH_MAX = 400,                 -- blocks: further out than this still re-cruises
   APPROACH_VMAX = 30,                 -- b/s: the hold's speed limit while gliding in
@@ -2596,6 +2610,20 @@ function FL.brakeTurnFloor(st, a, tp, tr, dt, e)
   return st.turnLvl
 end
 
+-- APPROACH_DECEL: the velocity demand (vdx, vdz) toward the goal, error
+-- (ex, ez), on the steady-deceleration profile when that asks for more than
+-- the hold's own demand. Phase ph; glide is st.glide. Unchanged when off.
+function FL.approachVel(ex, ez, vdx, vdz, ph, glide)
+  if CFG.APPROACH_DECEL <= 0 or glide then return vdx, vdz end
+  if ph ~= "land" and ph ~= "align" and ph ~= "hold" then return vdx, vdz end
+  local g = math.sqrt(ex * ex + ez * ez)
+  if g <= CFG.APPROACH_NEAR then return vdx, vdz end
+  local v = math.min(CFG.PKP * CFG.APPROACH_NEAR + math.sqrt(2 * CFG.APPROACH_DECEL * (g - CFG.APPROACH_NEAR)),
+                     CFG.APPROACH_FAST_VMAX)
+  if v * v <= vdx * vdx + vdz * vdz then return vdx, vdz end   -- never slower than the hold
+  return ex / g * v, ez / g * v
+end
+
 -- BRAKE_HOLD_POWER: the throttle floor for the steady part of the brake -
 -- along-speed above BRAKE_EASE, and not BRAKE_HOLD_HIGH over the goal (e is
 -- goal - height) - ramped in and out at the turn floor's rates. 0 when off.
@@ -3559,6 +3587,7 @@ local function flyLeg()
       if st.glide and ex * ex + ez * ez < 900 then st.glide = nil end
       local vdx = clamp(CFG.PKP * ex, st.glide and CFG.APPROACH_VMAX or CFG.VMAX)
       local vdz = clamp(CFG.PKP * ez, st.glide and CFG.APPROACH_VMAX or CFG.VMAX)
+      vdx, vdz = FL.approachVel(ex, ez, vdx, vdz, phase, st.glide)   -- APPROACH_DECEL; unchanged when 0
       local evx, evz = vdx - pos.vx, vdz - pos.vz
       local r = math.rad(hdg)
       local fwd   = evx * math.sin(r) - evz * math.cos(r)
@@ -3868,10 +3897,11 @@ do
   -- tests of a tune the drone had never loaded (it had not been rebooted) and
   -- nothing in the log said so. Read this before trusting a flight.
   -- the yaw gains first: a tumble's message is long and the row is cut at 140
-  why = why .. string.format(" [yawkp %s yawkd %s yawmax %s lean %s body %s braketurn %s side %s hold %s]",
+  why = why .. string.format(" [yawkp %s yawkd %s yawmax %s lean %s body %s braketurn %s side %s hold %s track %s appr %s]",
     tostring(CFG.YAW_KP), tostring(CFG.YAW_KD), tostring(CFG.YAW_MAX_LEAN),
     tostring(CFG.CRUISE_DEG), tostring(CFG.CRUISE_BODY_LEAN), tostring(CFG.BRAKE_TURN_POWER),
-    tostring(CFG.BRAKE_SIDE_K), tostring(CFG.BRAKE_HOLD_POWER))
+    tostring(CFG.BRAKE_SIDE_K), tostring(CFG.BRAKE_HOLD_POWER), tostring(CFG.CRUISE_TRACK_K),
+    tostring(CFG.APPROACH_DECEL))
   why = why:gsub("[,\r\n]", ";"):sub(1, 140)
   pcall(log.writeLine, string.format("%.2f,end:%s%s", TLM.t or 0, why, string.rep(",0", 45)))
 end
