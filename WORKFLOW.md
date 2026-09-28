@@ -45,6 +45,7 @@ Done once, then kept up.
 | **The catalogue** - what we sell | one of each item in reference chests or vaults at the base; `ops catalogue read` | BUILT |
 | **The factory's stock** | Stock Links on every storage vault, one Stock Ticker, a wired modem on it; `depot stock` | UNTESTED |
 | **The dual loader** at the factory | two sides, each: placer, assembler, belt, pusher, staging vault, silo sensor | BUILT, run by hand only (`depot seq`) |
+| **Receiving** - unload, clear to storage, reuse the silo | unload and reusing the emptied silo exist; a `clear` relay per side moves the staging vault into bulk storage | unload + reuse BUILT, by hand; clearing and base-driven receiving DESIGNED |
 | **Silo supply**: a payload burns 3 silo blocks | silos held as factory stock; a Factory Gauge restocker on a packager at each placer's feed, target 6; the depot counts the feed before it places | the count BUILT (`feed` in dock.lua); the restockers DESIGNED |
 | **Staging from stock** | a packager on each staging vault (`cinder-A`, `cinder-B`) so the ticker can deliver into it; a hand-filled intake as the fallback | DESIGNED |
 | **The invoice printer** | a CC printer on the depot's network, paper and black dye in it | DESIGNED (the page itself is BUILT, `lib/invoice.lua`) |
@@ -197,7 +198,7 @@ the customer it is done.
 | A fill comes up short | the shipment is what left; the rest waits in the vault and counts toward the next flight | nothing |
 | Printer out of paper or ink | the shipment goes without its page, and says so | refill it; the records are the truth |
 | Alex takes stock by hand | nothing breaks; a promised order may come up short and wait | take from available, not reserved |
-| A delivery cannot be made (distress, obstruction) | *open decision* - proposed: the drone keeps the silo, brings it back, the order holds | decide |
+| A delivery cannot be made (distress, obstruction) | *open decision* - proposed: the drone keeps the silo and brings it back; the depot unloads it into stock and reuses the silo; the order holds | decide |
 | The customer disputes it | the invoice number opens `ops order C-0042`: every event, what each silo held, where each dropped | read it |
 | The order is cancelled | `ops order cancel C-0042 <why>`: dropped shipments stay delivered, the reservation is released | DESIGNED |
 | The base restarts mid-order | open orders are rebuilt from `orders.log` | DESIGNED |

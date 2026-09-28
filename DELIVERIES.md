@@ -375,6 +375,44 @@ flight six. Keeping the placers fed:
   costs. When the order book is built, a quote counts them like goods (10k
   cobble is 3 shipments, 9 blocks) and says so when the factory is short.
 
+### Receiving, and recycling silos
+
+A depot receives as well as sends (Alex, 2026-09-28): a restock, goods a
+customer sends in, a delivery that could not be made coming back. Half of it
+is already in `lib/dockseq.lua`:
+
+- **UNLOAD takes a silo off a latched drone.** Pusher up, the drone lets go,
+  pusher down, and the belt empties the silo into the side's storage. BUILT,
+  run by hand (`depot seq unload A`), never yet with a real drone.
+- **The emptied silo stays in the bay, and the next LOAD on that side fills
+  it** instead of placing a new one, so it takes nothing from the feed. BUILT.
+  A visit that brings silos in and takes silos out burns no silo blocks at
+  all: unload both sides, fill the same two silos, and the drone takes them
+  away.
+
+What is missing:
+
+1. **Clearing the staging vault.** An unload leaves the goods in the side's
+   staging vault, and a load refuses a staging vault that is not empty. Each
+   side needs a way out to bulk storage: a funnel or chute from the staging
+   vault into the stock-linked vaults, on a relay (`clear`). The depot runs it
+   after every unload until the staging vault reads empty, and from then on
+   the ticker sees what came in like anything else in storage. Printed pages
+   (the invoice riding in a returned shipment) are filtered out to a bin on
+   the way. DESIGNED.
+2. **Receiving, driven by the base.** An inbound job: the drone ferries to the
+   depot and latches; the depot unloads each side against what the cargo
+   ledger says the silo holds, clears it, and reports the counts. A returned
+   delivery's items go back to available stock (what happens to its order is
+   still the open failed-delivery decision). DESIGNED.
+3. **Surplus silos.** Recycling in place covers a depot that sends at least as
+   often as it receives, which is the factory. A bay already holding an empty
+   silo cannot take another, so a depot that mostly receives would need to
+   take a silo apart into blocks again and put them in the placer's feed.
+   Unproven: whether firing the assembler again, or a drill, turns an
+   assembled silo back into blocks. Test that before building a depot that
+   mostly receives.
+
 ### Proven in game first
 
 Each is one quick test, and the first decides the batching design:

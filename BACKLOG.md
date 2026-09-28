@@ -55,7 +55,11 @@ How an order moves end to end, and which steps are built, is in
   fills, pushes and retracts in game. Left: the B side (`depot seq load B`),
   wiring the sequence to the base so a real drone sticks and releases, what
   happens to a silo when the pusher goes down with no drone there, and
-  `relay_5`, which nothing has explained.
+  `relay_5`, which nothing has explained. Receiving (Alex, 2026-09-28): a
+  depot takes silos in as well as sending them, and refills the emptied silo
+  rather than placing a new one. The unload and the reuse exist; clearing the
+  staging vault to storage and base-driven receiving do not (DELIVERIES.md,
+  "Receiving, and recycling silos").
 - **Walk-up stations.** Designed in [STATIONS.md](STATIONS.md), not built: a
   touch monitor and a depositor at a dock, so somebody with no pocket computer
   can pick a place, call a unit for free and pay once it arrives. `taxipad.lua`
