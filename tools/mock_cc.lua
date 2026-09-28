@@ -302,10 +302,22 @@ _G.fs = {
     -- auto-upload cannot take the flight down with it.
     if p == "upload.lua" then return os.getenv("UPLOAD_BOOM") ~= nil end
     if p == "lib/chime.lua" then return os.getenv("SPEAKER") ~= nil end
+    -- BEACON: a drone with the beacon and its key installed
+    if (p == "beacon.lua" or p == ".dronekey") and os.getenv("BEACON") then return true end
     return false
   end,
 }
-_G.shell = { run = function() error("simulated upload failure", 0) end }
+_G.shell = { run = function(cmd)
+  -- BEACON: starting the beacon is recorded beside the log, for the check
+  if os.getenv("BEACON") and tostring(cmd):match("^beacon") then
+    local bf = io.open((os.getenv("HARNESS_LOG") or "harness_flightlog") .. ".beacon", "w")
+    if bf then bf:write("started\n") bf:close() end
+    return true
+  end
+  error("simulated upload failure", 0)
+end }
+-- BEACON_PARENT: fly was started by the beacon, which marks its flights
+if os.getenv("BEACON_PARENT") then _G.DRONENET_FROM_BEACON = true end
 
 -- peripherals
 local periphs, names = {}, {}

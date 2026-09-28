@@ -187,8 +187,10 @@ local function drone(opts)
     getComputerID = function() return 7 end,
   }, { __index = os })
   -- opts.fails: the numbers of the flights that fail (a crash, a refusal)
+  w.marked = {}
   env.shell = { run = function(cmd)
     w.runs[#w.runs + 1] = cmd
+    w.marked[#w.marked + 1] = _G.DRONENET_FROM_BEACON == true   -- fly sees it was started from the beacon
     -- opts.dropsOnRun: what fly writes to .drops during this flight
     if opts.dropsOnRun then w.files[".drops"] = opts.dropsOnRun end
     if cmd:match("^fly %d+$") and w.depth > 0 then
@@ -332,6 +334,8 @@ w = run(drone({ name = "pad", cycles = 1, waitOut = 700,
                 inbox = { order(F.assign("j-1", req)), order(F.go("j-1", "pier-2")) } }))
 check("first it ferries to the pad", w.runs[1] == "fly ferry pier", w.runs[1] or "nothing")
 check("then it lands at the destination", w.runs[2] == "fly land 1200 340", w.runs[2] or "nothing")
+check("every flight it starts is marked as the beacon's, and the mark is gone after",
+  w.marked[1] == true and w.marked[2] == true and _G.DRONENET_FROM_BEACON == nil)
 check("then, ten minutes on, it takes itself home", w.runs[3] == "fly ferry home" and w.clock >= 600,
   (w.runs[3] or "nothing") .. " at " .. w.clock)
 local states = {}
@@ -432,6 +436,7 @@ for _, s in ipairs(saidOfType(w, "job.state")) do stO[#stO + 1] = s.state end
 check("obstructed: it says so and holds above instead of giving up",
   table.concat(stO, " "):find("enroute relocate enroute waiting", 1, true) ~= nil, table.concat(stO, " "))
 check("the hold is 12 above where it came to rest", w.runs[2] == "fly 102", w.runs[2])
+check("the hold is marked as the beacon's too", w.marked[2] == true)
 check("given a new spot it sets down, then flies there", w.runs[3] == "fly land 850 71 -300", w.runs[3])
 check("and the ride carries on from there", w.runs[4] == "fly land 1200 340" and w.runs[5] == "fly ferry home",
   tostring(w.runs[4]) .. " / " .. tostring(w.runs[5]))

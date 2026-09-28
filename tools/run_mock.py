@@ -170,6 +170,17 @@ SELFTEST = [
     ("brake hold, land", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
      "TUNE": "return { BRAKE_HOLD_POWER = 0.38 }", "END_CHECK": "hold 0.38"},
      ["climb", "cruise", "brake", "land", "touchdown"]),
+    # BEACON_AFTER: a flight started from the shell hands over to the beacon
+    # when it ends; one the beacon started does not start a second; no
+    # beacon.lua, nothing to start
+    ("beacon after a shell flight", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1", "BEACON": "1",
+     "BEACON_CHECK": "1"}, ["climb", "cruise", "brake", "land", "touchdown"]),
+    ("no second beacon", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1", "BEACON": "1",
+     "BEACON_PARENT": "1", "BEACON_CHECK": "0"}, ["climb", "cruise", "brake", "land", "touchdown"]),
+    ("no beacon installed", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1", "BEACON_CHECK": "0"},
+     ["climb", "cruise", "brake", "land", "touchdown"]),
+    ("beacon after a dock", ["dock", "100", "70", "50", "120"], {"TMAX": "150", "BEACON": "1", "BEACON_CHECK": "1"},
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
     # APPROACH_DECEL in tune.lua: the faster approach must still settle and
     # land on the spot, and still dock
     ("approach profile, land", ["land", "100", "64", "50"], {"TMAX": "200", "NO_PAD": "1",
@@ -339,13 +350,13 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK", "START_TILT", "PINNED", "END_CHECK"):
+              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK", "START_TILT", "PINNED", "END_CHECK", "BEACON", "BEACON_PARENT", "BEACON_CHECK"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
     os.environ["HARNESS_FINAL"] = logpath + ".final"
     # a drop record left by an earlier run must not pass for this one's
-    for ext in (".drops", ".flydrops"):
+    for ext in (".drops", ".flydrops", ".beacon"):
         if os.path.exists(logpath + ext):
             os.remove(logpath + ext)
     L = LuaRuntime(unpack_returned_tuples=True)
@@ -549,6 +560,11 @@ def main(argv=None):
             if env.get("UNDOCK_CHECK"):
                 tok, extra = undock_check(logpath)
                 ok = ok and tok
+            if env.get("BEACON_CHECK"):
+                started = os.path.exists(logpath + ".beacon")
+                tok = started == (env["BEACON_CHECK"] == "1")
+                ok = ok and tok
+                extra = "beacon " + ("started" if started else "not started")
             if env.get("END_CHECK"):
                 with open(logpath, encoding="utf-8") as fh:
                     last = [ln for ln in fh if ln.strip()][-1]

@@ -335,6 +335,16 @@ local CFG = {
   -- Q or Ctrl+T returns to the shell. Needs the radio and, sealed, a key -
   -- without them fly exits as before. false = always exit.
   TELEM_DOCKED = true,
+  -- The beacon is what the base talks to: while it is not running the drone
+  -- hears no orders at all. A flight started with fly from the shell used to
+  -- end at the prompt, and a drone left there is deaf to the base until
+  -- someone reaches its keyboard (2026-09-28: stranded at 5918 356). So a
+  -- flight the beacon did not start hands over to it when it ends - landed,
+  -- docked, crashed or stopped - on a drone with beacon.lua and its key. The
+  -- beacon never flies by itself, and Q in it returns to the shell. A flight
+  -- the beacon started just returns to it, as before. false = end at the
+  -- prompt, as before.
+  BEACON_AFTER = true,
   TELEM_DOCKED_PERIOD = 2.0,          -- s between packets while parked
   DASH_DIR = -1,
   DASH_POWER = 0.05,                  -- margin on top of the tilt-compensated hover (HOVER / cos tilt)
@@ -3952,3 +3962,10 @@ if ok and dock.connected and CFG.TELEM_ON and CFG.TELEM_DOCKED and LINK and LINK
   print("telemetry off")
 end
 if not ok and not tostring(err):find("Terminated") then print(err) end
+-- BEACON_AFTER: a flight the beacon did not start hands over to it
+if CFG.BEACON_AFTER and not _G.DRONENET_FROM_BEACON and shell and shell.run
+   and fs.exists("beacon.lua") and fs.exists(".dronekey") then
+  print("handing over to the beacon so the base can reach this drone - Q in it for the shell")
+  local okB, whyB = pcall(shell.run, "beacon")
+  if not okB then print("beacon: " .. tostring(whyB)) end
+end

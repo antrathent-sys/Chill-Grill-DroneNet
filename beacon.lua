@@ -117,6 +117,16 @@ do
 end
 local DOCK_NEAR = 4       -- blocks from a dock that count as on it
 
+-- Every flight the beacon starts is marked while it runs, so fly knows it
+-- was started from here and simply returns, rather than starting a second
+-- beacon inside itself (fly.lua BEACON_AFTER).
+local function runFly(line)
+  _G.DRONENET_FROM_BEACON = true
+  local flew = shell.run("fly " .. line)
+  _G.DRONENET_FROM_BEACON = nil
+  return flew
+end
+
 local function call(p, method)
   if not (p and p[method]) then return nil end
   local ok, v = pcall(p[method])
@@ -537,7 +547,7 @@ local function holdForSpot()
   local target, timedOut
   local deadline = os.clock() + RELOCATE_WAIT
   local flew = true
-  local function hover() flew = shell.run("fly " .. tostring(job.holdY)) end
+  local function hover() flew = runFly(tostring(job.holdY)) end
   local function listen()
     local asked = false
     while true do
@@ -637,7 +647,7 @@ while true do
     if line == HOLD and job then
       holdForSpot()           -- queues the next leg itself
     else
-      local flew = shell.run("fly " .. line)
+      local flew = runFly(line)
       sealerAfterFlight()     -- fly moved the counter on; start above it
       reportDrops()           -- a delivery says what it let go of, and where
       if ordered then jobStep(flew and true or false) end
