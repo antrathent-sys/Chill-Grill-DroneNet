@@ -176,8 +176,23 @@
 --   BRAKE_MAP top      refitted to the two measured points above 205: 1,365
 --                      from 211 b/s and 1,591 from 227 - about 14 blocks per
 --                      b/s up here. 220:1490, 235:1700, 250:1910.
+--                      Flown 09-55-21: 215 b/s at the brake, throttle 0.66 (the
+--                      0.80 ceiling touched), 7 below cruise height at worst,
+--                      pitch peak 71.7, brake 99 SHORT (needed 1,331 from 215 -
+--                      brakes up here scatter +-50), 0.9 from the mark, 81.9 s.
+--   YAW_KP 0.007       from 2026-09-28 (was 0.005). What yaw was left at 0.005
+--                      is a slow wander, not the old 1.8 s swing: yaw rate 3.7
+--                      deg/s, heading error 7.9 rms, most of it slow. The
+--                      heading comes back in ~KD/KP = 2.4 s, and with 30 deg of
+--                      lean held on the body every degree of wander pushes the
+--                      craft sideways: 27-42 blocks rms off the centreline at
+--                      KP 0.005, 6-13 at 0.01. 0.007 pulls back in 1.7 s with a
+--                      modelled 40 deg margin in cruise at 67. If the line is
+--                      still more than ~15 blocks rms off, CRUISE_TRACK_K (the
+--                      steering back to the centreline, 0.1 b/s per block) is
+--                      the next change. Revert: 0.005.
 return {
-  YAW_KP = 0.005,
+  YAW_KP = 0.007,
   YAW_KD = 0.012,
   YAW_MAX_LEAN = 0.6,
   BRAKE_EASE = 60,

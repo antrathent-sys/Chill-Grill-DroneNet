@@ -348,4 +348,6 @@ the cutoff. The next speed limit is lift: throttle 0.63 at 65, and ~80 true tilt
 |---|---|---|---|---|---|---|
 | 10 speed (`CRUISE_DEG 65 -> 70`) + brake map top raised (205:1310 ... 250:1730) | 09-28 09-42-03 | 1 | 83.8 s (79.3 at 65) | 2 | - | 0 |
 | - 227 b/s, but throttle on its 0.80 ceiling and 15 blocks low; lean error doubled; brake 78 past | | | | | | |
-| 11 lean 67, brake map top refitted to 1,365 @ 211 and 1,591 @ 227 | | | | | | |
+| 11 lean 67, brake map top refitted to 1,365 @ 211 and 1,591 @ 227 | 09-28 09-55-21 | 1 | 81.9 s | 0.9 | - | 0 |
+| - 215 b/s, throttle 0.66, 7 low at worst, pitch 71.7; brake 99 short (brakes up here scatter +-50) | | | | | | |
+| 12 heading gain `YAW_KP 0.005 -> 0.007`: slow wander, 27-42 blocks rms off the centreline at 0.005 | | | | | | |
