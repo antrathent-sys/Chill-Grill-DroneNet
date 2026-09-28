@@ -101,6 +101,10 @@ order queue, ETAs. Mostly a rendering job now that telemetry carries real data;
 - **More top speed** needs rotational authority, not thrust: wider thruster
   spacing, canted thrusters or vector bearings for torque about the thrust
   axis, a lower centre of mass. See PERFORMANCE.md.
+- **The service outside the game.** A Cinder side and a customer side on a
+  small host, with the base as the bridge. Planned in [SERVICE.md](SERVICE.md),
+  not decided. The part that matters now: build the order book against the
+  contract there, so the split is only ever a change of where orders come from.
 - **An air traffic board** for other people's craft, described at the end of
   this file. It shares the telemetry format and the screens, and it is the
   first thing here that other players would use.

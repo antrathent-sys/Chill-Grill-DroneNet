@@ -58,6 +58,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 | `paste.lua` | `paste <file>`: a file off the computer through pastebin, then paste.rs if pastebin refuses, printing the real reason (`pastebin put` only ever says Failed; pastebin limits guest pastes per key and IP, and CC's key is shared by everyone). No token needed. Tested by `tools/run_paste_test.py`. |
 | `probe.lua` | Read-only. Dumps what CC: Sable reports on the drone and cross-checks it against GPS and the gimbal sensor. Never touches the thruster. |
 | `logs/flightlog_summary.py` | Post-flight analysis of a `flightlog` CSV: per-phase summary and sampled rows. |
+| [SERVICE.md](SERVICE.md) | The plan for running the business outside the game: a Cinder side and a customer side on a small host, the base as the bridge, and the contract between them. Planned, not decided. |
 | [PERFORMANCE.md](PERFORMANCE.md) | What the craft does and what stops it doing more: trip time = 64 s + distance/171, where the 64 s goes, why the limit is attitude and not thrust, and the levers in order. |
 | `tools/fleetstats.py` | A stat report over every log in `logs/flights`: how flights ended, landing miss and touchdown speed, captures per dock, cruise, energy, and a "worth a look" list. `--since <date>`, `--days`, and `--split <date>` to compare before and after a change. |
 

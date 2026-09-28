@@ -219,7 +219,10 @@ dropped - is never run a second time.
 Small steps, each tested on the desktop before it goes near a drone:
 
 Parcels first now, because that is what word of mouth sells; rides already
-work and can move over afterwards.
+work and can move over afterwards. Build it against the message contract in
+[SERVICE.md](SERVICE.md): `ops order add` makes an `order.new` exactly as a
+service outside the game would send one, so if the business ever moves out
+of Minecraft, nothing here changes but where that message comes from.
 
 1. **`lib/orders.lua`**, pure: the record, the checks, the log line format,
    runs from an amount, and rebuilding every open order from the log.
