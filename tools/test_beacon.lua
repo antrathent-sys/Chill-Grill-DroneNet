@@ -333,7 +333,7 @@ print("a taxi job, end to end")
 local req = F.request({ name = "pier", x = 100, y = 70, z = -50 }, { x = 1200, z = 340 }, "pier-1")
 w = run(drone({ name = "pad", cycles = 1, waitOut = 700,
                 inbox = { order(F.assign("j-1", req)), order(F.go("j-1", "pier-2")) } }))
-check("first it ferries to the pad", w.runs[1] == "fly ferry pier", w.runs[1] or "nothing")
+check("first it ferries to the pad", w.runs[1] == "fly ferry pier at 100 70 -50", w.runs[1] or "nothing")
 check("then it lands at the destination", w.runs[2] == "fly land 1200 340", w.runs[2] or "nothing")
 check("every flight it starts is marked as the beacon's, and the mark is gone after",
   w.marked[1] == true and w.marked[2] == true and _G.DRONENET_FROM_BEACON == nil)
@@ -376,7 +376,7 @@ check("told another drone is coming in: home at once", w.runs[3] == "fly ferry h
 local reqL2 = F.request({ name = "market", x = 300, y = 70, z = 40 }, { x = 9, z = 9 }, "mkt-1")
 w = run(drone({ name = "pad", cycles = 1, inbox = { order(F.assign("j-L4", reqL)), order(F.go("j-L4", "pier-L5")),
                 order(F.assign("j-L5", reqL2)) } }))
-check("a new job while waiting: it goes for that, not home", w.runs[3] == "fly ferry market" and w.files[".linger"] == nil,
+check("a new job while waiting: it goes for that, not home", w.runs[3] == "fly ferry market at 300 70 40" and w.files[".linger"] == nil,
   tostring(w.runs[3]))
 w = run(drone({ name = "pad", cycles = 1, stored = 300000,
                 inbox = { order(F.assign("j-L6", reqL)), order(F.go("j-L6", "pier-L7")) } }))

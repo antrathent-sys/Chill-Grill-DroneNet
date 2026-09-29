@@ -146,7 +146,7 @@ none, whyNot = F.pick({}, PAD, now)
 check("an empty fleet says so", none == nil and whyNot:match("called in"), whyNot)
 
 print("the flights a job turns into")
-check("pickup ferries to the pad", F.legCommand("pickup", asg) == "ferry pier", F.legCommand("pickup", asg))
+check("pickup ferries to the pad, with the base's record of it", F.legCommand("pickup", asg) == "ferry pier at 100 70 -50", F.legCommand("pickup", asg))
 check("the ride lands at the destination", F.legCommand("ride", asg) == "land 1200 340", F.legCommand("ride", asg))
 -- fly land puts the ground height in the MIDDLE: land <x> <y> <z>
 local withY = F.assign("j-2", F.request(PAD, { x = 10, z = 20, y = 90 }, "n-1"))
@@ -163,7 +163,7 @@ check("the drone is sent to land by the customer",
 local noY = F.assign("j-4", F.request({ x = 812, z = -344 }, { x = 1, z = 2 }, "pocket-2"))
 check("no ground height known: just x and z",
   F.legCommand("pickup", noY) == "land 812 -344", F.legCommand("pickup", noY))
-check("a pad pickup still ferries", F.legCommand("pickup", asg) == "ferry pier")
+check("a pad pickup still ferries", F.legCommand("pickup", asg):match("^ferry pier") ~= nil)
 check("then home", F.legCommand("home", asg) == "ferry home")
 check("and nothing else", F.legCommand("teleport", asg) == nil)
 

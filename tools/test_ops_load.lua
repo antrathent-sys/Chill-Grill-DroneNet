@@ -176,7 +176,7 @@ local function base(opts)
       w.later[#w.later + 1] = entry
     end
     local AT = { pier = { 1950.5, 400.5 }, home = { 1892.5, 365.5 } }
-    if body.type == "ops.fly" and body.args == "ferry pier" then
+    if body.type == "ops.fly" and body.args:match("^ferry pier") then
       arriveIn(drone.flightSecs or 5, 1950.5, 400.5)
     elseif body.type == "ops.fly" and body.args:match("^deliver") then
       w.flying = true
@@ -741,7 +741,7 @@ w = base({ args = {}, keysAt = { { 20, "q" } }, files = { [".adminkeys"] = "alex
            later = { { 3, F.adminTrip("drone-1", "stop:chid-1", "adm-in"), "admin" } } }):run()
 local fin = {}
 for _, b in ipairs(w.orders) do if b.type == "ops.fly" then fin[#fin + 1] = b.args end end
-check("the admin pocket still sends a drone there: ferry chid-1", w.err == nil and fin[1] == "ferry chid-1", w.err or table.concat(fin, " "))
+check("the admin pocket still sends a drone there: ferry chid-1", w.err == nil and fin[1] == "ferry chid-1 at 2497 71 3297", w.err or table.concat(fin, " "))
 
 -- missed its dock three times and set down beside it: not latched, but on the
 -- ground and able to fly, so the next customer still gets it
@@ -765,7 +765,7 @@ check("a depot with no key is refused", has(w, "no key for depot-farm"))
 w = base({ args = {}, depot = {}, files = { ["loads.queue"] = queued }, keysAt = { { 60, "q" } } }):run()
 local o = {}
 for _, b in ipairs(w.orders) do o[#o + 1] = b.type .. (b.args and (":" .. b.args) or "") end
-check("the board sends the drone to the depot's dock", w.err == nil and o[1] == "ops.fly:ferry pier", w.err or table.concat(o, " "))
+check("the board sends the drone to the depot's dock", w.err == nil and o[1] == "ops.fly:ferry pier at 1950 70 400", w.err or table.concat(o, " "))
 local starts = {}
 for _, b in ipairs(w.depotHeard) do if b.type == "load.start" then starts[#starts + 1] = b end end
 check("once it is docked there and the depot is awake, the depot gets the load", #starts == 1 and starts[1].drone == "drone-1"
@@ -942,10 +942,10 @@ local said = {}
 for _, a in ipairs(a1) do said[#said + 1] = a.text end
 check("the trip is taken and answered", w.err == nil and a1[1] and a1[1].ok == true
   and a1[1].text:find("T-1: 2 stops", 1, true) ~= nil, w.err or table.concat(said, " / "))
-check("its first leg goes to the drone as an order: ferry pier", f1[1] == "ferry pier", table.concat(f1, " / "))
+check("its first leg goes to the drone as an order: ferry pier", f1[1] == "ferry pier at 1950 70 400", table.concat(f1, " / "))
 check("down at the pier it says so, and waits for Go", table.concat(said, " / "):find("down at pier", 1, true) ~= nil,
   table.concat(said, " / "))
-check("Go sends the next leg: ferry home", f1[2] == "ferry home", table.concat(f1, " / "))
+check("Go sends the next leg: ferry home", f1[2] == "ferry home at 1892 91 365", table.concat(f1, " / "))
 w = base({ args = {}, keysAt = { { 12, "q" } }, files = { [".adminkeys"] = AK },
            later = { { 3, F.adminTrip("drone-1", "stop:nowhere", "adm-3"), "admin" } } }):run()
 local a2 = acks(w)
@@ -987,7 +987,7 @@ check("Cancel in the air: the drone is told to stop", w.err == nil and s4:find("
 check("once it hovers the pocket hears where", s4:find("hovering at", 1, true) ~= nil, s4)
 check("a new trip from the hover replaces the old one", s4:find("T-1 replaced by T-2", 1, true) ~= nil
   and s4:find("T-2: 1 stop, from the air", 1, true) ~= nil, s4)
-check("and goes to the flight itself, not the beacon: stop, then goto", kinds(w) == "ops.fly:ferry pier unit.stop unit.goto:ferry home",
+check("and goes to the flight itself, not the beacon: stop, then goto", kinds(w) == "ops.fly:ferry pier at 1950 70 400 unit.stop unit.goto:ferry home at 1892 91 365",
   kinds(w))
 check("down at home, the trip is done", s4:find("T-2 down at home - trip done", 1, true) ~= nil, s4)
 w = base({ args = {}, keysAt = { { 50, "q" } }, files = { [".adminkeys"] = AK }, drone = { ord = true, flightSecs = 30 },
@@ -995,14 +995,14 @@ w = base({ args = {}, keysAt = { { 50, "q" } }, files = { [".adminkeys"] = AK },
                      { 10, F.adminCmd("cancel", "drone-1", "adm-31"), "admin" },
                      { 20, F.adminCmd("cancel", "drone-1", "adm-32"), "admin" } } }):run()
 local s5 = saidAll(w)
-check("Cancel again while it hovers: home, and the trip is over", kinds(w) == "ops.fly:ferry pier unit.stop unit.goto:ferry home"
+check("Cancel again while it hovers: home, and the trip is over", kinds(w) == "ops.fly:ferry pier at 1950 70 400 unit.stop unit.goto:ferry home at 1892 91 365"
   and s5:find("T-1 cancelled - home from the hover", 1, true) ~= nil, kinds(w) .. " | " .. s5)
 w = base({ args = {}, keysAt = { { 50, "q" } }, files = { [".adminkeys"] = AK }, drone = { ord = true, flightSecs = 30 },
            later = { { 3, F.adminTrip("drone-1", "stop:pier", "adm-40"), "admin" },
                      { 10, F.adminTrip("drone-1", "stop:home", "adm-41"), "admin" } } }):run()
 local s6 = saidAll(w)
 check("a new trip mid-flight, no Cancel first: straight to a goto (fly stops by itself first)",
-  kinds(w) == "ops.fly:ferry pier unit.goto:ferry home" and s6:find("T-2 down at home - trip done", 1, true) ~= nil,
+  kinds(w) == "ops.fly:ferry pier at 1950 70 400 unit.goto:ferry home at 1892 91 365" and s6:find("T-2 down at home - trip done", 1, true) ~= nil,
   kinds(w) .. " | " .. s6)
 w = base({ args = {}, keysAt = { { 50, "q" } }, files = { [".adminkeys"] = AK }, drone = { flightSecs = 30 },
            later = { { 3, F.adminTrip("drone-1", "stop:pier;stop:home", "adm-50"), "admin" },
@@ -1010,7 +1010,7 @@ w = base({ args = {}, keysAt = { { 50, "q" } }, files = { [".adminkeys"] = AK },
                      { 12, F.adminTrip("drone-1", "stop:home", "adm-52"), "admin" } } }):run()
 local s7 = saidAll(w)
 check("a drone that cannot stop in the air: no stop sent, the trip ends at its stop",
-  kinds(w) == "ops.fly:ferry pier" and s7:find("cannot stop in the air", 1, true) ~= nil
+  kinds(w) == "ops.fly:ferry pier at 1950 70 400" and s7:find("cannot stop in the air", 1, true) ~= nil
   and s7:find("cancelled - down at pier", 1, true) ~= nil, kinds(w) .. " | " .. s7)
 check("...and a new trip for it in the air is refused", s7:find("is on T-1 - cancel it first", 1, true) ~= nil, s7)
 

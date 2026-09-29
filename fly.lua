@@ -1888,6 +1888,25 @@ function PAD.dock(name)
   return p
 end
 
+-- A dock by name for a ferry: this drone's own record when it has one - made
+-- standing on it, so connector-exact - else the base's record sent with the
+-- order ("ferry <name> at <x> <y> <z>"), so a dock this drone has never been
+-- to is still somewhere it can go (Alex, 2026-09-29: "why cant the base call
+-- it by name now?"). A landing pad is refused either way.
+function PAD.dockOr(name, x, y, z)
+  local okP, p = pcall(PAD.dock, name)
+  if okP then
+    if x and z and math.abs(p.x - x) + math.abs(p.z - z) > 2 then
+      print(string.format("%s: flying to this drone's record %d %d %d (the base has %d %d %d)",
+        p.name, p.x, p.y, p.z, x, y or 0, z))
+    end
+    return p
+  end
+  if not (x and y and z) or (PAD.lib and PAD.lib.get(PAD.list, name)) then error(p, 0) end
+  print(string.format("%s: not recorded on this drone - flying to the base's record %d %d %d", tostring(name), x, y, z))
+  return { name = tostring(name):lower(), kind = "dock", x = x, y = y, z = z }
+end
+
 -- The home pad: a pad called "home" if there is one, else CFG.
 function PAD.home()
   local p = PAD.lib and PAD.lib.get(PAD.list, "home")
@@ -1990,10 +2009,14 @@ else
     -- lands on the far pad, which is the path with the flight hours behind it.
     -- It stays docked there, so loading happens at the depot.
     if not CFG.DOCK_SIDE then error("ferry needs CFG.DOCK_SIDE set") end
-    if not arg[2] or tonumber(arg[2]) then error("ferry takes a dock name: fly ferry <dock>   (fly pads lists them)", 0) end
-    local pad = PAD.dock(arg[2])
+    if not arg[2] or tonumber(arg[2]) then
+      error("ferry takes a dock name: fly ferry <dock> [at <x> <y> <z>]   (fly pads lists them)", 0)
+    end
+    -- "at x y z": the base's record, for a dock this drone has never been to
+    local at = arg[3] == "at"
+    local pad = PAD.dockOr(arg[2], at and tonumber(arg[4]), at and tonumber(arg[5]), at and tonumber(arg[6]))
     PAD.name = pad.name
-    goal = tonumber(arg[3]) or pad.cruiseY or CFG.CRUISE_Y
+    goal = tonumber(at and arg[7] or arg[3]) or pad.cruiseY or CFG.CRUISE_Y
     legs = {
       { leg = "dock", x = blockCentre(pad.x), z = blockCentre(pad.z), padY = pad.y, y = goal,
         trimX = pad.trimX, trimZ = pad.trimZ, undock = true },
@@ -2822,10 +2845,11 @@ function FL.orderLegs(args)
   for s in tostring(args or ""):gmatch("%S+") do w[#w + 1] = s end
   if w[1] == "ferry" and w[2] then
     if not CFG.DOCK_SIDE then return nil, "ferry needs CFG.DOCK_SIDE" end
-    local okP, pad = pcall(PAD.dock, w[2])
+    local at = w[3] == "at"
+    local okP, pad = pcall(PAD.dockOr, w[2], at and tonumber(w[4]), at and tonumber(w[5]), at and tonumber(w[6]))
     if not okP then return nil, tostring(pad) end
     return { { leg = "dock", x = blockCentre(pad.x), z = blockCentre(pad.z), padY = pad.y,
-               y = tonumber(w[3]) or pad.cruiseY or CFG.CRUISE_Y, trimX = pad.trimX, trimZ = pad.trimZ } }
+               y = tonumber(at and w[7] or w[3]) or pad.cruiseY or CFG.CRUISE_Y, trimX = pad.trimX, trimZ = pad.trimZ } }
   elseif w[1] == "land" and w[2] then
     local x, y, z, cruise = tonumber(w[2]), tonumber(w[3]), tonumber(w[4]), w[5]
     if not x then

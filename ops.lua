@@ -698,8 +698,10 @@ if cmd == "fly" or cmd == "send" or cmd == "land" or cmd == "hold" or cmd == "un
     who = args[2]
     line2 = table.concat({ table.unpack and table.unpack(args, 3) or unpack(args, 3) }, " ")
   elseif cmd == "send" then
-    who, line2 = args[2], "ferry " .. tostring(args[3] or "")
     if not args[3] then print("ops send <drone|any> <pad>") return end
+    -- with this base's record of the dock, so a drone never there still goes
+    local sp = padByName(args[3])
+    who, line2 = args[2], (sp and sp.kind ~= "pad") and F.ferryTo(sp.name, sp.x, sp.y, sp.z) or ("ferry " .. args[3])
   end
   if cmd == "land" or cmd == "hold" or cmd == "undock" then
     -- fly's own in-flight words. fly takes them only on a WIRED modem
@@ -1562,7 +1564,8 @@ local function depotLoop()
           if droneAt(drone, L.dock) then
             L.state, L.at = "sent", now
           else
-            local sent, why = order(drone, F.flyCommand("ferry " .. L.dock, nonce()))
+            local dp = padByName(L.dock)
+            local sent, why = order(drone, F.flyCommand(F.ferryTo(L.dock, dp and dp.x, dp and dp.y, dp and dp.z), nonce()))
             if sent then
               L.state, L.at = "sent", now
               log("%s sent to %s for load %s", drone, L.dock, L.id)

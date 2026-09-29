@@ -698,13 +698,24 @@ local function landAt(x, y, z)
   return string.format("land %d %d", math.floor(x), math.floor(z))
 end
 
+-- A ferry to a dock the base knows: its name, and the base's record of where
+-- it is, so a drone that has never been there still goes. A drone with its
+-- own record (made standing on it, connector-exact) flies to that instead
+-- (fly.lua PAD.dockOr). No height on record: the name alone, as before.
+function F.ferryTo(name, x, y, z)
+  if num(x) and num(y) and num(z) then
+    return string.format("ferry %s at %d %d %d", tostring(name), math.floor(x), math.floor(y), math.floor(z))
+  end
+  return "ferry " .. tostring(name)
+end
+
 function F.legCommand(step, m)
   if step == "pickup" then
     if m.board then return nil end        -- already where the customer is
     -- A named DOCK: ferry to it and latch on. Anywhere else - a landing pad
     -- included - land beside the customer. ops only names docks, so a job
     -- never asks a craft to latch onto a field.
-    if str(m.pad) then return "ferry " .. m.pad end
+    if str(m.pad) then return F.ferryTo(m.pad, m.px, m.py, m.pz) end
     if num(m.px) and num(m.pz) then return landAt(m.px, m.py, m.pz) end
     return nil
   end

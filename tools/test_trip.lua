@@ -37,12 +37,12 @@ local segs = T.segments(l2)
 check("vias ride with the stop after them", #segs == 2 and #segs[1].vias == 2 and segs[1].stop.name == "home"
   and #segs[2].vias == 0 and segs[2].stop.name == "rules")
 check("a pad is landed on, from the base's own record", T.command({ vias = {}, stop = PLACES[2] }) == "land -40 70 812")
-check("a dock is ferried to by name", T.command({ vias = {}, stop = PLACES[1] }) == "ferry home"
-  and T.command({ vias = {}, stop = PLACES[4] }) == "ferry pier")
+check("a dock is ferried to by name", T.command({ vias = {}, stop = PLACES[1] }) == "ferry home at 1892 91 365"
+  and T.command({ vias = {}, stop = PLACES[4] }) == "ferry pier at 1950 70 400")
 local c, w = T.command(segs[1])
 check("waypoints are refused until fly can fly them", c == nil and tostring(w):find("route mode", 1, true) ~= nil, w)
 T.VIAS = true
-check("...and then make one route command", T.command(segs[1]) == "route via rules via market ferry home",
+check("...and then make one route command", T.command(segs[1]) == "route via rules via market ferry home at 1892 91 365",
   T.command(segs[1]))
 T.VIAS = false
 
