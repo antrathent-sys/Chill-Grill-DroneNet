@@ -365,6 +365,10 @@ check("an answer has a verdict and a line", F.check(F.adminAck(true, "T-1: off n
   and not F.check(F.adminAck(nil, "x", "a-8")) and not F.check(F.adminAck(true, "", "a-9")))
 check("nothing else pretends to be one", not F.check({ v = 1, type = "admin.fly", nonce = "a-10" }))
 
+print("internal places")
+local pk = F.packPlaces({ { name = "spawn", x = 958, z = 505 }, { name = "chid-1", x = 2497, z = 3297, internal = true } })
+check("the fleet's own places never go to a terminal", pk:find("spawn", 1, true) ~= nil and pk:find("chid", 1, true) == nil, pk)
+
 print("orders in the air")
 check("a stop names its unit", F.check(F.stop("drone-1", "s-1")) and not F.check(F.stop(nil, "s-2")))
 check("a goto is a ferry or a landing", F.check(F.goto("drone-1", "ferry pier", "s-3"))

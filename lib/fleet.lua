@@ -428,7 +428,8 @@ end
 function F.packPlaces(list)
   local out = {}
   for _, p in ipairs(list or {}) do
-    if type(p) == "table" and p.name and p.x and p.z then
+    -- the fleet's own places (a depot) never go to a customer's terminal
+    if type(p) == "table" and p.name and p.x and p.z and not p.internal then
       -- name:x:z, then :y when the place has one - height is where a landing
       -- starts braking, so it travels with the place
       local entry = string.format("%s:%d:%d", tostring(p.name):gsub("[|:]", ""), math.floor(p.x), math.floor(p.z))

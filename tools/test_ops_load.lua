@@ -636,6 +636,29 @@ for _, a in ipairs(w.answered) do if a.msg and a.msg.type == "places.list" then 
 check("a place added while the board runs is sent out without a restart",
   w.err == nil and listed and listed:find("farm", 1, true), w.err or tostring(listed))
 
+print("internal places: the fleet's, not the customers'")
+local DEPOTS = 'return { { name = "home", x = 1892, y = 91, z = 365, kind = "dock" }, '
+  .. '{ name = "spawn", x = 958, y = 71, z = 505, kind = "pad" }, '
+  .. '{ name = "chid-1", x = 2497, y = 71, z = 3297, kind = "dock", label = "CHID 1", internal = true } }'
+w = base({ args = {}, files = { ["pads.lua"] = DEPOTS }, keysAt = { { 8, "q" } } })
+w.later[#w.later + 1] = { at = 3, ev = { "rednet_message", 12, F.placesAsk("p-in"), F.PROTO } }
+w = w:run()
+local offered
+for _, a in ipairs(w.answered) do if a.msg and a.msg.type == "places.list" then offered = a.msg.places end end
+check("a terminal is offered every place but the depot", w.err == nil and offered and offered:find("spawn", 1, true)
+  and offered:find("chid", 1, true) == nil, w.err or tostring(offered))
+w = base({ args = { "place" }, files = { ["pads.lua"] = DEPOTS } }):run()
+check("ops place lists it, marked", w.err == nil and has(w, "INTERNAL"), w.err or w.text)
+w = base({ args = { "place", "internal", "spawn" }, files = { ["pads.lua"] = DEPOTS } }):run()
+check("ops place internal marks one", w.err == nil and tostring(w.files["pads.lua"]):find('"spawn", kind = "pad", x = 958, y = 71, z = 505, internal = true', 1, true),
+  w.err or w.files["pads.lua"])
+w = base({ args = { "place", "internal", "chid-1", "off" }, files = { ["pads.lua"] = DEPOTS } }):run()
+check("...and off gives it back", w.err == nil and tostring(w.files["pads.lua"]):find('"chid-1"', 1, true)
+  and not tostring(w.files["pads.lua"]):match("chid%-1[^\n]*internal = true"), w.files["pads.lua"])
+w = base({ args = { "place", "add", "chid-2", "2497", "71", "-3337", "dock", "internal" }, files = { ["pads.lua"] = DEPOTS } }):run()
+check("ops place add ... dock internal", w.err == nil and has(w, "chid-2 (dock, internal)")
+  and tostring(w.files["pads.lua"]):match("chid%-2[^\n]*internal = true") ~= nil, w.err or w.text)
+
 print("hails with no pass")
 -- a pad terminal with no key, calling by plain rednet
 local function hail(w, t)
@@ -694,6 +717,31 @@ for _, b in ipairs(w.orders) do if b.type == "job.assign" then assigns[#assigns 
 a1 = assigns[1] or {}
 check("well away from every known place, the fix stands",
   a1.px == 2300 and a1.py == 70 and a1.pz == 700, string.format("%s %s %s", tostring(a1.px), tostring(a1.py), tostring(a1.pz)))
+
+-- a customer's hail to a depot, or from beside one, is refused: by name, or
+-- by coordinates alone (a terminal that makes its own list)
+local function hailTo(dest, from, n)
+  local ww = base({ args = {}, files = { [".hailsopen"] = open, ["pads.lua"] = DEPOTS }, keysAt = { { 4, "q" } } })
+  ww.later[#ww.later + 1] = { at = 2, ev = { "rednet_message", 12, F.request(from, dest, n, "pocket-12"), F.PROTO } }
+  ww = ww:run()
+  local nAssign = 0
+  for _, b in ipairs(ww.orders) do if b.type == "job.assign" then nAssign = nAssign + 1 end end
+  local why = ww.answered[1] and ww.answered[1].msg.why
+  return nAssign, why, ww
+end
+local nA, whyA = hailTo({ x = 2497, z = 3297, name = "chid-1" }, { x = 2300, y = 70, z = 700 }, "in-1")
+check("to a depot by name: refused, and told why", nA == 0 and whyA == "not a place customers can use", tostring(whyA))
+nA, whyA = hailTo({ x = 2500, z = 3290 }, { x = 2300, y = 70, z = 700 }, "in-2")
+check("to a depot by coordinates only: refused", nA == 0 and whyA == "not a place customers can use", tostring(whyA))
+nA, whyA = hailTo({ x = 958, z = 505, name = "spawn" }, { x = 2495, y = 71, z = 3300 }, "in-3")
+check("from beside a depot: refused", nA == 0 and whyA == "not a place customers can use", tostring(whyA))
+nA = hailTo({ x = 958, z = 505, name = "spawn" }, { x = 2300, y = 70, z = 700 }, "in-4")
+check("an ordinary ride on the same base still goes", nA == 1, nA)
+w = base({ args = {}, keysAt = { { 20, "q" } }, files = { [".adminkeys"] = "alex=3f3e3d3c3b3a393837363534333231302f2e2d2c2b2a29282726252423222120\n", ["pads.lua"] = DEPOTS },
+           later = { { 3, F.adminTrip("drone-1", "stop:chid-1", "adm-in"), "admin" } } }):run()
+local fin = {}
+for _, b in ipairs(w.orders) do if b.type == "ops.fly" then fin[#fin + 1] = b.args end end
+check("the admin pocket still sends a drone there: ferry chid-1", w.err == nil and fin[1] == "ferry chid-1", w.err or table.concat(fin, " "))
 
 -- missed its dock three times and set down beside it: not latched, but on the
 -- ground and able to fly, so the next customer still gets it

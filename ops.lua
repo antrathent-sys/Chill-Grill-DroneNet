@@ -322,6 +322,7 @@ local function shout(msg) pcall(rednet.broadcast, msg, F.PROTO) end
 -- ------------------------------------------------------------- the fleet ----
 -- Built from telemetry alone: a drone exists the moment a packet of its opens.
 local fleet, pads, jobs, padStats = {}, {}, {}, {}
+local publicPads = {}          -- pads without the fleet's internal ones: all a customer is offered
 -- Everyone waiting for a shuttle, in the order they asked. Nothing is promised
 -- to anyone until a drone is actually free - see lib/queue.lua for the rules,
 -- which are four sentences long on purpose.
@@ -474,6 +475,7 @@ local function padsFresh()
   padStamp = stamp
   -- with Cinder HQ always in it: the one place every terminal must offer
   pads = padsLib.withHome(padsLib.load("pads.lua", fs) or {})
+  publicPads = padsLib.public(pads)
 end
 padsFresh()
 local function padByName(name)
@@ -578,7 +580,7 @@ local function dispatch(req, from)
   -- The destination as this computer knows it. A known place's own record
   -- wins over what the terminal sent, which is also what makes a ride home
   -- free only when it really goes home.
-  local dest = F.placeFor(pads, req.toName, req.tx, req.tz)
+  local dest = F.placeFor(publicPads, req.toName, req.tx, req.tz)
   if dest then req.toName, req.tx, req.tz, req.ty = dest.name, dest.x, dest.z, dest.y
   else req.toName = nil end
   -- The pickup is a known place if it names one, otherwise wherever the
@@ -591,7 +593,7 @@ local function dispatch(req, from)
   -- 2026-09-25), and a pass that predates the pocket's own rule still sends
   -- its fix. Only well away from every known place does a fix stand.
   if not known and not req.pad then
-    known = F.placeFor(pads, nil, req.px, req.pz, F.PICKUP_NEAR)
+    known = F.placeFor(publicPads, nil, req.px, req.pz, F.PICKUP_NEAR)
     if known then
       req.pad = known.name
       log("pickup %d %d is by %s - sent to its record", math.floor(req.px), math.floor(req.pz), known.name)
@@ -1226,12 +1228,14 @@ if cmd == "place" then
     end
     local kind = (args[7] or "pad"):lower()
     local entry = { name = name:lower(), kind = kind,
-                    x = math.floor(x), y = math.floor(y), z = math.floor(z) }
+                    x = math.floor(x), y = math.floor(y), z = math.floor(z),
+                    internal = (args[8] or ""):lower() == "internal" or nil }
     local ok, why = P.check(entry)
     if not ok then print("no: " .. tostring(why)) return end
     list = P.put(list, entry)
     local okW, whyW = P.save("pads.lua", list, fs)
-    print(okW and string.format("%s (%s) is at %d %d %d", entry.name, entry.kind, entry.x, entry.y, entry.z)
+    print(okW and string.format("%s (%s%s) is at %d %d %d", entry.name, entry.kind, entry.internal and ", internal" or "",
+                                entry.x, entry.y, entry.z)
                or ("could not save: " .. tostring(whyW)))
     if okW then keep() end
     return
@@ -1260,6 +1264,23 @@ if cmd == "place" then
     print(okW and ("removed " .. args[3]:lower()) or "could not save pads.lua")
     if okW then keep() end
     return
+  elseif sub == "internal" then
+    -- the fleet's own (a depot): off every customer list, nobody's pickup or
+    -- destination. `off` gives it back to the customers.
+    local name = args[3] and args[3]:lower()
+    if not name then print("ops place internal <name> [off]") return end
+    local p = P.get(list, name)
+    if not p then print("no place called " .. name) return end
+    local entry = {}
+    for k, v in pairs(p) do entry[k] = v end
+    entry.internal = (args[4] or ""):lower() ~= "off" or nil
+    list = P.put(list, entry)
+    local okW, whyW = P.save("pads.lua", list, fs)
+    if not okW then print("could not save: " .. tostring(whyW)) return end
+    print(entry.internal and (name .. " is internal: the fleet's only, off the customers' list")
+                         or (name .. " is back on the customers' list"))
+    keep()
+    return
   elseif sub == "keep" then
     keep()
     return
@@ -1268,8 +1289,9 @@ if cmd == "place" then
   print(string.format("%-12s %-4s %7s %5s %7s  %s", "PLACE", "KIND", "X", "Y", "Z", "SHOWN AS"))
   for _, p in ipairs(shown) do
     local as = P.label(p)
-    print(string.format("%-12s %-4s %7d %5d %7d  %s%s", p.name, p.kind or "dock", p.x, p.y or 0, p.z,
-      as ~= p.name:upper() and as or "", (standard and p.name == P.HOME) and "  (standard)" or ""))
+    print(string.format("%-12s %-4s %7d %5d %7d  %s%s%s", p.name, p.kind or "dock", p.x, p.y or 0, p.z,
+      as ~= p.name:upper() and as or "", (standard and p.name == P.HOME) and "  (standard)" or "",
+      p.internal and "  INTERNAL" or ""))
   end
   if standard then
     print("")
@@ -1277,6 +1299,7 @@ if cmd == "place" then
   end
   print("")
   print("a drone lands at a pad and docks at a dock. terminals pick these up")
+  print("(all but INTERNAL ones - ops place internal <name> [off])")
   print("the next time they ask; a dock also needs the drone to know it:")
   print("fly pad add <name>, standing on it")
   return
@@ -1756,7 +1779,13 @@ function handle(from, msg, customer, sealedBy)
         else
           -- the rate slot is only spent on a hail we are really going to act on
           local slowEnough, whyRate = F.rateOk(lastHail, caller, os.clock(), HAIL_EVERY)
-          if not slowEnough then
+          -- the fleet's own places (a depot) are nobody's pickup or destination
+          local inside = padsLib and (padsLib.internalAt(pads, msg.pad, msg.px, msg.pz, F.PLACE_NEAR)
+                                      or padsLib.internalAt(pads, msg.toName, msg.tx, msg.tz, F.PLACE_NEAR))
+          if inside then
+            pcall(rednet.send, from, F.ack("j-none", "ops", false, "not a place customers can use", nonce()), F.PROTO)
+            log("a hail from %s touches %s, an internal place - refused", caller, inside.name)
+          elseif not slowEnough then
             pcall(rednet.send, from, F.ack("j-none", "ops", false, whyRate, nonce()), F.PROTO)
             log("another hail from %s, %s", caller, whyRate)
           else
@@ -1786,7 +1815,7 @@ function handle(from, msg, customer, sealedBy)
                    z = math.floor(nd.z), place = at and at.name or nil }
           msg.px, msg.pz = nd.x, nd.z
         end
-        local blocks, toName = F.quoteBlocks(pads, msg)
+        local blocks, toName = F.quoteBlocks(publicPads, msg)
         local fare, why = LEDGER.fare(blocks, toName, tariff)
         pcall(rednet.send, from, F.fareQuote(fare, why, nonce(), msg.nonce, near,
           F.freeCount(fleet, os.clock())), F.PROTO)
@@ -1823,7 +1852,7 @@ function handle(from, msg, customer, sealedBy)
         -- the pads this base knows, so a customer picks a name instead of
         -- typing coordinates off F3 - and how many units are free, which the
         -- list shows. Not logged: a pass on its list asks every 15 s.
-        pcall(rednet.send, from, F.placesList(pads, nonce(), F.freeCount(fleet, os.clock())), F.PROTO)
+        pcall(rednet.send, from, F.placesList(publicPads, nonce(), F.freeCount(fleet, os.clock())), F.PROTO)
       elseif msg.type == "ops.ping" then
         -- "can you hear me?" - and how many drones are free right now
         local free = F.freeCount(fleet, os.clock())

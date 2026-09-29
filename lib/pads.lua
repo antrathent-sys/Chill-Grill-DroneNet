@@ -17,6 +17,11 @@
 -- plus optional per-pad trims for a connector that is not directly under the
 -- centre of mass.
 --
+-- internal = true: the fleet's own - a depot the drones dock at to take on,
+-- deliver and drop off cargo (Alex, 2026-09-29: CHID 1 and 2). Never offered
+-- to a customer, never a customer's pickup or destination; the admin pocket,
+-- ops and the depots use it like any other place.
+--
 -- The list lives in a file on the computer (fly.lua CFG.PADS_FILE, "pads.lua")
 -- and NOT in the repo: pads are per world, and startup would overwrite them.
 -- `fly pad add <name> [dock|pad]` writes it from where the craft is standing;
@@ -102,8 +107,27 @@ function pads.check(e)
   end
   return { name = name, x = x, y = y, z = z, kind = kind, label = label,
            trimX = num(e.trimX) or 0, trimZ = num(e.trimZ) or 0,
-           cruiseY = num(e.cruiseY),
+           cruiseY = num(e.cruiseY), internal = e.internal == true or nil,
            note = type(e.note) == "string" and e.note or nil }
+end
+
+--- The places customers may use: all but the fleet's internal ones.
+function pads.public(list)
+  local out = {}
+  for _, e in ipairs(list or {}) do if not e.internal then out[#out + 1] = e end end
+  return out
+end
+
+--- The internal place a customer's request touches, if any: named outright,
+-- or within `near` blocks of (x, z).
+function pads.internalAt(list, name, x, z, near)
+  for _, e in ipairs(list or {}) do
+    if e.internal then
+      if type(name) == "string" and name:lower() == e.name then return e end
+      if type(x) == "number" and type(z) == "number" and pads.dist(e, x, z) <= (near or 16) then return e end
+    end
+  end
+  return nil
 end
 
 --- Is this one a dock - somewhere a craft can latch on and charge?
@@ -175,7 +199,8 @@ function pads.serialise(list)
     "-- x, y, z are F3 block coordinates and y is the PAD block, the same",
     "-- number `fly dock <x> <y> <z>` takes. trimX/trimZ shift the park point",
     "-- for a pad whose connector is not under the centre of mass; cruiseY is",
-    "-- the altitude to travel there at. label is what customers see it called",
+    "-- the altitude to travel there at. label is what customers see it called;",
+    "-- internal = true keeps a place (a depot) for the fleet, off every customer list.",
     "-- Written by `fly pad add <name> [dock|pad]` and `ops place add`, and",
     "-- safe to edit by hand.",
     "return {",
@@ -187,6 +212,7 @@ function pads.serialise(list)
     if (p.trimZ or 0) ~= 0 then parts[#parts + 1] = string.format("trimZ = %g", p.trimZ) end
     if p.label then parts[#parts + 1] = string.format("label = %q", p.label) end
     if p.cruiseY then parts[#parts + 1] = string.format("cruiseY = %g", p.cruiseY) end
+    if p.internal then parts[#parts + 1] = "internal = true" end
     if p.note then parts[#parts + 1] = string.format("note = %q", p.note) end
     out[#out + 1] = "  { " .. table.concat(parts, ", ") .. " },"
   end

@@ -143,6 +143,20 @@ local empty = pads.withHome(nil)
 check("even no list at all has it", #empty == 1 and empty[1].name == "home")
 check("the standard one passes the same check as any place", pads.check(pads.HOME_DEFAULT) ~= nil)
 
+print("the fleet's own places")
+local ip = pads.check({ name = "chid-1", kind = "dock", x = 2497, y = 71, z = 3297, label = "CHID 1", internal = true })
+check("internal is kept", ip and ip.internal == true and ip.label == "CHID 1")
+check("...and only when it says true", pads.check({ name = "p", x = 1, y = 2, z = 3, internal = "yes" }).internal == nil)
+local mixed = { ip, pads.check({ name = "spawn", kind = "pad", x = 958, y = 71, z = 505 }) }
+local pub = pads.public(mixed)
+check("the public list leaves it out", #pub == 1 and pub[1].name == "spawn")
+check("found by name, any case", pads.internalAt(mixed, "CHID-1") == ip)
+check("...or by coordinates close to it", pads.internalAt(mixed, nil, 2505, 3300, 16) == ip
+  and pads.internalAt(mixed, nil, 2530, 3297, 16) == nil)
+check("a public place is never internal", pads.internalAt(mixed, "spawn", 958, 505, 16) == nil)
+local again = pads.parse(assert((loadstring or load)(pads.serialise(mixed)))())
+check("it survives being written and read back", again[1].internal == true and again[2].internal == nil)
+
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("pads tests failed", 0) end
