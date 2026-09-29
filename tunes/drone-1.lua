@@ -275,7 +275,15 @@
 --                      min for a new trip, then home), and a new trip for it
 --                      in the air turns it round from the hover. Nothing
 --                      changes on a flight nobody stops. Revert: delete the line.
+--   APPROACH_DECEL 2   on 2026-09-29: the ten flights of 09-29 spent 7-23 s
+--                      getting from the brake's end over the pad, most of it
+--                      creeping the last 30 blocks (10-54-41: 11 s from 33 to
+--                      3 blocks). This asks for a steady 2 b/s^2 slow-down
+--                      instead, up to 12 b/s, outside 8 blocks; inside 8 the
+--                      hold is as before. Watch: approach time, and that it
+--                      still settles and latches. Revert: delete the line.
 return {
+  APPROACH_DECEL = 2,
   ORDERS_IN_FLIGHT = true,
   YAW_KP = 0.007,
   YAW_KD = 0.012,
