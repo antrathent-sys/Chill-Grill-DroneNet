@@ -1,0 +1,21 @@
+---- depot-chid-1  09-30 07:30 ----
+2 relays, 0 inventories
+                  top bot lft rgt fnt bck   (O driven, digit = signal in)
+redstone_relay_4  .   .   .   .   .   .
+redstone_relay_5  .   .   .   .   .   .
+  left (modem)
+  top (modem)
+---- depot-chid-1  09-30 07:31 ----
+2 relays, 0 inventories
+                  top bot lft rgt fnt bck   (O driven, digit = signal in)
+redstone_relay_4  .   .   .   .   .   .
+redstone_relay_5  .   .   .   .   .   .
+  left (modem)
+  top (modem)
+---- depot-chid-1  09-30 07:32 ----
+2 relays, 0 inventories
+                  top bot lft rgt fnt bck   (O driven, digit = signal in)
+redstone_relay_4  .   .   .   .   .   .
+redstone_relay_5  .   .   .   .   .   .
+  left (modem)
+  top (modem)
