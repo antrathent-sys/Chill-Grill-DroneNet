@@ -34,7 +34,7 @@ return {
     pulse = 1,          -- how long the placer is pulsed
     assemble_hold = 3,  -- the assembler held on: 1 s did not finish the job
     place = 6,          -- after the placer's pulse: time for the silo to land
-    assemble = 5,       -- assembled: time for the new physics object to settle
+    assemble = 0,       -- no settle after assembling (Alex, 2026-09-30); the sensor still checks the silo is there
     push = 4,           -- pusher up
     retract = 4,        -- pusher down
     step = 2,           -- between steps
