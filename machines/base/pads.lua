@@ -14,6 +14,6 @@ return {
   { name = "rules", kind = "pad", x = -669, y = 64, z = 2828 },
   { name = "un", kind = "pad", x = 1285, y = 93, z = -22 },
   { name = "kodiak", kind = "pad", x = 2400, y = 72, z = -3269 },
-  { name = "chid-1", kind = "dock", x = 2497, y = 71, z = -3297, label = "CHID 1", internal = true },
-  { name = "chid-2", kind = "dock", x = 2497, y = 71, z = -3337, label = "CHID 2", internal = true },
+  { name = "chid-1", kind = "dock", x = 2497, y = 71, z = -3297, label = "CHID 1", internal = true, heading = 270 },
+  { name = "chid-2", kind = "dock", x = 2497, y = 71, z = -3337, label = "CHID 2", internal = true, heading = 270 },
 }

@@ -181,9 +181,18 @@ def analyse(T):
 
 
 def deployed_files():
-    src = open(os.path.join(ROOT, "startup.lua"), encoding="utf-8").read()
-    m = re.search(r"local FILES\s*=\s*\{(.*?)\}", src, re.S)
-    return re.findall(r'"([^"]+\.lua)"', m.group(1))
+    # every file a computer can pull: manifest.lua's lists, all roles (the
+    # startup.lua fallback list this used to read went on 2026-09-30)
+    src = open(os.path.join(ROOT, "manifest.lua"), encoding="utf-8").read()
+    src = re.sub(r"--[^\n]*", "", src)
+    seen, out = set(), []
+    for name in re.findall(r'"([^"]+\.lua)"', src):
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    if not out:
+        raise SystemExit("check_locals: no .lua files found in manifest.lua")
+    return out
 
 
 def check(paths, limit):

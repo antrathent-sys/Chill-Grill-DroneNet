@@ -113,8 +113,8 @@ function T.command(seg)
     end
   else
     -- with the base's record of it, for a drone that has never docked there
-    stop = num(p.y) and string.format("ferry %s at %d %d %d", p.name, floor(p.x), floor(p.y), floor(p.z))
-           or ("ferry " .. p.name)
+    stop = (num(p.y) and string.format("ferry %s at %d %d %d", p.name, floor(p.x), floor(p.y), floor(p.z))
+           or ("ferry " .. p.name)) .. (num(p.heading) and string.format(" facing %d", floor(p.heading)) or "")
   end
   if #seg.vias == 0 then return stop end
   local parts = { "route" }

@@ -310,6 +310,21 @@ SELFTEST = [
     ("ferry: its own record wins", ["ferry", "depot", "at", "900", "70", "900", "90"],
      {"TMAX": "150", "START_DOCKED": "1", "PADS": "depot:100,70,50"},
      ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
+    # a dock built one way round (CHID 1 and 2 face west, 2026-09-30): the
+    # craft squares up to the dock's heading, not the nearest cardinal, and
+    # does not descend until it is. The model's nose sits at ~180 and never
+    # yaws, so facing south docks and facing west holds in align for good.
+    ("ferry facing the way it points", ["ferry", "chid-1", "at", "100", "70", "50", "90", "facing", "south"],
+     {"TMAX": "150", "START_DOCKED": "1"},
+     ["climb", "cruise", "brake", "align", "descend", "capture", "docked"]),
+    ("ferry facing west: no descent crooked", ["ferry", "chid-1", "at", "100", "70", "50", "90", "facing", "west"],
+     {"TMAX": "150", "START_DOCKED": "1"},
+     ["climb", "cruise", "brake", "align"]),
+    ("ferry facing nonsense is refused", ["ferry", "chid-1", "at", "100", "70", "50", "facing", "up"],
+     {"TMAX": "30"}, []),
+    ("goto a dock facing west holds square", ["land", "1500", "64", "50"], {"TMAX": "250",
+     "TUNE": "return { ORDERS_IN_FLIGHT = true }", "ORDER_AT": "30:goto:ferry chid-1 at 100 70 50 facing west"},
+     ["climb", "cruise", "hold", "fly", "climb", "align"]),
     ("ferry at still refuses a landing pad", ["ferry", "field", "at", "100", "70", "50"],
      {"TMAX": "30", "PADS": "field:100,70,50:pad"}, []),
     ("goto a dock by the base's record", ["land", "1500", "64", "50"], {"TMAX": "250",

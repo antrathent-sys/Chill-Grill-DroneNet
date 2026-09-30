@@ -168,6 +168,10 @@ check("a trip begun in the air says so", t15.air == true and T.step(t15, { seen 
 print("the feed line")
 check("id|drone|state|leg|stop|who", T.line(t5) == "T-5|drone-1|ended|1/2|rules|alex", T.line(t5))
 
+
+print("a stop at a dock with a heading")
+check("a trip's stop at CHID 1 ferries facing west", T.command({ vias = {}, stop = { name = "chid-1", kind = "dock",
+  x = 2497, y = 71, z = -3297, heading = 270 } }) == "ferry chid-1 at 2497 71 -3297 facing 270")
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("trip tests failed", 0) end

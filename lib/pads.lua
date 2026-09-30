@@ -105,9 +105,15 @@ function pads.check(e)
       return nil, name .. ": a label is up to " .. pads.LABEL_MAX .. " letters, digits, spaces, - _ ."
     end
   end
+  -- heading: the compass heading a craft meets this dock at (0 north, 90
+  -- east, 180 south, 270 west) - a dock built one way round, like a depot
+  local heading = num(e.heading)
+  if e.heading ~= nil and not (heading and heading >= 0 and heading < 360) then
+    return nil, name .. ": heading is a compass heading, 0 to 359 (270 is west)"
+  end
   return { name = name, x = x, y = y, z = z, kind = kind, label = label,
            trimX = num(e.trimX) or 0, trimZ = num(e.trimZ) or 0,
-           cruiseY = num(e.cruiseY), internal = e.internal == true or nil,
+           cruiseY = num(e.cruiseY), internal = e.internal == true or nil, heading = heading,
            note = type(e.note) == "string" and e.note or nil }
 end
 
@@ -201,6 +207,7 @@ function pads.serialise(list)
     "-- for a pad whose connector is not under the centre of mass; cruiseY is",
     "-- the altitude to travel there at. label is what customers see it called;",
     "-- internal = true keeps a place (a depot) for the fleet, off every customer list.",
+    "-- heading is the compass heading a craft meets a dock at (270 = west).",
     "-- Written by `fly pad add <name> [dock|pad]` and `ops place add`, and",
     "-- safe to edit by hand.",
     "return {",
@@ -213,6 +220,7 @@ function pads.serialise(list)
     if p.label then parts[#parts + 1] = string.format("label = %q", p.label) end
     if p.cruiseY then parts[#parts + 1] = string.format("cruiseY = %g", p.cruiseY) end
     if p.internal then parts[#parts + 1] = "internal = true" end
+    if p.heading then parts[#parts + 1] = string.format("heading = %g", p.heading) end
     if p.note then parts[#parts + 1] = string.format("note = %q", p.note) end
     out[#out + 1] = "  { " .. table.concat(parts, ", ") .. " },"
   end

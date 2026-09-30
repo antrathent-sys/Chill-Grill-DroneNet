@@ -17,6 +17,8 @@
 -- fly dock <dock>             -> dock at a named dock; `fly dock` alone is the home dock
 -- fly land <name>             -> fly to a named place and land there, dock or pad, without latching
 -- fly ferry <dock> [cruiseY]  -> undock, cruise to that dock and dock there. The craft stays
+--                                (`... facing west` or `facing 270`: meet the dock at that heading;
+--                                a dock's record can carry it, heading = 270)
 --                                docked (telemetry keeps running), so load or unload there and
 --                                `fly ferry home` brings it back.
 -- fly deliver <x> <y> <z>     -> the round trip, starting docked: undock, fly to x z, hover at y,
@@ -1893,18 +1895,43 @@ end
 -- order ("ferry <name> at <x> <y> <z>"), so a dock this drone has never been
 -- to is still somewhere it can go (Alex, 2026-09-29: "why cant the base call
 -- it by name now?"). A landing pad is refused either way.
-function PAD.dockOr(name, x, y, z)
+-- "facing west" or "facing 270" anywhere in a command's words: the compass
+-- heading (0 north, 90 east, 180 south, 270 west) the craft meets a dock at.
+-- Docks are built one way round - a depot's sides A and B are only A and B
+-- if the craft always sits the same way (Alex, 2026-09-30: CHID 1 and CHID 2
+-- face WEST). nil when not given; nil and why when given wrong.
+PAD.FACING = { north = 0, n = 0, east = 90, e = 90, south = 180, s = 180, west = 270, w = 270 }
+function PAD.facing(words)
+  for i, wd in ipairs(words or {}) do
+    if wd == "facing" then
+      local v = tostring(words[i + 1] or ""):lower()
+      local h = PAD.FACING[v] or tonumber(v)
+      if not h or h < 0 or h >= 360 then return nil, "facing takes north, east, south, west or 0-359" end
+      return h
+    end
+  end
+  return nil
+end
+
+function PAD.dockOr(name, x, y, z, hdg)
   local okP, p = pcall(PAD.dock, name)
   if okP then
     if x and z and math.abs(p.x - x) + math.abs(p.z - z) > 2 then
       print(string.format("%s: flying to this drone's record %d %d %d (the base has %d %d %d)",
         p.name, p.x, p.y, p.z, x, y or 0, z))
     end
+    -- its own heading if it recorded one, else the one the base sent
+    if hdg and p.heading == nil then
+      local c = {}
+      for k, v in pairs(p) do c[k] = v end
+      c.heading = hdg
+      return c
+    end
     return p
   end
   if not (x and y and z) or (PAD.lib and PAD.lib.get(PAD.list, name)) then error(p, 0) end
   print(string.format("%s: not recorded on this drone - flying to the base's record %d %d %d", tostring(name), x, y, z))
-  return { name = tostring(name):lower(), kind = "dock", x = x, y = y, z = z }
+  return { name = tostring(name):lower(), kind = "dock", x = x, y = y, z = z, heading = hdg }
 end
 
 -- The home pad: a pad called "home" if there is one, else CFG.
@@ -1966,6 +1993,9 @@ else
     dockAlt = padY + CFG.DOCK_GAP
     dashDeg = CFG.CRUISE_DEG
     dock.armed = true
+    local hdgD, whyD = PAD.facing(arg)
+    if whyD then error(whyD, 0) end
+    dock.hdg = hdgD or (pad and pad.heading)
   elseif arg[1] == "undock" then
     -- release, then hold like a normal flight. The connector is not dropped
     -- until the control loop has had DOCK_RELEASE_T of thrust behind it.
@@ -2010,16 +2040,19 @@ else
     -- It stays docked there, so loading happens at the depot.
     if not CFG.DOCK_SIDE then error("ferry needs CFG.DOCK_SIDE set") end
     if not arg[2] or tonumber(arg[2]) then
-      error("ferry takes a dock name: fly ferry <dock> [at <x> <y> <z>]   (fly pads lists them)", 0)
+      error("ferry takes a dock name: fly ferry <dock> [at <x> <y> <z>] [facing <west|270>]   (fly pads lists them)", 0)
     end
-    -- "at x y z": the base's record, for a dock this drone has never been to
+    -- "at x y z": the base's record, for a dock this drone has never been to;
+    -- "facing west": the heading to meet it at
     local at = arg[3] == "at"
-    local pad = PAD.dockOr(arg[2], at and tonumber(arg[4]), at and tonumber(arg[5]), at and tonumber(arg[6]))
+    local hdgF, whyF = PAD.facing(arg)
+    if whyF then error(whyF, 0) end
+    local pad = PAD.dockOr(arg[2], at and tonumber(arg[4]), at and tonumber(arg[5]), at and tonumber(arg[6]), hdgF)
     PAD.name = pad.name
     goal = tonumber(at and arg[7] or arg[3]) or pad.cruiseY or CFG.CRUISE_Y
     legs = {
       { leg = "dock", x = blockCentre(pad.x), z = blockCentre(pad.z), padY = pad.y, y = goal,
-        trimX = pad.trimX, trimZ = pad.trimZ, undock = true },
+        trimX = pad.trimX, trimZ = pad.trimZ, heading = pad.heading, undock = true },
     }
     mode = "ferry"
   elseif arg[1] == "cal" then
@@ -2388,6 +2421,7 @@ local function nextLeg()
   undockFirst = L.undock or false
   landAtEnd = false
   dock.armed = false
+  dock.hdg = L.heading            -- a dock leg's heading to meet the dock at; nil otherwise
   if L.leg == "cruise" then
     mode = "go"
     tgtX, tgtZ = L.x, L.z
@@ -2846,10 +2880,13 @@ function FL.orderLegs(args)
   if w[1] == "ferry" and w[2] then
     if not CFG.DOCK_SIDE then return nil, "ferry needs CFG.DOCK_SIDE" end
     local at = w[3] == "at"
-    local okP, pad = pcall(PAD.dockOr, w[2], at and tonumber(w[4]), at and tonumber(w[5]), at and tonumber(w[6]))
+    local hdg, whyH = PAD.facing(w)
+    if whyH then return nil, whyH end
+    local okP, pad = pcall(PAD.dockOr, w[2], at and tonumber(w[4]), at and tonumber(w[5]), at and tonumber(w[6]), hdg)
     if not okP then return nil, tostring(pad) end
     return { { leg = "dock", x = blockCentre(pad.x), z = blockCentre(pad.z), padY = pad.y,
-               y = tonumber(at and w[7] or w[3]) or pad.cruiseY or CFG.CRUISE_Y, trimX = pad.trimX, trimZ = pad.trimZ } }
+               y = tonumber(at and w[7] or w[3]) or pad.cruiseY or CFG.CRUISE_Y, trimX = pad.trimX, trimZ = pad.trimZ,
+               heading = pad.heading } }
   elseif w[1] == "land" and w[2] then
     local x, y, z, cruise = tonumber(w[2]), tonumber(w[3]), tonumber(w[4]), w[5]
     if not x then
@@ -3341,8 +3378,11 @@ local function flyLeg()
       -- which would reset the settle timer forever. bodyF/bodyL are already
       -- cached this iteration, so this costs no extra peripheral call.
       local sp = math.sqrt(bodyF * bodyF + bodyL * bodyL)
-      local offCard = math.abs(((hdgNow + 45) % 90) - 45)   -- degrees from the nearest cardinal
-      local square = (not CFG.DOCK_CARDINAL) or offCard < CFG.DOCK_YAW_TOL
+      -- degrees off the dock's own heading when it has one (CHID 1 and 2:
+      -- west), else off the nearest cardinal; no descent until square
+      local offCard = dock.hdg and math.abs(((hdgNow - dock.hdg + 540) % 360) - 180)
+                      or math.abs(((hdgNow + 45) % 90) - 45)
+      local square = not (CFG.DOCK_CARDINAL or dock.hdg) or offCard < CFG.DOCK_YAW_TOL
       -- Already at or below the staging height (a retry, or a low cruise):
       -- the tight tolerance applies from here.
       if not staged and (CFG.DOCK_STAGE <= 0 or h <= dockAlt + CFG.DOCK_STAGE + CFG.DOCK_BAND) then staged = true end
@@ -3810,7 +3850,12 @@ local function flyLeg()
       local yawOff = CFG.YAW_OFFSET
       local docking = (phase == "align" or phase == "descend" or phase == "capture")
       if CFG.YAW_SWEEP ~= 0 and dashStart then yawOff = (yawOff + CFG.YAW_SWEEP * (t - dashStart)) % 360 end
-      if docking and CFG.DOCK_CARDINAL then
+      if docking and dock.hdg then
+        -- the dock's own heading: it is built one way round, and its sides
+        -- only mean anything if the craft always meets it the same way
+        src = "dock"
+        yawTgt = dock.hdg
+      elseif docking and CFG.DOCK_CARDINAL then
         -- square up to the nearest cardinal so the connector meets the pad
         -- already aligned; its lock window is 20 degrees and the magnet
         -- should only have to close the gap, not twist the craft

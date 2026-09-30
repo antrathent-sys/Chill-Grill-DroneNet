@@ -741,11 +741,12 @@ end
 -- it is, so a drone that has never been there still goes. A drone with its
 -- own record (made standing on it, connector-exact) flies to that instead
 -- (fly.lua PAD.dockOr). No height on record: the name alone, as before.
-function F.ferryTo(name, x, y, z)
+function F.ferryTo(name, x, y, z, heading)
+  local facing = num(heading) and string.format(" facing %d", math.floor(heading)) or ""
   if num(x) and num(y) and num(z) then
-    return string.format("ferry %s at %d %d %d", tostring(name), math.floor(x), math.floor(y), math.floor(z))
+    return string.format("ferry %s at %d %d %d", tostring(name), math.floor(x), math.floor(y), math.floor(z)) .. facing
   end
-  return "ferry " .. tostring(name)
+  return "ferry " .. tostring(name) .. facing
 end
 
 function F.legCommand(step, m)

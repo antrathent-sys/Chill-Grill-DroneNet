@@ -157,6 +157,17 @@ check("a public place is never internal", pads.internalAt(mixed, "spawn", 958, 5
 local again = pads.parse(assert((loadstring or load)(pads.serialise(mixed)))())
 check("it survives being written and read back", again[1].internal == true and again[2].internal == nil)
 
+
+print("a dock's heading")
+local hp = pads.check({ name = "chid-1", kind = "dock", x = 2497, y = 71, z = -3297, heading = 270, internal = true })
+check("a dock keeps the heading it is met at", hp and hp.heading == 270)
+check("a heading off the compass is refused", pads.check({ name = "x", x = 1, y = 2, z = 3, heading = 360 }) == nil
+  and pads.check({ name = "x", x = 1, y = 2, z = 3, heading = "west" }) == nil)
+check("and it is written back", pads.serialise({ hp }):find("heading = 270", 1, true) ~= nil)
+local baseList = {}
+for _, e in ipairs(dofile(DIR .. "/../machines/base/pads.lua")) do baseList[#baseList + 1] = pads.check(e) end
+local c1, c2 = pads.get(baseList, "chid-1"), pads.get(baseList, "chid-2")
+check("CHID 1 and CHID 2 face west (Alex, 2026-09-30)", c1 and c2 and c1.heading == 270 and c2.heading == 270)
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("pads tests failed", 0) end

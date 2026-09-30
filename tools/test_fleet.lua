@@ -390,6 +390,12 @@ check("a goto is a ferry or a landing", F.check(F.goto("drone-1", "ferry pier", 
 check("...with nothing a shell would read twice", not F.check(F.goto("drone-1", "land 1 2; reboot", "s-6"))
   and not F.check(F.goto("drone-1", nil, "s-7")))
 
+
+print("a ferry with the dock's heading")
+check("ferryTo adds facing when the dock has a heading", F.ferryTo("chid-1", 2497, 71, -3297, 270)
+  == "ferry chid-1 at 2497 71 -3297 facing 270")
+check("...and nothing when it has none", F.ferryTo("pier", 100, 70, -50) == "ferry pier at 100 70 -50")
+check("...and the whole command still passes as fly args", F.flyArgs(F.ferryTo("chid-1", 2497, 71, -3297, 270)) ~= nil)
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("fleet tests failed", 0) end
