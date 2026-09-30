@@ -7,7 +7,7 @@
 --   startup autorun rsio        redstone slave on a drone
 --   startup autorun off         stop autorunning
 --   startup role                which kind of computer this is
---   startup role <name>         drone, base, pocket, rs, or all: pull only that
+--   startup role <name>         drone, base, depot, screens, pocket, admin, rs, or all: pull only that
 --                               role's files (manifest.lua) from now on
 --   startup hold <side>         drone: raise this side first thing at every boot,
 --                               so the docking connector is powered whenever the
@@ -177,7 +177,7 @@ if args[1] == "role" then
       f.close()
     end
     print("role: " .. (role ~= "" and role or "none - this computer pulls every file"))
-    print("startup role <drone|base|pad|pocket|admin|rs|all> to change it")
+    print("startup role <drone|base|depot|screens|pad|pocket|admin|rs|all> to change it")
     return
   end
   roleRequest = args[2]:lower()
