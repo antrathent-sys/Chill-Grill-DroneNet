@@ -343,9 +343,9 @@ pair of staging vaults per loader, not per order.
 | | |
 |---|---|
 | **exists** | `ops load send` runs one load at a depot and flies a `deliver` after it. The two-sided dock sequence (`lib/dockseq.lua`) places, assembles, fills, pushes and retracts, proven on the test dock. `cargo.csv` records every silo; `unit.dropped` reports every release; a drop with two silos and one point lets both go there. |
-| **the gap** | The depot daemon still runs base-driven loads through the older single-bay `lib/loader.lua`. The two-sided dock only runs by hand (`depot seq`), with the drone's part "taken as done". |
+| **closed 2026-09-30** | A depot with a `dock.lua` runs the base's loads and unloads on the two-sided dock, side A then side B, with the drone's part answered through the base; the older single-bay `lib/loader.lua` still runs where there is only a `station.lua`. |
 | **built 2026-09-30** | the order record (`lib/orders.lua`, `orders.log`); `ops order add / run / paid / cancel`, `ops orders`, `ops order <id>`; C- numbers on every load, cargo.csv row and drop; the invoice printer at the depot. |
-| **new** | `ops quote`; the depot running `lib/dockseq.lua` for base-driven loads, staging from the intake with the five staging checks, and answering the drone's stick through the base. |
+| **new** | `ops quote`; staging from the ticker, and the size and balance staging checks. |
 
 **The factory loader is dual** (Alex, 2026-09-28), built like the test dock:
 two sides, each with a placer, assembler, belt, pusher, its own storage and a

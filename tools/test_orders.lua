@@ -100,6 +100,18 @@ check("5,000 cobble + 2,000 gravel: one flight of two silos, the second holding 
 local fm = O.invoiceFields(om, flm, "2026-09-30")
 check("a several-item order's fields say so", fm.inv_multi == 1 and fm.inv_item == nil)
 
+print("received at a depot instead of dropped")
+local logR = { O.accepted(1, "C-0009", { who = "ops", kind = "parcel", to = { x = 1, y = 2, z = 3 }, price = 0,
+                 lines = { { item = "minecraft:iron_ingot", amount = 3000, stack = 64 } } }),
+               O.flightLine(2, "C-0009", 1, { first = 1, count = 1 }),
+               O.loadedLine(3, "C-0009", 1, { [1] = { ["minecraft:iron_ingot"] = 3000 } }, "x", { A = 1 }) }
+local oR = O.replay(table.concat(logR, "\n"))["C-0009"]
+check("the side a shipment was loaded on is kept", O.shipmentAt(oR, 1, "A") == 1 and O.shipmentAt(oR, 1, "B") == nil)
+logR[#logR + 1] = O.receivedLine(4, "C-0009", 1, 1, "chid-2", { ["minecraft:iron_ingot"] = 3000 })
+oR = O.replay(table.concat(logR, "\n"))["C-0009"]
+check("received counts as delivered, where and what", oR.dropped[1] == true and oR.received[1].depot == "chid-2"
+  and oR.received[1].items["minecraft:iron_ingot"] == 3000 and O.complete(oR))
+
 print("invoices from the depot's own count")
 local inv1 = I.fromFields(f, 1, { ["minecraft:cobblestone"] = 2524 })
 local title, lines = I.page(inv1)

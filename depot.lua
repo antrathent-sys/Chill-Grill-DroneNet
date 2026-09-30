@@ -655,6 +655,71 @@ end
 -- one side, run here with a person standing in for the drone - ENT when it
 -- has latched, stuck or let go. That is how the machines are proven before
 -- the base drives them.
+-- ---------------------------------------------------------------- printer ---
+local PAGE_ITEM = "computercraft:printed_page"
+local function printerName(pref)
+  if pref and peripheral.isPresent(pref) then return pref end
+  for _, n in ipairs(peripheral.getNames()) do
+    if peripheral.getType(n) == "printer" then return n end
+  end
+  return nil
+end
+-- one page: title (its name as an item) and up to 21 lines of 25
+local function printPage(name, title, lines)
+  local function pc(m, ...) return pcall(peripheral.call, name, m, ...) end
+  local okP, paper = pc("getPaperLevel")
+  if okP and (paper or 0) < 1 then return false, "no paper" end
+  local okI, ink = pc("getInkLevel")
+  if okI and (ink or 0) < 1 then return false, "no ink" end
+  local okN, started = pc("newPage")
+  if not (okN and started) then return false, "could not start a page (is its tray full?)" end
+  pc("setPageTitle", title)
+  for i, l in ipairs(lines) do
+    pc("setCursorPos", 1, i)
+    pc("write", l)
+  end
+  local okE, ended = pc("endPage")
+  if not (okE and ended) then return false, "could not finish the page" end
+  return true
+end
+-- the printed page from the printer's tray into an inventory
+local function takePage(name, into)
+  local okL, list = pcall(peripheral.call, name, "list")
+  if not (okL and type(list) == "table") then return false, "the printer's tray cannot be read" end
+  for slot, it in pairs(list) do
+    if it.name == PAGE_ITEM then
+      local okM, n = pcall(peripheral.call, name, "pushItems", into, slot, 1)
+      if okM and n == 1 then return true end
+      return false, "could not put it in " .. into .. (okM and "" or (": " .. tostring(n)))
+    end
+  end
+  return false, "no page in the printer's tray"
+end
+if cmd == "print" then
+  -- a sample invoice, to prove the printer before a customer's goods depend on it
+  local name = printerName()
+  if not name then print("no printer on this network (a wired modem on it, switched on?)") return end
+  local okP, paper = pcall(peripheral.call, name, "getPaperLevel")
+  local okI, ink = pcall(peripheral.call, name, "getInkLevel")
+  print(string.format("printer %s: paper %s, ink %s", name, okP and tostring(paper) or "?", okI and tostring(ink) or "?"))
+  local inv = { order = "C-0000", shipment = 1, shipments = 1, date = "TEST", who = "TEST PAGE", x = 0, y = 0, z = 0,
+                item = "minecraft:cobblestone", ordered = 64, before = 0, this = 64, total = 0, paid = 0 }
+  local title, lines = INVOICE.page(inv)
+  local ok, why = printPage(name, title, lines)
+  if not ok then print("not printed: " .. tostring(why)) return end
+  local okL, list = pcall(peripheral.call, name, "list")
+  local found
+  for slot, it in pairs(okL and list or {}) do
+    if it.name == PAGE_ITEM then
+      local okD, d = pcall(peripheral.call, name, "getItemDetail", slot)
+      found = string.format("slot %d, named \"%s\"", slot, okD and d and tostring(d.displayName) or "?")
+    end
+  end
+  print("printed " .. title .. (found and (" - in the tray at " .. found) or " - but the tray cannot be read"))
+  print("if that name reads back as " .. title .. ", invoices can be told apart in any chest")
+  return
+end
+
 if cmd == "screens" then
   if not next(SCREENS) then print("no monitors on this computer's network (wired modems switched on?)") return end
   for role, s in pairs(SCREENS) do
@@ -683,17 +748,22 @@ if cmd == "screens" then
   return
 end
 
-if cmd == "seq" then
-  local DS = dofile("lib/dockseq.lua")
+-- ------------------------------------------------------ the two-sided dock ---
+-- dock.lua (lib/dockseq.lua) and what this computer can see of it: which side
+-- has a silo waiting, what each side's storage and feed hold, what its sensor
+-- sees. `depot seq` drives it by hand; `depot` runs it for the base.
+local DS = dofile("lib/dockseq.lua")
+local function dockCfg()
   if not fs.exists("dock.lua") then
-    print("no dock.lua here - it lives in this machine's folder in the repo")
-    print("(machines/" .. tostring(id) .. "/dock.lua); run startup to pull it")
-    return
+    return nil, "no dock.lua here - it lives in this machine's folder in the repo (machines/"
+      .. tostring(id) .. "/dock.lua); run startup to pull it"
   end
   local okD, raw = pcall(dofile, "dock.lua")
   local cfg, whyD = DS.check(okD and raw or nil)
-  if not cfg then print("dock.lua: " .. tostring(okD and whyD or raw)) return end
-
+  if not cfg then return nil, "dock.lua: " .. tostring(okD and whyD or raw) end
+  return cfg
+end
+local function dockKit(cfg)
   -- whether each side has an empty silo waiting: nothing can see one once it
   -- is assembled, so this computer remembers
   local STATEF = ".dockstate"
@@ -775,6 +845,30 @@ if cmd == "seq" then
     end
     return on == (cfg.silo_when == "high"), said
   end
+
+  -- a side's storage: its own list, or the dock's shared one
+  local function storages(sd) return (sd and cfg.sides[sd] and cfg.sides[sd].storage) or cfg.storage end
+  -- item -> count across a side's storage, or nil when it cannot be read
+  local function tally(sd)
+    local out = {}
+    for _, inv in ipairs(storages(sd)) do
+      local okL, items = pcall(peripheral.call, inv, "list")
+      if not (okL and type(items) == "table") then return nil end
+      for _, it in pairs(items) do
+        if type(it) == "table" and it.name then out[it.name] = (out[it.name] or 0) + (it.count or 0) end
+      end
+    end
+    return out
+  end
+  return { silo = silo, count = storageCount, feed = feedCount, present = present, tally = tally,
+           storageOf = function(sd) return storages(sd)[1] end }
+end
+
+if cmd == "seq" then
+  local cfg, whyD = dockCfg()
+  if not cfg then print(whyD) return end
+  local kit = dockKit(cfg)
+  local silo, storageCount, feedCount, present = kit.silo, kit.count, kit.feed, kit.present
 
   local sub = (args[2] or ""):lower()
   local side = args[3] and args[3]:upper()
@@ -935,8 +1029,302 @@ if cmd == "seq" then
   return
 end
 
+-- ------------------------------------------------------------ the base ---
+-- The sealed link to the base, for either kind of dock: say, open what came,
+-- and ask for the drone's part (stick, let go) and wait for the base's word.
+local function linkUp()
+  if not (id and id:match("^depot%-[%w_%-]+$")) then
+    print("label this computer depot-<dock>, the dock's name on the base: label set depot-pier")
+    return nil
+  end
+  local key = SEC.readKeyFile(".dronekey")
+  if not key then
+    print("no key: on the base `seckey new " .. id .. "`, then here `seckey set disk`")
+    return nil
+  end
+  local radio = link.findRadio(peripheral)
+  if not radio then print("no ender modem - this depot cannot hear the base") return nil end
+  pcall(peripheral.call, radio, "open", link.CHANNEL)
+
+  local tx = SEC.sender(key, id, SEC.DIR.DRONE_TO_BASE, ".dronekey.ctr")
+  local rx = SEC.receiver()
+  local seenNonce, seq = {}, 0
+  local function nonce()
+    seq = seq + 1
+    return F.nonce(id, tostring(os.epoch and os.epoch("utc") or os.clock()) .. "." .. seq)
+  end
+  local function say(msg)
+    local okS, env = pcall(tx.seal, msg)
+    if okS and env then pcall(peripheral.call, radio, "transmit", link.CHANNEL, link.CHANNEL, env) end
+  end
+  -- one packet from the base for this depot, or nil: our key, the base's
+  -- direction, a counter never used before, a nonce not seen before
+  local function open(ch, env)
+    if ch ~= link.CHANNEL or type(env) ~= "table" or not env.sl or env.d ~= SEC.DIR.BASE_TO_DRONE or env.id ~= id then
+      return nil
+    end
+    local okO, body = pcall(rx.open, env, function(who) return who == id and key or nil end, SEC.DIR.BASE_TO_DRONE, 120000)
+    if not (okO and body) then return nil end
+    if not F.check(body) or (body.to ~= nil and body.to ~= id) then return nil end
+    if not F.fresh(seenNonce, body.nonce, os.clock()) then return nil end
+    DV.heard(view, os.clock())
+    return body
+  end
+  local L = { say = say, open = open, nonce = nonce }
+  function L.ask(msg, loadId, secs)
+    say(msg)
+    local timer = os.startTimer(secs)
+    while true do
+      local ev, a, ch, _, env = os.pullEvent()
+      if ev == "modem_message" then
+        local m = open(ch, env)
+        if m and m.type == "load.stuck" and m.load == loadId then return m.ok, m.why end
+      elseif ev == "timer" and a == timer then
+        return false, "no word from the base in " .. secs .. " s"
+      end
+    end
+  end
+  return L
+end
+
+local function readState()
+  if not fs.exists(STATE) then return nil end
+  local h = fs.open(STATE, "r")
+  local s = h and h.readAll() or ""
+  if h then h.close() end
+  return s:match("^(%S+) (%S+)")
+end
+local function saveState(load, step)
+  local h = fs.open(STATE, "w")
+  if h then h.write(load .. " " .. step) h.close() end
+end
+local function clearState() if fs.exists(STATE) then fs.delete(STATE) end end
+
+-- ------------------------------------------------ run: the two-sided dock ---
+-- With a dock.lua here, the base's loads and unloads run on the A/B dock
+-- (lib/dockseq.lua) - the same machine code `depot seq` drives by hand - and
+-- the drone's part (latched, stick, let go) is answered through the base. One
+-- side at a time: a flight of two silos loads A, then B. Per side:
+--   load    stage its silo's share from the intake into the side's storage,
+--           when dock.lua names an intake; place and assemble a silo if none
+--           is waiting; fill it through the belt - what left the storage is
+--           what went in; print its invoice into the storage for the belt to
+--           carry into the silo; push up, the drone sticks it, pusher down
+--   unload  push up under the drone's silo, the drone lets go, pusher down,
+--           empty it into the side's storage - what arrived is what came
+-- What goes back to the base is what each side's storage says, never the plan.
+local INVOICE_RIDE = 15      -- s for the belt to carry a page from the storage into the silo
+if cmd == "run" and fs.exists("dock.lua") then
+  local cfg, whyD = dockCfg()
+  if not cfg then print(whyD) return end
+  local kit = dockKit(cfg)
+  local L = linkUp()
+  if not L then return end
+  local say, open, nonce = L.say, L.open, L.nonce
+  local function rest()
+    for _, relay in ipairs(DS.relays(cfg)) do drive({ relay = relay }, false) end
+  end
+  local interrupted, atStep = readState()
+  if interrupted then
+    print(string.format("stopped part way through %s, at %s - pushers down, everything at rest", interrupted, atStep))
+    rest()
+    clearState()
+  end
+
+  -- the sides a job uses: the ones the base names, else as many as it has silos
+  local function sidesFor(msg)
+    local list = {}
+    for sd in tostring(msg.sides or ""):gmatch("[AB]") do if cfg.sides[sd] then list[#list + 1] = sd end end
+    if #list == 0 then
+      local n = tonumber(msg.silos) or 1
+      for _, sd in ipairs(DS.SIDES) do if cfg.sides[sd] and #list < n then list[#list + 1] = sd end end
+    end
+    return list
+  end
+
+  -- "item count|item count" -> { item = count }
+  local function unpackPack(text)
+    local out = {}
+    for part in tostring(text or ""):gmatch("[^|]+") do
+      local item, n = part:match("^(%S+) (%d+)$")
+      if item then out[item] = tonumber(n) end
+    end
+    return out
+  end
+
+  -- A silo's share from the intake into this side's storage. What is there
+  -- already and is the same item counts toward it (a fill that came up short
+  -- last time); anything else stops the load - it would ride to someone who
+  -- never ordered it. Read back after. Returns what was moved, or nil and why.
+  local function stage(side, pack, tell)
+    local want = unpackPack(pack)
+    local into = kit.storageOf(side)
+    if not into then return nil, "side " .. side .. " has no storage to stage into" end
+    local have = kit.tally(side)
+    if not have then return nil, "side " .. side .. "'s storage cannot be read" end
+    for item, n in pairs(have) do
+      if not want[item] then
+        return nil, string.format("side %s's storage already has %d %s in it that nobody ordered - clear it first",
+          side, n, item)
+      end
+    end
+    local moved = {}
+    for item, n in pairs(want) do
+      local need, got = n - (have[item] or 0), 0
+      for _, src in ipairs(cfg.intake) do
+        local okL, list = pcall(peripheral.call, src, "list")
+        for slot, it in pairs(okL and type(list) == "table" and list or {}) do
+          if need - got <= 0 then break end
+          if it.name == item then
+            local okM, m = pcall(peripheral.call, src, "pushItems", into, slot, math.min(it.count or 0, need - got))
+            if okM and type(m) == "number" then got = got + m end
+          end
+        end
+      end
+      moved[item] = got
+      if got < need then tell(string.format("the intake was short: %d of %d %s for side %s", got, need, item, side)) end
+    end
+    local after = kit.tally(side) or {}
+    for item, n in pairs(want) do
+      local expect = math.min(n, (have[item] or 0) + (moved[item] or 0))
+      if (after[item] or 0) < expect then
+        return nil, string.format("side %s's storage holds %d %s, not the %d staged into it", side, after[item] or 0,
+          item, expect)
+      end
+    end
+    return moved
+  end
+
+  -- the silo's invoice, into the side's storage: the belt, still loading,
+  -- carries it into the silo after the goods
+  local function invoiceFor(msg, k, side, counted, beforeExtra, tell)
+    if not msg.inv_order then return end
+    local name = printerName(cfg.printer)
+    if not name then tell("no printer on this network - no invoice") return end
+    local inv = INVOICE.fromFields(msg, k, counted, beforeExtra)
+    local title, lines = INVOICE.page(inv)
+    local no = INVOICE.number(inv.order, inv.shipment)
+    local into = kit.storageOf(side)
+    local ok, why = printPage(name, title, lines)
+    if ok and into then ok, why = takePage(name, into) end
+    if not ok then tell(string.format("invoice %s not printed: %s - the load goes on without it", no, tostring(why))) return end
+    local t0 = os.clock()
+    while os.clock() - t0 < INVOICE_RIDE do
+      local t = kit.tally(side) or {}
+      if not t[PAGE_ITEM] then tell(string.format("invoice %s printed, in the %s silo", no, side)) return end
+      sleep(1)
+    end
+    tell(string.format("invoice %s printed, but it is still in side %s's storage - it did not go in", no, side))
+  end
+
+  local function runJob(msg, kind)
+    local loadId = msg.load
+    local sides = sidesFor(msg)
+    local t0 = os.clock()
+    local shipments
+    if kind == "load" and msg.inv_first then
+      local a, b = msg.inv_first, msg.inv_first + #sides - 1
+      shipments = (a == b and tostring(a) or (a .. "-" .. b)) .. " OF " .. tostring(msg.inv_last or b)
+    end
+    for _, sd in ipairs(DS.SIDES) do
+      view.sides[sd].silo = kit.silo(sd) == "full" and "full" or (kit.silo(sd) == "empty" and "empty" or "none")
+      view.sides[sd].feed = kit.feed(sd)
+    end
+    DV.begin(view, kind, sides, { id = loadId, items = msg.items, dest = msg.dest, unit = msg.drone,
+      item = msg.inv_item and INVOICE.itemName(msg.inv_item) or nil, shipments = shipments }, t0)
+    print("")
+    print(string.format("%s %s for %s: side%s %s", kind, loadId, tostring(msg.drone), #sides == 1 and "" or "s",
+      table.concat(sides, " + ")))
+    local function tell(step, text)
+      print(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text))
+      saveState(loadId, step)
+      DV.step(view, step, text, os.clock())
+      say(F.loadStep(loadId, id, step, text, nonce()))
+    end
+    local report = { sides = {}, stickers = {}, silos = {}, counted = "from each side's storage" }
+    local ok, why, at = #sides > 0, (#sides == 0) and "this dock has none of the sides asked for" or nil, "start"
+    local beforeExtra = 0
+    for k, side in ipairs(sides) do
+      local sticker = cfg.stick[side]
+      local before
+      local io = {
+        set = function(relay, on) return drive({ relay = relay }, on) end,
+        sleep = sleep, now = os.clock, count = kit.count, feed = kit.feed, silo = kit.silo, present = kit.present,
+        say = tell,
+        -- the base starts a job only once the drone is latched here; its
+        -- stick and its letting go are asked of the base, and answered by it
+        drone = function(what)
+          if what == "dock" then return true end
+          local ask = (what == "stick") and F.loadLifted or F.loadRelease
+          return L.ask(ask(loadId, id, { sticker }, nonce()), loadId, STICK_WAIT)
+        end,
+      }
+      if kind == "load" then
+        local pack = msg["pack" .. k]
+        if pack and cfg.intake then
+          local moved, whyS = stage(side, pack, function(t) tell("stage", t) end)
+          if not moved then ok, why, at = false, whyS, "stage" break end
+          local n = 0
+          for _, c in pairs(moved) do n = n + c end
+          tell("stage", string.format("%d items staged on side %s", n, side))
+        end
+        io.beforeFill = function() before = kit.tally(side) or {} end
+        io.filled = function()
+          local got = C.diff(before or {}, kit.tally(side) or {})
+          got[PAGE_ITEM] = nil
+          report.silos[side] = C.pack(got)
+          invoiceFor(msg, k, side, got, beforeExtra, function(t) tell("invoice", t) end)
+          if msg.inv_item then beforeExtra = beforeExtra + (got[msg.inv_item] or 0) end
+        end
+        local n = kit.count(side)
+        ok, why, at = DS.load(cfg, side, io, (n and n > 0) and n or nil)
+      else
+        before = kit.tally(side) or {}
+        ok, why, at = DS.unload(cfg, side, io, nil)
+        if ok then report.silos[side] = C.pack(C.diff(kit.tally(side) or {}, before)) end
+      end
+      if not ok then break end
+      report.sides[#report.sides + 1] = side
+      report.stickers[#report.stickers + 1] = sticker
+    end
+    if not ok and #report.sides > 0 then
+      why = tostring(why) .. " (side " .. table.concat(report.sides, "+") .. " done)"
+    end
+    say(F.loadDone(loadId, id, ok, why, at, report, nonce(), kind))
+    DV.finish(view, ok, why, os.clock())
+    clearState()
+    print(ok and (kind .. " done in " .. math.floor(os.clock() - t0) .. " s - over to the base")
+             or ("called off at " .. tostring(at) .. ": " .. tostring(why)))
+  end
+
+  local function hellos()
+    local n = 0
+    while true do
+      n = n + 1
+      local tell = n <= 3 and interrupted or nil
+      say(F.depotHello(id, tell, tell and atStep or nil, nonce()))
+      sleep(HELLO_EVERY)
+    end
+  end
+  local function orders()
+    while true do
+      local _, _, ch, _, env = os.pullEvent("modem_message")
+      local msg = open(ch, env)
+      if msg and msg.type == "load.start" then runJob(msg, "load")
+      elseif msg and msg.type == "unload.start" then runJob(msg, "unload") end
+    end
+  end
+  local nSides = 0
+  for _ in pairs(cfg.sides) do nSides = nSides + 1 end
+  print(string.format("depot %s: the two-sided dock, %d side%s, awake - telling the base every %d s", id, nSides,
+    nSides == 1 and "" or "s", HELLO_EVERY))
+  parallel.waitForAny(hellos, orders, screensLoop)
+  return
+end
+
 if not fs.exists("station.lua") then
   print("no station.lua here: copy station.example.lua to station.lua and fill it in")
+  print("(a two-sided dock has dock.lua instead - `depot seq` shows it, and `depot` runs it)")
   print("`depot probe` lists the relays and inventories to fill it in with")
   return
 end
@@ -949,50 +1337,10 @@ local function atRest()
   for _, face in ipairs(LOAD.allFaces(cfg)) do hands.set(face, face.invert and true or false) end
 end
 
--- ---------------------------------------------------------------- printer ---
-local PAGE_ITEM = "computercraft:printed_page"
-local function printerName()
-  if cfg.printer and peripheral.isPresent(cfg.printer) then return cfg.printer end
-  for _, n in ipairs(peripheral.getNames()) do
-    if peripheral.getType(n) == "printer" then return n end
-  end
-  return nil
-end
--- one page: title (its name as an item) and up to 21 lines of 25
-local function printPage(name, title, lines)
-  local function pc(m, ...) return pcall(peripheral.call, name, m, ...) end
-  local okP, paper = pc("getPaperLevel")
-  if okP and (paper or 0) < 1 then return false, "no paper" end
-  local okI, ink = pc("getInkLevel")
-  if okI and (ink or 0) < 1 then return false, "no ink" end
-  local okN, started = pc("newPage")
-  if not (okN and started) then return false, "could not start a page (is its tray full?)" end
-  pc("setPageTitle", title)
-  for i, l in ipairs(lines) do
-    pc("setCursorPos", 1, i)
-    pc("write", l)
-  end
-  local okE, ended = pc("endPage")
-  if not (okE and ended) then return false, "could not finish the page" end
-  return true
-end
--- the printed page from the printer's tray into an inventory
-local function takePage(name, into)
-  local okL, list = pcall(peripheral.call, name, "list")
-  if not (okL and type(list) == "table") then return false, "the printer's tray cannot be read" end
-  for slot, it in pairs(list) do
-    if it.name == PAGE_ITEM then
-      local okM, n = pcall(peripheral.call, name, "pushItems", into, slot, 1)
-      if okM and n == 1 then return true end
-      return false, "could not put it in " .. into .. (okM and "" or (": " .. tostring(n)))
-    end
-  end
-  return false, "no page in the printer's tray"
-end
 -- every silo of an order's load gets its invoice, from its own count
 local function printInvoices(msg, plan, tell)
   if not msg.inv_order then return end
-  local name = printerName()
+  local name = printerName(cfg.printer)
   if not name then tell("no printer on this network - no invoices") return end
   local before = 0
   for k, side in ipairs(plan.sides) do
@@ -1014,30 +1362,6 @@ local function printInvoices(msg, plan, tell)
   end
 end
 
-if cmd == "print" then
-  -- a sample invoice, to prove the printer before a customer's goods depend on it
-  local name = printerName()
-  if not name then print("no printer on this network (a wired modem on it, switched on?)") return end
-  local okP, paper = pcall(peripheral.call, name, "getPaperLevel")
-  local okI, ink = pcall(peripheral.call, name, "getInkLevel")
-  print(string.format("printer %s: paper %s, ink %s", name, okP and tostring(paper) or "?", okI and tostring(ink) or "?"))
-  local inv = { order = "C-0000", shipment = 1, shipments = 1, date = "TEST", who = "TEST PAGE", x = 0, y = 0, z = 0,
-                item = "minecraft:cobblestone", ordered = 64, before = 0, this = 64, total = 0, paid = 0 }
-  local title, lines = INVOICE.page(inv)
-  local ok, why = printPage(name, title, lines)
-  if not ok then print("not printed: " .. tostring(why)) return end
-  local okL, list = pcall(peripheral.call, name, "list")
-  local found
-  for slot, it in pairs(okL and list or {}) do
-    if it.name == PAGE_ITEM then
-      local okD, d = pcall(peripheral.call, name, "getItemDetail", slot)
-      found = string.format("slot %d, named \"%s\"", slot, okD and d and tostring(d.displayName) or "?")
-    end
-  end
-  print("printed " .. title .. (found and (" - in the tray at " .. found) or " - but the tray cannot be read"))
-  print("if that name reads back as " .. title .. ", invoices can be told apart in any chest")
-  return
-end
 
 if cmd == "status" then
   print(string.format("%s: %d bay%s (%s)", tostring(id), #cfg.bays, #cfg.bays == 1 and "" or "s",
@@ -1079,56 +1403,9 @@ if cmd == "test" then
 end
 
 -- ------------------------------------------------------------------- run ---
-if not (id and id:match("^depot%-[%w_%-]+$")) then
-  print("label this computer depot-<dock>, the dock's name on the base: label set depot-pier")
-  return
-end
-local key = SEC.readKeyFile(".dronekey")
-if not key then
-  print("no key: on the base `seckey new " .. id .. "`, then here `seckey set disk`")
-  return
-end
-local radio = link.findRadio(peripheral)
-if not radio then print("no ender modem - this depot cannot hear the base") return end
-pcall(peripheral.call, radio, "open", link.CHANNEL)
-
-local tx = SEC.sender(key, id, SEC.DIR.DRONE_TO_BASE, ".dronekey.ctr")
-local rx = SEC.receiver()
-local seenNonce, seq = {}, 0
-local function nonce()
-  seq = seq + 1
-  return F.nonce(id, tostring(os.epoch and os.epoch("utc") or os.clock()) .. "." .. seq)
-end
-local function say(msg)
-  local okS, env = pcall(tx.seal, msg)
-  if okS and env then pcall(peripheral.call, radio, "transmit", link.CHANNEL, link.CHANNEL, env) end
-end
--- one packet from the base for this depot, or nil: our key, the base's
--- direction, a counter never used before, a nonce not seen before
-local function open(ch, env)
-  if ch ~= link.CHANNEL or type(env) ~= "table" or not env.sl or env.d ~= SEC.DIR.BASE_TO_DRONE or env.id ~= id then
-    return nil
-  end
-  local okO, body = pcall(rx.open, env, function(who) return who == id and key or nil end, SEC.DIR.BASE_TO_DRONE, 120000)
-  if not (okO and body) then return nil end
-  if not F.check(body) or (body.to ~= nil and body.to ~= id) then return nil end
-  if not F.fresh(seenNonce, body.nonce, os.clock()) then return nil end
-  DV.heard(view, os.clock())
-  return body
-end
-
-local function readState()
-  if not fs.exists(STATE) then return nil end
-  local h = fs.open(STATE, "r")
-  local s = h and h.readAll() or ""
-  if h then h.close() end
-  return s:match("^(%S+) (%S+)")
-end
-local function saveState(load, step)
-  local h = fs.open(STATE, "w")
-  if h then h.write(load .. " " .. step) h.close() end
-end
-local function clearState() if fs.exists(STATE) then fs.delete(STATE) end end
+local L = linkUp()
+if not L then return end
+local say, open, nonce = L.say, L.open, L.nonce
 
 -- a load that was under way when this computer last stopped
 local interrupted, atStep = readState()

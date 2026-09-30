@@ -36,6 +36,65 @@ Every step says where it stands:
  6. PAID + CLOSED   ops order paid, or at a till; the last invoice says COMPLETE
 ```
 
+## The whole thing, in two pictures
+
+The order, from the message to closed (status 2026-09-30). The loop is one
+flight at a time until every shipment is down; receiving is the same dock run
+the other way.
+
+```mermaid
+flowchart TD
+  MSG["A message: 10k cobble to 1200 70 340"] --> QUOTE["Alex quotes it"]
+  QUOTE --> ADD["ops order add ... for 1500<br/>C-0042 written to orders.log"]
+  ADD --> RUN["ops order run C-0042 chid-1<br/>next flight queued: C-0042.1"]
+  RUN --> FERRY["Base sends a drone: ferry chid-1<br/>it latches on the dock"]
+  FERRY --> LOAD["Depot loads side A, then side B<br/>stage - place - assemble - fill - invoice - push - stick"]
+  LOAD --> REC1["load.done: what each side counted<br/>cargo.csv + orders.log: shipments 1 and 2"]
+  REC1 --> DROP["Drone flies deliver 1200 70 340<br/>and lets each silo go"]
+  DROP --> REC2["each drop: C-0042-1, C-0042-2 delivered"]
+  REC2 --> MORE{"shipments left?"}
+  MORE -- yes --> RUN
+  MORE -- no --> DONE["C-0042 done - the last invoice says ORDER COMPLETE"]
+  DONE --> PAID["ops order paid C-0042 all<br/>(or later, at a till, with the invoice)"]
+  IN["A drone arrives carrying silos"] --> UNL["ops unload drone-1 chid-1"]
+  UNL --> EMPTY["Depot unloads A and B into storage<br/>push - release - lower - empty"]
+  EMPTY --> RCV["cargo.csv + orders.log: received at chid-1"]
+```
+
+One flight, machine by machine. The base decides everything; the depot only
+works its machines and reports what its storage counts; the drone only flies
+and sticks or lets go when the base says.
+
+```mermaid
+sequenceDiagram
+  participant Alex
+  participant Base as Base (ops)
+  participant Drone
+  participant Depot as Depot (A/B dock)
+  Alex->>Base: ops order run C-0042 chid-1
+  Base->>Drone: ferry chid-1 at x y z (sealed)
+  Drone-->>Base: telemetry: docked at chid-1
+  Depot-->>Base: hello - awake (its chunk loaded with the drone)
+  Base->>Depot: load.start C-0042.1 - each silo's share, what the invoice says
+  loop side A, then side B
+    Depot->>Depot: stage the share from the intake into the side's storage
+    Depot->>Depot: place + assemble a silo (unless one is waiting)
+    Depot->>Depot: fill through the belt - what left the storage went in
+    Depot->>Depot: print invoice C-0042-n into the storage, the belt carries it in
+    Depot->>Depot: pusher up
+    Depot->>Base: load.lifted - this side's sticker
+    Base->>Drone: stick
+    Drone-->>Base: stuck
+    Base->>Depot: load.stuck ok
+    Depot->>Depot: pusher down - the silo is the drone's now
+  end
+  Depot->>Base: load.done - A and B counts
+  Base->>Base: cargo.csv, orders.log: shipments 1 and 2
+  Base->>Drone: deliver 1200 70 340
+  Drone-->>Base: dropped - each sticker, where
+  Base->>Base: C-0042-1, C-0042-2 delivered; done when all are
+```
+
 ## Standing setup
 
 Done once, then kept up.
@@ -44,11 +103,11 @@ Done once, then kept up.
 |---|---|---|
 | **The catalogue** - what we sell | one of each item in reference chests or vaults at the base; `ops catalogue read` | BUILT |
 | **The factory's stock** | Stock Links on every storage vault, one Stock Ticker, a wired modem on it; `depot stock` | UNTESTED |
-| **The dual loader** at the factory | two sides, each: placer, assembler, belt, pusher, staging vault, silo sensor | BUILT, run by hand only (`depot seq`) |
-| **Receiving** - unload, clear to storage, reuse the silo | unload and reusing the emptied silo exist; a `clear` relay per side moves the staging vault into bulk storage | unload + reuse BUILT, by hand; clearing and base-driven receiving DESIGNED |
+| **The dual loader** at the factory | two sides, each: placer, assembler, belt, pusher, staging vault, silo sensor; `dock.lua` in the depot's machine folder (`dock.example.lua`) | BUILT, run by the base (`depot`) and by hand (`depot seq`) - UNTESTED in game with a real drone |
+| **Receiving** - unload, clear to storage, reuse the silo | `ops unload <drone> <depot>`: the depot unloads each side into its storage, the drone letting go through the base; the emptied silo waits for the next load; a `clear` relay per side moves the staging vault into bulk storage | unload + reuse BUILT, base-driven too (UNTESTED in game); clearing DESIGNED |
 | **Silo supply**: a payload burns 3 silo blocks | silos held as factory stock; a Factory Gauge restocker on a packager at each placer's feed, target 6; the depot counts the feed before it places | the count BUILT (`feed` in dock.lua); the restockers DESIGNED |
-| **Staging from stock** | a packager on each staging vault (`cinder-A`, `cinder-B`) so the ticker can deliver into it; a hand-filled intake as the fallback | DESIGNED |
-| **The invoice printer** | a CC printer on the depot's network, paper and black dye in it | BUILT 2026-09-30: one page per silo, printed from that silo's count, put in the silo before it is assembled; `depot print` proves it |
+| **Staging from stock** | a packager on each staging vault (`cinder-A`, `cinder-B`) so the ticker can deliver into it; a hand-filled intake as the fallback | from the intake BUILT (`intake` in dock.lua); from the ticker DESIGNED |
+| **The invoice printer** | a CC printer on the depot's network, paper and black dye in it | BUILT 2026-09-30: one page per silo, printed from that silo's count. On the A/B dock it goes into the side's storage and the belt carries it into the assembled silo after the goods (an assembled silo loads and unloads like any other); `depot print` proves it |
 | **A till**, if customers pay in person | a chest a computer reads, at a Cinder location | DESIGNED |
 
 ## 1. What is it?
@@ -125,43 +184,47 @@ Over 10 shipments, `ops order add` asks before accepting - 100,000 typed for
 ## 4. Accept
 
 ```
-ops order add steve 10000 cobble to 1200 70 340 for 1500    DESIGNED
+ops order add steve 10000 cobble to 1200 70 340 for 1500    BUILT
 ```
 
 The order gets a short number, **C-0042**, which is what the customer quotes
-from now on. Its items are reserved against the factory's stock, so no later
-order can be promised the same cobble. Reply with the number.
+from now on - its flights are C-0042.1, .2, its shipments (and invoices)
+C-0042-1, -2, -3. Reply with the number. Reserving its items against the
+factory's stock is DESIGNED.
 
 ## 5. Fulfil, flight by flight
 
 ```
-ops order run C-0042         once per flight, for now           DESIGNED
+ops order run C-0042 chid-1  once per flight, for now           BUILT (UNTESTED in game)
 ```
 
 Each flight, in order:
 
-1. **The base picks the next two shipments.** Usually both from one order;
-   they can be from two, going to two places - `deliver A and B` already drops
-   one silo at each. DESIGNED.
+1. **The base picks the next two shipments** of the order, planned from what
+   is left after everything counted so far. BUILT. Two orders sharing a flight,
+   going to two places, is DESIGNED.
 2. **The drone ferries to the factory dock** and latches. BUILT.
 3. **The depot stages each shipment** into its side's staging vault - asked of
    the ticker with an exact count, or moved from the hand-filled intake - and
    runs the **five staging checks**: the vault's size, empty before, read back
    after, empty after the fill, and everything balancing. Anything wrong stops
-   the load before the drone is asked for anything. DESIGNED.
+   the load before the drone is asked for anything. From the intake, with
+   "empty before" (anything not ordered stops it) and "read back": BUILT. The
+   ticker, the size and balance checks: DESIGNED.
 4. **Place, assemble, fill.** The side's feed must hold 3 silo blocks first,
    or the load stops there. BUILT (`lib/dockseq.lua`, proven on side A; the
    feed count on the desktop).
 5. **The invoice goes in last,** printed from the count the fill actually
    measured, so it always says what is in the silo: SHIPMENT 2 OF 3, what this
-   one holds, what came before, what is still to follow, the money. DESIGNED
-   (the page is BUILT).
-6. **Pusher up, the drone sticks, pusher down.** BUILT by hand; the base
-   answering "stick" for a real drone is DESIGNED.
+   one holds, what came before, what is still to follow, the money. It goes
+   into the side's storage and the belt carries it into the silo. BUILT.
+6. **Pusher up, the drone sticks, pusher down** - the stick asked of the base,
+   which orders the drone and passes its answer back. BUILT (UNTESTED with a
+   real drone).
 7. **The drone flies the drop** to the order's coordinates and lets go. BUILT.
 8. **The drop is reported,** and the cargo ledger ties the sticker to the load
-   and the load to the order: that shipment is delivered. BUILT (the ledger);
-   marking the order is DESIGNED.
+   and the load to the order: that shipment is delivered, and the order is done
+   when every shipment is. BUILT.
 9. **Home, or back for the next flight.** The next shipments can be staged
    while it is still in the air, so the fill starts the moment it docks.
    DESIGNED.
@@ -175,7 +238,7 @@ shipment just means one more.
 **Payment**, whenever Alex wants it - before the first flight or after the
 last:
 
-- By hand or bank transfer: `ops order paid C-0042`. DESIGNED.
+- By hand or bank transfer: `ops order paid C-0042 all` (or an amount). BUILT.
 - **At a till, against the invoice**: the customer drops the invoice in with
   their card (charged exactly the balance) or coins (no change; any excess held
   as credit). The invoice says what is being paid for, so nobody needs
@@ -200,8 +263,8 @@ the customer it is done.
 | Alex takes stock by hand | nothing breaks; a promised order may come up short and wait | take from available, not reserved |
 | A delivery cannot be made (distress, obstruction) | *open decision* - proposed: the drone keeps the silo and brings it back; the depot unloads it into stock and reuses the silo; the order holds | decide |
 | The customer disputes it | the invoice number opens `ops order C-0042`: every event, what each silo held, where each dropped | read it |
-| The order is cancelled | `ops order cancel C-0042 <why>`: dropped shipments stay delivered, the reservation is released | DESIGNED |
-| The base restarts mid-order | open orders are rebuilt from `orders.log` | DESIGNED |
+| The order is cancelled | `ops order cancel C-0042 <why>`: dropped shipments stay delivered, nothing more flies | BUILT |
+| The base restarts mid-order | open orders are rebuilt from `orders.log`; a flight that was loading is not picked up again - run it again | the rebuild BUILT, resuming a flight DESIGNED |
 
 ## Before the first real order
 
@@ -214,7 +277,7 @@ Built and waiting on the game:
 4. A two-sided load where the base answers "stick" to a real drone.
 5. A restocker holding a placer's feed at 6 silo blocks while loads draw 3.
 
-And to build, smallest first (ORDERS.md, DELIVERIES.md): `lib/orders.lua` and
-the order book commands (useful the day they exist, even flying runs by hand),
-then the depot running the dual loader for the base with the staging checks and
-the printer, then `ops order run`.
+Built 2026-09-30: `lib/orders.lua` and the order book, `ops order run`, the
+depot running the A/B loader for the base (staging from the intake, invoices,
+unloads). Still to build: `ops quote`, staging from the ticker with the size
+and balance checks, stock reservation, and resuming a flight after a restart.

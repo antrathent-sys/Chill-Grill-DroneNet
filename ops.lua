@@ -825,6 +825,9 @@ if cmd == "free" then
   return
 end
 
+if cmd == "unload" then
+  cmd, args = "load", { "load", "unload", (table.unpack or unpack)(args, 2) }
+end
 if cmd == "load" then
   -- The loading station at the dock (lib/loader.lua; its layout is station.lua
   -- on this computer). Its relays are on THIS computer's network - a cable, or
@@ -878,6 +881,59 @@ if cmd == "load" then
     print(string.format("queued %s: %s to %s, %s, then %s", loadId, who, dockOf(depot),
       nums[1] and (nums[1] .. " items") or "what is in its intake", liftoff and ("fly " .. liftoff) or "it stays loaded"))
     print("the board (ops) sends it - it has to be running")
+    return
+  end
+  if sub == "receive" or sub == "unload" then
+    -- ops load unload <drone> <depot> [A|B|AB] [fly command]: the drone's
+    -- silos off at a two-sided dock's depot, into its storage
+    local who, depot = args[3], args[4]
+    if not (who and depot) or who == "any" then
+      print("ops unload <drone> <depot> [A|B|AB] [fly command]")
+      print("  the board sends the drone to the depot's dock; the depot takes its silos off")
+      print("  into storage, side by side; then the drone flies the command (ferry home)")
+      return
+    end
+    if not isDepot(depot) then depot = "depot-" .. depot end
+    if not fleetKeys[depot] then print("no key for " .. depot .. ": seckey new " .. depot .. " here") return end
+    -- which load its silos are from: what it still carries in cargo.csv
+    local loadId, sides = nil, {}
+    if CARGO then
+      local rows = cargoRows()
+      local seen = {}
+      for _, st in ipairs({ "Create_Sticker_0", "Create_Sticker_1" }) do
+        local load, silo = CARGO.openFor(rows, who, st)
+        if load then
+          loadId = loadId or load
+          if (silo == "A" or silo == "B") and not seen[silo] then seen[silo] = true sides[#sides + 1] = silo end
+        end
+      end
+    end
+    local i = 5
+    if args[5] and args[5]:upper():match("^[AB]+$") then
+      sides = {}
+      for sd in args[5]:upper():gmatch("[AB]") do sides[#sides + 1] = sd end
+      i = 6
+    end
+    if #sides == 0 then sides = { "A", "B" } end
+    local liftoff
+    if args[i] then
+      local okA, whyA = F.flyArgs(table.concat({ (table.unpack or unpack)(args, i) }, " "))
+      if not okA then print("then: " .. whyA) return end
+      liftoff = okA
+    end
+    if not loadId and ORD then
+      -- nothing on record: an order of our own for what it brings in
+      local oid = ORD.nextId(ordersAll())
+      if ordersAppend(ORD.accepted(nowSecs(), oid, { kind = "load", who = "ops" })) then loadId = ORD.loadId(oid, 1) end
+    end
+    loadId = loadId or ("L" .. nowSecs())
+    local h = fs.open(LOAD_QUEUE, "a")
+    if not h then print("cannot write " .. LOAD_QUEUE) return end
+    h.writeLine(table.concat({ "unload", who:lower(), depot, table.concat(sides, ","), loadId, liftoff or "" }, " "))
+    h.close()
+    print(string.format("queued: %s unloads %s at %s, side%s %s%s", who, loadId, dockOf(depot), #sides == 1 and "" or "s",
+      table.concat(sides, "+"), liftoff and (", then fly " .. liftoff) or ""))
+    print("the board (ops) runs it - it has to be running")
     return
   end
   local usage = {
@@ -1655,13 +1711,41 @@ local function depotReport(msg)
   L.at = os.clock()
   if msg.type == "load.step" then
     log("%s %s: %s", L.dock, msg.step, tostring(msg.text or ""))
-  elseif msg.type == "load.lifted" then
-    local sent, why = order(L.drone, F.stick(L.id, F.list(msg.stickers), true, nonce()))
+  elseif msg.type == "load.lifted" or msg.type == "load.release" then
+    -- the drone's part: stick the silos the depot has pushed up, or (an
+    -- unload) let go of the ones it holds. Its answer goes back to the depot.
+    local on = msg.type == "load.lifted"
+    local sent, why = order(L.drone, F.stick(L.id, F.list(msg.stickers), on, nonce()))
     if not sent then order(L.depot, F.loadStuck(L.id, false, "not sent to " .. L.drone .. ": " .. tostring(why), nonce())) end
+  elseif msg.type == "load.done" and msg.kind == "unload" then
+    -- a depot received: each side's silo came off the drone into storage
+    local sides, stickers = F.list(msg.sides), F.list(msg.stickers)
+    local when = nowSecs()
+    for k, side in ipairs(sides) do
+      local items = CARGO and msg["silo_" .. side] and CARGO.unpack(msg["silo_" .. side]) or {}
+      if CARGO then cargoWrite(CARGO.receivedRows(when, L.id, L.drone, side, stickers[k] or "?", items, L.dock)) end
+      if L.order then
+        local o = ordersAll()[L.order]
+        local n = ORD.shipmentAt(o, L.flight, side)
+        if n then ordersAppend(ORD.receivedLine(when, L.order, L.flight, n, L.dock, items)) end
+      end
+      log("%s: side %s received %s", L.id, side, CARGO and CARGO.describe(items, 3) or "")
+    end
+    if L.order then
+      local after = ordersAll()[L.order]
+      if after and ORD.isOpen(after) and ORD.complete(after) then
+        ordersAppend(ORD.doneLine(nowSecs(), L.order))
+        log("%s complete: every shipment delivered", L.order)
+      end
+    end
+    if msg.ok and L.liftoff then order(L.drone, F.flyCommand(L.liftoff, nonce())) end
+    endLoad(L, msg.ok and "done" or "failed", msg.ok and nil or (tostring(msg.why) .. " (at " .. tostring(msg.at) .. ")"))
   elseif msg.type == "load.done" then
-    if msg.ok or msg.at == "retract" or msg.at == "liftoff" then
+    -- recorded when the silos went with the drone: all of them, or the sides
+    -- a two-sided dock finished before it stopped
+    if msg.ok or msg.at == "retract" or msg.at == "liftoff" or #F.list(msg.sides) > 0 then
       local manifest
-      for _, side in ipairs({ "left", "right", "both" }) do
+      for side in pairs(F.SILO_SIDES) do
         if msg["silo_" .. side] and CARGO then
           manifest = manifest or {}
           manifest[side] = CARGO.unpack(msg["silo_" .. side])
@@ -1719,8 +1803,23 @@ local function takeQueue()
   if h then h.close() end
   fs.delete(taking)
   for line in text:gmatch("[^\n]+") do
+    -- an unload: "unload <drone> <depot> <sides> <load id> [fly command]"
+    local uWho, uDepot, uSides, uId, uLift = line:match("^unload (%S+) (%S+) (%S+) (%S+) ?(.*)$")
+    if uWho and isDepot(uDepot) then
+      if loads[uDepot] then
+        log("%s is busy with load %s - not queued", uDepot, loads[uDepot].id)
+      else
+        local L = { kind = "unload", depot = uDepot, dock = dockOf(uDepot), who = uWho, sides = uSides,
+                    liftoff = uLift ~= "" and uLift or nil, state = "queued", at = os.clock(), id = uId }
+        local oid, f
+        if ORD then oid, f = ORD.parseLoad(uId) end
+        if oid and ordersAll()[oid] then L.order, L.flight = oid, f end
+        loads[uDepot] = L
+        log("unload %s queued at %s for %s", uId, dockOf(uDepot), uWho)
+      end
+    end
     local who, depot, items, stack, loadId, liftoff = line:match("^(%S+) (%S+) (%S+) (%S+) (%S+) ?(.*)$")
-    if who and isDepot(depot) then
+    if who ~= "unload" and who and isDepot(depot) then
       if loads[depot] then
         log("%s is busy with load %s - not queued", depot, loads[depot].id)
       else
@@ -1743,7 +1842,16 @@ local function takeQueue()
             L.id, L.order, L.flight = loadId, oid, f
             L.first, L.count = fl and fl.first or 1, fl and fl.count or 1
             local okD, date = pcall(os.date, "!%Y-%m-%d")
-            if fl then L.invoice = ORD.invoiceFields(o, fl, okD and date or nil) end
+            if fl then
+              L.invoice = ORD.invoiceFields(o, fl, okD and date or nil)
+              -- what each silo is to hold, for a two-sided dock to stage
+              L.invoice.silos = fl.count
+              for k, silo in ipairs(fl.silos) do
+                local m = {}
+                for _, it in ipairs(silo) do m[it.item] = (m[it.item] or 0) + it.amount end
+                L.invoice["pack" .. k] = ORD.packCount(m)
+              end
+            end
             ordersAppend(ORD.flightLine(nowSecs(), oid, f, { depot = depot, first = L.first, count = L.count }))
           end
         end
@@ -1792,7 +1900,12 @@ local function depotLoop()
         if droneAt(L.drone, L.dock) and d and d.seen and now - d.seen < 15 then
           -- where it goes, for the depot's screens: the liftoff's last word
           local dest = type(L.liftoff) == "string" and L.liftoff:match("(%S+)%s*$") or nil
-          local sent = order(depot, F.loadStart(L.id, L.drone, L.items, L.stack, nonce(), dest, L.invoice))
+          local sent
+          if L.kind == "unload" then
+            sent = order(depot, F.unloadStart(L.id, L.drone, L.sides, nonce()))
+          else
+            sent = order(depot, F.loadStart(L.id, L.drone, L.items, L.stack, nonce(), dest, L.invoice))
+          end
           if sent then
             L.state, L.at = "loading", now
             log("%s docked at %s: loading", L.drone, L.dock)
@@ -1965,7 +2078,7 @@ end
 
 local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true,
                      ["unit.dropped"] = true, ["depot.hello"] = true, ["load.step"] = true,
-                     ["load.lifted"] = true, ["load.done"] = true }
+                     ["load.lifted"] = true, ["load.done"] = true, ["load.release"] = true }
 -- A drone speaks only for itself. Sealed is not enough: any key in
 -- .fleetkeys opens a packet, a depot's included, and these name their drone in
 -- the message. Unbound, a depot's key - on a computer in somebody else's base
@@ -2170,7 +2283,8 @@ function handle(from, msg, customer, sealedBy)
         log("%s %s%s", msg.drone, msg.state, msg.detail and (" - " .. msg.detail) or "")
       elseif msg.type == "depot.hello" then
         if isDepot(sealedBy) and msg.depot == sealedBy then depotHello(msg) end
-      elseif msg.type == "load.step" or msg.type == "load.lifted" or msg.type == "load.done" then
+      elseif msg.type == "load.step" or msg.type == "load.lifted" or msg.type == "load.done"
+             or msg.type == "load.release" then
         if isDepot(sealedBy) and msg.depot == sealedBy then depotReport(msg) end
       elseif msg.type == "unit.stuck" then
         stuckReply(msg, sealedBy)

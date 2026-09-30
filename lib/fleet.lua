@@ -107,6 +107,7 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["unit.dropped"] = true, ["depot.hello"] = true, ["load.start"] = true,
             ["load.step"] = true, ["load.lifted"] = true, ["load.stuck"] = true, ["load.done"] = true,
             ["unit.clear"] = true, ["unit.stop"] = true, ["unit.goto"] = true,
+            ["unload.start"] = true, ["load.release"] = true,
             ["admin.trip"] = true, ["admin.go"] = true, ["admin.cancel"] = true, ["admin.ack"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
@@ -211,15 +212,19 @@ function F.check(m)
     if m.items ~= nil and not num(m.items) then return false, "bad item count" end
     if m.dest ~= nil and not (str(m.dest) and #m.dest <= 24) then return false, "bad destination" end
     for k, v in pairs(m) do
+      if type(k) == "string" and k:match("^pack%d$") and not (str(v) and #v <= 200) then return false, "bad " .. k end
       if type(k) == "string" and k:match("^inv_") then
         if not ((type(v) == "string" and #v <= 40) or num(v)) then return false, "bad invoice field " .. k end
       end
     end
   elseif m.type == "load.step" then
     if not (str(m.load) and str(m.depot) and str(m.step)) then return false, "no load, depot or step" end
-  elseif m.type == "load.lifted" then
+  elseif m.type == "load.lifted" or m.type == "load.release" then
     if not (str(m.load) and str(m.depot)) then return false, "no load or depot" end
     if not (str(m.stickers) and m.stickers:match("^[%w_:%.%-,]+$")) then return false, "bad sticker list" end
+  elseif m.type == "unload.start" then
+    if not (str(m.load) and str(m.drone)) then return false, "no load or drone" end
+    if m.sides ~= nil and not (str(m.sides) and m.sides:match("^[AB,]+$")) then return false, "sides are A, B or A,B" end
   elseif m.type == "load.stuck" then
     if not str(m.load) then return false, "no load" end
     if type(m.ok) ~= "boolean" then return false, "no verdict" end
@@ -382,16 +387,32 @@ function F.depotHello(depot, load, step, nonce)
 end
 
 -- dest: where the load is going, for the depot's screens (optional).
--- invoice: an order's inv_* fields (lib/orders.lua O.invoiceFields), so the
--- depot can print each silo's invoice from its own count (optional)
-function F.loadStart(load, drone, items, stack, nonce, dest, invoice)
+-- extra: an order's inv_* fields (lib/orders.lua O.invoiceFields), so the
+-- depot can print each silo's invoice from its own count; pack1, pack2 - what
+-- each silo is to hold ("item count|item count"), for a two-sided dock to
+-- stage from its intake; silos - how many (optional, all of them)
+function F.loadStart(load, drone, items, stack, nonce, dest, extra)
   local m = { v = F.VERSION, type = "load.start", nonce = nonce, load = load, drone = drone,
               items = num(items) and math.floor(items) or nil, stack = num(stack) and math.floor(stack) or nil,
               dest = str(dest) and dest:sub(1, 24) or nil }
-  for k, v in pairs(invoice or {}) do
-    if type(k) == "string" and k:match("^inv_") then m[k] = v end
+  for k, v in pairs(extra or {}) do
+    if type(k) == "string" and (k:match("^inv_") or k:match("^pack%d$") or k == "silos") then m[k] = v end
   end
   return m
+end
+
+-- A two-sided dock's silos off a drone and into storage (a depot receiving):
+-- sides "A", "B" or "A,B" - the ones the drone's silos hang on.
+function F.unloadStart(load, drone, sides, nonce)
+  return { v = F.VERSION, type = "unload.start", nonce = nonce, load = load, drone = drone,
+           sides = str(sides) and sides or nil }
+end
+
+-- the depot, mid-unload: have the drone let go of these stickers. The base
+-- answers load.stuck, as for a stick.
+function F.loadRelease(load, depot, names, nonce)
+  return { v = F.VERSION, type = "load.release", nonce = nonce, load = load, depot = depot,
+           stickers = table.concat(names, ",") }
 end
 
 function F.loadStep(load, depot, step, text, nonce)
@@ -410,16 +431,20 @@ end
 --- The end of a load at a depot. report: sides and stickers (lists), counted
 -- (how), and silos { [side] = packed items } - the sealed link carries flat
 -- fields only.
-function F.loadDone(load, depot, ok, why, at, report, nonce)
+-- kind: "unload" for a depot receiving (silo_<side> is then what arrived in
+-- that side's storage); a load otherwise
+function F.loadDone(load, depot, ok, why, at, report, nonce, kind)
   report = report or {}
   local m = { v = F.VERSION, type = "load.done", nonce = nonce, load = load, depot = depot,
               ok = ok and true or false, why = why, at = at, counted = report.counted,
-              sides = table.concat(report.sides or {}, ","), stickers = table.concat(report.stickers or {}, ",") }
+              sides = table.concat(report.sides or {}, ","), stickers = table.concat(report.stickers or {}, ","),
+              kind = kind == "unload" and "unload" or nil }
   for side, packed in pairs(report.silos or {}) do
-    if side == "left" or side == "right" or side == "both" then m["silo_" .. side] = packed end
+    if F.SILO_SIDES[side] then m["silo_" .. side] = packed end
   end
   return m
 end
+F.SILO_SIDES = { left = true, right = true, both = true, A = true, B = true }
 
 --- A list field ("a,b") back into a list.
 function F.list(s)

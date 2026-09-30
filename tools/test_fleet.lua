@@ -369,6 +369,20 @@ print("internal places")
 local pk = F.packPlaces({ { name = "spawn", x = 958, z = 505 }, { name = "chid-1", x = 2497, z = 3297, internal = true } })
 check("the fleet's own places never go to a terminal", pk:find("spawn", 1, true) ~= nil and pk:find("chid", 1, true) == nil, pk)
 
+print("the two-sided dock")
+check("an unload names its load and drone, and sides A, B or both", F.check(F.unloadStart("C-0001.1", "drone-1", "A,B", "u-1"))
+  and F.check(F.unloadStart("C-0001.1", "drone-1", nil, "u-2")) and not F.check(F.unloadStart("C-0001.1", "drone-1", "C", "u-3"))
+  and not F.check(F.unloadStart(nil, "drone-1", "A", "u-4")))
+check("a release is a sticker list, like a stick", F.check(F.loadRelease("C-0001.1", "depot-pier", { "Create_Sticker_0" }, "u-5"))
+  and not F.check(F.loadRelease("C-0001.1", "depot-pier", { "a;b" }, "u-6")))
+local ls = F.loadStart("C-0001.1", "drone-1", 7552, 64, "u-7", "kodiak",
+  { pack1 = "minecraft:cobblestone 3776", pack2 = "minecraft:cobblestone 3776", silos = 2, inv_order = "C-0001", junk = 1 })
+check("a load carries each silo's share, and nothing it was not meant to", F.check(ls) and ls.pack2 == "minecraft:cobblestone 3776"
+  and ls.silos == 2 and ls.inv_order == "C-0001" and ls.junk == nil)
+local ld = F.loadDone("C-0001.1", "depot-pier", true, nil, "done", { sides = { "A", "B" }, silos = { A = "x*1", B = "y*2", Q = "z*3" } }, "u-8", "unload")
+check("a load report by side A and B, and an unload says so", F.check(ld) and ld.silo_A == "x*1" and ld.silo_B == "y*2"
+  and ld.silo_Q == nil and ld.kind == "unload")
+
 print("orders in the air")
 check("a stop names its unit", F.check(F.stop("drone-1", "s-1")) and not F.check(F.stop(nil, "s-2")))
 check("a goto is a ferry or a landing", F.check(F.goto("drone-1", "ferry pier", "s-3"))

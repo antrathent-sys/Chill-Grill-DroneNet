@@ -56,7 +56,8 @@ local function depot(opts)
       local body = baseRx.open(env, function(id) return id == "depot-pier" and KEY or nil end, S.DIR.DRONE_TO_BASE)
       if not body then return end
       w.heard[#w.heard + 1] = body
-      if body.type == "load.lifted" and base.stuck ~= nil then
+      if (body.type == "load.lifted" or body.type == "load.release") and base.stuck ~= nil then
+        if w.onDrone then w.onDrone(body) end
         fromBase(w.clock + 0.3, F.loadStuck(body.load, base.stuck, (not base.stuck) and "not a sticker" or nil, "b-" .. #w.heard))
       end
     end } }
@@ -636,6 +637,175 @@ check("a load that is not a customer's order prints nothing", w.err == nil and #
 w = depot({ printer = { paper = 5, ink = 5 } }):run("depot.lua", { "print" }, 10)
 check("depot print: a sample page, and the name it reads back as", w.err == nil and #w.pages == 1
   and w.text:find("CINDER INVOICE C-0000-1", 1, true) and w.text:find("named \"CINDER INVOICE C-0000-1\"", 1, true), w.err or w.text)
+
+print("the two-sided dock, run by the base")
+local DOCK = [[
+return {
+  sides = {
+    A = { place = "redstone_relay_10", assemble = "redstone_relay_12", pusher = "redstone_relay_7",
+          belt = "redstone_relay_2", storage = "create:item_vault_A", feed = "minecraft:chest_fa" },
+    B = { place = "redstone_relay_11", assemble = "redstone_relay_13", pusher = "redstone_relay_9",
+          belt = "redstone_relay_1", storage = "create:item_vault_B", feed = "minecraft:chest_fb" },
+  },
+  belt_on = "fills",
+  intake = "create:item_vault_in",
+  wait = { pulse = 0.2, assemble_hold = 0.2, place = 0.2, assemble = 0.2, push = 0.2, retract = 0.2, step = 0.2 },
+  fill = { settle = 2, start = 6, max = 60 },
+  empty = { settle = 2, start = 6, max = 60 },
+}
+]]
+-- a two-sided dock: relays, and per side a storage vault the belt drains into
+-- the silo while it is at its filling level (and back out at the other, when
+-- a silo in the bay holds anything), a feed of silo blocks, and an intake
+local function abDepot(opts)
+  local w = depot({ station = false, printer = opts.printer, base = opts.base, loads = opts.loads })
+  w.files["dock.lua"] = DOCK
+  local sim = { store = { A = {}, B = {} }, silo = { A = {}, B = {} }, belt = {}, intake = opts.intake or {},
+                last = { A = 0, B = 0 }, slots = {} }
+  -- the intake as real slots of 64, each emptied by what is taken from it
+  for k, v in pairs(sim.intake) do
+    local left = v
+    while left > 0 do sim.slots[#sim.slots + 1] = { name = k, count = math.min(64, left) } left = left - 64 end
+  end
+  for side, items in pairs(opts.store or {}) do for k, v in pairs(items) do sim.store[side][k] = v end end
+  w.sim = sim
+  local BELT = { redstone_relay_2 = "A", redstone_relay_1 = "B" }
+  for _, n in ipairs({ "redstone_relay_1", "redstone_relay_2", "redstone_relay_7", "redstone_relay_9", "redstone_relay_10",
+                       "redstone_relay_11", "redstone_relay_12", "redstone_relay_13" }) do
+    w.periph[n] = { type = "redstone_relay", m = {
+      setOutput = function(side, on)
+        w.sets[#w.sets + 1] = { t = w.clock, k = n .. ":" .. side, on = on }
+        if BELT[n] then sim.belt[BELT[n]] = on end
+      end, getAnalogInput = function() return 0 end } }
+  end
+  -- the belt moves 500 items a second, whichever way it runs, from whenever
+  -- the storage was last looked at
+  local function flow(side)
+    local budget = math.floor((w.clock - sim.last[side]) * 500)
+    sim.last[side] = w.clock
+    local from, to = sim.store[side], sim.silo[side]
+    if not sim.belt[side] then from, to = sim.silo[side], sim.store[side] end
+    for k, v in pairs(from) do
+      if budget <= 0 then return end
+      local n = math.min(v, budget)
+      from[k] = v - n > 0 and (v - n) or nil
+      to[k] = (to[k] or 0) + n
+      budget = budget - n
+    end
+  end
+  for _, side in ipairs({ "A", "B" }) do
+    w.periph["create:item_vault_" .. side] = { type = "create:item_vault", m = {
+      list = function()
+        flow(side)
+        local l, i = {}, 0
+        for k, v in pairs(sim.store[side]) do i = i + 1 l[i] = { name = k, count = v } end
+        return l
+      end } }
+  end
+  for _, f in ipairs({ "fa", "fb" }) do
+    w.periph["minecraft:chest_" .. f] = { type = "minecraft:chest", m = {
+      list = function() return { [1] = { name = "create_connected:item_silo", count = 9 } } end } }
+  end
+  w.periph["create:item_vault_in"] = { type = "create:item_vault", m = {
+    list = function()
+      local l = {}
+      for i, it in ipairs(sim.slots) do if it.count > 0 then l[i] = { name = it.name, count = it.count } end end
+      return l
+    end,
+    pushItems = function(into, slot, n)
+      local it = sim.slots[slot]
+      if not it or it.count == 0 then return 0 end
+      local side = into:match("_(%u)$")
+      local m = math.min(n or it.count, it.count)
+      it.count = it.count - m
+      sim.intake[it.name] = sim.intake[it.name] - m
+      sim.store[side][it.name] = (sim.store[side][it.name] or 0) + m
+      return m
+    end } }
+  -- the printer puts its page in a storage vault, where the belt finds it
+  if opts.printer then
+    local pm = w.periph.printer_0.m
+    local push = pm.pushItems
+    pm.pushItems = function(into, slot)
+      local n = push(into, slot)
+      local side = into:match("item_vault_(%u)$")
+      if n == 1 and side then sim.store[side]["computercraft:printed_page"] = 1 end
+      return n
+    end
+  end
+  -- the drone: sticking takes the silo away; letting go brings its load into the bay
+  w.onDrone = function(body)
+    local side = body.stickers == "Create_Sticker_0" and "A" or "B"
+    if body.type == "load.lifted" then sim.silo[side] = {}
+    else sim.silo[side] = { ["minecraft:iron_ingot"] = 3000 } end
+  end
+  return w
+end
+local function packsFor(o)
+  local fl = O.nextFlight(o)
+  local extra = O.invoiceFields(o, fl, "2026-09-30")
+  extra.silos = fl.count
+  for k, silo in ipairs(fl.silos) do
+    local m = {}
+    for _, it in ipairs(silo) do m[it.item] = (m[it.item] or 0) + it.amount end
+    extra["pack" .. k] = O.packCount(m)
+  end
+  return extra
+end
+local extraAB = packsFor(ord)
+w = abDepot({ printer = { paper = 5, ink = 5 }, intake = { ["minecraft:cobblestone"] = 10000 },
+              loads = { { 2, F.loadStart("C-0042.1", "drone-1", 7552, 64, "b-ab1", "1200", extraAB) } } }):run("depot.lua", {}, 300)
+local doneAB = heardOf(w, "load.done")[1]
+check("a two-sided dock runs the base's load: side A then side B", w.err == nil and doneAB and doneAB.ok == true
+  and doneAB.sides == "A,B" and doneAB.stickers == "Create_Sticker_0,Create_Sticker_1",
+  w.err or (doneAB and (tostring(doneAB.why) .. " at " .. tostring(doneAB.at))) or w.text)
+check("each silo's share staged from the intake: 3,776 a side, 2,448 left in the intake",
+  w.sim.intake["minecraft:cobblestone"] == 2448, w.sim.intake["minecraft:cobblestone"])
+check("what left each side's storage is what it reports went into that silo", doneAB and doneAB.silo_A
+  == "minecraft:cobblestone*3776" and doneAB.silo_B == "minecraft:cobblestone*3776", doneAB and doneAB.silo_A)
+local lifted = heardOf(w, "load.lifted")
+check("the drone is asked to stick side A's sticker, then side B's", #lifted == 2 and lifted[1].stickers == "Create_Sticker_0"
+  and lifted[2].stickers == "Create_Sticker_1")
+local stepsAB = {}
+for _, b in ipairs(heardOf(w, "load.step")) do stepsAB[#stepsAB + 1] = b.step end
+local seqAB = table.concat(stepsAB, " ")
+check("every step reported: stage, place, assemble, fill, invoice, push, stick, retract", seqAB:find("stage", 1, true)
+  and seqAB:find("place", 1, true) and seqAB:find("assemble", 1, true) and seqAB:find("fill", 1, true)
+  and seqAB:find("invoice", 1, true) and seqAB:find("push", 1, true) and seqAB:find("stick", 1, true), seqAB)
+local invSaid = {}
+for _, b in ipairs(heardOf(w, "load.step")) do if b.step == "invoice" then invSaid[#invSaid + 1] = b.text end end
+check("each invoice printed from its own count, and the belt carried it into the silo",
+  #w.pages == 2 and w.pages[1].title == "CINDER INVOICE C-0042-1" and w.pages[2].title == "CINDER INVOICE C-0042-2"
+  and (invSaid[1] or ""):find("in the A silo", 1, true) and (invSaid[2] or ""):find("in the B silo", 1, true),
+  table.concat(invSaid, " / "))
+check("the second page counts the first silo as shipped before",
+  table.concat(w.pages[2] and w.pages[2].lines or {}, "\n"):find("SHIPPED BEFORE%s+3,776") ~= nil)
+check("both bays remembered empty after, and every relay at rest", (w.files[".dockstate"] or ""):find("A=none", 1, true)
+  and (w.files[".dockstate"] or ""):find("B=none", 1, true))
+
+w = abDepot({ intake = { ["minecraft:cobblestone"] = 10000 }, store = { B = { ["minecraft:gravel"] = 12 } },
+              loads = { { 2, F.loadStart("C-0042.1", "drone-1", 7552, 64, "b-ab2", "1200", extraAB) } } }):run("depot.lua", {}, 300)
+local d2 = heardOf(w, "load.done")[1]
+check("something nobody ordered in a side's storage stops that side, and says what", d2 and d2.ok == false
+  and d2.at == "stage" and tostring(d2.why):find("12 minecraft:gravel", 1, true)
+  and tostring(d2.why):find("side A done", 1, true) and d2.sides == "A", d2 and d2.why)
+
+w = abDepot({ loads = { { 2, F.unloadStart("C-0040.1", "drone-2", "A,B", "b-ab3") } } }):run("depot.lua", {}, 300)
+local d3 = heardOf(w, "load.done")[1]
+local rel = heardOf(w, "load.release")
+check("an unload: the drone is asked to let go of each side's sticker", #rel == 2 and rel[1].stickers == "Create_Sticker_0"
+  and rel[2].stickers == "Create_Sticker_1", #rel)
+check("and each silo is emptied into its side's storage - what arrived is reported", d3 and d3.ok == true
+  and d3.kind == "unload" and d3.silo_A == "minecraft:iron_ingot*3000" and d3.silo_B == "minecraft:iron_ingot*3000"
+  and w.sim.store.A["minecraft:iron_ingot"] == 3000, w.err or (d3 and tostring(d3.why)))
+check("an empty silo is left waiting on each side", (w.files[".dockstate"] or ""):find("A=empty", 1, true)
+  and (w.files[".dockstate"] or ""):find("B=empty", 1, true))
+
+w = abDepot({ store = { A = { ["minecraft:cobblestone"] = 640 } },
+              loads = { { 2, F.loadStart("C-0043.1", "drone-1", 640, 64, "b-ab4") } } }):run("depot.lua", {}, 200)
+local d4 = heardOf(w, "load.done")[1]
+check("a plain load, one silo: side A only, what was already in its storage, no invoice", d4 and d4.ok == true
+  and d4.sides == "A" and d4.silo_A == "minecraft:cobblestone*640" and #w.pages == 0, d4 and d4.why)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end

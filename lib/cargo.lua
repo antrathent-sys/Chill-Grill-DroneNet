@@ -123,6 +123,23 @@ function C.loadedRows(when, load, drone, silos, dest)
   return out
 end
 
+--- A depot received a silo: one "received" row per item that arrived in its
+-- storage, where = the depot. Not "loaded", so the silo is off the drone.
+function C.receivedRows(when, load, drone, silo, sticker, items, where)
+  local out, names = {}, {}
+  for name in pairs(items or {}) do names[#names + 1] = name end
+  table.sort(names)
+  if #names == 0 then
+    out[1] = row({ when = when, load = load, drone = drone, silo = silo, sticker = sticker, item = "?", count = 0,
+      dest = where or "", state = "received" })
+  end
+  for _, name in ipairs(names) do
+    out[#out + 1] = row({ when = when, load = load, drone = drone, silo = silo, sticker = sticker, item = name,
+      count = items[name], dest = where or "", state = "received" })
+  end
+  return out
+end
+
 --- One drop row: ok = the sticker let go ("delivered"), else "held".
 function C.dropRow(when, load, drone, silo, sticker, dest, ok, x, y, z)
   local function n(v) return type(v) == "number" and floor(v) or "" end

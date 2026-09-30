@@ -138,6 +138,33 @@ function D.check(c)
     return nil, "silo_blocks must be a whole number of blocks"
   end
   out.silo_blocks = c.silo_blocks or D.SILO_BLOCKS
+  -- the drone's sticker that faces each side, for a load run by the base
+  -- (it sticks the silo on that side, or lets it go): { A = "Create_Sticker_0",
+  -- B = "Create_Sticker_1" } unless dock.lua says otherwise
+  out.stick = { A = "Create_Sticker_0", B = "Create_Sticker_1" }
+  if c.stick ~= nil then
+    if type(c.stick) ~= "table" then return nil, "stick = { A = \"Create_Sticker_0\", B = \"Create_Sticker_1\" }" end
+    for _, side in ipairs(D.SIDES) do
+      if c.stick[side] ~= nil then
+        if not (str(c.stick[side]) and c.stick[side]:match("^[%w_:%.%-]+$")) then return nil, "stick." .. side .. " must be a sticker's name" end
+        out.stick[side] = c.stick[side]
+      end
+    end
+  end
+  -- where an order's goods are staged from: one inventory or a list, filled
+  -- by hand or by Create. Each flight moves each silo's share from here into
+  -- that side's storage before its fill (DELIVERIES.md, "The intake")
+  if c.intake ~= nil then
+    local list = type(c.intake) == "table" and c.intake or { c.intake }
+    out.intake = {}
+    for _, inv in ipairs(list) do
+      if not str(inv) then return nil, "intake must be an inventory's name" end
+      out.intake[#out.intake + 1] = inv
+    end
+  end
+  -- the invoice printer, when there is one on the network and it is not the first
+  if c.printer ~= nil and not str(c.printer) then return nil, "printer is a peripheral's name" end
+  out.printer = c.printer
   -- a detector per side: a laser_sensor's name. silo_when says which power
   -- means a silo is there: "high" (Alex's dock, 2026-09-24: the sensor goes
   -- low when there is no silo) or "low". "hit" and "blocked" still work, as
@@ -216,6 +243,10 @@ end
 --                                   the bay, none, or nil (no detector, or it
 --                                   could not be read)
 --   say(step, text), stopped() -> bool
+--   beforeFill(side), filled(side, moved)   optional, a load only: either side
+--                                   of the fill - where a depot counts what
+--                                   went into the silo, and puts its invoice
+--                                   in the storage for the belt to carry in
 local function runner(cfg, side, io)
   local s = cfg.sides[side]
   if not s then error({ why = "this dock has no side " .. tostring(side) }, 0) end
@@ -399,6 +430,8 @@ function D.load(cfg, side, io, items)
     -- the belt goes to loading and stays there until the silo has gone: at
     -- the other level it would pull the load back out while it waits
     r.expect(true, "no silo in the bay to fill - nothing will be loaded toward an empty bay")
+    -- counted before the belt turns: from then on the storage is emptying
+    if have ~= "full" and io.beforeFill then io.beforeFill(side) end
     local fillLevel = D.beltFor(cfg, "fill", side)
     if fillLevel ~= nil then r.set(s.belt, fillLevel) end
     local moved
@@ -409,6 +442,7 @@ function D.load(cfg, side, io, items)
     r.say(moved and string.format("%d items in", moved) or "filled")
     io.silo(side, "full")
     r.pause(cfg.wait.step)
+    if io.filled then io.filled(side, moved) end
     end
 
     r.step = "dock"

@@ -150,7 +150,21 @@ local function base(opts)
       local dbody = depotRx.open(env2, function(id) return id == "depot-pier" and DEPOTKEY or nil end, S.DIR.BASE_TO_DRONE, 120000)
       if not (dbody and depot) then return end
       w.depotHeard[#w.depotHeard + 1] = dbody
-      if dbody.type == "load.start" then
+      -- depot.ab: a two-sided dock - sides A and B, and it can unload
+      if depot.ab and dbody.type == "load.start" then
+        depot.mode = "load"
+        fromDepot(F.loadStep(dbody.load, "depot-pier", "fill", "3776 items in", "p-1"), 1)
+        fromDepot(F.loadLifted(dbody.load, "depot-pier", { "Create_Sticker_0", "Create_Sticker_1" }, "p-2"), 3)
+      elseif depot.ab and dbody.type == "unload.start" then
+        depot.mode = "unload"
+        fromDepot(F.loadRelease(dbody.load, "depot-pier", { "Create_Sticker_0", "Create_Sticker_1" }, "p-r"), 2)
+      elseif depot.ab and dbody.type == "load.stuck" then
+        local unload = depot.mode == "unload"
+        local pk = CARGO.pack({ [unload and "minecraft:iron_ingot" or "minecraft:cobblestone"] = unload and 3000 or 3776 })
+        fromDepot(F.loadDone(dbody.load, "depot-pier", dbody.ok, (not dbody.ok) and dbody.why or nil, dbody.ok and "done" or "stick",
+          { counted = "from each side's storage", sides = { "A", "B" }, stickers = { "Create_Sticker_0", "Create_Sticker_1" },
+            silos = { A = pk, B = pk } }, "p-3", unload and "unload" or nil), 2)
+      elseif dbody.type == "load.start" then
         fromDepot(F.loadStep(dbody.load, "depot-pier", "place", "placing 1 silo: left", "p-1"), 1)
         fromDepot(F.loadLifted(dbody.load, "depot-pier", { "Create_Sticker_0" }, "p-2"), 3)
       elseif dbody.type == "load.stuck" then
@@ -1062,6 +1076,50 @@ check("the next flight is C-0001.2, planned from what was counted", (w.files["lo
 w = base({ args = { "order", "cancel", "C-0001", "changed", "their", "mind" }, files = { ["orders.log"] = olog3 } }):run()
 check("ops order cancel", has(w, "C-0001 cancelled: changed their mind")
   and (w.files["orders.log"] or ""):find(",cancelled,", 1, true))
+
+print("the two-sided dock, from the base")
+-- an order's flight on an A/B dock: each silo's share goes to the depot, and
+-- the counts it sends back for A and B are the order's shipments 1 and 2
+w = base({ args = { "order", "run", "C-0001", "pier" }, files = { ["orders.log"] = olog } }):run()
+local abq = w.files["loads.queue"] or ""
+w = base({ args = {}, depot = { ab = true }, files = { ["loads.queue"] = abq, ["orders.log"] = olog }, keysAt = { { 60, "q" } } }):run()
+local abStart
+for _, b in ipairs(w.depotHeard) do if b.type == "load.start" then abStart = b end end
+check("the load carries each silo's share, to be staged on each side", w.err == nil and abStart and abStart.silos == 2
+  and abStart.pack1 == "minecraft:cobblestone 3776" and abStart.pack2 == "minecraft:cobblestone 3776", w.err or (abStart and abStart.pack1))
+local ablog = w.files["orders.log"] or ""
+check("side A is shipment 1 and side B shipment 2", ablog:find("at_A=1", 1, true) and ablog:find("at_B=2", 1, true)
+  and ablog:find("s1=minecraft:cobblestone 3776", 1, true) and ablog:find("s2=minecraft:cobblestone 3776", 1, true), ablog)
+local abcsv = w.files["cargo.csv"] or ""
+check("cargo.csv has both silos by side", abcsv:find("C-0001.1,drone-1,A,Create_Sticker_0,minecraft:cobblestone,3776", 1, true)
+  and abcsv:find("C-0001.1,drone-1,B,Create_Sticker_1,minecraft:cobblestone,3776", 1, true), abcsv)
+w = base({ args = {}, files = { ["cargo.csv"] = abcsv, ["orders.log"] = ablog }, keysAt = { { 12, "q" } },
+           later = { { 5, F.dropped("drone-1", "Create_Sticker_1", true, 1200, 70, 340, "d-ab") } } }):run()
+check("a drop of side B's sticker is shipment 2 delivered", (w.files["orders.log"] or ""):find("shipment=2", 1, true) ~= nil)
+
+-- a drone bringing silos in: ops unload, and the depot takes them off
+w = base({ args = { "unload", "drone-1", "pier", "ferry", "home" }, files = { ["cargo.csv"] = abcsv, ["orders.log"] = ablog } }):run()
+local uq = w.files["loads.queue"] or ""
+check("ops unload: the silos it carries, from cargo.csv - load C-0001.1, sides A and B", uq:find(
+  "unload drone-1 depot-pier A,B C-0001.1 ferry home", 1, true) and has(w, "unloads C-0001.1 at pier"), uq .. w.text)
+w = base({ args = {}, depot = { ab = true }, files = { ["loads.queue"] = uq, ["cargo.csv"] = abcsv, ["orders.log"] = ablog },
+           keysAt = { { 60, "q" } } }):run()
+local us, unsticks = nil, {}
+for _, b in ipairs(w.depotHeard) do if b.type == "unload.start" then us = b end end
+for _, b in ipairs(w.orders) do if b.type == "unit.stick" and b.on == false then unsticks[#unsticks + 1] = b end end
+check("the depot is told to unload sides A and B", w.err == nil and us and us.sides == "A,B" and us.load == "C-0001.1",
+  w.err or (us and us.sides))
+check("its release becomes the drone letting go of both stickers", #unsticks == 1
+  and unsticks[1].stickers == "Create_Sticker_0,Create_Sticker_1", #unsticks)
+local ucsv, ulog = w.files["cargo.csv"] or "", w.files["orders.log"] or ""
+check("what arrived is received in cargo.csv, at the pier", ucsv:find("C-0001.1,drone-1,A,Create_Sticker_0,minecraft:iron_ingot,3000,pier,received", 1, true)
+  ~= nil, ucsv)
+check("and in the order: both shipments received there", ulog:find(",received,", 1, true) and ulog:find("depot=pier", 1, true), ulog)
+local ofl = {}
+for _, b in ipairs(w.orders) do if b.type == "ops.fly" then ofl[#ofl + 1] = b.args end end
+check("then the drone flies on: ferry home", ofl[#ofl] == "ferry home", table.concat(ofl, " / "))
+w = base({ args = { "unload", "drone-9", "farm" } }):run()
+check("a depot with no key is refused", has(w, "no key for depot-farm"))
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end

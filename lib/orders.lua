@@ -19,6 +19,8 @@
 --   loaded      leg = the flight: s<n> = what was counted into shipment n,
 --               at_<side> = which shipment that side's silo was
 --   dropped     leg = the flight: shipment, ok, x, y, z
+--   received    leg = the flight: shipment, depot, items - unloaded into a
+--               depot's storage instead of dropped; it counts as delivered
 --   failed      leg = the flight: why (the order stays open for another)
 --   done        every shipment counted and dropped
 --   cancelled   why
@@ -159,6 +161,9 @@ function O.droppedLine(when, id, f, shipment, ok, x, y, z)
     x = x and floor(x), y = y and floor(y), z = z and floor(z) })
 end
 function O.failedLine(when, id, f, why) return O.encode(when, id, f, "failed", { why = why }) end
+function O.receivedLine(when, id, f, shipment, depot, items)
+  return O.encode(when, id, f, "received", { shipment = shipment, depot = depot, items = packCount(items) })
+end
 function O.doneLine(when, id) return O.encode(when, id, "", "done", {}) end
 function O.cancelledLine(when, id, why) return O.encode(when, id, "", "cancelled", { why = why }) end
 
@@ -224,6 +229,15 @@ local function apply(o, e)
       for k = fl.first, fl.first + fl.count - 1 do if o.shipped[k] and o.dropped[k] == nil then all = false end end
       if all then fl.state = "delivered" end
     end
+  elseif e.event == "received" and f then
+    local n = tonumber(kv.shipment)
+    if n then
+      o.dropped[n] = true
+      o.received = o.received or {}
+      o.received[n] = { depot = kv.depot, items = unpackCount(kv.items) }
+    end
+    local fl = o.flights[f]
+    if fl then fl.state = "delivered" end
   elseif e.event == "failed" and f then
     local fl = o.flights[f]
     if fl then fl.state, fl.why = "failed", kv.why end
