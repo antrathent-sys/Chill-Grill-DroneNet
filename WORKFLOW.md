@@ -48,7 +48,7 @@ Done once, then kept up.
 | **Receiving** - unload, clear to storage, reuse the silo | unload and reusing the emptied silo exist; a `clear` relay per side moves the staging vault into bulk storage | unload + reuse BUILT, by hand; clearing and base-driven receiving DESIGNED |
 | **Silo supply**: a payload burns 3 silo blocks | silos held as factory stock; a Factory Gauge restocker on a packager at each placer's feed, target 6; the depot counts the feed before it places | the count BUILT (`feed` in dock.lua); the restockers DESIGNED |
 | **Staging from stock** | a packager on each staging vault (`cinder-A`, `cinder-B`) so the ticker can deliver into it; a hand-filled intake as the fallback | DESIGNED |
-| **The invoice printer** | a CC printer on the depot's network, paper and black dye in it | DESIGNED (the page itself is BUILT, `lib/invoice.lua`) |
+| **The invoice printer** | a CC printer on the depot's network, paper and black dye in it | BUILT 2026-09-30: one page per silo, printed from that silo's count, put in the silo before it is assembled; `depot print` proves it |
 | **A till**, if customers pay in person | a chest a computer reads, at a Cinder location | DESIGNED |
 
 ## 1. What is it?

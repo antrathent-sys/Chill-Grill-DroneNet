@@ -29,6 +29,17 @@
 --                                drone - ENT when it has latched, stuck or let go
 --   depot screens                which monitor is which; `depot screens demo`
 --                                plays every state on them
+--   depot print                  a sample invoice on the printer, to prove it:
+--                                paper, ink, and the page's name as an item
+--
+-- Invoices (DELIVERIES.md): a load that is a customer's order (C-0042.1)
+-- comes with what its invoice says; once each silo is counted, while it is
+-- still a block, this computer prints that silo's page - numbered C-0042-1,
+-- with what was actually counted in it - and puts it in the silo, so it rides
+-- to the customer with the goods. The printer is station.lua's `printer`
+-- (or the first one on the network); `invoice_into` sends a bay's page
+-- somewhere other than its silo. Out of paper or ink, the page is skipped
+-- and said so: it never holds a delivery up.
 --
 -- Screens (lib/depotscreens.lua, Alex 2026-09-30): a 3x3 advanced monitor
 -- shows the loader and what it is doing, a 2x3 portrait shows the order in
@@ -63,6 +74,7 @@ local F = dofile("lib/fleet.lua")
 local link = dofile("lib/link.lua")
 local LOAD = dofile("lib/loader.lua")
 local C = dofile("lib/cargo.lua")
+local INVOICE = dofile("lib/invoice.lua")
 local DISPLAY = dofile("lib/display.lua")
 
 local args = { ... }
@@ -937,6 +949,96 @@ local function atRest()
   for _, face in ipairs(LOAD.allFaces(cfg)) do hands.set(face, face.invert and true or false) end
 end
 
+-- ---------------------------------------------------------------- printer ---
+local PAGE_ITEM = "computercraft:printed_page"
+local function printerName()
+  if cfg.printer and peripheral.isPresent(cfg.printer) then return cfg.printer end
+  for _, n in ipairs(peripheral.getNames()) do
+    if peripheral.getType(n) == "printer" then return n end
+  end
+  return nil
+end
+-- one page: title (its name as an item) and up to 21 lines of 25
+local function printPage(name, title, lines)
+  local function pc(m, ...) return pcall(peripheral.call, name, m, ...) end
+  local okP, paper = pc("getPaperLevel")
+  if okP and (paper or 0) < 1 then return false, "no paper" end
+  local okI, ink = pc("getInkLevel")
+  if okI and (ink or 0) < 1 then return false, "no ink" end
+  local okN, started = pc("newPage")
+  if not (okN and started) then return false, "could not start a page (is its tray full?)" end
+  pc("setPageTitle", title)
+  for i, l in ipairs(lines) do
+    pc("setCursorPos", 1, i)
+    pc("write", l)
+  end
+  local okE, ended = pc("endPage")
+  if not (okE and ended) then return false, "could not finish the page" end
+  return true
+end
+-- the printed page from the printer's tray into an inventory
+local function takePage(name, into)
+  local okL, list = pcall(peripheral.call, name, "list")
+  if not (okL and type(list) == "table") then return false, "the printer's tray cannot be read" end
+  for slot, it in pairs(list) do
+    if it.name == PAGE_ITEM then
+      local okM, n = pcall(peripheral.call, name, "pushItems", into, slot, 1)
+      if okM and n == 1 then return true end
+      return false, "could not put it in " .. into .. (okM and "" or (": " .. tostring(n)))
+    end
+  end
+  return false, "no page in the printer's tray"
+end
+-- every silo of an order's load gets its invoice, from its own count
+local function printInvoices(msg, plan, tell)
+  if not msg.inv_order then return end
+  local name = printerName()
+  if not name then tell("no printer on this network - no invoices") return end
+  local before = 0
+  for k, side in ipairs(plan.sides) do
+    local counted = plan.manifest and (plan.manifest[side] or (#plan.sides == 1 and plan.manifest.both)) or nil
+    if not counted then
+      tell(string.format("side %s was not counted on its own - no invoice for it", side))
+    else
+      local inv = INVOICE.fromFields(msg, k, counted, before)
+      local title, lines = INVOICE.page(inv)
+      local no = INVOICE.number(inv.order, inv.shipment)
+      local into = (cfg.invoice_into and cfg.invoice_into[side]) or (cfg.silo and cfg.silo[side])
+      local ok, why = printPage(name, title, lines)
+      if ok and into then ok, why = takePage(name, into) end
+      if ok and into then tell(string.format("invoice %s printed, in the %s silo", no, side))
+      elseif ok then tell(string.format("invoice %s printed - it is in the printer: nowhere set to put it", no))
+      else tell(string.format("invoice %s not printed: %s - the load goes on without it", no, tostring(why))) end
+      if msg.inv_item then before = before + (counted[msg.inv_item] or 0) end
+    end
+  end
+end
+
+if cmd == "print" then
+  -- a sample invoice, to prove the printer before a customer's goods depend on it
+  local name = printerName()
+  if not name then print("no printer on this network (a wired modem on it, switched on?)") return end
+  local okP, paper = pcall(peripheral.call, name, "getPaperLevel")
+  local okI, ink = pcall(peripheral.call, name, "getInkLevel")
+  print(string.format("printer %s: paper %s, ink %s", name, okP and tostring(paper) or "?", okI and tostring(ink) or "?"))
+  local inv = { order = "C-0000", shipment = 1, shipments = 1, date = "TEST", who = "TEST PAGE", x = 0, y = 0, z = 0,
+                item = "minecraft:cobblestone", ordered = 64, before = 0, this = 64, total = 0, paid = 0 }
+  local title, lines = INVOICE.page(inv)
+  local ok, why = printPage(name, title, lines)
+  if not ok then print("not printed: " .. tostring(why)) return end
+  local okL, list = pcall(peripheral.call, name, "list")
+  local found
+  for slot, it in pairs(okL and list or {}) do
+    if it.name == PAGE_ITEM then
+      local okD, d = pcall(peripheral.call, name, "getItemDetail", slot)
+      found = string.format("slot %d, named \"%s\"", slot, okD and d and tostring(d.displayName) or "?")
+    end
+  end
+  print("printed " .. title .. (found and (" - in the tray at " .. found) or " - but the tray cannot be read"))
+  print("if that name reads back as " .. title .. ", invoices can be told apart in any chest")
+  return
+end
+
 if cmd == "status" then
   print(string.format("%s: %d bay%s (%s)", tostring(id), #cfg.bays, #cfg.bays == 1 and "" or "s",
     table.concat(cfg.bays, " + ")))
@@ -1060,7 +1162,13 @@ local function runLoad(msg)
   print(string.format("load %s for %s: %d items, %d silo%s (%s)", loadId, tostring(msg.drone), plan.items,
     plan.silos, plan.silos == 1 and "" or "s", table.concat(plan.sides, " + ")))
   local t0 = os.clock()
-  DV.begin(view, "load", plan.sides, { id = loadId, items = plan.items, dest = msg.dest, unit = msg.drone }, t0)
+  local shipments
+  if msg.inv_first then
+    local a, b = msg.inv_first, msg.inv_first + #plan.sides - 1
+    shipments = (a == b and tostring(a) or (a .. "-" .. b)) .. " OF " .. tostring(msg.inv_last or b)
+  end
+  DV.begin(view, "load", plan.sides, { id = loadId, items = plan.items, dest = msg.dest, unit = msg.drone,
+    item = msg.inv_item and INVOICE.itemName(msg.inv_item) or nil, shipments = shipments }, t0)
   local io = {}
   for k, v in pairs(hands) do io[k] = v end
   io.sleep, io.now = sleep, os.clock
@@ -1085,6 +1193,9 @@ local function runLoad(msg)
     saveState(loadId, step)
     DV.step(view, step, text, os.clock())
     say(F.loadStep(loadId, id, step, text, nonce()))
+  end
+  io.counted = function(p)
+    printInvoices(msg, p, function(text) io.say("invoice", text) end)
   end
   -- the drone's liftoff is the base's to order
   local runCfg = {}

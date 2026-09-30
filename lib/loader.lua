@@ -143,6 +143,22 @@ function L.check(c)
   end
   out.intake = (str(c.intake) and c.intake) or (type(c.fill) == "table" and str(c.fill.intake) and c.fill.intake) or nil
 
+  -- the invoice printer (DELIVERIES.md): a CC printer on this network, and
+  -- where each bay's page goes - into the silo itself while it is still a
+  -- block, unless invoice_into names somewhere else for that bay
+  if c.printer ~= nil and not str(c.printer) then return nil, "printer is a peripheral name: \"printer_0\"" end
+  out.printer = c.printer
+  if c.invoice_into ~= nil then
+    if str(c.invoice_into) then
+      out.invoice_into = { left = c.invoice_into }
+    elseif type(c.invoice_into) == "table" then
+      out.invoice_into = {}
+      for _, s in ipairs(L.BAYS) do if str(c.invoice_into[s]) then out.invoice_into[s] = c.invoice_into[s] end end
+    else
+      return nil, "invoice_into names an inventory per bay: { left = \"create:item_vault_0\", ... }"
+    end
+  end
+
   -- how a fill is known to be done: a fixed time, the silos' own count, the
   -- intake emptying, or a signal (a threshold switch or comparator)
   local f = c.fill
@@ -285,6 +301,9 @@ end
 --                                 { [side] = { item = count } }, and how it
 --                                 was counted. Kept as plan.manifest; silos
 --                                 that count empty call the load off.
+--   counted(plan)                 optional: straight after the count, while
+--                                 the silos are still blocks - where each
+--                                 silo's invoice is printed and put in it
 -- Returns ok, why, the step it ended on. Whatever happens, the relay faces
 -- end at rest, and a lift that went up comes down again.
 function L.run(cfg, plan, io)
@@ -405,6 +424,7 @@ function L.run(cfg, plan, io)
         say(string.format("%d items in (%s)", total, tostring(how)))
       end
     end
+    if io.counted then io.counted(plan) end
 
     step = "assemble"
     say("assembling")

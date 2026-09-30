@@ -55,6 +55,13 @@ return {
   -- silo = { left = "create:item_vault_0", right = "create:item_vault_1" },
   -- intake = "minecraft:chest_0",
 
+  -- the invoice printer (depot.lua): a CC printer on this network, with paper
+  -- and black dye in it. A customer's order gets one page per silo, printed
+  -- from that silo's count and put IN the silo (the vault named in `silo`
+  -- above) before it is assembled. `depot print` proves it with a test page.
+  -- printer = "printer_0",          -- unset: the first printer on the network
+  -- invoice_into = { left = "minecraft:chest_3" },   -- a bay's page elsewhere
+
   -- a deployer clicking each Physics Assembler (redstone alone does nothing to
   -- one, and each click toggles, so it must fire once)
   assemble = {

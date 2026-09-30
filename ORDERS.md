@@ -370,6 +370,18 @@ dropped - is never run a second time.
 
 ## Building it
 
+**Built 2026-09-30:** steps 1 and 2, and flying a parcel order's runs one at a
+time through the depot loads that already exist. `lib/orders.lua` is the
+record; `ops order add` takes an order as `C-0042`; `ops order run C-0042
+<depot>` queues its next flight as load `C-0042.1`, planned from what has
+actually been counted so far; the board writes the flight, each silo's count
+(its shipment), each drop and `done` to `orders.log`; the depot prints each
+silo's invoice `C-0042-1` from its own count. Every load has a C- number, a
+load `ops load send` makes for no customer included (kind `load`, for
+`ops`). Rides keep their own job numbers until step 4. Not built yet: `ops
+quote`, rebuilding in-flight loads after a restart, and the order's legs
+being run by the base rather than queued by hand.
+
 Small steps, each tested on the desktop before it goes near a drone:
 
 Parcels first now, because that is what word of mouth sells; rides already

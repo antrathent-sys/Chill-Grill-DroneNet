@@ -38,18 +38,18 @@ function M.applyPalette(t) return tui().apply(t) end
 
 -- a job's steps, in order, as the two docks report them. The station loader
 -- (lib/loader.lua) uses a few other names for the same things (M.ALIAS).
-M.LOAD_STEPS = { "silo", "feed", "place", "assemble", "fill", "dock", "push", "stick", "retract", "done" }
+M.LOAD_STEPS = { "silo", "feed", "place", "assemble", "fill", "invoice", "dock", "push", "stick", "retract", "done" }
 M.UNLOAD_STEPS = { "push", "release", "retract", "empty", "done" }
 M.ALIAS = { lift = "push", count = "fill", liftoff = "done" }
 M.STEP_WORD = {
   silo = "CHECK BAY", feed = "CHECK SILO STOCK", place = "PLACE SILO", assemble = "ASSEMBLE",
-  fill = "FILL", dock = "AWAIT UNIT", push = "PUSH UP", stick = "STICK", retract = "LOWER",
+  fill = "FILL", invoice = "PRINT INVOICE", dock = "AWAIT UNIT", push = "PUSH UP", stick = "STICK", retract = "LOWER",
   release = "RELEASE", empty = "EMPTY", done = "COMPLETE",
 }
 -- a step, as what the dock is doing
 M.DOING = {
   silo = "CHECKING BAY", feed = "CHECKING STOCK", place = "PLACING SILO", assemble = "ASSEMBLING",
-  fill = "LOADING", dock = "AWAITING UNIT", push = "PUSHING UP", stick = "STICKING", retract = "LOWERING",
+  fill = "LOADING", invoice = "PRINTING INVOICE", dock = "AWAITING UNIT", push = "PUSHING UP", stick = "STICKING", retract = "LOWERING",
   release = "RELEASING", empty = "UNLOADING", done = "COMPLETE",
 }
 M.SIDES = { "A", "B" }
@@ -609,6 +609,7 @@ local DEMO = {
   { at = 26, fn = function(st, t) M.step(st, "fill", "352 items in", t) end },
   { at = 28, fn = function(st, t) M.step(st, "fill", "544 items in", t) end },
   { at = 30, fn = function(st, t) M.step(st, "fill", "640 items in", t) end },
+  { at = 30.5, fn = function(st, t) M.step(st, "invoice", "invoice C-0042-1 printed, in the A silo", t) end },
   { at = 31, fn = function(st, t) M.step(st, "dock", "waiting for the drone to latch", t) end },
   { at = 34, fn = function(st, t) M.step(st, "push", "pusher up", t) end },
   { at = 38, fn = function(st, t) M.step(st, "stick", "the drone sticks the silo", t) end },

@@ -81,6 +81,36 @@ local function depot(opts)
       list = function() return opts.intake > 0 and { [1] = { name = "minecraft:cobblestone", count = opts.intake } } or {} end,
       getItemDetail = function() return { name = "minecraft:cobblestone", maxCount = 64 } end } }
   end
+  -- opts.printer = { paper = n, ink = n }: a CC printer. What it prints goes
+  -- in its tray; pushItems puts a page where it is told (w.pagesInto)
+  w.pages, w.pagesInto = {}, {}
+  if opts.printer then
+    local pr, tray, cur = opts.printer, {}, nil
+    w.periph.printer_0 = { type = "printer", m = {
+      getPaperLevel = function() return pr.paper end, getInkLevel = function() return pr.ink end,
+      newPage = function()
+        if pr.paper < 1 or pr.ink < 1 then return false end
+        cur = { title = "", lines = {} } return true end,
+      setPageTitle = function(t) cur.title = t end,
+      setCursorPos = function(_, y) cur.y = y end,
+      write = function(t) cur.lines[cur.y] = t end,
+      endPage = function()
+        pr.paper, pr.ink = pr.paper - 1, pr.ink - 1
+        w.pages[#w.pages + 1] = cur
+        tray[#tray + 1] = cur
+        return true end,
+      list = function()
+        local l = {}
+        for i, pg in ipairs(tray) do l[7 + i] = { name = "computercraft:printed_page", count = 1 } end
+        return l end,
+      getItemDetail = function(slot) local pg = tray[slot - 7] return pg and { displayName = pg.title } or nil end,
+      pushItems = function(into, slot)
+        local pg = table.remove(tray, slot - 7)
+        if not pg then return 0 end
+        w.pagesInto[#w.pagesInto + 1] = { into = into, title = pg.title }
+        return 1 end,
+    } }
+  end
   for _, l in ipairs(opts.loads or {}) do fromBase(l[1], l[2]) end
   return w
 end
@@ -573,6 +603,39 @@ w = depot({ station = false, lines = {} })
 sender(w)
 w = w:run("depot.lua", { "stock" }, 5)
 check("none in stock: it says so", w.text:find("silos: NONE", 1, true) ~= nil, w.err or w.text)
+
+print("invoices: one per silo, printed from its own count, put in the silo")
+local O = dofile(DIR .. "/../lib/orders.lua")
+O.use(dofile(DIR .. "/../lib/invoice.lua"))
+local ord = O.replay(O.accepted(1, "C-0042", { who = "steve", to = { x = 1200, y = 70, z = 340 }, price = 1500,
+  lines = { { item = "minecraft:cobblestone", amount = 10000, stack = 64 } } }))["C-0042"]
+local invF = O.invoiceFields(ord, O.nextFlight(ord), "2026-09-30")
+local function orderLoad(id, nonce) return F.loadStart(id, "drone-1", 5000, 64, nonce, "1200", invF) end
+w = depot({ vaults = VAULTS2, printer = { paper = 5, ink = 5 }, loads = { { 2, orderLoad("C-0042.1", "b-i1") } } }):run("depot.lua", {}, 80)
+local pg1, pg2 = w.pages[1], w.pages[2]
+check("two silos, two pages: C-0042-1 and C-0042-2", w.err == nil and #w.pages == 2 and pg1.title == "CINDER INVOICE C-0042-1"
+  and pg2 and pg2.title == "CINDER INVOICE C-0042-2", w.err or #w.pages)
+local t1, t2 = table.concat(pg1 and pg1.lines or {}, "\n"), table.concat(pg2 and pg2.lines or {}, "\n")
+check("each says what was counted into its own silo, and the second counts the first as shipped before",
+  t1:find("THIS SHIPMENT%s+2,500") and t2:find("THIS SHIPMENT%s+2,400") and t2:find("SHIPPED BEFORE%s+2,500")
+  and t1:find("1 OF 3") and t2:find("2 OF 3"), t1 .. "\n--\n" .. t2)
+check("each page goes into its own silo while it is still a block", #w.pagesInto == 2
+  and w.pagesInto[1].into == "create:item_vault_0" and w.pagesInto[2].into == "create:item_vault_1")
+local said = {}
+for _, b in ipairs(heardOf(w, "load.step")) do if b.step == "invoice" then said[#said + 1] = b.text end end
+check("the base hears each one", #said == 2 and said[1]:find("C-0042-1 printed, in the left silo", 1, true), table.concat(said, " / "))
+local done1 = heardOf(w, "load.done")[1]
+check("and the load goes on", done1 and done1.ok == true)
+w = depot({ vaults = VAULTS2, printer = { paper = 0, ink = 5 }, loads = { { 2, orderLoad("C-0042.1", "b-i2") } } }):run("depot.lua", {}, 80)
+local said2 = {}
+for _, b in ipairs(heardOf(w, "load.step")) do if b.step == "invoice" then said2[#said2 + 1] = b.text end end
+check("out of paper: the page is skipped and said so, and the load still goes", #w.pages == 0
+  and (said2[1] or ""):find("not printed: no paper", 1, true) and heardOf(w, "load.done")[1].ok == true, said2[1])
+w = depot({ vaults = VAULTS, printer = { paper = 5, ink = 5 }, loads = { { 2, F.loadStart("C-0043.1", "drone-1", 640, 64, "b-i3") } } }):run("depot.lua", {}, 60)
+check("a load that is not a customer's order prints nothing", w.err == nil and #w.pages == 0)
+w = depot({ printer = { paper = 5, ink = 5 } }):run("depot.lua", { "print" }, 10)
+check("depot print: a sample page, and the name it reads back as", w.err == nil and #w.pages == 1
+  and w.text:find("CINDER INVOICE C-0000-1", 1, true) and w.text:find("named \"CINDER INVOICE C-0000-1\"", 1, true), w.err or w.text)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("depot tests failed", 0) end
