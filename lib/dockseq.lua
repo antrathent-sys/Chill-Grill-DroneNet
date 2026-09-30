@@ -200,11 +200,13 @@ end
 
 --- Every relay dock.lua names, once each: put at rest before and after a
 -- job. Not the belts - a belt has no rest, only a direction - unless asked.
-function D.relays(cfg, withBelts)
+-- onlySide: just that side's - a job rests its own side and never touches the
+-- other, which may be mid-job beside it
+function D.relays(cfg, withBelts, onlySide)
   local out, seen = {}, {}
   for _, side in ipairs(D.SIDES) do
     local s = cfg.sides[side]
-    if s then
+    if s and (not onlySide or onlySide == side) then
       for _, dev in ipairs(D.DEVICES) do
         if s[dev] and not seen[s[dev]] and (withBelts or dev ~= "belt") then
           seen[s[dev]] = true
@@ -347,7 +349,7 @@ local function runner(cfg, side, io)
     error({ why = why }, 0)
   end
   function r.rest()
-    for _, relay in ipairs(D.relays(cfg)) do pcall(io.set, relay, false) end
+    for _, relay in ipairs(D.relays(cfg, false, side)) do pcall(io.set, relay, false) end
   end
   return r, s
 end

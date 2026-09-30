@@ -343,7 +343,7 @@ pair of staging vaults per loader, not per order.
 | | |
 |---|---|
 | **exists** | `ops load send` runs one load at a depot and flies a `deliver` after it. The two-sided dock sequence (`lib/dockseq.lua`) places, assembles, fills, pushes and retracts, proven on the test dock. `cargo.csv` records every silo; `unit.dropped` reports every release; a drop with two silos and one point lets both go there. |
-| **closed 2026-09-30** | A depot with a `dock.lua` runs the base's loads and unloads on the two-sided dock, side A then side B, with the drone's part answered through the base; the older single-bay `lib/loader.lua` still runs where there is only a `station.lua`. |
+| **closed 2026-09-30** | A depot with a `dock.lua` runs the base's loads and unloads on the two-sided dock, both sides at once, with the drone's part answered through the base (one stick for both stickers); the older single-bay `lib/loader.lua` still runs where there is only a `station.lua`. |
 | **built 2026-09-30** | the order record (`lib/orders.lua`, `orders.log`); `ops order add / run / paid / cancel`, `ops orders`, `ops order <id>`; C- numbers on every load, cargo.csv row and drop; the invoice printer at the depot. |
 | **new** | `ops quote`; staging from the ticker, and the size and balance staging checks. |
 

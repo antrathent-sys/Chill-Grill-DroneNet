@@ -167,6 +167,25 @@ function W.new(DIR, opts)
       end
       ev = pack(coroutine.yield())
     end
+  end,
+  -- every one to its end, as CC's does
+  waitForAll = function(...)
+    local cos, filters = {}, {}
+    for i, f in ipairs({ ... }) do cos[i] = coroutine.create(f) end
+    local ev = { n = 0 }
+    while true do
+      local alive = 0
+      for i, co in ipairs(cos) do
+        if coroutine.status(co) ~= "dead" and (filters[i] == nil or filters[i] == ev[1] or ev[1] == "terminate") then
+          local ok, want = coroutine.resume(co, unpack(ev, 1, ev.n))
+          if not ok then error(want, 0) end
+          filters[i] = want
+        end
+        if coroutine.status(co) ~= "dead" then alive = alive + 1 end
+      end
+      if alive == 0 then return end
+      ev = pack(coroutine.yield())
+    end
   end }
 
   --- An event at time t: a table, or a function returning one when it is

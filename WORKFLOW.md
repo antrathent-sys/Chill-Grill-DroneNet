@@ -48,7 +48,7 @@ flowchart TD
   QUOTE --> ADD["ops order add ... for 1500<br/>C-0042 written to orders.log"]
   ADD --> RUN["ops order run C-0042 chid-1<br/>next flight queued: C-0042.1"]
   RUN --> FERRY["Base sends a drone: ferry chid-1<br/>it latches on the dock"]
-  FERRY --> LOAD["Depot loads side A, then side B<br/>stage - place - assemble - fill - invoice - push - stick"]
+  FERRY --> LOAD["Depot loads sides A and B at once<br/>stage - place - assemble - fill - invoice - push - stick"]
   LOAD --> REC1["load.done: what each side counted<br/>cargo.csv + orders.log: shipments 1 and 2"]
   REC1 --> DROP["Drone flies deliver 1200 70 340<br/>and lets each silo go"]
   DROP --> REC2["each drop: C-0042-1, C-0042-2 delivered"]
@@ -76,18 +76,19 @@ sequenceDiagram
   Drone-->>Base: telemetry: docked at chid-1
   Depot-->>Base: hello - awake (its chunk loaded with the drone)
   Base->>Depot: load.start C-0042.1 - each silo's share, what the invoice says
-  loop side A, then side B
-    Depot->>Depot: stage the share from the intake into the side's storage
-    Depot->>Depot: place + assemble a silo (unless one is waiting)
-    Depot->>Depot: fill through the belt - what left the storage went in
-    Depot->>Depot: print invoice C-0042-n into the storage, the belt carries it in
-    Depot->>Depot: pusher up
-    Depot->>Base: load.lifted - this side's sticker
-    Base->>Drone: stick
-    Drone-->>Base: stuck
-    Base->>Depot: load.stuck ok
-    Depot->>Depot: pusher down - the silo is the drone's now
+  Depot->>Depot: stage each side's share from the intake (A, then B - one intake)
+  par side A
+    Depot->>Depot: place + assemble, fill through the belt, count the storage
+  and side B
+    Depot->>Depot: place + assemble, fill through the belt, count the storage
   end
+  Depot->>Depot: print C-0042-1 into A's storage, C-0042-2 into B's; the belts carry them in
+  Depot->>Depot: both pushers up
+  Depot->>Base: load.lifted - both stickers
+  Base->>Drone: stick both
+  Drone-->>Base: stuck
+  Base->>Depot: load.stuck ok
+  Depot->>Depot: both pushers down - the silos are the drone's now
   Depot->>Base: load.done - A and B counts
   Base->>Base: cargo.csv, orders.log: shipments 1 and 2
   Base->>Drone: deliver 1200 70 340

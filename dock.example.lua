@@ -4,9 +4,9 @@
 -- in your own names. `depot probe map` finds which relay does what and writes
 -- relays.lua beside it; machines/test-dock/dock.lua is a worked example.
 --
--- With a dock.lua, `depot` runs the base's loads and unloads on it, side by
--- side (a flight of two silos loads A, then B), and `depot seq` runs one job
--- by hand. Per side, a load: stage its silo's share from the intake into the
+-- With a dock.lua, `depot` runs the base's loads and unloads on it - a flight
+-- of two silos loads A and B at once, with one stick for both - and `depot
+-- seq load A` (or B, or AB) runs one by hand. Per side, a load: stage its silo's share from the intake into the
 -- side's storage; place and assemble a silo if none is waiting; fill it
 -- through the belt; print its invoice into the storage for the belt to carry
 -- in after the goods; push up, the drone sticks it, pusher down. An unload:

@@ -735,9 +735,11 @@ local function abDepot(opts)
   end
   -- the drone: sticking takes the silo away; letting go brings its load into the bay
   w.onDrone = function(body)
-    local side = body.stickers == "Create_Sticker_0" and "A" or "B"
-    if body.type == "load.lifted" then sim.silo[side] = {}
-    else sim.silo[side] = { ["minecraft:iron_ingot"] = 3000 } end
+    for st in tostring(body.stickers):gmatch("[^,]+") do
+      local side = st == "Create_Sticker_0" and "A" or "B"
+      if body.type == "load.lifted" then sim.silo[side] = {}
+      else sim.silo[side] = { ["minecraft:iron_ingot"] = 3000 } end
+    end
   end
   return w
 end
@@ -764,8 +766,17 @@ check("each silo's share staged from the intake: 3,776 a side, 2,448 left in the
 check("what left each side's storage is what it reports went into that silo", doneAB and doneAB.silo_A
   == "minecraft:cobblestone*3776" and doneAB.silo_B == "minecraft:cobblestone*3776", doneAB and doneAB.silo_A)
 local lifted = heardOf(w, "load.lifted")
-check("the drone is asked to stick side A's sticker, then side B's", #lifted == 2 and lifted[1].stickers == "Create_Sticker_0"
-  and lifted[2].stickers == "Create_Sticker_1")
+check("the drone is asked once, for both stickers, with both pushers up", #lifted == 1
+  and lifted[1].stickers == "Create_Sticker_0,Create_Sticker_1", #lifted)
+-- both sides at once: side B's belt turns to filling before side A's has finished
+local function firstSet(relay, on, after)
+  for _, st in ipairs(w.sets) do
+    if st.k:find(relay .. ":", 1, true) == 1 and st.on == on and st.t >= (after or 0) then return st.t end
+  end
+end
+local aOn, bOn = firstSet("redstone_relay_2", true), firstSet("redstone_relay_1", true)
+local aOff = aOn and firstSet("redstone_relay_2", false, aOn + 0.01)
+check("A and B fill at the same time", aOn and bOn and aOff and bOn < aOff, string.format("%s %s %s", tostring(aOn), tostring(bOn), tostring(aOff)))
 local stepsAB = {}
 for _, b in ipairs(heardOf(w, "load.step")) do stepsAB[#stepsAB + 1] = b.step end
 local seqAB = table.concat(stepsAB, " ")
@@ -793,8 +804,8 @@ check("something nobody ordered in a side's storage stops that side, and says wh
 w = abDepot({ loads = { { 2, F.unloadStart("C-0040.1", "drone-2", "A,B", "b-ab3") } } }):run("depot.lua", {}, 300)
 local d3 = heardOf(w, "load.done")[1]
 local rel = heardOf(w, "load.release")
-check("an unload: the drone is asked to let go of each side's sticker", #rel == 2 and rel[1].stickers == "Create_Sticker_0"
-  and rel[2].stickers == "Create_Sticker_1", #rel)
+check("an unload: the drone is asked once to let go of both stickers", #rel == 1
+  and rel[1].stickers == "Create_Sticker_0,Create_Sticker_1", #rel)
 check("and each silo is emptied into its side's storage - what arrived is reported", d3 and d3.ok == true
   and d3.kind == "unload" and d3.silo_A == "minecraft:iron_ingot*3000" and d3.silo_B == "minecraft:iron_ingot*3000"
   and w.sim.store.A["minecraft:iron_ingot"] == 3000, w.err or (d3 and tostring(d3.why)))

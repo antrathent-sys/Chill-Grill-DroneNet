@@ -272,7 +272,7 @@ An order's plan is its legs, in order, each with the machine that does it:
 ```
 parcel O1758752000.1  alex  from depot pier  to market and farm
   1 ferry    drone-1      home -> pier
-  2 load     depot-pier   side A, then side B
+  2 load     depot-pier   sides A and B at once
   3 deliver  drone-1      silo A at market, silo B at farm
   4 home     drone-1      -> home
 ```

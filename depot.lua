@@ -913,8 +913,8 @@ if cmd == "seq" then
     end
     probeSave()
     print("")
-    print("depot seq load <A|B> [items]     place/assemble if needed, fill, push, stick, retract")
-    print("depot seq unload <A|B> [items]   push, release, retract, empty into storage")
+    print("depot seq load <A|B|AB> [items]  place/assemble if needed, fill, push, stick, retract")
+    print("depot seq unload <A|B|AB>        push, release, retract, empty into storage (AB: both at once)")
     print("  the drone is taken to be ready at every step; add `ask` to answer for it with ENT")
     print("depot seq silo <A|B> empty|none  correct what it remembers about a side")
     print("depot seq rest                   everything off, each belt to where its bay wants it")
@@ -954,7 +954,9 @@ if cmd == "seq" then
     return
   end
   if sub ~= "load" and sub ~= "unload" then print("depot seq [load|unload|silo] <A|B>") return end
-  if not (side and cfg.sides[side]) then print("which side: depot seq " .. sub .. " A") return end
+  -- AB: both sides at once, as the base runs a flight of two silos
+  local both = side == "AB" and cfg.sides.A and cfg.sides.B
+  if not (both or (side and cfg.sides[side])) then print("which side: depot seq " .. sub .. " A (or B, or AB for both)") return end
   -- words after the side: a number is how many items; "ask" puts a person
   -- in for the drone again (ENT at each drone step)
   local items, ask = nil, false
@@ -1008,10 +1010,21 @@ if cmd == "seq" then
     view.sides[sd].silo = silo(sd) == "full" and "full" or (silo(sd) == "empty" and "empty" or "none")
     view.sides[sd].feed = feedCount(sd)
   end
-  DV.begin(view, sub, side, { id = "TEST", items = items }, os.clock())
+  DV.begin(view, sub, both and { "A", "B" } or side, { id = "TEST", items = items }, os.clock())
   local ok, why, at, moved
   parallel.waitForAny(function()
-    ok, why, at, moved = DS[sub](cfg, side, io, items)
+    if not both then
+      ok, why, at, moved = DS[sub](cfg, side, io, items)
+      return
+    end
+    -- both at once: each side its own job, side by side
+    local res = {}
+    parallel.waitForAll(function() res.A = { DS[sub](cfg, "A", io, nil) } end,
+                        function() res.B = { DS[sub](cfg, "B", io, nil) } end)
+    ok = res.A[1] and res.B[1]
+    local bad = (not res.A[1]) and res.A or ((not res.B[1]) and res.B or nil)
+    why, at = bad and ((bad == res.A and "side A: " or "side B: ") .. tostring(bad[2])) or nil, bad and bad[3] or "done"
+    moved = (res.A[4] or 0) + (res.B[4] or 0)
   end, function()
     while true do
       local _, k = os.pullEvent("key")
@@ -1020,7 +1033,7 @@ if cmd == "seq" then
   end, screensLoop)
   if moved and view.job then view.job.moved = moved end
   DV.finish(view, ok, why, os.clock())
-  view.sides[side].feed = feedCount(side)
+  for _, sd in ipairs(both and { "A", "B" } or { side }) do view.sides[sd].feed = feedCount(sd) end
   drawScreens(os.clock())
   psay(ok and string.format("%s done in %.0f s", sub, os.clock() - t0)
          or string.format("called off at %s: %s", tostring(at), tostring(why)))
@@ -1103,8 +1116,8 @@ local function clearState() if fs.exists(STATE) then fs.delete(STATE) end end
 -- ------------------------------------------------ run: the two-sided dock ---
 -- With a dock.lua here, the base's loads and unloads run on the A/B dock
 -- (lib/dockseq.lua) - the same machine code `depot seq` drives by hand - and
--- the drone's part (latched, stick, let go) is answered through the base. One
--- side at a time: a flight of two silos loads A, then B. Per side:
+-- the drone's part (latched, stick, let go) is answered through the base. Both
+-- sides at once: a flight of two silos loads A and B together. Per side:
 --   load    stage its silo's share from the intake into the side's storage,
 --           when dock.lua names an intake; place and assemble a silo if none
 --           is waiting; fill it through the belt - what left the storage is
@@ -1217,6 +1230,14 @@ if cmd == "run" and fs.exists("dock.lua") then
     tell(string.format("invoice %s printed, but it is still in side %s's storage - it did not go in", no, side))
   end
 
+  -- Both sides at once (the dual loader fills two at once - ORDERS.md): each
+  -- side is its own job, running beside the other. They meet where they have
+  -- to: the intake is shared, so staging is one side then the other before
+  -- anything else moves; the drone is one, so its stick (or its letting go)
+  -- is asked once for every side still going, when all their pushers are up;
+  -- and the invoices print A then B, once both are counted, so B's page
+  -- counts A's silo as shipped before. A side that fails drops out and the
+  -- other carries on.
   local function runJob(msg, kind)
     local loadId = msg.load
     local sides = sidesFor(msg)
@@ -1242,53 +1263,124 @@ if cmd == "run" and fs.exists("dock.lua") then
       say(F.loadStep(loadId, id, step, text, nonce()))
     end
     local report = { sides = {}, stickers = {}, silos = {}, counted = "from each side's storage" }
-    local ok, why, at = #sides > 0, (#sides == 0) and "this dock has none of the sides asked for" or nil, "start"
-    local beforeExtra = 0
-    for k, side in ipairs(sides) do
-      local sticker = cfg.stick[side]
-      local before
-      local io = {
-        set = function(relay, on) return drive({ relay = relay }, on) end,
-        sleep = sleep, now = os.clock, count = kit.count, feed = kit.feed, silo = kit.silo, present = kit.present,
-        say = tell,
-        -- the base starts a job only once the drone is latched here; its
-        -- stick and its letting go are asked of the base, and answered by it
-        drone = function(what)
-          if what == "dock" then return true end
-          local ask = (what == "stick") and F.loadLifted or F.loadRelease
-          return L.ask(ask(loadId, id, { sticker }, nonce()), loadId, STICK_WAIT)
-        end,
-      }
-      if kind == "load" then
-        local pack = msg["pack" .. k]
-        if pack and cfg.intake then
-          local moved, whyS = stage(side, pack, function(t) tell("stage", t) end)
-          if not moved then ok, why, at = false, whyS, "stage" break end
-          local n = 0
-          for _, c in pairs(moved) do n = n + c end
-          tell("stage", string.format("%d items staged on side %s", n, side))
-        end
-        io.beforeFill = function() before = kit.tally(side) or {} end
-        io.filled = function()
-          local got = C.diff(before or {}, kit.tally(side) or {})
-          got[PAGE_ITEM] = nil
-          report.silos[side] = C.pack(got)
-          invoiceFor(msg, k, side, got, beforeExtra, function(t) tell("invoice", t) end)
-          if msg.inv_item then beforeExtra = beforeExtra + (got[msg.inv_item] or 0) end
-        end
-        local n = kit.count(side)
-        ok, why, at = DS.load(cfg, side, io, (n and n > 0) and n or nil)
-      else
-        before = kit.tally(side) or {}
-        ok, why, at = DS.unload(cfg, side, io, nil)
-        if ok then report.silos[side] = C.pack(C.diff(kit.tally(side) or {}, before)) end
-      end
-      if not ok then break end
-      report.sides[#report.sides + 1] = side
-      report.stickers[#report.stickers + 1] = sticker
+    local failed = {}                      -- side -> why, at
+    -- what the sides share: who is still going, who has reached each meeting
+    -- point, the drone's answers, the counts and pages
+    local going, met, answer, counts, printed = {}, {}, {}, {}, {}
+    local function drop(side, why, at)
+      going[side] = nil
+      failed[#failed + 1] = { side = side, why = why, at = at }
     end
-    if not ok and #report.sides > 0 then
-      why = tostring(why) .. " (side " .. table.concat(report.sides, "+") .. " done)"
+    local function allThere(point)
+      for sd in pairs(going) do if not (met[point] and met[point][sd]) then return false end end
+      return true
+    end
+    local function meet(side, point)
+      met[point] = met[point] or {}
+      met[point][side] = true
+      while not allThere(point) do sleep(0.2) end
+    end
+    -- the drone's part, asked once for all the sides still going
+    local function together(side, what)
+      meet(side, what)
+      if not answer[what] then
+        answer[what] = "asking"
+        local stickers = {}
+        for _, sd in ipairs(sides) do if going[sd] then stickers[#stickers + 1] = cfg.stick[sd] end end
+        local ask = (what == "stick") and F.loadLifted or F.loadRelease
+        local ok, why = L.ask(ask(loadId, id, stickers, nonce()), loadId, STICK_WAIT)
+        answer[what] = { ok = ok, why = why }
+      end
+      while answer[what] == "asking" do sleep(0.2) end
+      return answer[what].ok, answer[what].why
+    end
+
+    -- staging, one side after the other: they share the intake
+    if kind == "load" and cfg.intake then
+      for k, side in ipairs(sides) do
+        local pack = msg["pack" .. k]
+        if pack then
+          local moved, whyS = stage(side, pack, function(t) tell("stage", t) end)
+          if moved then
+            local n = 0
+            for _, c in pairs(moved) do n = n + c end
+            tell("stage", string.format("%d items staged on side %s", n, side))
+            going[side] = true
+          else
+            failed[#failed + 1] = { side = side, why = whyS, at = "stage" }
+          end
+        else
+          going[side] = true
+        end
+      end
+    else
+      for _, side in ipairs(sides) do going[side] = true end
+    end
+
+    -- then every side still going, at once
+    local jobs = {}
+    for k, side in ipairs(sides) do
+      if going[side] then
+        jobs[#jobs + 1] = function()
+          local before
+          local io = {
+            set = function(relay, on) return drive({ relay = relay }, on) end,
+            sleep = sleep, now = os.clock, count = kit.count, feed = kit.feed, silo = kit.silo, present = kit.present,
+            say = tell,
+            -- the base starts a job only once the drone is latched here
+            drone = function(what)
+              if what == "dock" then return true end
+              return together(side, what)
+            end,
+          }
+          local ok, why, at
+          if kind == "load" then
+            io.beforeFill = function() before = kit.tally(side) or {} end
+            io.filled = function()
+              local got = C.diff(before or {}, kit.tally(side) or {})
+              got[PAGE_ITEM] = nil
+              counts[side] = got
+              report.silos[side] = C.pack(got)
+              -- every side counted (or out) first, then the pages in side order
+              meet(side, "counted")
+              local shippedBefore = 0
+              for j = 1, k - 1 do
+                local other = sides[j]
+                while going[other] and not printed[other] do sleep(0.2) end
+                if counts[other] and msg.inv_item then shippedBefore = shippedBefore + (counts[other][msg.inv_item] or 0) end
+              end
+              invoiceFor(msg, k, side, got, shippedBefore, function(t) tell("invoice", t) end)
+              printed[side] = true
+            end
+            local n = kit.count(side)
+            ok, why, at = DS.load(cfg, side, io, (n and n > 0) and n or nil)
+          else
+            before = kit.tally(side) or {}
+            ok, why, at = DS.unload(cfg, side, io, nil)
+            if ok then report.silos[side] = C.pack(C.diff(kit.tally(side) or {}, before)) end
+          end
+          if ok then printed[side] = true else drop(side, why, at) end
+        end
+      end
+    end
+    if #jobs > 0 then parallel.waitForAll((table.unpack or unpack)(jobs)) end
+
+    -- what went with the drone (or came off it), in side order
+    for _, side in ipairs(sides) do
+      local bad = false
+      for _, f in ipairs(failed) do if f.side == side then bad = true end end
+      if not bad then
+        report.sides[#report.sides + 1] = side
+        report.stickers[#report.stickers + 1] = cfg.stick[side]
+      else
+        report.silos[side] = nil
+      end
+    end
+    local ok, why, at = #failed == 0 and #sides > 0, nil, "done"
+    if #sides == 0 then why, at = "this dock has none of the sides asked for", "start" end
+    if #failed > 0 then
+      why, at = string.format("side %s: %s", failed[1].side, tostring(failed[1].why)), failed[1].at
+      if #report.sides > 0 then why = why .. " (side " .. table.concat(report.sides, "+") .. " done)" end
     end
     say(F.loadDone(loadId, id, ok, why, at, report, nonce(), kind))
     DV.finish(view, ok, why, os.clock())
