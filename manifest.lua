@@ -41,7 +41,7 @@ return {
     "lib/display.lua", "lib/state.lua", "lib/screens.lua", "lib/watch.lua", "lib/trip.lua",
     "lib/db.lua", "stickers.lua",
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
-    "lib/loader.lua", "station.example.lua", "lib/cargo.lua", "lib/deliver.lua", "depot.lua", "lib/dockseq.lua", "lib/stock.lua",
+    "lib/loader.lua", "station.example.lua", "lib/cargo.lua", "lib/deliver.lua", "depot.lua", "lib/dockseq.lua", "lib/stock.lua", "lib/depotscreens.lua",
     "ops.lua", "lib/opsui.lua", "lib/tui.lua", "lib/display.lua",
     "lib/ledger.lua", "lib/queue.lua", "lib/invoice.lua", "lib/catalogue.lua", "tariff.example.lua",
     -- making customers' passes: provision copies these onto each one
@@ -53,7 +53,8 @@ return {
   screens = { "control.lua", "lib/display.lua", "lib/state.lua", "lib/screens.lua", "lib/watch.lua" },
 
   -- the computer at a dock that works its loading station (startup autorun depot)
-  depot = { "depot.lua", "lib/loader.lua", "lib/dockseq.lua", "lib/stock.lua", "lib/cargo.lua", "station.example.lua", "stickers.lua" },
+  depot = { "depot.lua", "lib/loader.lua", "lib/dockseq.lua", "lib/stock.lua", "lib/cargo.lua", "station.example.lua", "stickers.lua",
+            "lib/display.lua", "lib/depotscreens.lua" },
 
   -- a customer terminal standing at a pad: it calls a taxi and counts its own use
   pad = { "taxipad.lua" },

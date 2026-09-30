@@ -1577,7 +1577,9 @@ local function depotLoop()
       elseif L.state == "sent" then
         local d = depots[depot]
         if droneAt(L.drone, L.dock) and d and d.seen and now - d.seen < 15 then
-          local sent = order(depot, F.loadStart(L.id, L.drone, L.items, L.stack, nonce()))
+          -- where it goes, for the depot's screens: the liftoff's last word
+          local dest = type(L.liftoff) == "string" and L.liftoff:match("(%S+)%s*$") or nil
+          local sent = order(depot, F.loadStart(L.id, L.drone, L.items, L.stack, nonce(), dest))
           if sent then
             L.state, L.at = "loading", now
             log("%s docked at %s: loading", L.drone, L.dock)

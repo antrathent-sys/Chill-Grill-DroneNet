@@ -209,6 +209,7 @@ function F.check(m)
   elseif m.type == "load.start" then
     if not (str(m.load) and str(m.drone)) then return false, "no load or drone" end
     if m.items ~= nil and not num(m.items) then return false, "bad item count" end
+    if m.dest ~= nil and not (str(m.dest) and #m.dest <= 24) then return false, "bad destination" end
   elseif m.type == "load.step" then
     if not (str(m.load) and str(m.depot) and str(m.step)) then return false, "no load, depot or step" end
   elseif m.type == "load.lifted" then
@@ -375,9 +376,11 @@ function F.depotHello(depot, load, step, nonce)
   return { v = F.VERSION, type = "depot.hello", nonce = nonce, depot = depot, load = load, step = step }
 end
 
-function F.loadStart(load, drone, items, stack, nonce)
+-- dest: where the load is going, for the depot's screens (optional)
+function F.loadStart(load, drone, items, stack, nonce, dest)
   return { v = F.VERSION, type = "load.start", nonce = nonce, load = load, drone = drone,
-           items = num(items) and math.floor(items) or nil, stack = num(stack) and math.floor(stack) or nil }
+           items = num(items) and math.floor(items) or nil, stack = num(stack) and math.floor(stack) or nil,
+           dest = str(dest) and dest:sub(1, 24) or nil }
 end
 
 function F.loadStep(load, depot, step, text, nonce)

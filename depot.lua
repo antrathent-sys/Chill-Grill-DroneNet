@@ -27,6 +27,14 @@
 --   depot seq                    the two-sided dock (dock.lua): `seq load A`,
 --                                `seq unload B`, with you standing in for the
 --                                drone - ENT when it has latched, stuck or let go
+--   depot screens                which monitor is which; `depot screens demo`
+--                                plays every state on them
+--
+-- Screens (lib/depotscreens.lua, Alex 2026-09-30): a 3x3 advanced monitor
+-- shows the loader and what it is doing, a 2x3 portrait shows the order in
+-- hand. Both run at text scale 0.5, beside every load and every `depot seq`
+-- job. The squarer one is taken as the 3x3; to say otherwise:
+--   set dronenet.depot.hero monitor_1     set dronenet.depot.order monitor_2
 --
 -- It sleeps with its chunk. A drone docking here brings its chunk loader, the
 -- chunk loads, this computer turns itself back on and runs startup - so the
@@ -55,6 +63,7 @@ local F = dofile("lib/fleet.lua")
 local link = dofile("lib/link.lua")
 local LOAD = dofile("lib/loader.lua")
 local C = dofile("lib/cargo.lua")
+local DISPLAY = dofile("lib/display.lua")
 
 local args = { ... }
 local cmd = (args[1] or "run"):lower()
@@ -65,6 +74,67 @@ local STATE = ".depotstate"
 local LIFTED = { lift = true, stick = true, retract = true, liftoff = true }
 
 local id = os.getComputerLabel and os.getComputerLabel()
+
+-- ---------------------------------------------------------------- screens ---
+local DV = dofile("lib/depotscreens.lua")
+local view = DV.new(DV.nameOf(id))
+local SCREENS = {}                      -- role -> { mon, canvas, name }
+local SCREEN_ROLES = { "hero", "order" }
+local function findScreens()
+  SCREENS = {}
+  local mons, used = {}, {}
+  for _, n in ipairs(peripheral.getNames()) do
+    if peripheral.getType(n) == "monitor" then mons[#mons + 1] = n end
+  end
+  table.sort(mons)
+  for _, role in ipairs(SCREEN_ROLES) do
+    local n = settings and settings.get("dronenet.depot." .. role)
+    if n and peripheral.isPresent(n) then SCREENS[role], used[n] = { name = n }, true end
+  end
+  local free = {}
+  for _, n in ipairs(mons) do if not used[n] then free[#free + 1] = n end end
+  -- the wider shape is the 3x3 (57x38 at 0.5), the other the portrait 2x3
+  local function ratio(n)
+    local m = peripheral.wrap(n)
+    pcall(m.setTextScale, 0.5)
+    local w, h = m.getSize()
+    return w / h
+  end
+  table.sort(free, function(a, b) return ratio(a) > ratio(b) end)
+  for _, role in ipairs(SCREEN_ROLES) do
+    if not SCREENS[role] and #free > 0 then SCREENS[role] = { name = table.remove(free, 1) } end
+  end
+  for _, s in pairs(SCREENS) do
+    s.mon = peripheral.wrap(s.name)
+    pcall(s.mon.setTextScale, 0.5)
+    DV.applyPalette(s.mon)
+    s.canvas = DISPLAY.canvas(s.mon.getSize())
+  end
+end
+local function drawScreens(now)
+  for role, s in pairs(SCREENS) do
+    local okD = pcall(function()
+      local w, h = s.mon.getSize()
+      if w ~= s.canvas.w or h ~= s.canvas.h then s.canvas = DISPLAY.canvas(w, h) end
+      DV.render(role, s.canvas, view, now)
+      s.canvas:flush(s.mon)
+    end)
+    if not okD then SCREENS[role] = nil end
+  end
+end
+-- beside whatever else runs: redraws, and lets a unit go a while after its job
+local SCREEN_EVERY = 0.25
+local UNIT_GONE = 45                    -- s after a job before its unit is taken to have left
+local function screensLoop()
+  if not next(SCREENS) then while true do sleep(3600) end end
+  while true do
+    local now = os.clock()
+    if view.unit and not view.job and view.last and now - view.last.at > UNIT_GONE then DV.left(view) end
+    drawScreens(now)
+    sleep(SCREEN_EVERY)
+  end
+end
+findScreens()
 
 local function confirm(q)
   write(q .. " [y/N] ")
@@ -572,6 +642,34 @@ end
 -- one side, run here with a person standing in for the drone - ENT when it
 -- has latched, stuck or let go. That is how the machines are proven before
 -- the base drives them.
+if cmd == "screens" then
+  if not next(SCREENS) then print("no monitors on this computer's network (wired modems switched on?)") return end
+  for role, s in pairs(SCREENS) do
+    local w, h = s.mon.getSize()
+    print(string.format("%-6s %-12s %dx%d", role:upper(), s.name, w, h))
+  end
+  print("to change one:  set dronenet.depot.<hero|order> <name>")
+  if (args[2] or ""):lower() ~= "demo" then return end
+  print("demo - every state in turn. Q stops it.")
+  local t0 = os.clock()
+  parallel.waitForAny(function()
+    while true do
+      local t = os.clock() - t0
+      view = DV.demo(t, DV.nameOf(id))
+      drawScreens(t)
+      sleep(SCREEN_EVERY)
+    end
+  end, function()
+    while true do
+      local _, ch = os.pullEvent("char")
+      if tostring(ch):lower() == "q" then return end
+    end
+  end)
+  view = DV.new(DV.nameOf(id))
+  drawScreens(os.clock())
+  return
+end
+
 if cmd == "seq" then
   local DS = dofile("lib/dockseq.lua")
   if not fs.exists("dock.lua") then
@@ -771,7 +869,10 @@ if cmd == "seq" then
     set = function(relay, on) return drive({ relay = relay }, on) end,
     sleep = sleep, now = os.clock, count = storageCount, feed = feedCount, silo = silo, present = present,
     stopped = function() return stop end,
-    say = function(step, text) psay(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text)) end,
+    say = function(step, text)
+      psay(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text))
+      DV.step(view, step, text, os.clock())
+    end,
     -- The drone's part. In service the base answers these: the drone is
     -- latched, it has stuck the silo, it has let go. Here the drone is taken
     -- to be ready every time, after a moment to watch the machines - or a
@@ -795,6 +896,12 @@ if cmd == "seq" then
     items and (", " .. items .. " items") or ""))
   if not confirm("go?") then print("nothing moved") return end
   psay(string.format("---- %s side %s ----", sub, side))
+  -- the screens: what each bay holds, as remembered, and the feed
+  for _, sd in ipairs(DS.SIDES) do
+    view.sides[sd].silo = silo(sd) == "full" and "full" or (silo(sd) == "empty" and "empty" or "none")
+    view.sides[sd].feed = feedCount(sd)
+  end
+  DV.begin(view, sub, side, { id = "TEST", items = items }, os.clock())
   local ok, why, at, moved
   parallel.waitForAny(function()
     ok, why, at, moved = DS[sub](cfg, side, io, items)
@@ -803,7 +910,11 @@ if cmd == "seq" then
       local _, k = os.pullEvent("key")
       if k == keys.x and not stop then stop = true print("calling it off...") end
     end
-  end)
+  end, screensLoop)
+  if moved and view.job then view.job.moved = moved end
+  DV.finish(view, ok, why, os.clock())
+  view.sides[side].feed = feedCount(side)
+  drawScreens(os.clock())
   psay(ok and string.format("%s done in %.0f s", sub, os.clock() - t0)
          or string.format("called off at %s: %s", tostring(at), tostring(why)))
   psay(string.format("side A: %s   side B: %s", silo("A"), silo("B")))
@@ -899,6 +1010,7 @@ local function open(ch, env)
   if not (okO and body) then return nil end
   if not F.check(body) or (body.to ~= nil and body.to ~= id) then return nil end
   if not F.fresh(seenNonce, body.nonce, os.clock()) then return nil end
+  DV.heard(view, os.clock())
   return body
 end
 
@@ -947,6 +1059,7 @@ local function runLoad(msg)
   print(string.format("load %s for %s: %d items, %d silo%s (%s)", loadId, tostring(msg.drone), plan.items,
     plan.silos, plan.silos == 1 and "" or "s", table.concat(plan.sides, " + ")))
   local t0 = os.clock()
+  DV.begin(view, "load", plan.sides, { id = loadId, items = plan.items, dest = msg.dest, unit = msg.drone }, t0)
   local io = {}
   for k, v in pairs(hands) do io[k] = v end
   io.sleep, io.now = sleep, os.clock
@@ -969,6 +1082,7 @@ local function runLoad(msg)
   io.say = function(step, text)
     print(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text))
     saveState(loadId, step)
+    DV.step(view, step, text, os.clock())
     say(F.loadStep(loadId, id, step, text, nonce()))
   end
   -- the drone's liftoff is the base's to order
@@ -979,6 +1093,7 @@ local function runLoad(msg)
   local report = { counted = plan.counted, sides = plan.sides, stickers = plan.stickers, silos = {} }
   for side, got in pairs(plan.manifest or {}) do report.silos[side] = C.pack(got) end
   say(F.loadDone(loadId, id, ok, why, at, report, nonce()))
+  DV.finish(view, ok, why, os.clock())
   clearState()
   print(ok and ("loaded in " .. math.floor(os.clock() - t0) .. " s - over to the base")
            or ("called off at " .. tostring(at) .. ": " .. tostring(why)))
@@ -1005,4 +1120,4 @@ end
 
 print(string.format("depot %s: %d bay%s, awake - telling the base every %d s", id, #cfg.bays,
   #cfg.bays == 1 and "" or "s", HELLO_EVERY))
-parallel.waitForAny(hellos, orders)
+parallel.waitForAny(hellos, orders, screensLoop)
