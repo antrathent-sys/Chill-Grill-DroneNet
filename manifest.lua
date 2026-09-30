@@ -54,7 +54,7 @@ return {
 
   -- the computer at a dock that works its loading station (startup autorun depot)
   depot = { "depot.lua", "lib/loader.lua", "lib/dockseq.lua", "lib/stock.lua", "lib/cargo.lua", "station.example.lua", "stickers.lua",
-            "lib/display.lua", "lib/depotscreens.lua" },
+            "lib/display.lua", "lib/depotscreens.lua", "lib/tui.lua" },
 
   -- a customer terminal standing at a pad: it calls a taxi and counts its own use
   pad = { "taxipad.lua" },

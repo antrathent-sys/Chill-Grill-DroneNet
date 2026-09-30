@@ -22,7 +22,8 @@ except ImportError:
     sys.exit(2)
 
 RENDER = b"""
-function(D, DV, t, hw, hh, ow, oh)
+function(D, DV, TUI, t, hw, hh, ow, oh)
+  DV.use(TUI)
   local st = DV.demo(t)
   local out = {}
   for _, s in ipairs({ { "hero", hw, hh }, { "order", ow, oh } }) do
@@ -36,7 +37,7 @@ function(D, DV, t, hw, hh, ow, oh)
     out[#out + 1] = table.concat(rows, "\\n")
   end
   local pal = {}
-  for k, v in pairs(DV.PALETTE) do pal[#pal + 1] = k .. "=" .. string.format("%06x", v) end
+  for k, v in pairs(TUI.PALETTE) do pal[#pal + 1] = k .. "=" .. string.format("%06x", v) end
   return table.concat(out, "\\1"), table.concat(pal, ",")
 end
 """
@@ -70,8 +71,8 @@ def draw_screen(rows, pal, scale, font):
     return img
 
 
-def frame(L, D, DV, t, a, pal_cache, font):
-    screens, pal_s = L.eval(RENDER)(D, DV, t, a.hw, a.hh, a.ow, a.oh)
+def frame(L, D, DV, TUI, t, a, pal_cache, font):
+    screens, pal_s = L.eval(RENDER)(D, DV, TUI, t, a.hw, a.hh, a.ow, a.oh)
     if not pal_cache:
         for kv in pal_s.decode().split(","):
             k, v = kv.split("=")
@@ -101,6 +102,7 @@ def main():
     os.chdir(ROOT)
     D = L.execute(open("lib/display.lua", "rb").read())
     DV = L.execute(open("lib/depotscreens.lua", "rb").read())
+    TUI = L.execute(open("lib/tui.lua", "rb").read())
     try:
         font = ImageFont.truetype("consolab.ttf", int(8.5 * a.scale))
     except Exception:
@@ -109,12 +111,12 @@ def main():
     if a.gif:
         frames, n = [], int(100 * a.fps)
         for i in range(n):
-            frames.append(frame(L, D, DV, i / a.fps, a, pal, font).convert("P", palette=Image.ADAPTIVE, colors=64))
+            frames.append(frame(L, D, DV, TUI, i / a.fps, a, pal, font).convert("P", palette=Image.ADAPTIVE, colors=64))
         frames[0].save(a.gif, save_all=True, append_images=frames[1:], duration=int(1000 / a.fps), loop=0,
                        optimize=True)
         print(a.gif)
     times = a.t or [26.0]
-    imgs = [frame(L, D, DV, t, a, pal, font) for t in times]
+    imgs = [frame(L, D, DV, TUI, t, a, pal, font) for t in times]
     total = Image.new("RGB", (max(i.width for i in imgs), sum(i.height for i in imgs)), "#101214")
     y = 0
     for i in imgs:

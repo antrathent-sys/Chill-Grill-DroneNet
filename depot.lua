@@ -77,6 +77,7 @@ local id = os.getComputerLabel and os.getComputerLabel()
 
 -- ---------------------------------------------------------------- screens ---
 local DV = dofile("lib/depotscreens.lua")
+DV.use(dofile("lib/tui.lua"))            -- the fleet's own look
 local view = DV.new(DV.nameOf(id))
 local SCREENS = {}                      -- role -> { mon, canvas, name }
 local SCREEN_ROLES = { "hero", "order" }
