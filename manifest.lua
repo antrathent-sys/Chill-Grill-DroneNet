@@ -5,7 +5,11 @@
 -- from the newest commit, and removes files startup itself installed that the
 -- list no longer has. Files startup never installed - keys, pads.lua,
 -- .autorun, flight logs, your own programs - are never touched. A computer
--- with no role pulls every file, exactly as before roles existed.
+-- with no role pulls NOTHING and says how to get one: the whole repo is over
+-- 1 MB (2026-09-30), more than a standard computer holds. `startup role all`
+-- is the old everything, for a computer with the room. A blank computer is
+-- set up with one line:
+--   wget run https://raw.githubusercontent.com/antrathent-sys/Chill-Grill-DroneNet/main/startup.lua role <name>
 --
 -- Adding a program: put it in the right list here, and every computer with
 -- that role picks it up on its next startup. tools/run_startup_test.py checks

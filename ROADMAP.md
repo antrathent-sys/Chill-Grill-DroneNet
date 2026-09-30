@@ -82,11 +82,11 @@ change that removes code, and each carries its tests with it.
    DELIVERIES + ORDERS + STATIONS: how an order moves), SERVICE (outside the
    game), PERFORMANCE, FRAMES, INFRASTRUCTURE, BACKLOG (index and history).
    The two old ones go into the history section.
-8. **Per-role installs.** The first command per role (parked): a drone, a
-   depot, a base, a pocket, a screen each fetch only their files with their
-   own startup. This is where `taxipad.lua`, `mixcal.lua`, `probe.lua`,
-   `preflight.lua` and `stickers.lua` get sorted into "ships with a role",
-   "developer tool" or "gone".
+8. **Per-role installs.** Built 2026-09-30, forced by the repo passing 1 MB:
+   `wget run .../startup.lua role <name>` pulls one role, sets its autorun,
+   and a computer with no role pulls nothing. Still to sort: `taxipad.lua`,
+   `mixcal.lua`, `probe.lua`, `preflight.lua` and `stickers.lua` into "ships
+   with a role", "developer tool" or "gone"; and the base at 770 KB.
 9. **fly.lua last.** 4,138 lines at the local limit. Pads, ferry, deliver and
    the order legs can move out, but flight code changes one at a time against
    the mock and then a flight. Not during the demo push.

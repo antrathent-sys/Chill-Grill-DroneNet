@@ -8,7 +8,13 @@
 --   startup autorun off         stop autorunning
 --   startup role                which kind of computer this is
 --   startup role <name>         drone, base, depot, screens, pocket, admin, rs, or all: pull only that
---                               role's files (manifest.lua) from now on
+--                               role's files (manifest.lua) from now on, and set the
+--                               role's own autorun (depot, control, beacon, rsio)
+--
+-- A computer with no role pulls NOTHING and says so: the whole repo is over
+-- 1 MB (2026-09-30), more than a standard computer holds. A blank computer is
+-- set up with one line, which pulls only its role's files, startup among them:
+--   wget run https://raw.githubusercontent.com/antrathent-sys/Chill-Grill-DroneNet/main/startup.lua role depot
 --   startup hold <side>         drone: raise this side first thing at every boot,
 --                               so the docking connector is powered whenever the
 --                               computer is on. Only fly releases it (the undock
@@ -26,26 +32,8 @@
 -- hand later is the developer's boot again, output and all.
 local REPO   = "antrathent-sys/Chill-Grill-DroneNet"
 local BRANCH = "main"
-local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua", "paste.lua", "preflight.lua",
-                 "mixcal.lua",
-                 "rsio.lua", "chimes.lua", "docktest.lua", "stickers.lua", "beacon.lua",
-                 "lib/chime.lua", "lib/db.lua", "lib/mission.lua", "lib/rs.lua", "lib/deliver.lua",
-                 "lib/mixer.lua", "lib/attitude.lua", "lib/link.lua", "lib/pads.lua",
-                 "lib/display.lua", "console.lua", "lib/state.lua", "lib/screens.lua", "lib/watch.lua", "lib/trip.lua", "control.lua", "admin.lua", "lib/depotscreens.lua", "lib/orders.lua", "dock.example.lua",
-                 "lib/devices.lua", "basectl.lua", "devices.example.lua",
-                 "lib/loader.lua", "station.example.lua", "lib/cargo.lua", "depot.lua",
-                 "machine.lua", "lib/machine.lua", "lib/dockseq.lua", "lib/stock.lua",
-                 "lib/fleet.lua", "lib/names.lua", "ops.lua", "taxipad.lua", "hail.lua", "lib/hailui.lua", "lib/tui.lua",
-                 "lib/ledger.lua", "lib/queue.lua", "lib/invoice.lua", "lib/catalogue.lua", "tariff.example.lua",
-                 "lib/opsui.lua", "provision.lua", "lib/provision.lua", "kiosk.lua",
-                 "lib/seclink.lua", "seckey.lua", "radiotest.lua", "gpscheck.lua",
-                 "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
-                 "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
-                 "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua",
-                 "ccryptolib/internal/hw.lua" }
-
--- FILES is only the fallback for a computer with no role when manifest.lua
--- cannot be read. Normally the manifest in the repo decides what to pull.
+-- What to pull is manifest.lua in the repo, by this computer's role; there is
+-- no list here any more (the fallback went with the no-role pull).
 local AUTORUN_FILE = ".autorun"
 local ROLE_FILE = ".role"            -- this computer's role, one word
 local INSTALLED_FILE = ".installed"  -- the files startup put here, one per line
@@ -176,7 +164,7 @@ if args[1] == "role" then
       role = (f.readAll() or ""):gsub("%s+", "")
       f.close()
     end
-    print("role: " .. (role ~= "" and role or "none - this computer pulls every file"))
+    print("role: " .. (role ~= "" and role or "none - nothing is pulled until it has one"))
     print("startup role <drone|base|depot|screens|pad|pocket|admin|rs|all> to change it")
     return
   end
@@ -390,6 +378,38 @@ local function writeText(name, text)
   f.close()
 end
 
+-- The one line that sets up a blank computer: wget runs startup straight from
+-- the repo with `role <name>` (CC's wget passes the words after the URL to
+-- the program), which pulls that role's files - startup itself among them -
+-- saves the role, sets its autorun and says what comes next.
+local function firstCommand(role)
+  return string.format("wget run https://raw.githubusercontent.com/%s/%s/startup.lua role %s", REPO, BRANCH, role)
+end
+
+-- A role's own startup: what it runs on every boot, set when the role is
+-- given unless this computer already has an autorun. The base runs ops by
+-- hand; a pocket runs hail or admin when picked up; a pad is set by hand.
+local DEFAULT_AUTORUN = { drone = "beacon", depot = "depot", screens = "control", rs = "rsio" }
+
+-- and what a person does after the first pull, printed once
+local NEXT = {
+  drone   = { "label set drone-<n>",
+              "on the base: seckey new drone-<n> (floppy in its drive); here: seckey set disk",
+              "startup hold <side> if a docking connector holds it; reboot - beacon runs on boot" },
+  depot   = { "label set depot-<dock>",
+              "on the base: seckey new depot-<dock> (floppy in its drive); here: seckey set disk",
+              "depot probe map, then machines/depot-<dock>/dock.lua from dock.example.lua",
+              "reboot - depot runs on boot" },
+  base    = { "label set <name>; every key is made here: seckey new <id>",
+              "ops runs the board; bg provision beside it makes customers' passes" },
+  screens = { "on the base: seckey watch new screens; here: seckey watch set disk, label set screens",
+              "reboot - control runs on boot" },
+  admin   = { "on the base: seckey admin new <you>; here: seckey admin set disk, label set <you>", "admin" },
+  pocket  = { "hail - the developer's terminal; customers' passes come from provision on the base" },
+  rs      = { "reboot - rsio runs on boot" },
+  pad     = { "startup autorun taxipad" },
+}
+
 local function update(roleRequest)
   -- checked before anything touches http: with the API disabled this used to
   -- crash on the commit lookup, and then nothing after it (autorun) ran
@@ -413,10 +433,21 @@ local function update(roleRequest)
   local role = roleRequest or (readLocal(ROLE_FILE) or ""):gsub("%s+", "")
   -- `role` is also what decides which of this machine's own settings are
   -- pulled from its folder, further down
+  if role == "" then
+    -- No role: pull nothing. The whole repo is over 1 MB, more than a
+    -- standard computer holds, so a computer says what it is first.
+    local names = man and table.concat(rolesOf(man), "|") or "drone|base|depot|screens|admin|pocket|rs|pad"
+    print("startup: no role, so nothing was pulled (the whole repo no longer fits a 1 MB computer)")
+    print("  startup role <" .. names .. ">   says what this computer is, and pulls just that")
+    print("  or, on a blank computer, one line:")
+    print("  " .. firstCommand("<role>"))
+    return
+  end
   local wanted
   if man then
-    if role == "" or role == "all" then
+    if role == "all" then
       wanted = filesFor(man)
+      print("WARNING: role all is the whole repo, over 1 MB - only for a computer with the room")
     elseif role ~= "common" and man[role] then
       wanted = filesFor(man, { role })
     else
@@ -426,22 +457,14 @@ local function update(roleRequest)
   elseif roleRequest then
     print("startup: role not changed - could not read " .. MANIFEST .. " from the repo")
     return
-  elseif role ~= "" and role ~= "all" then
+  else
     -- a role but no manifest: refresh what is already here, remove nothing
     print("WARNING: could not read " .. MANIFEST .. " - updating only the files already installed")
     wanted = readList(INSTALLED_FILE)
     if not wanted then return end
-  else
-    wanted = FILES
   end
-  if roleRequest then
-    if roleRequest == "all" then
-      if fs.exists(ROLE_FILE) then fs.delete(ROLE_FILE) end
-    else
-      writeText(ROLE_FILE, roleRequest)
-    end
-  end
-  print(string.format("role: %s - %d files", (role == "" or role == "all") and "all" or role, #wanted))
+  if roleRequest then writeText(ROLE_FILE, roleRequest) end
+  print(string.format("role: %s - %d files", role, #wanted))
 
   local free = freeSpace()
   if free ~= math.huge then
@@ -564,6 +587,20 @@ local function update(roleRequest)
       if fs.exists(name) then have[#have + 1] = name end
     end
     writeText(INSTALLED_FILE, table.concat(have, "\n") .. "\n")
+  end
+
+  -- A role just given: its own autorun (unless this computer already has
+  -- one), and what to do next, so the one line on a blank computer is enough.
+  if roleRequest and roleRequest ~= "all" then
+    local auto = DEFAULT_AUTORUN[roleRequest]
+    if auto and not fs.exists(AUTORUN_FILE) then
+      writeText(AUTORUN_FILE, auto)
+      print("autorun:   " .. auto .. " from the next boot (startup autorun off to stop it)")
+    end
+    if NEXT[roleRequest] then
+      print("next:")
+      for _, line in ipairs(NEXT[roleRequest]) do print("  " .. line) end
+    end
   end
 end
 

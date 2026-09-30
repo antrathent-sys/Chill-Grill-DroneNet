@@ -169,13 +169,12 @@ order queue, ETAs. Mostly a rendering job now that telemetry carries real data;
 - **A second drone**, and what it needs first: altitude lanes by heading, a
   reservation on each dock slot, and a base that assigns the dock as well as
   the unit.
-- **One first command per kind of computer** (Alex, 2026-09-30, for when new
-  drones and depots get set up): a single `wget` line for a drone, a depot, a
-  base, screens, a pocket, each fetching only what that machine needs and
-  giving it its own startup. Half of it exists: `startup role <name>` already
-  pulls just that role's files from manifest.lua. What is missing is the one
-  line that does role + first pull + label/key prompts in one go on a blank
-  computer.
+- **One first command per kind of computer** - built 2026-09-30, the day
+  the whole repo passed 1 MB: `wget run .../startup.lua role <name>` pulls
+  only that role's files, sets its autorun and prints the label and key
+  steps (README, "Setting up a computer"); a computer with no role pulls
+  nothing. Left: the base's own pull is 770 KB and growing, which the ops
+  split and the loader fold in ROADMAP.md bring down.
 - **More top speed** needs rotational authority, not thrust: wider thruster
   spacing, canted thrusters or vector bearings for torque about the thrust
   axis, a lower centre of mass. See PERFORMANCE.md.

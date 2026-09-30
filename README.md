@@ -8,7 +8,7 @@ Flight controller for a **Create Aeronautics** drone, written for **ComputerCraf
 |---|---|
 | `fly.lua` | The controller. Four modes, see below. |
 | `kill.lua` | Panic stop: thruster power to 0, nozzle vector zeroed, all redstone outputs off, any electric motor stopped. |
-| `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed, then runs this computer's autorun command: `startup autorun console` on the base brings the wall back after every reboot (3 s to press a key for the shell, restarts it if it stops); `startup autorun off` clears it. Never autoruns `fly`. **Roles:** `startup role drone` (or `base`, `screens`, `depot`, `pad`, `pocket`, `rs`, `all`) makes that computer pull only its own files as listed in `manifest.lua`, and remove files startup installed that its role no longer has; keys, `pads.lua`, logs and your own programs are never touched. No role pulls everything. Tested by `tools/run_startup_test.py`. |
+| `startup.lua` | Runs on boot. Pulls the latest `.lua` files from this repo's raw GitHub URLs, writes them to the computer's root and prints what changed, then runs this computer's autorun command: `startup autorun console` on the base brings the wall back after every reboot (3 s to press a key for the shell, restarts it if it stops); `startup autorun off` clears it. Never autoruns `fly`. **Roles:** `startup role drone` (or `base`, `screens`, `depot`, `pad`, `pocket`, `rs`, `all`) makes that computer pull only its own files as listed in `manifest.lua`, and remove files startup installed that its role no longer has; keys, `pads.lua`, logs and your own programs are never touched. A computer with **no role pulls nothing** and says how to get one: the whole repo is 1,163 KB against a 1,024 KB disk (2026-09-30). **A blank computer is set up with one line**, `wget run https://raw.githubusercontent.com/antrathent-sys/Chill-Grill-DroneNet/main/startup.lua role depot` (or `drone`, `base`, `screens`, `admin`, `pocket`, `rs`): it pulls that role's files, startup itself among them, saves the role, sets the role's own autorun (`depot`, `control`, `beacon`, `rsio`; the base runs `ops` by hand) and prints the label and key steps that follow. Tested by `tools/run_startup_test.py`. |
 | [ROADMAP.md](ROADMAP.md) | Where CINDER is going (2026-09-30): what Alex wants the service to be - rides, deliveries and sales on one order model, unattended, everything logged, money handled before it goes public, Cinder people able to reset a craft - what that requires against what exists, the prune list (one number scheme, one journal, one loader, one dispatcher), the delivery demo defined step by step, and the order of work. |
 | [BACKLOG.md](BACKLOG.md) | The index of open work: what is waiting on a decision, what comes before more customers, and what each design document covers. The flight-by-flight history that produced it is kept below the index. |
 | `ARCHITECTURE.md` | The layer stack for the autonomous controller: control, leg, mission, link. Decided before the code. |
@@ -492,16 +492,27 @@ Everything tunable lives at the top of `fly.lua`. Edit the file and redeploy; th
 | `BRAKE_K` | Brake distance = `BRAKE_K * speed^2 / 10`. |
 | `ARRIVE` | Blocks from target at which cruise hands over to brake regardless of speed. |
 
-## Deploying to the drone
+## Setting up a computer
 
-1. Enable `http` in the CC:Tweaked server config and make sure `raw.githubusercontent.com` is allowed.
-2. **If the repo is private**, `raw.githubusercontent.com` returns 404 without auth. Either make the repo public, or create a fine-grained personal access token with read-only *Contents* permission on this repo only and save it on the drone's computer as `.ghtoken` (just the token, nothing else). `startup.lua` sends it as an Authorization header. The token stays on the CC computer; never commit it.
-3. On the drone's computer, once (public repo shown; for a private one, paste `startup.lua` in with `edit startup.lua` the first time):
-   ```
-   wget https://raw.githubusercontent.com/antrathent-sys/Chill-Grill-DroneNet/main/startup.lua startup.lua
-   reboot
-   ```
-4. Every reboot after that pulls the current files and prints which ones changed. Run `startup` by hand to update without rebooting. It prints the commit it pulled, e.g. `pulling commit 68087ff`, so you can see it is current.
+One line on a blank computer, with the kind of computer it is at the end:
+
+```
+wget run https://raw.githubusercontent.com/antrathent-sys/Chill-Grill-DroneNet/main/startup.lua role depot
+```
+
+| role | what it is | pulls (2026-09-30) | autorun it sets | then |
+|---|---|---|---|---|
+| `drone` | the flight computer | 568 KB | `beacon` | `label set drone-<n>`; its key from the base (`seckey new drone-<n>` there, `seckey set disk` here); `startup hold <side>` if a docking connector holds it |
+| `depot` | the computer at a dock | 433 KB | `depot` | `label set depot-<dock>`; key as a drone's; `depot probe map`; `machines/depot-<dock>/dock.lua` from `dock.example.lua` |
+| `base` | the server | 770 KB | none, `ops` by hand | `label set <name>`; it makes every key |
+| `screens` | the control room's monitors | 281 KB | `control` | `seckey watch new screens` on the base, `seckey watch set disk` here, `label set screens` |
+| `admin` | the admin pocket | 210 KB | none, `admin` | `seckey admin new <you>` on the base, `seckey admin set disk` here |
+| `pocket` | the developer's hail terminal | 308 KB | none, `hail` | customers' passes come from `provision`, not this |
+| `rs` | the redstone slave on an airframe | 181 KB | `rsio` | |
+
+It pulls only that role's files from `manifest.lua` (startup itself among them), saves the role, sets the autorun and prints the steps in the last column. Every reboot after that pulls the current files by commit and prints what changed; `startup` by hand does the same. A computer with **no role pulls nothing** and prints this line instead: the whole repo is 1,163 KB against a 1,024 KB disk, and the base's own 770 KB is the next one to watch. `startup role <name>` on a computer that already has files switches it, removing what its new role does not need.
+
+`http` must be enabled in the CC:Tweaked server config with `raw.githubusercontent.com` allowed. For a private repo, a fine-grained read-only token in `.ghtoken` on the computer is sent as an Authorization header; it never goes in the repo.
 
 **Why it pins to a commit.** `raw.githubusercontent.com` caches a branch path for 5 minutes and ignores query strings, so fetching `main` within 5 minutes of a push returns the *previous* version. `startup` makes one API call for the latest commit SHA and fetches every file by that SHA, which is immutable and therefore always correct. If the API call fails it falls back to the branch and warns.
 
