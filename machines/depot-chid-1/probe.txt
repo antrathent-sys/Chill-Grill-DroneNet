@@ -99,3 +99,21 @@ every device found on both sides
  49.7 FILL     called off: nothing moved in 30 s - is there anything to move?
 called off at fill: nothing moved in 30 s - is there anything to move?
 side A: empty   side B: none
+---- depot-chid-1  09-30 09:49 ----
+---- load side A ----
+  0.8 SILO     sensor: no hit - no silo
+  0.8 PLACE    placing a silo on side A
+  7.8 PLACE    sensor: hit create_connected:item_silo at 0.52 - a silo
+  7.8 ASSEMBLE assembling it
+ 15.8 FILL     filling until the storage stops moving
+ 23.2 FILL     164 items in
+ 25.2 DOCK     waiting for the drone to latch
+ 25.2 DOCK     the drone: latch it on the dock - taken as done (no base yet)
+ 27.2 PUSH     pusher up
+ 31.2 STICK    the drone sticks the silo
+ 31.2 STICK    the drone: stick the silo (stickers out) - taken as done (no base yet)
+ 33.2 RETRACT  pusher down
+ 37.2 RETRACT  watch: expected no silo, sensor hit create_connected:item_silo at 1.49 - DISAGREES
+ 37.2 DONE     loaded - side A has no silo now
+load done in 37 s
+side A: none   side B: none
