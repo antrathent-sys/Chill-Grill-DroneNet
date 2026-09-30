@@ -12,6 +12,13 @@ local D = dofile(DIR .. "/../lib/dockseq.lua")
 print("the layout")
 local real, why = D.check(dofile(DIR .. "/../machines/test-dock/dock.lua"))
 check("the test dock's own dock.lua checks out", real ~= nil, why)
+local chid, whyC = D.check(dofile(DIR .. "/../machines/depot-chid-1/dock.lua"))
+check("CHID 1's dock.lua checks out", chid ~= nil, whyC)
+check("...relays from its map, storage 0 on A and 1 on B", chid and chid.sides.A.place == "redstone_relay_7"
+  and chid.sides.A.belt == "redstone_relay_2" and chid.sides.B.assemble == "redstone_relay_1"
+  and chid.sides.B.pusher == "redstone_relay_5" and chid.sides.A.storage[1] == "create_connected:item_silo_0"
+  and chid.sides.B.storage[1] == "create_connected:item_silo_1")
+check("...and its sensors only watched until their sides are proven", chid and chid.watch == true)
 check("...both sides, their pushers from the map", real and real.sides.A.pusher == "redstone_relay_7"
   and real.sides.B.pusher == "redstone_relay_9")
 check("...its waits are its own", real and real.wait.assemble == 5 and real.fill.settle == 6)
