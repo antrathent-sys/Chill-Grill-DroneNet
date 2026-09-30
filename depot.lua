@@ -2,7 +2,11 @@
 --
 --   depot                        wait for loads from the base
 --   startup autorun depot        ...from every boot, which is how it should run
---   depot status                 the station from station.lua, and what it can reach
+--   depot status                 what this depot has and what it is missing: label,
+--                                key, radio, and the dock from dock.lua - each
+--                                side's relays, storage, feed, the intake, the
+--                                printer and the drone's stickers (the station
+--                                from station.lua, on a single-bay depot)
 --   depot test <action> [side]   fire one action's relay: place assemble lift retract
 --   depot probe                  every relay face and inventory on this network,
 --                                and `probe fire`/`probe set` to find out which
@@ -863,6 +867,57 @@ local function dockKit(cfg)
   end
   return { silo = silo, count = storageCount, feed = feedCount, present = present, tally = tally,
            storageOf = function(sd) return storages(sd)[1] end }
+end
+
+-- The install check for a two-sided dock, or a depot with nothing yet: every
+-- line says what is there or what to do about it. A station.lua depot has
+-- its own status further down.
+if cmd == "status" and not fs.exists("station.lua") then
+  local okId = id and id:match("^depot%-[%w_%-]+$")
+  print(string.format("%s: %s", tostring(id or "no label"), fs.exists("dock.lua") and "two-sided dock" or "no dock.lua yet"))
+  if not okId then print("  label: NOT A DEPOT - label set depot-<dock>, e.g. label set depot-chid-1") end
+  print("  key: " .. (fs.exists(".dronekey") and "yes"
+    or ("NONE - on the base: seckey new " .. tostring(okId and id or "depot-<dock>") .. ", then here: seckey set disk")))
+  print("  radio: " .. tostring(link.findRadio(peripheral) or "NONE - fit an ender modem"))
+  local cfg, whyD = dockCfg()
+  if not cfg then
+    local nRelays = 0
+    for _, n in ipairs(peripheral.getNames()) do
+      if peripheral.getType(n) == "redstone_relay" then nRelays = nRelays + 1 end
+    end
+    print(string.format("  %d redstone relays on the network - depot probe map says which does what", nRelays))
+    print("  " .. whyD)
+    return
+  end
+  local kit = dockKit(cfg)
+  for _, side in ipairs({ "A", "B" }) do
+    local s = cfg.sides[side]
+    if s then
+      local bad = {}
+      for _, dev in ipairs({ "place", "assemble", "pusher", "belt" }) do
+        if s[dev] and not peripheral.isPresent(s[dev]) then bad[#bad + 1] = dev .. " " .. s[dev] end
+      end
+      local n, f = kit.count(side), kit.feed(side)
+      print(string.format("  side %s: %s", side, #bad == 0 and "relays ok" or ("MISSING " .. table.concat(bad, ", "))))
+      print(string.format("    storage %s: %s   feed: %s", tostring(kit.storageOf(side) or "none"),
+        n and (n .. " items") or "NOT READABLE", s.feed and (f and (f .. " silo blocks") or "NOT READABLE") or "none named"))
+      print(string.format("    silo waiting: %s   drone's sticker this side: %s", kit.silo(side), tostring(cfg.stick[side])))
+    end
+  end
+  if cfg.intake then
+    local n = 0
+    for _, inv in ipairs(cfg.intake) do
+      local okL, items = pcall(peripheral.call, inv, "list")
+      if not (okL and type(items) == "table") then n = nil break end
+      for _, it in pairs(items) do n = n + (it.count or 0) end
+    end
+    print(string.format("  intake %s: %s", table.concat(cfg.intake, ", "), n and (n .. " items") or "NOT READABLE"))
+  else
+    print("  intake: none - a load takes what is already in each side's storage")
+  end
+  local pr = printerName(cfg.printer)
+  print("  printer: " .. (pr or "NONE - silos go out without an invoice"))
+  return
 end
 
 if cmd == "seq" then

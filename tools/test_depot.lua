@@ -360,6 +360,36 @@ w = depot({})
 w = w:run("depot.lua", { "seq" }, 5)
 check("no dock.lua: says where it comes from", w.text:find("machines/depot-pier/dock.lua", 1, true) ~= nil, w.text)
 
+print("depot status on a dock")
+w = depot({ station = false, nokey = true })
+w = w:run("depot.lua", { "status" }, 5)
+check("nothing set up: says what is missing, key and dock.lua", w.err == nil
+  and w.text:find("key: NONE - on the base: seckey new depot-pier", 1, true)
+  and w.text:find("redstone relays on the network", 1, true)
+  and w.text:find("machines/depot-pier/dock.lua", 1, true) ~= nil, w.err or w.text)
+w = depot({ station = false, label = false })
+w = w:run("depot.lua", { "status" }, 5)
+check("no label: says how to name it", w.text:find("label set depot-chid-1", 1, true) ~= nil, w.text)
+w = depot({ station = false, printer = { paper = 5, ink = 5 }, vaults = { ["create:item_vault_0"] = { ["minecraft:cobblestone"] = 128 } } })
+w.files["dock.lua"] = [[return {
+  sides = { A = { place = "redstone_relay_0", assemble = "redstone_relay_1", pusher = "redstone_relay_2",
+                  storage = "create:item_vault_0" },
+            B = { place = "redstone_relay_9", assemble = "redstone_relay_1", pusher = "redstone_relay_3" } },
+  stick = { A = "Create_Sticker_3" },
+}]]
+w = w:run("depot.lua", { "status" }, 5)
+check("a dock: key, radio, and each side's relays", w.err == nil and w.text:find("key: yes", 1, true)
+  and w.text:find("radio: modem_ender", 1, true) and w.text:find("side A: relays ok", 1, true)
+  and w.text:find("side B: MISSING place redstone_relay_9", 1, true) ~= nil, w.err or w.text)
+check("...its storage counted and the sticker facing it", w.text:find("storage create:item_vault_0: 128 items", 1, true)
+  and w.text:find("drone's sticker this side: Create_Sticker_3", 1, true) ~= nil, w.text)
+check("...no intake, and the printer found", w.text:find("intake: none", 1, true)
+  and w.text:find("printer: printer_0", 1, true) ~= nil, w.text)
+w = depot({})
+w = w:run("depot.lua", { "status" }, 5)
+check("a station.lua depot still gets the station's status", w.text:find("bay", 1, true) ~= nil
+  and w.text:find("two-sided", 1, true) == nil, w.text)
+
 print("the placer's feed")
 local FDOCK = DOCK:gsub('pusher = "redstone_relay_2" }', 'pusher = "redstone_relay_2", feed = "minecraft:chest_7" }')
 local function feedDock(lines, blocks)
