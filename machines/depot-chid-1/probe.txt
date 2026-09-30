@@ -38,3 +38,54 @@ create_connected:item_silo_1  60 slots, empty
   optical_sensor_1 (optical_sensor)  getBlock=create:deployer getDistance=2.75 getRange=15 hasHit=true
       methods: getBlock, getDistance, getRange, hasHit, setRange
   top (modem)
+---- depot-chid-1  09-30 07:42 ----
+[1/8] redstone_relay_0 is ON
+  redstone_relay_0:bottom signal 0 -> 15
+  redstone_relay_0:back signal 0 -> 15
+  redstone_relay_1:front signal 0 -> 15
+  = redstone_relay_0   belt      side B  ON fills
+[2/8] redstone_relay_1 is ON
+  redstone_relay_0:bottom signal 0 -> 15
+  redstone_relay_1:front signal 0 -> 15
+  = redstone_relay_1   assemble  side B
+[3/8] redstone_relay_2 is ON
+  redstone_relay_2:bottom signal 0 -> 15
+  redstone_relay_2:back signal 0 -> 15
+  redstone_relay_3:front signal 0 -> 15
+  = redstone_relay_2   belt      side A  ON fills
+[4/8] redstone_relay_3 is ON
+  redstone_relay_2:bottom signal 0 -> 15
+  redstone_relay_3:front signal 0 -> 15
+  = redstone_relay_3   assemble  side A
+[5/8] redstone_relay_4 is ON
+  redstone_relay_4:left signal 0 -> 15
+  redstone_relay_4:right signal 0 -> 15
+  redstone_relay_4:front signal 0 -> 15
+  redstone_relay_5:right signal 0 -> 15
+  = redstone_relay_4   pusher    side A  ON up
+[6/8] redstone_relay_5 is ON
+  redstone_relay_4:left signal 0 -> 15
+  redstone_relay_5:left signal 0 -> 15
+  redstone_relay_5:right signal 0 -> 15
+  redstone_relay_5:front signal 0 -> 15
+  = redstone_relay_5   pusher    side B  ON up
+[7/8] redstone_relay_6 is ON
+  redstone_relay_6:bottom signal 0 -> 15
+  = redstone_relay_6   place     side B  ON places
+[8/8] redstone_relay_7 is ON
+  optical_sensor_0 getDistance 15.5 -> 0.515500009059906
+  optical_sensor_0 hasHit false -> true
+  optical_sensor_0 getBlock minecraft:air -> create_connected:item_silo
+  redstone_relay_7:bottom signal 0 -> 15
+  = redstone_relay_7   place     side A  ON places
+
+the map:
+  redstone_relay_0   belt      B  ON fills
+  redstone_relay_1   assemble  B
+  redstone_relay_2   belt      A  ON fills
+  redstone_relay_3   assemble  A
+  redstone_relay_4   pusher    A  ON up
+  redstone_relay_5   pusher    B  ON up
+  redstone_relay_6   place     B  ON places
+  redstone_relay_7   place     A  ON places
+every device found on both sides
