@@ -2241,13 +2241,21 @@ if mode == "pads" then
   if not PAD.lib then error("lib/pads.lua is missing - run `startup` to update", 0) end
   local sub = (arg[1] == "pad") and arg[2] or nil
   if sub == "add" then
-    local name = arg[3] or error("usage: fly pad add <name> [dock|pad]   (standing on it)", 0)
+    local name = arg[3] or error("usage: fly pad add <name> [dock|pad] [facing <west|270>]   (standing on it)", 0)
     -- A DOCK gets ferried to and latched onto; a PAD is only ever landed at.
     -- Recording from the craft nearly always means a dock, so that is the
     -- default, and `pad` marks a plain landing spot.
     local kind, noteAt = "dock", 4
     local k = arg[4] and arg[4]:lower()
     if k == "dock" or k == "pad" then kind, noteAt = k, 5 end
+    -- "facing west": the heading this dock is met at, kept in the record so
+    -- every ferry here squares up to it (CHID 1 and 2, 2026-09-30)
+    local hdgA, whyA = PAD.facing(arg)
+    if whyA then error("pad add: " .. whyA, 0) end
+    local noteW, skip = {}, nil
+    for i = noteAt, #arg do
+      if arg[i] == "facing" then skip = i + 1 elseif i ~= skip then noteW[#noteW + 1] = arg[i] end
+    end
     -- Recorded from where the craft is standing, so nothing is typed: undo the
     -- dock trims to get the pad block, and the dock gap to get the pad height.
     -- Resting on the ground reads the same gap as latched (the legs hold it
@@ -2256,14 +2264,15 @@ if mode == "pads" then
       x = math.floor(pos.x - CFG.DOCK_TRIM_X), z = math.floor(pos.z - CFG.DOCK_TRIM_Z),
       y = math.floor(alt.getHeight() - CFG.DOCK_GAP + 0.5),
       trimX = CFG.DOCK_TRIM_X ~= 0 and CFG.DOCK_TRIM_X or nil,
-      trimZ = CFG.DOCK_TRIM_Z ~= 0 and CFG.DOCK_TRIM_Z or nil,
-      note = arg[noteAt] and table.concat(arg, " ", noteAt) or nil }
+      trimZ = CFG.DOCK_TRIM_Z ~= 0 and CFG.DOCK_TRIM_Z or nil, heading = hdgA,
+      note = #noteW > 0 and table.concat(noteW, " ") or nil }
     local okp, why = PAD.lib.put(PAD.list, entry)
     if not okp then error("pad add: " .. tostring(why), 0) end
     local saved, serr = PAD.lib.save(file, PAD.list, fs)
     if not saved then error("pad add: " .. tostring(serr), 0) end
     local p = PAD.lib.get(PAD.list, name)
-    print(string.format("%s '%s' recorded at %d %d %d (%s)", p.kind, p.name, p.x, p.y, p.z, file))
+    print(string.format("%s '%s' recorded at %d %d %d%s (%s)", p.kind, p.name, p.x, p.y, p.z,
+      p.heading and string.format(", met facing %d", p.heading) or "", file))
     print("that height is the altimeter minus the dock gap - record it standing on it, or fix y by hand")
     if p.kind == "dock" then print("a landing spot with nothing to latch onto? fly pad add " .. p.name .. " pad") end
   elseif sub == "del" or sub == "rm" or sub == "remove" then
