@@ -89,3 +89,13 @@ the map:
   redstone_relay_6   place     B  ON places
   redstone_relay_7   place     A  ON places
 every device found on both sides
+---- depot-chid-1  09-30 09:39 ----
+---- load side A ----
+  4.2 SILO     sensor: no hit - no silo
+  4.2 PLACE    placing a silo on side A
+ 11.2 PLACE    sensor: hit create_connected:item_silo at 0.52 - a silo
+ 11.2 ASSEMBLE assembling it
+ 19.2 FILL     filling until the storage stops moving
+ 49.7 FILL     called off: nothing moved in 30 s - is there anything to move?
+called off at fill: nothing moved in 30 s - is there anything to move?
+side A: empty   side B: none
