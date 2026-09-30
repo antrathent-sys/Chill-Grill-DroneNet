@@ -18,7 +18,9 @@ check("...relays from its map, storage 0 on A and 1 on B", chid and chid.sides.A
   and chid.sides.A.belt == "redstone_relay_2" and chid.sides.B.assemble == "redstone_relay_1"
   and chid.sides.B.pusher == "redstone_relay_5" and chid.sides.A.storage[1] == "create_connected:item_silo_0"
   and chid.sides.B.storage[1] == "create_connected:item_silo_1")
-check("...and its sensors only watched until their sides are proven", chid and chid.watch == true)
+check("...sensor 0 on A, 1 on B, deciding except around the drone", chid and chid.detect.A == "optical_sensor_0"
+  and chid.detect.B == "optical_sensor_1" and type(chid.watch) == "table" and chid.watch.retract and chid.watch.release
+  and not chid.watch.place and not chid.watch.assemble)
 check("...both sides, their pushers from the map", real and real.sides.A.pusher == "redstone_relay_7"
   and real.sides.B.pusher == "redstone_relay_9")
 check("...its waits are its own", real and real.wait.assemble == 5 and real.fill.settle == 6)
