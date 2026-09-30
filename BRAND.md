@@ -36,6 +36,9 @@ the way LAMBDA-001 is the craft's.
 
 ## Voice — decided
 
+**Cold, for launch and after** (Alex, 2026-10-01: "keep it cold for sure").
+The voice is not softened for strangers.
+
 Terse Imperial officialese with a wink. Capitals on screens. One word per
 concept, always the same word:
 
@@ -88,9 +91,10 @@ Open from the critique: red text on the ground is about 2.3:1, too faint
 to read at a glance. **Proposed:** a brighter ember, around `#d2452e`, for
 red *text* only (about 4.3:1), keeping `#8e2420` for fills.
 
-## In the world — proposed
+## In the world — the standard look decided, the details proposed
 
-The same palette in blocks, so a CINDER place is recognisable from the air
+**Every CINDER place is built to one standard look** (Alex, 2026-10-01).
+What that look is, below, is still a proposal. The same palette in blocks, so a CINDER place is recognisable from the air
 before its sign is readable:
 
 | role | blocks |

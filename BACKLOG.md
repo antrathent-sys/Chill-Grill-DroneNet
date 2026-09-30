@@ -184,7 +184,9 @@ order queue, ETAs. Mostly a rendering job now that telemetry carries real data;
   contract there, so the split is only ever a change of where orders come from.
 - **An air traffic board** for other people's craft, described at the end of
   this file. It shares the telemetry format and the screens, and it is the
-  first thing here that other players would use.
+  first thing here that other players would use. **Alex, 2026-10-01: "give
+  out avionics packages so I can track everyone and everything"** - the
+  transponder handed out as a kit, see "The avionics package" at the end.
 
 ## Done since this list was last written
 
@@ -880,6 +882,37 @@ shape that follows from what already exists:
 Worth building after the shuttle service is running: it shares the telemetry
 format, the screens and the queue's idea of what is nearby, and it is the
 first thing here that other people would use.
+
+**The avionics package (Alex, 2026-10-01).** CINDER hands out the
+transponder as a kit, so every craft on the server can be tracked. Proposed
+shape, not decided:
+
+- **What it is.** A computer and an ender modem for the owner's craft,
+  provisioned at the base like a pass: `provision` writes the program and a
+  key of its own onto a computer put in the disk drive. The key only speaks
+  for that transponder and is revoked by deleting one line, as with depots.
+  Because each kit is keyed, its contacts are authenticated - better than
+  the unsealed callsigns above.
+- **What it sends.** Exact position, height, heading, speed and the craft's
+  Sable name (`sublevel.getLogicalPose`, `getLinearVelocity`, `getName`),
+  every few seconds, sealed, on the telemetry channel. Off a sub-level it
+  falls back to GPS.
+- **Send only.** It takes no instructions, ever. Someone else's craft must
+  never be flyable from our base, and a kit that took orders would be a
+  back door on a device we gave away.
+- **Open about it.** Its screen says it reports the craft's position to
+  CINDER. Cold, not covert: that is the brand, and a hidden tracker on a
+  device we hand out breaks the no-back-doors rule.
+- **What the owner gets for carrying it** - the reason anyone installs it:
+  instruments on a monitor (height, speed, heading), traffic near them, and
+  a distress key that calls a unit to where they are.
+- **What the base does.** Keeps every contact on the board, the flight wall
+  and the admin pocket, and logs tracks sparsely - on change, not every
+  packet - because many craft at 1 Hz fill a 1 MB disk in hours. The long
+  record belongs outside the game (SERVICE.md).
+- **Open questions.** What the owner gets, exactly; whether people on foot
+  are tracked too (through their passes, opt-in, shown on the pass); and
+  whether carrying a kit is ever required, for example to use CINDER docks.
 
 **Deliveries: parcels from depots, restocks between docks.** Designed in
 [DELIVERIES.md](DELIVERIES.md): a delivery is a shuttle job carrying a box.
