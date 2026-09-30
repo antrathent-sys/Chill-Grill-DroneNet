@@ -26,6 +26,9 @@ local M = {}
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 
 local T                                -- lib/tui.lua, from M.use
+local okN, NAMES = pcall(dofile, "lib/names.lua")     -- drone-1 -> LAMBDA-001
+if not (okN and type(NAMES) == "table") then NAMES = nil end
+local function unitName(id) return NAMES and NAMES.unit(id) or tostring(id or ""):upper() end
 function M.use(tui) T = tui end
 local function tui()
   if not T then T = dofile("lib/tui.lua") end
@@ -472,7 +475,7 @@ function M.drawHero(c, st, now)
   end
   -- the unit and the base link, on the last row
   local u = st.unit
-  local unitText = u and (u.id:upper() .. " " .. u.state:upper()) or "NONE"
+  local unitText = u and (unitName(u.id) .. " " .. u.state:upper()) or "NONE"
   local linkText, linkInk = "BASE LINK --", C.faint
   if st.baseAt then
     if now - st.baseAt <= M.BASE_STALE then linkText, linkInk = "BASE LINK OK", C.ok
@@ -553,7 +556,7 @@ function M.drawOrder(c, st, now)
     put(c, 8, 16, job.dest and tostring(job.dest):upper() or "--", C.text)
     put(c, 2, 17, "UNIT", C.faint)
     local u = st.unit
-    put(c, 8, 17, u and (u.id:upper() .. " " .. u.state:upper()) or "NONE", u and C.text or C.faint)
+    put(c, 8, 17, u and (unitName(u.id) .. " " .. u.state:upper()) or "NONE", u and C.text or C.faint)
     -- the sequence, ticked off
     local sy = 19
     band(c, sy, 1, w, "SEQUENCE", "T+" .. clock(now - (job.t0 or now)))

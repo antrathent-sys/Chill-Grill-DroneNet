@@ -1077,6 +1077,11 @@ w = base({ args = { "order", "cancel", "C-0001", "changed", "their", "mind" }, f
 check("ops order cancel", has(w, "C-0001 cancelled: changed their mind")
   and (w.files["orders.log"] or ""):find(",cancelled,", 1, true))
 
+print("units by their names")
+w = base({ args = { "load", "send", "lambda-001", "pier", "640" } }):run()
+check("a command takes LAMBDA-001 for drone-1", w.err == nil and (w.files["loads.queue"] or ""):find("^drone%-1 depot%-pier 640") ~= nil,
+  w.err or w.files["loads.queue"])
+
 print("the two-sided dock, from the base")
 -- an order's flight on an A/B dock: each silo's share goes to the depot, and
 -- the counts it sends back for A and B are the order's shipments 1 and 2

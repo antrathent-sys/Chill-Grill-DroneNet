@@ -148,7 +148,7 @@ check("every screen renders at every size through the loop", allGood, bad)
 
 print("drone screen")
 local t = render("drone", 28, 26, states[4])
-check("head: unit id and clock", rowOf(t, "DRONE-1") == 1 and rowOf(t, states[4].clock) == 1)
+check("head: unit id and clock", rowOf(t, "LAMBDA-001") == 1 and rowOf(t, states[4].clock) == 1)
 check("fuel label", rowOf(t, "FUEL") == 3)
 check("state strip says CRADLED", rowOf(t, "CRADLED") == 11)
 check("position block", rowOf(t, "POSITION") == 13 and rowOf(t, "X +0001") == 14 and rowOf(t, "Z +0001") == 14
@@ -188,7 +188,7 @@ check("on a job: DESTINATION at r7, name, bearing, ETA", rowOf(t, "DESTINATION",
   and rowOf(t, "BRG", 42) == 10 and rowOf(t, "ETA", 42) == 11)
 check("on a job: LOG moves down to r12", rowOf(t, "LOG", 42) == 13)
 check("DEST labelled inside the map", rowOf(t, "DEST", 1, 40) ~= nil)
-check("unit labelled inside the map", rowOf(t, "DRONE-1", 1, 40) ~= nil)
+check("unit labelled inside the map", rowOf(t, "LAMBDA-001", 1, 40) ~= nil)
 check("still nothing in the gap column", gapClear(t))
 check("every rail row fits 19 columns", (function()
   for y = 1, t.h do if t.grid[y].s:sub(42) ~= t.grid[y].s:sub(42, 60) then return false end end
@@ -198,7 +198,7 @@ end)())
 local edge = S.mock(D)
 edge.tick(30)
 local est = edge.state()
-est.units[1].x, est.units[1].id = 4950, "DRONE-LONGNAME"
+est.units[1].x, est.units[1].id, est.units[1].name = 4950, "DRONE-LONGNAME", "DRONE-LONGNAME"
 t = render("tactical", 60, 26, est)
 check("a label at the east edge flips left and stays in the map", rowOf(t, "DRONE-LONGNAME", 1, 40) ~= nil and gapClear(t))
 local lc = D.canvas(60, 26)

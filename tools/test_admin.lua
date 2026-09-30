@@ -142,8 +142,8 @@ check("with a key it listens on the feed, and Q quits cleanly", w.err == nil and
 
 print("the fleet, from the feed")
 w = run(world({ script = plus(fleetFeed(), { { wait = 1 } }) }))
-check("both units, in name order, with the screens' words", has(w.text, "DRONE-1") and has(w.text, "CRADLED")
-  and has(w.text, "DRONE-2") and has(w.text, "CRUISE") and w.text:find("DRONE%-1.-DRONE%-2") ~= nil, w.text)
+check("both units, in name order, with the screens' words", has(w.text, "LAMBDA-001") and has(w.text, "CRADLED")
+  and has(w.text, "LAMBDA-002") and has(w.text, "CRUISE") and w.text:find("LAMBDA%-001.-LAMBDA%-002") ~= nil, w.text)
 check("a unit on a place is at it by name", has(w.text, "HOME"), w.text)
 w = run(world({ script = plus(fleetFeed(), { { key = KEYS.down }, { wait = 1 } }) }))
 check("the picked unit shows its trip", has(w.text, "T-1 flying 1/2 rules"), w.text)
@@ -159,7 +159,7 @@ w = run(world({ script = {
   { raw = { type = "tlm", id = "drone-7", phase = "cruise" } },
   { wait = 1 } } }))
 check("sealed with another key, sealed to another name, or plain: none of it shows", w.err == "script over"
-  and not has(w.text, "DRONE-9") and not has(w.text, "DRONE-8") and not has(w.text, "DRONE-7"), w.err or w.text)
+  and not has(w.text, "LAMBDA-009") and not has(w.text, "LAMBDA-008") and not has(w.text, "LAMBDA-007"), w.err or w.text)
 
 print("a trip, leg by leg")
 local asked

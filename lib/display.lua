@@ -29,6 +29,13 @@
 local D = {}
 
 local floor, max, min, sqrt, abs = math.floor, math.max, math.min, math.sqrt, math.abs
+-- what a unit is called on screen (lib/names.lua): drone-1 -> LAMBDA-001
+local NAMES = (function()
+  local ok, n = pcall(dofile, "lib/names.lua")
+  return ok and type(n) == "table" and n or nil
+end)()
+local function unitName(id) return NAMES and NAMES.unit(id) or tostring(id or ""):upper() end
+
 
 -- colour roles -> blit hex digit. The palette below redefines those slots.
 D.C = {
@@ -427,10 +434,10 @@ function D.alerts(m, now)
     local st = D.droneState(d, now)
     local p = d.pkt or {}
     local T = D.theme.text
-    if st == "LOST" then out[#out + 1] = T.lost .. " " .. id:upper()
-    elseif st == "STALE" then out[#out + 1] = T.stale .. " " .. id:upper() end
+    if st == "LOST" then out[#out + 1] = T.lost .. " " .. unitName(id)
+    elseif st == "STALE" then out[#out + 1] = T.stale .. " " .. unitName(id) end
     if type(p.energy) == "number" and p.energy >= 0 and p.energy < 25 then
-      out[#out + 1] = T.lowPower .. " " .. id:upper()
+      out[#out + 1] = T.lowPower .. " " .. unitName(id)
     end
   end
   return out
@@ -767,7 +774,7 @@ local function drawMap(c, m, R, now)
             gap = 3
           end
           mtext(kx, ky, icon, fg)
-          local tag = id:upper() .. (st == "LOST" and " LOST" or (" " .. (int(p.spd) or 0) .. "B/S"))
+          local tag = unitName(id) .. (st == "LOST" and " LOST" or (" " .. (int(p.spd) or 0) .. "B/S"))
           if kx + #tag + gap > cxMax then mtext(kx - #tag - gap + 1, ky, tag, fg) else mtext(kx + gap, ky, tag, fg) end
         end
       end
@@ -829,7 +836,7 @@ local function drawSide(c, m, R, now)
   else
     local p = d.pkt
     local st, stc = D.droneState(d, now)
-    line(p.id:upper(), C.white)
+    line(unitName(p.id), C.white)
     c:text(x + w - #st, y - 1, st, (st == "LOST" and not blink(now)) and C.panel or stc, C.panel)
     -- big speed readout
     local spd = tostring(int(p.spd) or 0)
@@ -863,9 +870,9 @@ local function drawSide(c, m, R, now)
     local pp = dd.pkt or {}
     local st, stc = D.droneState(dd, now)
     local sel = id == m.selected
-    -- 1 + 8 + 1 + 7 + 1 + 3 + 1 + 4 = 26 = w - 6, then the 5-wide link state
-    local row = string.format("%s%-8s %-7s %3s %4s", sel and string.char(16) or " ", id:upper():sub(1, 8),
-      tostring(pp.phase or "-"):upper():sub(1, 7), int(pp.spd) or "--", int(pp.energy) and (int(pp.energy) .. "%") or "--")
+    -- 1 + 10 + 1 + 5 + 1 + 3 + 1 + 4 = 26 = w - 6, then the 5-wide link state
+    local row = string.format("%s%-10s %-5s %3s %4s", sel and string.char(16) or " ", unitName(id):sub(1, 10),
+      tostring(pp.phase or "-"):upper():sub(1, 5), int(pp.spd) or "--", int(pp.energy) and (int(pp.energy) .. "%") or "--")
     c:text(x, y, pad(row, w - 6), sel and C.white or C.green, C.panel)
     c:text(x + w - 5, y, pad(st, 5), stc, C.panel)
     c.hits[y] = { x0 = R.x, x1 = R.x + R.w - 1, id = id }
@@ -903,7 +910,7 @@ local function drawBoard(c, m, R, now)
     put(R.x + 2, y, T.noMission, C.dim)
   else
     local p, pl = d.pkt, d.plan
-    put(R.x + 2, y, pad(string.format("%s  %s  LEG %d/%d  %s", p.id:upper(), tostring(p.mode or "?"):upper(),
+    put(R.x + 2, y, pad(string.format("%s  %s  LEG %d/%d  %s", unitName(p.id), tostring(p.mode or "?"):upper(),
       int(p.leg) or 0, int(p.legs) or 0, tostring(p.phase or ""):upper()), left), C.white)
     y = y + 2
     local pts = pl and pl.pts or {}
@@ -960,7 +967,7 @@ local function drawBoard(c, m, R, now)
     if yy >= yAlert then break end
     local dt = s.at and (s.at - now)
     local tm = (not dt and "HOLD") or (dt <= 0 and "DUE") or ("T-" .. D.fmtClock(dt))
-    local row = string.format("%-7s %-8s %-8s %s", tostring(s.id):upper(), tostring(s.drone or "-"):upper(),
+    local row = string.format("%-7s %-10s %-6s %s", tostring(s.id):upper(), s.drone and unitName(s.drone) or "-",
       tostring(s.kind or ""):upper(), tm)
     put(sx0, yy, pad(row, R.w - split - 1), i == 1 and C.amber or C.amberDim)
     local dst = s.pts and s.pts[#s.pts]
@@ -1167,7 +1174,7 @@ local function cmdMap(c, m, R, now)
         local px, py = P(D.posOf(d, now))
         local kx, ky = cellOf(px, py)
         local ink = (st == "LOST" and C.red) or (st == "STALE" and C.dim) or C.bright
-        local l1 = id:upper()
+        local l1 = unitName(id)
         local l2 = st == "LOST" and "LOST" or string.format("%d %s", int(p.spd) or 0, D.fmtInt(p.y))
         local bw = max(#l1, #l2)
         local bx, by = kx + 3, ky - 2
@@ -1236,7 +1243,7 @@ local function cmdSide(c, m, R, now)
   else
     local p = d.pkt
     local st = D.droneState(d, now)
-    put(p.id:upper(), C.bright)
+    put(unitName(p.id), C.bright)
     put(st, st == "LOST" and C.red or (st == "LIVE" and C.white or C.dim), nil, x + w - #st)
     y = y + 2
     local spd = tostring(int(p.spd) or 0)
@@ -1276,7 +1283,7 @@ local function cmdSide(c, m, R, now)
     local st = D.droneState(dd, now)
     local sel = id == m.selected
     local ph = st == "LIVE" and tostring(pp.phase or "-"):upper() or st
-    local row = string.format("%-8s %-7s %3s %4s", id:upper():sub(1, 8), ph:sub(1, 7), int(pp.spd) or "--",
+    local row = string.format("%-10s %-5s %3s %4s", unitName(id):sub(1, 10), ph:sub(1, 5), int(pp.spd) or "--",
       int(pp.energy) and (int(pp.energy) .. "%") or "--")
     local ink = (st == "LOST" and C.red) or (st == "STALE" and C.dim) or C.white
     if sel then
@@ -1307,7 +1314,7 @@ local function cmdBoard(c, m, R, now)
     put(x0, yTop + 3, T.noMission, C.dim)
   else
     local p, pl = d.pkt, d.plan
-    put(x0 + #board + 3, yTop + 1, p.id:upper() .. "  " .. tostring(p.mode or "?"):upper(), C.bright)
+    put(x0 + #board + 3, yTop + 1, unitName(p.id) .. "  " .. tostring(p.mode or "?"):upper(), C.bright)
     local pts = pl and pl.pts or {}
     if #pts == 0 and p.tx then pts = { { kind = p.legKind or p.mode or "go", x = p.tx, z = p.tz } } end
     local n = max(1, #pts)
@@ -1374,7 +1381,7 @@ local function cmdBoard(c, m, R, now)
     if yy > yFoot - 2 then break end
     local dt = s.at and (s.at - now)
     local tm = (not dt and "HOLD") or (dt <= 0 and "DUE") or ("T-" .. D.fmtClock(dt))
-    rput(yy, string.format("%-10s  %-7s %-8s %s", tm, tostring(s.id):upper(), tostring(s.drone or "-"):upper(),
+    rput(yy, string.format("%-10s  %-7s %-10s %s", tm, tostring(s.id):upper(), s.drone and unitName(s.drone) or "-",
       tostring(s.kind or ""):upper()), i == 1 and C.bright or C.green)
     local dst = s.pts and s.pts[#s.pts]
     if dst then rput(yy + 1, string.rep(" ", 12) .. "TO " .. D.fmtInt(dst.x) .. ", " .. D.fmtInt(dst.z), C.dim) end

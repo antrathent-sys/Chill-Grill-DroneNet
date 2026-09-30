@@ -309,7 +309,7 @@ check("and showed it before anything was requested", has(w, "FARE") and has(w, "
 check("the ride screen drew while it came", has(w, "ON STATION"))
 check("G sent the shuttle off", w.went == true)
 check("it arrived", has(w, "TRANSIT COMPLETE"))
-check("with a receipt naming the unit by its class", has(w, "LAMBDA-1"))
+check("with a receipt naming the unit by its class", has(w, "LAMBDA-001"))
 check("and came round to the list again", select(2, w.text:upper():gsub("DESTINATIONS", "")) >= 2)
 check("no operator words on a customer's screen",
   not has(w, "hail test") and not has(w, "ops ") and not has(w, "autorun"))

@@ -29,6 +29,13 @@
 --   local sim = S.mock(D)   sim.tick(0.25)   local st = sim.state()
 
 local S = {}
+-- what a unit is called on screen (lib/names.lua): drone-1 -> LAMBDA-001
+local NAMES = (function()
+  local ok, n = pcall(dofile, "lib/names.lua")
+  return ok and type(n) == "table" and n or nil
+end)()
+local function unitName(id) return NAMES and NAMES.unit(id) or tostring(id or ""):upper() end
+
 
 local floor, max, sqrt = math.floor, math.max, math.sqrt
 local atan2 = math.atan2 or math.atan
@@ -89,25 +96,25 @@ function S.observe(track, u, base, pads, clock)
   local pv = track.prev[u.id]
   track.prev[u.id] = { state = u.state, dock = u.dock, link = u.link }
   if not pv then
-    S.addLog(track, clock, u.state == "OFFLINE" and "NO SIGNAL" or ("ACQUIRED " .. u.state), u.id)
+    S.addLog(track, clock, u.state == "OFFLINE" and "NO SIGNAL" or ("ACQUIRED " .. u.state), u.name)
     return
   end
-  if u.link == "LOST" and pv.link ~= "LOST" then S.addLog(track, clock, "SIGNAL LOST", u.id) end
-  if u.link ~= "LOST" and pv.link == "LOST" then S.addLog(track, clock, "SIGNAL OK", u.id) end
+  if u.link == "LOST" and pv.link ~= "LOST" then S.addLog(track, clock, "SIGNAL LOST", u.name) end
+  if u.link ~= "LOST" and pv.link == "LOST" then S.addLog(track, clock, "SIGNAL OK", u.name) end
 
   -- a job opens when a cradled unit leaves its pad
   if pv.dock == 1 and u.dock == 0 then
     track.seq = track.seq + 1
     track.order = { code = string.format("TRK-%04d", track.seq), kind = tostring(u.mode or "flight"):upper(),
                     unit = u.id, stage = 2 }
-    S.addLog(track, clock, track.order.code .. " OPEN", u.id)
+    S.addLog(track, clock, track.order.code .. " OPEN", u.name)
   end
 
   local cradled = u.state == "CRADLED" and pv.state ~= "CRADLED"
   if u.state ~= pv.state and u.state ~= "OFFLINE" then
     local msg = u.state
     if cradled and u.x then msg = msg .. " " .. S.placeName(pads, base, u.x, u.z) end
-    S.addLog(track, clock, msg, u.id)
+    S.addLog(track, clock, msg, u.name)
   end
 
   local o = track.order
@@ -117,11 +124,11 @@ function S.observe(track, u, base, pads, clock)
   if o.stage < 4 and (u.legKind == "hover" or (cradled and not home)) then
     o.stage = 4
     track.counters.out = track.counters.out + 1
-    S.addLog(track, clock, o.code .. " DROP", u.id)
+    S.addLog(track, clock, o.code .. " DROP", u.name)
   end
   if cradled then
     if home then track.counters.returned = track.counters.returned + 1 end
-    S.addLog(track, clock, o.code .. " DONE", u.id)
+    S.addLog(track, clock, o.code .. " DONE", u.name)
     track.order = nil
   end
 end
@@ -150,7 +157,7 @@ function S.build(model, now, ctx)
     local d = model.drones[id]
     local p = d.pkt
     local link = D.droneState(d, now)
-    local u = { id = id:upper(), link = link, state = S.stateWord(p, link) }
+    local u = { id = id:upper(), name = unitName(id), link = link, state = S.stateWord(p, link) }
     if p then
       u.x, u.z, u.alt, u.hdg, u.spd = p.x, p.z, p.y, p.hdg, p.spd
       u.fuel, u.fe, u.dock = p.energy, p.fe, p.dock

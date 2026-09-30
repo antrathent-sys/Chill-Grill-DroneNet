@@ -48,8 +48,10 @@ end
 
 function M.unitName(id)
   if type(id) ~= "string" or id == "" then return nil end
+  local okN, N = pcall(dofile, "lib/names.lua")
+  if okN and type(N) == "table" then return N.unit(id) end
   local n = id:lower():match("^drone%-(%d+)$")
-  return n and ("LAMBDA-" .. n) or id:upper()
+  return n and string.format("LAMBDA-%03d", tonumber(n)) or id:upper()
 end
 
 --- The slim header for screens with work on them: the name at the left, the

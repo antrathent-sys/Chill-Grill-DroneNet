@@ -87,6 +87,10 @@ end
 
 local args = { ... }
 local cmd = (args[1] or "watch"):lower()
+-- a unit can be named either way on the command line: lambda-001 is drone-1
+local NAMES = select(2, pcall(dofile, "lib/names.lua"))
+if type(NAMES) ~= "table" then NAMES = nil end
+if NAMES then for i = 2, #args do args[i] = NAMES.id(args[i]) or args[i] end end
 -- `keys` is the name of this program's key loop further down, so the API gets
 -- its own name before that shadows it
 local keys_api = keys
@@ -339,6 +343,8 @@ local seenNonce = {}
 local events = {}
 local function log(fmt, ...)
   local line = select("#", ...) > 0 and string.format(fmt, ...) or tostring(fmt)
+  -- units by their names: drone-1 is LAMBDA-001 on the board (lib/names.lua)
+  if NAMES then line = NAMES.text(line) end
   events[#events + 1] = string.format("%s  %s", textutils.formatTime(os.time(), true), line)
   while #events > 8 do table.remove(events, 1) end
   return line

@@ -30,6 +30,7 @@ local F = dofile("lib/fleet.lua")
 local link = dofile("lib/link.lua")
 local W = dofile("lib/watch.lua")
 local ST = dofile("lib/state.lua")
+local NAMES = dofile("lib/names.lua")
 
 local me = os.getComputerLabel and os.getComputerLabel()
 local key = SEC.readKeyFile(".adminkey")
@@ -166,7 +167,7 @@ local function drawFleet()
   end
   for i, id in ipairs(S.order) do
     local u = S.units[id]
-    local line = string.format("%s%-8s %-8s %s", i == S.sel and ">" or " ", id:upper():sub(1, 8), stateWord(u), where(u))
+    local line = string.format("%s%-10s %-8s %s", i == S.sel and ">" or " ", NAMES.unit(id), stateWord(u), where(u))
     at(2 + i, line, i == S.sel and colours.yellow or colours.white)
     local t = tripOf(id)
     if t and i == S.sel then at(3 + #S.order, string.format(" %s %s %s %s", t.id, t.state, t.leg, t.stop), colours.cyan) end
@@ -177,7 +178,7 @@ end
 local function drawUnit()
   local id = S.unit
   local u = S.units[id]
-  at(1, id:upper(), colours.orange)
+  at(1, NAMES.unit(id), colours.orange)
   local sw = stateWord(u)
   local w = term.getSize()
   term.setCursorPos(math.max(1, w - #sw + 1), 1)
@@ -203,7 +204,7 @@ local function drawUnit()
 end
 
 local function drawTrip()
-  at(1, "TRIP FOR " .. S.unit:upper(), colours.orange)
+  at(1, "TRIP FOR " .. NAMES.unit(S.unit), colours.orange)
   rule(2)
   if #S.legs == 0 then at(3, "no legs yet", colours.lightGrey) end
   for i, l in ipairs(S.legs) do

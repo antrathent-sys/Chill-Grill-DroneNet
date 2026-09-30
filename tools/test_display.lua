@@ -152,13 +152,13 @@ for _, themeName in ipairs({ "imperial", "silo" }) do
   check("map title", screenHas(t, (T.map:gsub("^%s+", ""):gsub("%s+$", ""))) ~= nil)
   check("telemetry panel", screenHas(t, T.side:sub(2)) ~= nil and screenHas(t, "B/S") ~= nil)
   if command then
-    check("selected unit has a data block with speed", dataBlock(t, L0, "DRONE-1", "196"))
-    check("lost unit's data block says so", dataBlock(t, L0, "DRONE-3", "LOST"))
+    check("selected unit has a data block with speed", dataBlock(t, L0, "LAMBDA-001", "196"))
+    check("lost unit's data block says so", dataBlock(t, L0, "LAMBDA-003", "LOST"))
   else
-    check("selected unit tagged on the map with speed", screenHas(t, "DRONE-1 196B/S") ~= nil)
-    check("lost unit tagged", screenHas(t, "DRONE-3 LOST") ~= nil)
+    check("selected unit tagged on the map with speed", screenHas(t, "LAMBDA-001 196B/S") ~= nil)
+    check("lost unit tagged", screenHas(t, "LAMBDA-003 LOST") ~= nil)
   end
-  check("fleet lists all three", screenHas(t, "DRONE-2") and screenHas(t, "DRONE-3") and screenHas(t, T.fleet:sub(2)))
+  check("fleet lists all three", screenHas(t, "LAMBDA-002") and screenHas(t, "LAMBDA-003") and screenHas(t, T.fleet:sub(2)))
   check("home marker", screenHas(t, T.home) ~= nil)
   check("mission chain", screenHas(t, D.legLabel("cruise")) ~= nil and screenHas(t, D.legLabel("dock")) ~= nil
     and screenHas(t, D.legLabel("drop")) ~= nil)
@@ -174,7 +174,7 @@ for _, themeName in ipairs({ "imperial", "silo" }) do
   end
   check("leg progress", screenHas(t, T.progress) ~= nil)
   check("scheduled trips with countdown", screenHas(t, "M-0043") ~= nil and screenHas(t, "T-00:18:20") ~= nil)
-  check("alert ticker names the lost unit", screenHas(t, "! " .. T.lost .. " DRONE-3") ~= nil)
+  check("alert ticker names the lost unit", screenHas(t, "! " .. T.lost .. " LAMBDA-003") ~= nil)
   local L = D.layout(100, 66)
   local arrows = 0
   for y = L.map.y + 1, L.map.y + L.map.h - 2 do

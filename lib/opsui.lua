@@ -16,6 +16,12 @@
 -- Nothing here talks to a peripheral - ops passes in a table and this draws it
 -- - so tools/preview_ops.py renders the same board on the desktop at any size.
 
+-- what a unit is called on screen (lib/names.lua): drone-1 -> LAMBDA-001
+local NAMES = (function()
+  local ok, n = pcall(dofile, "lib/names.lua")
+  return ok and type(n) == "table" and n or nil
+end)()
+local function unitName(id) return NAMES and NAMES.unit(id) or tostring(id or ""):upper() end
 local M = {}
 
 M.STATES = {         -- what a drone's line says, and how loudly
@@ -93,7 +99,7 @@ function M.board(T, c, view)
       -- the job marker goes IN the line, not in a right-hand column: a
       -- right-hand value landed on top of the battery figure
       T.row(c, 1, r + 1 + i, fleetW - 1,
-            string.format(fmt, tostring(u.id):upper():sub(1, nameW), tostring(u.state):sub(1, 7), pct(u.batt))
+            string.format(fmt, unitName(u.id):sub(1, nameW), tostring(u.state):sub(1, 7), pct(u.batt))
               .. (u.job and " *" or ""),
             nil, (first + i) == view.sel)
     end
@@ -114,7 +120,7 @@ function M.board(T, c, view)
 
   if wide and sel then
     local d = T.section(c, logY, "UNIT")
-    c:text(logX + 1, d, tostring(sel.id):upper():sub(1, logW - 2), T.C.text)
+    c:text(logX + 1, d, unitName(sel.id):sub(1, logW - 2), T.C.text)
     c:text(logX + 1, d + 1, tostring(sel.state):upper():sub(1, logW - 2),
            sel.state == "LOST" and T.C.warn or T.C.accent)
     c:text(logX + 1, d + 2, (sel.x and string.format("%d, %d", sel.x, sel.z) or "NO FIX"):sub(1, logW - 2), T.C.faint)
@@ -125,7 +131,7 @@ function M.board(T, c, view)
 
   if not wide and sel then
     -- no room for a panel, so the selected unit gets one line
-    c:text(1, logY, (tostring(sel.id):upper() .. " " ..
+    c:text(1, logY, (unitName(sel.id) .. " " ..
       (sel.x and string.format("%d,%d", sel.x, sel.z) or "NO FIX") ..
       (sel.job and " ON JOB" or "")):sub(1, w), T.C.text)
     logY = logY + 1

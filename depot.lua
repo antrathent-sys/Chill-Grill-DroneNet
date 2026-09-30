@@ -75,6 +75,7 @@ local link = dofile("lib/link.lua")
 local LOAD = dofile("lib/loader.lua")
 local C = dofile("lib/cargo.lua")
 local INVOICE = dofile("lib/invoice.lua")
+local NAMES = dofile("lib/names.lua")        -- drone-1 is LAMBDA-001 wherever it is shown
 local DISPLAY = dofile("lib/display.lua")
 
 local args = { ... }
@@ -1254,7 +1255,7 @@ if cmd == "run" and fs.exists("dock.lua") then
     DV.begin(view, kind, sides, { id = loadId, items = msg.items, dest = msg.dest, unit = msg.drone,
       item = msg.inv_item and INVOICE.itemName(msg.inv_item) or nil, shipments = shipments }, t0)
     print("")
-    print(string.format("%s %s for %s: side%s %s", kind, loadId, tostring(msg.drone), #sides == 1 and "" or "s",
+    print(string.format("%s %s for %s: side%s %s", kind, loadId, NAMES.unit(tostring(msg.drone)), #sides == 1 and "" or "s",
       table.concat(sides, " + ")))
     local function tell(step, text)
       print(string.format("%5.1f %-8s %s", os.clock() - t0, step:upper(), text))
@@ -1528,7 +1529,7 @@ local function runLoad(msg)
   local plan, whyP = LOAD.plan(cfg, items, stack, stacks)
   if not plan then say(F.loadDone(loadId, id, false, "does not fit: " .. whyP, "start", nil, nonce())) return end
   print("")
-  print(string.format("load %s for %s: %d items, %d silo%s (%s)", loadId, tostring(msg.drone), plan.items,
+  print(string.format("load %s for %s: %d items, %d silo%s (%s)", loadId, NAMES.unit(tostring(msg.drone)), plan.items,
     plan.silos, plan.silos == 1 and "" or "s", table.concat(plan.sides, " + ")))
   local t0 = os.clock()
   local shipments

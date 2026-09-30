@@ -193,7 +193,7 @@ function SC.drawDrone(c, st)
   local w = c.w
   local u = SC.focus(st)
   local n = #(st.units or {})
-  lr(c, 1, 1, w, u and u.id or "NO UNIT", K.white, st.clock, K.grey)
+  lr(c, 1, 1, w, u and (u.name or u.id) or "NO UNIT", K.white, st.clock, K.grey)
   if not u then
     put(c, 1, 3, "AWAITING SIGNAL", K.grey)
     footer(c, baseName(st), "NO UNITS")
@@ -333,7 +333,7 @@ function SC.drawMap(c, st, cols)
     for _, l in ipairs(labels) do
       if math.abs(ux - l[1]) < 8 and math.abs(uy - l[2]) < 5 then ly = uy + 3 end
     end
-    labels[#labels + 1] = { ux + 1, ly, u.id, col }
+    labels[#labels + 1] = { ux + 1, ly, u.name or u.id, col }
   end
   c.clip = nil
 
@@ -348,7 +348,7 @@ function SC.drawRail(c, st, x0, x1)
 
   local u = SC.focus(st)
   if u then
-    lr(c, 3, x0, x1, u.id, K.white, u.state, stateColour(u.state))
+    lr(c, 3, x0, x1, u.name or u.id, K.white, u.state, stateColour(u.state))
     lr(c, 4, x0, x1, SC.signed4(u.x), K.white, SC.signed4(u.z), K.white)
     lr(c, 5, x0, x1, "HDG " .. int3(u.hdg), K.grey, "ALT " .. whole(u.alt), K.grey)
     local fuel = type(u.fuel) == "number" and max(0, min(100, u.fuel)) or nil

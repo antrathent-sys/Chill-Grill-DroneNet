@@ -35,7 +35,7 @@ local FILES  = { "fly.lua", "kill.lua", "startup.lua", "probe.lua", "upload.lua"
                  "lib/devices.lua", "basectl.lua", "devices.example.lua",
                  "lib/loader.lua", "station.example.lua", "lib/cargo.lua", "depot.lua",
                  "machine.lua", "lib/machine.lua", "lib/dockseq.lua", "lib/stock.lua",
-                 "lib/fleet.lua", "ops.lua", "taxipad.lua", "hail.lua", "lib/hailui.lua", "lib/tui.lua",
+                 "lib/fleet.lua", "lib/names.lua", "ops.lua", "taxipad.lua", "hail.lua", "lib/hailui.lua", "lib/tui.lua",
                  "lib/ledger.lua", "lib/queue.lua", "lib/invoice.lua", "lib/catalogue.lua", "tariff.example.lua",
                  "lib/opsui.lua", "provision.lua", "lib/provision.lua", "kiosk.lua",
                  "lib/seclink.lua", "seckey.lua", "radiotest.lua", "gpscheck.lua",
