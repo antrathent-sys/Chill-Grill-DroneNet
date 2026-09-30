@@ -4,7 +4,8 @@ Everything not done, newest review first. The design for each lives in its own
 document; this is the index and the running order, so there is one place to
 look. Below this section is the flight-by-flight history that produced it.
 
-Reviewed 2026-09-28.
+Reviewed 2026-09-28. The direction this list is ordered by, and the delivery
+demo it is aimed at, are in [ROADMAP.md](ROADMAP.md) (2026-09-30).
 
 ## Decided, and what each one now means
 
@@ -96,9 +97,10 @@ How an order moves end to end, and which steps are built, is in
   touch monitor and a depositor at a dock, so somebody with no pocket computer
   can pick a place, call a unit for free and pay once it arrives. `taxipad.lua`
   is the unsealed ancestor and is refused by a known-only base.
-- **The order model.** [ORDERS.md](ORDERS.md) proposes one shape for rides,
-  parcels and loads with one journal behind them. `lib/orders.lua` is unwritten
-  and the decisions above gate it.
+- **The order model.** [ORDERS.md](ORDERS.md): one shape for rides, parcels
+  and loads with one journal behind them. `lib/orders.lua` and `orders.log`
+  are built (2026-09-30) for loads and unloads; rides still run on `J-`
+  numbers and `joblog.csv`, which ROADMAP.md's prune folds in.
 - **Energy against the job.** `lib/mission.lua` plans a trip against the
   battery and a reserve, and nothing calls it. A landed unit is now dispatched
   on a 40% floor and no plan at all. (Range itself is not the worry - 0.2% of a
