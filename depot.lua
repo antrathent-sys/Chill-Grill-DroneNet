@@ -836,6 +836,13 @@ local function dockKit(cfg)
         local okB, blk = pcall(peripheral.call, name, "getBlock")
         local okD, dist = pcall(peripheral.call, name, "getDistance")
         said = string.format("hit %s at %.2f", okB and tostring(blk) or "?", okD and tonumber(dist) or -1)
+        -- Where a hit means a silo, only a silo counts: at CHID 1 an empty
+        -- bay's sensor sees the deployer beyond it (create:deployer at 2.75,
+        -- 2026-09-30). A placed or assembled silo reads as the silo block.
+        if cfg.silo_when == "high" then
+          if not okB then return nil, said end
+          if blk ~= cfg.silo_item then on, said = false, said .. " - not a silo" end
+        end
       else
         said = "no hit"
       end

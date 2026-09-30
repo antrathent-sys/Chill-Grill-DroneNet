@@ -515,6 +515,27 @@ w.periph["create:item_vault_0"] = { type = "create:item_vault", m = { list = fun
 w = w:run("depot.lua", { "seq" }, 5)
 check("depot seq shows each side's own storage and how much is in it", w.err == nil
   and w.text:find("storage A: create:item_vault_0, 64 items", 1, true) ~= nil, w.err or w.text)
+-- CHID 1, 2026-09-30: an empty bay's sensor sees the deployer beyond it
+local function farWall(block)
+  local fw = depot({})
+  fw.files["dock.lua"] = [[return {
+    sides = { A = { place = "redstone_relay_0", pusher = "redstone_relay_2" } },
+    detect = { A = "optical_sensor_0" },
+  }]]
+  fw.periph["optical_sensor_0"] = { type = "optical_sensor", m = {
+    hasHit = function() return true end,
+    getBlock = function() return block end,
+    getDistance = function() return 2.75 end,
+    getRange = function() return 15 end } }
+  return fw
+end
+w = farWall("create:deployer"):run("depot.lua", { "seq" }, 5)
+check("a hit on something that is not a silo is a clear bay", w.err == nil
+  and w.text:find("detector optical_sensor_0: the bay is clear (hit create:deployer at 2.75 - not a silo)", 1, true) ~= nil,
+  w.err or w.text)
+w = farWall("create_connected:item_silo"):run("depot.lua", { "seq" }, 5)
+check("a hit on the silo block is a silo", w.text:find("detector optical_sensor_0: a silo is in the bay (hit create_connected:item_silo", 1, true) ~= nil,
+  w.text)
 w = opticalSeq(false):run("depot.lua", { "seq" }, 5)
 check("no hit, inverted, is a silo in the bay", w.text:find("detector optical_sensor_6: a silo is in the bay (no hit)", 1, true) ~= nil,
   w.text)
