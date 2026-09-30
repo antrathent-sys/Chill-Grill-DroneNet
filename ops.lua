@@ -725,6 +725,35 @@ if cmd == "list" then
   return
 end
 
+-- Listen first, send second. The ack comes back in milliseconds - the drone
+-- answers before it runs anything - so a send followed by a listen misses it
+-- every time, and the poke reported no answer while the drone was happily
+-- carrying out the order (2026-09-20).
+-- Defined above the first command that uses it: `ops fly` and `ops send`
+-- called it from below its definition, which made both crash from
+-- 2026-09-20 until 2026-09-30 (`attempt to call global 'orderAndWait'`).
+local function orderAndWait(id, msg, secs)
+  local got, rx = nil, SEC.receiver()
+  local sent, whySent
+  parallel.waitForAny(function()
+    while not got do
+      local _, _, ch, _, m = os.pullEvent("modem_message")
+      if ch == link.CHANNEL and type(m) == "table" and m.sl then
+        local okO, body = pcall(rx.open, m, function(idd) return fleetKeys[idd] end,
+                                SEC.DIR.DRONE_TO_BASE, 120000)
+        if okO and body and body.type == "job.ack" and body.drone == id then got = body end
+      end
+    end
+  end, function()
+    sleep(0.1)                      -- let the listener be waiting first
+    sent, whySent = order(id, msg)
+    if not sent then return end
+    print("sent on channel " .. link.CHANNEL .. ": " .. tostring(lastSent))
+    sleep(secs or 6)
+  end)
+  return got, sent, whySent
+end
+
 if cmd == "fly" or cmd == "send" or cmd == "land" or cmd == "hold" or cmd == "undock" then
   local who, line2
   if cmd == "fly" then
@@ -766,32 +795,6 @@ if cmd == "fly" or cmd == "send" or cmd == "land" or cmd == "hold" or cmd == "un
     print("  no ack - is beacon running on it, and does its key match (seckey check)?")
   end
   return
-end
-
--- Listen first, send second. The ack comes back in milliseconds - the drone
--- answers before it runs anything - so a send followed by a listen misses it
--- every time, and the poke reported no answer while the drone was happily
--- carrying out the order (2026-09-20).
-local function orderAndWait(id, msg, secs)
-  local got, rx = nil, SEC.receiver()
-  local sent, whySent
-  parallel.waitForAny(function()
-    while not got do
-      local _, _, ch, _, m = os.pullEvent("modem_message")
-      if ch == link.CHANNEL and type(m) == "table" and m.sl then
-        local okO, body = pcall(rx.open, m, function(idd) return fleetKeys[idd] end,
-                                SEC.DIR.DRONE_TO_BASE, 120000)
-        if okO and body and body.type == "job.ack" and body.drone == id then got = body end
-      end
-    end
-  end, function()
-    sleep(0.1)                      -- let the listener be waiting first
-    sent, whySent = order(id, msg)
-    if not sent then return end
-    print("sent on channel " .. link.CHANNEL .. ": " .. tostring(lastSent))
-    sleep(secs or 6)
-  end)
-  return got, sent, whySent
 end
 
 if cmd == "poke" then

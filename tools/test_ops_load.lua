@@ -1126,5 +1126,15 @@ check("then the drone flies on: ferry home", ofl[#ofl] == "ferry home", table.co
 w = base({ args = { "unload", "drone-9", "farm" } }):run()
 check("a depot with no key is refused", has(w, "no key for depot-farm"))
 
+print("ops send and ops fly, one-shot from the shell")
+w = base({ args = { "send", "lambda-001", "pier" } }):run()
+local sentFly = w.orders[#w.orders]
+check("ops send lambda-001 pier: a sealed ferry with the base's record of the dock", w.err == nil
+  and sentFly and sentFly.type == "ops.fly" and sentFly.args == "ferry pier at 1950 70 400", w.err or (sentFly and sentFly.args))
+check("...and says whether the drone took it", has(w, "took it") or has(w, "no ack"), table.concat(w.printed, " | "))
+w = base({ args = { "fly", "drone-1", "ferry", "pier" } }):run()
+check("ops fly drone-1 ferry pier: sent", w.err == nil and w.orders[#w.orders] and w.orders[#w.orders].type == "ops.fly",
+  w.err)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end
