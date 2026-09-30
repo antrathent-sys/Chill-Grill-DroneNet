@@ -49,6 +49,8 @@ concept, always the same word:
 | place | pad, dock, location (to a customer) |
 | stand by | please wait, loading |
 
+*place* and *stand by* are proposed additions; the rest was decided 2026-09-21.
+
 Lines in use: *SERVICE SUSPENDED / STAND BY*, *COMPLIANCE APPRECIATED*.
 Refunds are not a thing (decided 2026-09-28: own risk, no refunds); the
 voice never apologises, it states.
@@ -84,7 +86,7 @@ for anything live, rust for attention, muted green for done. No yellow
 
 Open from the critique: red text on the ground is about 2.3:1, too faint
 to read at a glance. **Proposed:** a brighter ember, around `#d2452e`, for
-red *text* only, keeping `#8e2420` for fills.
+red *text* only (about 4.3:1), keeping `#8e2420` for fills.
 
 ## In the world — proposed
 
@@ -133,5 +135,5 @@ on something that already exists:
 | **Network map** | every place customers can use, on a map wall and a page | the place list, published without customers' private places |
 
 Two cautions. Anything public reads the journal, so it waits for the prune
-in ROADMAP.md. And customer places must stay out of the public repo
-(decided 2026-09-24): a published map shows public places only.
+in ROADMAP.md. And the repo is public, so customers' own places go in it
+only when Alex says so: a published map shows public places only.
