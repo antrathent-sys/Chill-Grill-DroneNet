@@ -421,6 +421,33 @@ local function cargoWrite(lines)
   return true
 end
 
+-- The order book (lib/orders.lua, ORDERS.md): one number, C-0042, from the
+-- order to its last invoice - its flights are C-0042.1, .2 (the load ids every
+-- depot message and cargo.csv row carries), its shipments C-0042-1, -2 (the
+-- invoices). orders.log is the truth: appended, never rewritten.
+local ORDERS_FILE = "orders.log"
+local ORD
+do
+  local okO, o = pcall(dofile, "lib/orders.lua")
+  if okO and type(o) == "table" then ORD = o end
+end
+local function ordersAll()
+  if not (ORD and fs.exists(ORDERS_FILE)) then return {}, {} end
+  local h = fs.open(ORDERS_FILE, "r")
+  local text = h and h.readAll() or ""
+  if h then h.close() end
+  return ORD.replay(text)
+end
+local function ordersAppend(line)
+  if not ORD then return false end
+  local h = fs.open(ORDERS_FILE, "a")
+  if not h then return false end
+  h.writeLine(line)
+  h.close()
+  return true
+end
+local function nowSecs() return os.epoch and math.floor(os.epoch("utc") / 1000) or os.time() end
+
 -- A load that is on the drone: one loaded row per item per silo, with where
 -- each silo is going from the load's liftoff (`deliver A and B`, read with
 -- lib/deliver the way the drone will). manifest is { [side] = items }, or
@@ -833,11 +860,22 @@ if cmd == "load" then
         break
       end
     end
+    -- every load has an order number, one of our own when no customer asked:
+    -- C-0043, flown as C-0043.1
+    local loadId = "-"
+    if ORD then
+      local byId = ordersAll()
+      local oid = ORD.nextId(byId)
+      if ordersAppend(ORD.accepted(nowSecs(), oid, { kind = "load", who = "ops", items = nums[1] })) then
+        loadId = ORD.loadId(oid, 1)
+      end
+    end
     local h = fs.open(LOAD_QUEUE, "a")
     if not h then print("cannot write " .. LOAD_QUEUE) return end
-    h.writeLine(table.concat({ who:lower(), depot, tostring(nums[1] or "-"), tostring(nums[2] or "-"), liftoff or "" }, " "))
+    h.writeLine(table.concat({ who:lower(), depot, tostring(nums[1] or "-"), tostring(nums[2] or "-"), loadId,
+                               liftoff or "" }, " "))
     h.close()
-    print(string.format("queued: %s to %s, %s, then %s", who, dockOf(depot),
+    print(string.format("queued %s: %s to %s, %s, then %s", loadId, who, dockOf(depot),
       nums[1] and (nums[1] .. " items") or "what is in its intake", liftoff and ("fly " .. liftoff) or "it stays loaded"))
     print("the board (ops) sends it - it has to be running")
     return
@@ -1090,6 +1128,140 @@ if cmd == "cargo" then
       print(string.format("         -> %s: %s", s.dest ~= "" and s.dest or "no destination", fate))
     end
   end
+  return
+end
+
+if cmd == "orders" or cmd == "order" then
+  if not ORD then print("lib/orders.lua is missing - run startup") return end
+  local sub = cmd == "orders" and "list" or (args[2] or "list"):lower()
+  local byId, list = ordersAll()
+  local function find(id)
+    id = tostring(id or ""):upper()
+    if tonumber(id) then id = ORD.format(tonumber(id)) end
+    local o = byId[id]
+    if not o then print("no order " .. id .. " - ops orders lists them") end
+    return o
+  end
+  local function money(n) return (LEDGER and LEDGER.money and LEDGER.money(n)) or tostring(n) end
+  if sub == "add" then
+    -- ops order add <who> <amount> <item> [<amount> <item> ...] to <x> <y> <z> for <price>
+    local who = args[3]
+    local lines, i = {}, 4
+    local okC, CAT = pcall(dofile, "lib/catalogue.lua")
+    local entries = okC and type(CAT) == "table" and CAT.load("catalogue.lua", fs) or nil
+    while args[i] and args[i]:lower() ~= "to" do
+      local amount, word = tonumber(args[i]), args[i + 1]
+      if not (amount and word) then print("ops order add <who> <amount> <item> [...] to <x> <y> <z> for <price>") return end
+      local item, stack
+      if entries then
+        local e, near = CAT.find(entries, word)
+        if not e then
+          local alts = {}
+          for _, n in ipairs(near or {}) do alts[#alts + 1] = n.name end
+          print("not in the catalogue: " .. word .. (#alts > 0 and (" - did you mean " .. table.concat(alts, ", ") .. "?") or ""))
+          return
+        end
+        item, stack = e.name, e.stack
+      elseif word:find(":", 1, true) then
+        item, stack = word:lower(), 64
+        print("no catalogue here (ops catalogue read): taking " .. item .. " as it is, stacking to 64")
+      else
+        print("no catalogue here to look " .. word .. " up in: ops catalogue read, or give the full id (minecraft:cobblestone)")
+        return
+      end
+      lines[#lines + 1] = { item = item, amount = math.floor(amount), stack = stack }
+      i = i + 2
+    end
+    local x, y, z = tonumber(args[i + 1]), tonumber(args[i + 2]), tonumber(args[i + 3])
+    local price = (args[i + 4] or ""):lower() == "for" and tonumber(args[i + 5]) or nil
+    local e = { kind = "parcel", who = who, to = x and { x = x, y = y, z = z } or nil, lines = lines, price = price }
+    local ok, why = ORD.check(e)
+    if not ok then print("no: " .. tostring(why)) return end
+    local id = ORD.nextId(byId)
+    if not ordersAppend(ORD.accepted(nowSecs(), id, e)) then print("could not write " .. ORDERS_FILE) return end
+    local o = ORD.replay(ORD.accepted(0, id, e))[id]
+    local _, total = ORD.plan(o)
+    print(string.format("%s for %s: %s to %d %d %d, %s", id, who, ORD.what(o), x, y, z, money(price)))
+    print(string.format("  %d shipment%s on %d flight%s. Fly them: ops order run %s <depot>", total, total == 1 and "" or "s",
+      math.ceil(total / ORD.PER_FLIGHT), math.ceil(total / ORD.PER_FLIGHT) == 1 and "" or "s", id))
+    return
+  elseif sub == "paid" then
+    local o = find(args[3])
+    if not o then return end
+    local amount = (args[4] or ""):lower() == "all" and math.max(0, o.price - o.paid) or tonumber(args[4])
+    if not amount then print("ops order paid <id> <amount|all> [note]") return end
+    local note = args[5] and table.concat({ (table.unpack or unpack)(args, 5) }, " ") or nil
+    ordersAppend(ORD.paidLine(nowSecs(), o.id, amount, note))
+    print(string.format("%s: %s received, %s", o.id, money(amount),
+      o.paid + amount >= o.price and "paid in full" or ("still owes " .. money(o.price - o.paid - amount))))
+    return
+  elseif sub == "cancel" then
+    local o = find(args[3])
+    if not o then return end
+    if not ORD.isOpen(o) then print(o.id .. " is already " .. o.state) return end
+    local why = args[4] and table.concat({ (table.unpack or unpack)(args, 4) }, " ") or "cancelled"
+    ordersAppend(ORD.cancelledLine(nowSecs(), o.id, why))
+    print(o.id .. " cancelled: " .. why)
+    return
+  elseif sub == "run" then
+    -- the order's next flight, as a load at a depot: the board sends a drone
+    -- to its dock, the depot loads and prints the invoices, the drone delivers
+    local o = find(args[3])
+    local depot = args[4]
+    if not (o and depot) then if o then print("ops order run <id> <depot> [drone|any]") end return end
+    if not isDepot(depot) then depot = "depot-" .. depot end
+    if not fleetKeys[depot] then print("no key for " .. depot .. ": seckey new " .. depot .. " here") return end
+    local fl, why = ORD.nextFlight(o)
+    if not fl then print(o.id .. ": " .. tostring(why)) return end
+    local liftoff = string.format("deliver %d %d %d", o.to.x, o.to.y, o.to.z)
+    local h = fs.open(LOAD_QUEUE, "a")
+    if not h then print("cannot write " .. LOAD_QUEUE) return end
+    h.writeLine(table.concat({ (args[5] or "any"):lower(), depot, tostring(fl.items), tostring(fl.stack or 64), fl.load,
+                               liftoff }, " "))
+    h.close()
+    print(string.format("queued %s: shipment%s %s of %d, %s, at %s, then fly %s", fl.load, fl.count == 1 and "" or "s",
+      fl.count == 1 and tostring(fl.first) or (fl.first .. "-" .. (fl.first + fl.count - 1)), fl.total,
+      ORD.what({ lines = (function() local t = {} for _, it in ipairs(fl.silos[1]) do t[#t + 1] = it end return t end)(),
+                 items = fl.items }), dockOf(depot), liftoff))
+    print("the board (ops) runs it - it has to be running")
+    return
+  elseif sub ~= "list" then
+    -- one order, everything that happened to it
+    local o = find(args[2])
+    if not o then return end
+    print(ORD.summary(o))
+    if o.to then print(string.format("  to %d %d %d", o.to.x, o.to.y, o.to.z)) end
+    for _, l in ipairs(o.lines) do
+      print(string.format("  %-30s %8s ordered, %8s counted", l.item, ORD.what({ lines = {} }) and tostring(l.amount),
+        tostring(ORD.counted(o)[l.item] or 0)))
+    end
+    print(string.format("  price %s, paid %s", money(o.price), money(o.paid)))
+    local nums = {}
+    for n in pairs(o.shipped) do nums[#nums + 1] = n end
+    table.sort(nums)
+    for _, n in ipairs(nums) do
+      local c = 0
+      for _, v in pairs(o.shipped[n]) do c = c + v end
+      local d = o.dropped[n]
+      print(string.format("  %s-%d  %6d items  %s", o.id, n, c, d == true and "delivered" or (d == false and "STILL HELD" or "on board")))
+    end
+    for _, e in ipairs(o.events) do
+      local okD, stamp = pcall(os.date, "%m-%d %H:%M", e.when)
+      local extra = {}
+      for k, v in pairs(e.kv) do if k ~= "lines" then extra[#extra + 1] = k .. "=" .. v end end
+      table.sort(extra)
+      print(string.format("  %s  %-9s %s %s", okD and stamp or tostring(e.when), e.event,
+        e.leg ~= "" and (o.id .. "." .. e.leg) or "", table.concat(extra, " "):sub(1, 60)))
+    end
+    return
+  end
+  -- the book: every open order, and how many have finished
+  local open, closed = 0, 0
+  for _, o in ipairs(list) do
+    if ORD.isOpen(o) then open = open + 1 print(ORD.summary(o)) else closed = closed + 1 end
+  end
+  if open == 0 then print("no open orders") end
+  print(string.format("%d open, %d finished.  ops order add | run | paid | cancel | <id>", open, closed))
   return
 end
 
@@ -1461,6 +1633,9 @@ end
 
 local function endLoad(L, state, why)
   if L.drone and fleet[L.drone] and fleet[L.drone].job == L.id then fleet[L.drone].job = nil end
+  if L.order and state == "failed" and not L.counted then
+    ordersAppend(ORD.failedLine(nowSecs(), L.order, L.flight, why))
+  end
   loads[L.depot] = nil
   log("load %s at %s %s%s", L.id, L.dock, state, why and (": " .. why) or "")
 end
@@ -1493,6 +1668,21 @@ local function depotReport(msg)
         end
       end
       recordLoad(L.id, L.drone, F.list(msg.sides), F.list(msg.stickers), manifest, L.liftoff)
+      -- what each silo held is the order's shipment: the k-th side loaded is
+      -- shipment first + k - 1. Counted together ("both") it all goes to the first.
+      if L.order and manifest then
+        local counted, at = {}, {}
+        local sides = F.list(msg.sides)
+        if manifest.both then
+          counted[L.first], at.both = manifest.both, L.first
+        else
+          for k, side in ipairs(sides) do
+            if manifest[side] then counted[L.first + k - 1], at[side] = manifest[side], L.first + k - 1 end
+          end
+        end
+        ordersAppend(ORD.loadedLine(nowSecs(), L.order, L.flight, counted, msg.counted, at))
+        L.counted = true
+      end
     end
     if msg.ok then
       if L.liftoff then
@@ -1529,16 +1719,39 @@ local function takeQueue()
   if h then h.close() end
   fs.delete(taking)
   for line in text:gmatch("[^\n]+") do
-    local who, depot, items, stack, liftoff = line:match("^(%S+) (%S+) (%S+) (%S+) ?(.*)$")
+    local who, depot, items, stack, loadId, liftoff = line:match("^(%S+) (%S+) (%S+) (%S+) (%S+) ?(.*)$")
     if who and isDepot(depot) then
       if loads[depot] then
         log("%s is busy with load %s - not queued", depot, loads[depot].id)
       else
-        local id = "L" .. tostring(os.epoch and math.floor(os.epoch("utc") / 1000) or os.time())
-        loads[depot] = { id = id, depot = depot, dock = dockOf(depot), who = who, items = tonumber(items),
-                         stack = tonumber(stack), liftoff = liftoff ~= "" and liftoff or nil,
-                         state = "queued", at = os.clock() }
-        log("load %s queued at %s for %s", id, dockOf(depot), who)
+        local L = { depot = depot, dock = dockOf(depot), who = who, items = tonumber(items), stack = tonumber(stack),
+                    liftoff = liftoff ~= "" and liftoff or nil, state = "queued", at = os.clock() }
+        -- an order's flight: its number, which shipments, and what the depot
+        -- prints on each silo's invoice
+        local oid, f
+        if ORD then oid, f = ORD.parseLoad(loadId) end
+        if oid then
+          local o = ordersAll()[oid]
+          local fl = o and o.kind == "parcel" and ORD.nextFlight(o) or nil
+          if o and o.kind == "parcel" and not (fl and fl.load == loadId) then
+            log("%s is not %s's next flight - not queued", loadId, oid)
+            L = nil
+          elseif not o then
+            L.id = loadId                -- its number stands, with no record to add to
+            log("%s: no %s in %s - loading it without an order record", loadId, oid, ORDERS_FILE)
+          else
+            L.id, L.order, L.flight = loadId, oid, f
+            L.first, L.count = fl and fl.first or 1, fl and fl.count or 1
+            local okD, date = pcall(os.date, "!%Y-%m-%d")
+            if fl then L.invoice = ORD.invoiceFields(o, fl, okD and date or nil) end
+            ordersAppend(ORD.flightLine(nowSecs(), oid, f, { depot = depot, first = L.first, count = L.count }))
+          end
+        end
+        if L then
+          L.id = L.id or ("L" .. tostring(nowSecs()))
+          loads[depot] = L
+          log("load %s queued at %s for %s", L.id, dockOf(depot), who)
+        end
       end
     end
   end
@@ -1579,7 +1792,7 @@ local function depotLoop()
         if droneAt(L.drone, L.dock) and d and d.seen and now - d.seen < 15 then
           -- where it goes, for the depot's screens: the liftoff's last word
           local dest = type(L.liftoff) == "string" and L.liftoff:match("(%S+)%s*$") or nil
-          local sent = order(depot, F.loadStart(L.id, L.drone, L.items, L.stack, nonce(), dest))
+          local sent = order(depot, F.loadStart(L.id, L.drone, L.items, L.stack, nonce(), dest, L.invoice))
           if sent then
             L.state, L.at = "loading", now
             log("%s docked at %s: loading", L.drone, L.dock)
@@ -1971,6 +2184,21 @@ function handle(from, msg, customer, sealedBy)
         end
         log("%s %s %s at %s", msg.drone, msg.ok and "dropped" or "STILL HOLDS",
           load and (tostring(silo) .. " silo of " .. load) or msg.sticker, coords(msg.x, msg.y, msg.z))
+        local oid, f
+        if ORD then oid, f = ORD.parseLoad(load) end
+        if oid then
+          local o = ordersAll()[oid]
+          local n = ORD.shipmentAt(o, f, silo) or ORD.shipmentAt(o, f, "both")
+          if n then
+            ordersAppend(ORD.droppedLine(nowSecs(), oid, f, n, msg.ok, msg.x, msg.y, msg.z))
+            log("%s-%d %s", oid, n, msg.ok and "delivered" or "still held")
+            local after = ordersAll()[oid]
+            if after and ORD.isOpen(after) and ORD.complete(after) then
+              ordersAppend(ORD.doneLine(nowSecs(), oid))
+              log("%s complete: every shipment delivered", oid)
+            end
+          end
+        end
       elseif msg.type == "unit.distress" then
         local f = fleet[msg.drone] or {}
         fleet[msg.drone] = f

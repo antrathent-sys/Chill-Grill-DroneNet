@@ -16,7 +16,8 @@
 --   accepted    kind, who, to (x y z), lines (item amount stack|...), price
 --   paid        amount, note
 --   flight      leg = the flight: load, depot, drone, first (shipment), count
---   loaded      leg = the flight: s<n> = what was counted into shipment n
+--   loaded      leg = the flight: s<n> = what was counted into shipment n,
+--               at_<side> = which shipment that side's silo was
 --   dropped     leg = the flight: shipment, ok, x, y, z
 --   failed      leg = the flight: why (the order stays open for another)
 --   done        every shipment counted and dropped
@@ -146,10 +147,11 @@ function O.flightLine(when, id, f, t)
   return O.encode(when, id, f, "flight", { load = O.loadId(id, f), depot = t.depot, drone = t.drone, first = t.first,
                                           count = t.count })
 end
---- counted: { [shipment number] = { item = count } }
-function O.loadedLine(when, id, f, counted, how)
+--- counted: { [shipment number] = { item = count } }; sides: { [side] = shipment }
+function O.loadedLine(when, id, f, counted, how, sides)
   local kv = { how = how }
   for n, m in pairs(counted or {}) do kv["s" .. n] = packCount(m) end
+  for side, n in pairs(sides or {}) do kv["at_" .. side] = n end
   return O.encode(when, id, f, "loaded", kv)
 end
 function O.droppedLine(when, id, f, shipment, ok, x, y, z)
@@ -201,7 +203,7 @@ local function apply(o, e)
     o.pays[#o.pays + 1] = { amount = a, note = kv.note, when = e.when }
   elseif e.event == "flight" and f then
     o.flights[f] = { flight = f, load = kv.load, depot = kv.depot, drone = kv.drone, first = tonumber(kv.first) or 1,
-                     count = tonumber(kv.count) or 1, state = "flying", at = e.when }
+                     count = tonumber(kv.count) or 1, state = "flying", at = e.when, sides = {} }
     o.lastFlight = math.max(o.lastFlight, f)
     if o.state == "accepted" then o.state = "active" end
   elseif e.event == "loaded" and f then
@@ -210,6 +212,8 @@ local function apply(o, e)
     for k, v in pairs(kv) do
       local n = tonumber(k:match("^s(%d+)$") or "")
       if n then o.shipped[n] = unpackCount(v) end
+      local side = k:match("^at_(.+)$")
+      if side and fl then fl.sides[side] = tonumber(v) end
     end
   elseif e.event == "dropped" and f then
     local n = tonumber(kv.shipment)
@@ -329,6 +333,12 @@ end
 
 --- Which shipment a flight's silo is: the k-th silo loaded is shipment first + k - 1.
 function O.shipmentOf(fl, k) return fl.first + k - 1 end
+
+--- The shipment a load's silo on `side` was, once it has been counted.
+function O.shipmentAt(o, f, side)
+  local fl = o and o.flights[f]
+  return fl and fl.sides and fl.sides[side] or nil
+end
 
 --- Every planned shipment counted, none still to go, and every one counted
 -- has been let go of (or reported still held - then it is not done).

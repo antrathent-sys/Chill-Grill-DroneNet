@@ -210,6 +210,11 @@ function F.check(m)
     if not (str(m.load) and str(m.drone)) then return false, "no load or drone" end
     if m.items ~= nil and not num(m.items) then return false, "bad item count" end
     if m.dest ~= nil and not (str(m.dest) and #m.dest <= 24) then return false, "bad destination" end
+    for k, v in pairs(m) do
+      if type(k) == "string" and k:match("^inv_") then
+        if not ((type(v) == "string" and #v <= 40) or num(v)) then return false, "bad invoice field " .. k end
+      end
+    end
   elseif m.type == "load.step" then
     if not (str(m.load) and str(m.depot) and str(m.step)) then return false, "no load, depot or step" end
   elseif m.type == "load.lifted" then
@@ -376,11 +381,17 @@ function F.depotHello(depot, load, step, nonce)
   return { v = F.VERSION, type = "depot.hello", nonce = nonce, depot = depot, load = load, step = step }
 end
 
--- dest: where the load is going, for the depot's screens (optional)
-function F.loadStart(load, drone, items, stack, nonce, dest)
-  return { v = F.VERSION, type = "load.start", nonce = nonce, load = load, drone = drone,
-           items = num(items) and math.floor(items) or nil, stack = num(stack) and math.floor(stack) or nil,
-           dest = str(dest) and dest:sub(1, 24) or nil }
+-- dest: where the load is going, for the depot's screens (optional).
+-- invoice: an order's inv_* fields (lib/orders.lua O.invoiceFields), so the
+-- depot can print each silo's invoice from its own count (optional)
+function F.loadStart(load, drone, items, stack, nonce, dest, invoice)
+  local m = { v = F.VERSION, type = "load.start", nonce = nonce, load = load, drone = drone,
+              items = num(items) and math.floor(items) or nil, stack = num(stack) and math.floor(stack) or nil,
+              dest = str(dest) and dest:sub(1, 24) or nil }
+  for k, v in pairs(invoice or {}) do
+    if type(k) == "string" and k:match("^inv_") then m[k] = v end
+  end
+  return m
 end
 
 function F.loadStep(load, depot, step, text, nonce)

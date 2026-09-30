@@ -757,8 +757,11 @@ check("ops known closes it again", w.files[".hailsopen"] == nil and not has(w, "
 
 print("a load at a depot, run by the board")
 w = base({ args = { "load", "send", "drone-1", "pier", "640", "deliver", "market" } }):run()
-check("ops load send queues it for the board", w.err == nil and (w.files["loads.queue"] or ""):find(
-  "drone-1 depot-pier 640 - deliver market", 1, true) and has(w, "the board (ops) sends it"), w.err or w.files["loads.queue"])
+check("ops load send queues it for the board, with an order number", w.err == nil and (w.files["loads.queue"] or ""):find(
+  "drone-1 depot-pier 640 - C-0001.1 deliver market", 1, true) and has(w, "the board (ops) sends it"), w.err or w.files["loads.queue"])
+check("...and the order is in orders.log, ours: kind load, for ops", (w.files["orders.log"] or ""):find(",C-0001,,accepted,", 1, true)
+  and (w.files["orders.log"] or ""):find("kind=load", 1, true) and (w.files["orders.log"] or ""):find("who=ops", 1, true),
+  w.files["orders.log"])
 local queued = w.files["loads.queue"]
 w = base({ args = { "load", "send", "drone-1", "farm" } }):run()
 check("a depot with no key is refused", has(w, "no key for depot-farm"))
@@ -782,7 +785,7 @@ check("at the end the load is in cargo.csv, going where the liftoff says", csv2:
   "left,Create_Sticker_0,minecraft:cobblestone,640,market,loaded", 1, true), csv2)
 check("and the drone is sent on", o[#o] == "ops.fly:deliver market", table.concat(o, " "))
 check("the queue file is used up", w.files["loads.queue"] == nil)
-w = base({ args = {}, depot = { interrupted = "L1700000000" }, files = { ["loads.queue"] = queued }, keysAt = { { 40, "q" } } }):run()
+w = base({ args = {}, depot = { interrupted = "C-0001.1" }, files = { ["loads.queue"] = queued }, keysAt = { { 40, "q" } } }):run()
 starts = {}
 for _, b in ipairs(w.depotHeard) do if b.type == "load.start" then starts[#starts + 1] = b end end
 local sticks2 = 0
@@ -1013,6 +1016,52 @@ check("a drone that cannot stop in the air: no stop sent, the trip ends at its s
   kinds(w) == "ops.fly:ferry pier at 1950 70 400" and s7:find("cannot stop in the air", 1, true) ~= nil
   and s7:find("cancelled - down at pier", 1, true) ~= nil, kinds(w) .. " | " .. s7)
 check("...and a new trip for it in the air is refused", s7:find("is on T-1 - cancel it first", 1, true) ~= nil, s7)
+
+print("the order book: C-0042 from the order to the drop")
+local CATALOGUE = 'return {\n  { name = "minecraft:cobblestone", label = "Cobblestone", stack = 64 },\n}\n'
+w = base({ args = { "order", "add", "steve", "10000", "cobblestone", "to", "1200", "70", "340", "for", "1500" },
+           files = { ["catalogue.lua"] = CATALOGUE } }):run()
+local olog = w.files["orders.log"] or ""
+check("ops order add: C-0001 for steve, three shipments on two flights", w.err == nil and has(w, "C-0001 for steve")
+  and has(w, "3 shipments on 2 flights") and olog:find(",C-0001,,accepted,", 1, true), w.err or w.text)
+check("the item is the catalogue's id, with its stack", olog:find("minecraft:cobblestone 10000 64", 1, true) ~= nil, olog)
+w = base({ args = { "order", "add", "steve", "10", "cobbel", "to", "1", "2", "3", "for", "5" }, files = { ["catalogue.lua"] = CATALOGUE } }):run()
+check("a name not in the catalogue is refused", has(w, "not in the catalogue: cobbel") and w.files["orders.log"] == nil, w.text)
+w = base({ args = { "order", "add", "steve", "10", "cobblestone", "to", "1", "2", "3" }, files = { ["catalogue.lua"] = CATALOGUE } }):run()
+check("no price: refused", has(w, "no: for how much?") and w.files["orders.log"] == nil, w.text)
+w = base({ args = { "orders" }, files = { ["orders.log"] = olog } }):run()
+check("ops orders lists it: open, 0 of 3 shipped, owing", has(w, "C-0001") and has(w, "0/3 shipped") and has(w, "OWES"), w.text)
+w = base({ args = { "order", "paid", "C-0001", "all", "at", "the", "bank" }, files = { ["orders.log"] = olog } }):run()
+check("ops order paid all: in full", has(w, "paid in full") and (w.files["orders.log"] or ""):find(",paid,", 1, true), w.text)
+w = base({ args = { "order", "run", "1", "pier" }, files = { ["orders.log"] = olog } }):run()
+local oq = w.files["loads.queue"] or ""
+check("ops order run: its first flight C-0001.1 queued at the pier, delivering to its coordinates",
+  oq:find("any depot-pier 7552 64 C-0001.1 deliver 1200 70 340", 1, true) and has(w, "shipments 1-2 of 3"), oq .. w.text)
+w = base({ args = {}, depot = {}, files = { ["loads.queue"] = oq, ["orders.log"] = olog }, keysAt = { { 60, "q" } } }):run()
+local st1
+for _, b in ipairs(w.depotHeard) do if b.type == "load.start" then st1 = b end end
+check("the board loads it as C-0001.1, and the depot is given what to print on each invoice", w.err == nil and st1
+  and st1.load == "C-0001.1" and st1.inv_order == "C-0001" and st1.inv_first == 1 and st1.inv_last == 3
+  and st1.inv_who == "steve" and st1.inv_item == "minecraft:cobblestone" and st1.inv_x == 1200, w.err or (st1 and st1.load))
+local olog2 = w.files["orders.log"] or ""
+check("orders.log: the flight, then what the depot counted as shipment 1 on the left", olog2:find(",C-0001,1,flight,", 1, true)
+  and olog2:find(",C-0001,1,loaded,", 1, true) and olog2:find("s1=minecraft:cobblestone 640", 1, true)
+  and olog2:find("at_left=1", 1, true), olog2)
+check("cargo.csv carries the same load id", (w.files["cargo.csv"] or ""):find("C-0001.1", 1, true) ~= nil)
+w = base({ args = {}, files = { ["cargo.csv"] = w.files["cargo.csv"], ["orders.log"] = olog2 }, keysAt = { { 12, "q" } },
+           later = { { 5, F.dropped("drone-1", "Create_Sticker_0", true, 1200, 70, 340, "d-ord") } } }):run()
+local olog3 = w.files["orders.log"] or ""
+check("the drop is shipment C-0001-1 delivered", olog3:find(",C-0001,1,dropped,", 1, true) and olog3:find("shipment=1", 1, true)
+  and olog3:find("ok=1", 1, true), olog3)
+w = base({ args = { "order", "C-0001" }, files = { ["orders.log"] = olog3 } }):run()
+check("ops order C-0001: the shipment delivered, and every event", has(w, "C-0001-1") and has(w, "delivered")
+  and has(w, "accepted") and has(w, "loaded") and has(w, "dropped"), w.text)
+w = base({ args = { "order", "run", "C-0001", "pier" }, files = { ["orders.log"] = olog3 } }):run()
+check("the next flight is C-0001.2, planned from what was counted", (w.files["loads.queue"] or ""):find(
+  "C-0001.2", 1, true) and (w.files["loads.queue"] or ""):find("any depot-pier 7552", 1, true), w.files["loads.queue"])
+w = base({ args = { "order", "cancel", "C-0001", "changed", "their", "mind" }, files = { ["orders.log"] = olog3 } }):run()
+check("ops order cancel", has(w, "C-0001 cancelled: changed their mind")
+  and (w.files["orders.log"] or ""):find(",cancelled,", 1, true))
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end
