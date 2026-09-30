@@ -1,10 +1,10 @@
 --- depotscreens: a depot's two monitors (Alex, 2026-09-30).
 --
---   HERO   3x3 blocks, text scale 0.5 (57x38)   the loader, side on: the
---          drone above, bays A and B under it, each with its feed, belt,
---          storage and pusher - and what is moving right now, animated:
---          items along a belt into or out of a silo, a silo placed, assembled,
---          pushed up to the drone, stuck, let go, lowered
+--   HERO   3x3 blocks, text scale 0.5 (57x38)   the loader as built, face
+--          on: the unit docked on top, the glass collar, a pillar each side,
+--          the legs. Nothing moves: each silo is drawn where it is, and the
+--          part at work flashes - placer window, belt, pusher, silo, the join
+--          to the unit - with a lamp per side and one on the connector
 --   ORDER  2x3 blocks portrait, text scale 0.5 (36x38)   the order in hand:
 --          load or unload, which side, how many of what, where it is going,
 --          which unit, every step ticked off as it happens, and today's counts
@@ -17,7 +17,7 @@
 --
 -- Pure drawing onto a lib/display.lua canvas - no peripherals, no network -
 -- so tools/test_depotscreens.lua renders every state on the desktop and
--- tools/preview_depot.py turns them into pictures and an animation.
+-- tools/preview_depot.py turns them into pictures.
 --
 --   local DV = dofile("lib/depotscreens.lua")
 --   DV.applyPalette(mon)
@@ -276,18 +276,19 @@ end
 -- ------------------------------------------------------------ the pictogram
 -- The loader as built (Alex's screenshot, 2026-09-30), face on, in a 114 x 84
 -- design box scaled to whatever area it is given: the unit (the rocket) docked
--- on top; the glass collar under it, with the connector column and its lamp,
--- that the silos are pushed up into; the loader body - an outer pillar each
--- side with its lamp, a copper machine window, the bay, the centre spine -
--- and the legs. Side A is on the left, B on the right.
+-- on top, the glass collar the silos are pushed up into, the body with a
+-- pillar each side, and the legs. Side A is on the left, B on the right.
+--
+-- Nothing moves (Alex: "just flashing of different components"). A silo is
+-- drawn where it is - in its bay, or up against the unit - and the part at
+-- work flashes: the placer window, the belt, the pusher, the silo, the join
+-- to the unit. The lamps say the rest.
 
 local BOX_W, BOX_H = 114, 84
 local BAY = { A = 45, B = 69 }        -- silo centre x
 local SILO_W, SILO_H = 10, 14
-local REST_TOP = 45                   -- a silo standing in its bay, in the body
-local UP_TOP = 28                     -- ...and pushed up into the collar, against the unit
-local COLLAR = { 37, 27, 77, 42 }
-local BODY_TOP, BODY_BOT = 43, 69
+local REST_TOP = 46                   -- a silo in its bay
+local UP_TOP = 27                     -- ...and pushed up against the unit
 
 local function painter(c, x0, y0, w, h)
   local s = min(w / BOX_W, h / BOX_H)
@@ -308,19 +309,8 @@ local function painter(c, x0, y0, w, h)
     c:line(X0, Y0, X0, Y1, col, on, per)
     c:line(X1, Y0, X1, Y1, col, on, per)
   end
-  function P.line(xa, ya, xb, yb, col, on, per, phase)
-    c:line(P.x(xa), P.y(ya), P.x(xb), P.y(yb), col, on, per, phase)
-  end
   return P
 end
-
--- 0..1 through a step that takes about `secs`, held at 1 after
-local function progress(job, now, secs)
-  if not job or not job.stepAt then return 1 end
-  return max(0, min(1, (now - job.stepAt) / secs))
-end
-
-local function ease(t) return t * t * (3 - 2 * t) end
 
 local function isActive(st, side)
   local job = st.job
@@ -331,75 +321,66 @@ end
 M.FAULT_SHOW = 120
 local function faulted(sd, now) return sd.fault and now - (sd.faultAt or now) <= M.FAULT_SHOW end
 
--- the unit on top: "docked", "inbound" (its outline, blinking) or nil (its
+-- a flashing part: `on` colour half the time, `off` the rest
+local function flash(now, on, off) return blink(now, 2) and on or off end
+
+-- the unit on top: "docked", "inbound" (its outline, flashing) or nil (its
 -- place, dotted)
 local function drawRocket(P, how, now)
   if not how then
-    P.box(45, 4, 69, 25, K.grey, true)
+    P.box(46, 5, 68, 24, K.grey, true)
+    P.box(50, 1, 64, 4, K.grey, true)
     return
   end
-  local solid = how == "docked"
-  if not solid and not blink(now, 2) then return end
-  local col = solid and K.ice or K.amber
-  if solid then
-    P.fill(45, 5, 69, 24, K.dark)
-    for _, x in ipairs({ 48, 51, 54, 60, 63, 66 }) do P.line(x, 7, x, 22, K.grey, 2, 3) end
-    P.fill(49, 0, 65, 4, K.steel)
-    for i = 0, 3 do P.line(50 + i * 4, 4, 53 + i * 4, 0, K.dark) end
-    P.line(57, 1, 57, 24, K.amber)
-    P.fill(39, 21, 44, 25, K.steel)
-    P.fill(70, 21, 75, 25, K.steel)
-    P.fill(44, 25, 70, 26, K.silver)
-  end
-  P.box(45, 4, 69, 25, col)
-  P.box(49, 0, 65, 4, col)
-  if not solid then
-    P.box(39, 21, 44, 25, col)
-    P.box(70, 21, 75, 25, col)
+  if how == "docked" then
+    P.fill(50, 1, 64, 4, K.iceDim)
+    P.fill(46, 5, 68, 24, K.iceDim)
+    P.fill(40, 19, 45, 24, K.steel)
+    P.fill(69, 19, 74, 24, K.steel)
+    P.box(46, 5, 68, 24, K.ice)
+    P.box(50, 1, 64, 4, K.ice)
+  elseif blink(now, 2) then
+    P.box(46, 5, 68, 24, K.amber)
+    P.box(50, 1, 64, 4, K.amber)
+    P.box(40, 19, 45, 24, K.amber)
+    P.box(69, 19, 74, 24, K.amber)
   end
 end
 
--- the glass collar the silos rise into, and the connector column's lamp:
--- red with nothing latched, amber while one is awaited, green when latched
+-- the glass collar and the connector column's lamp: red with nothing
+-- latched, flashing amber while one is awaited, green when latched
 local function drawCollar(P, st, how, now)
-  P.box(COLLAR[1], COLLAR[2], COLLAR[3], COLLAR[4], K.iceDim)
-  P.line(47, COLLAR[2], 47, COLLAR[4], K.iceDim, 1, 2)
-  P.line(67, COLLAR[2], 67, COLLAR[4], K.iceDim, 1, 2)
-  P.fill(55, COLLAR[2], 59, BODY_TOP, K.silver)
+  P.box(38, 26, 76, 42, K.iceDim)
+  P.fill(55, 26, 59, 42, K.grey)
   local lamp = K.red
-  if st.job and st.job.step == "dock" then lamp = blink(now, 3) and K.amber or K.amberDim
+  if st.job and st.job.step == "dock" then lamp = flash(now, K.amber, K.amberDim)
   elseif how == "docked" then lamp = K.green
-  elseif how == "inbound" then lamp = blink(now, 2) and K.amber or K.amberDim end
-  P.fill(56, 33, 58, 36, lamp)
+  elseif how == "inbound" then lamp = K.amber end
+  P.fill(56, 32, 58, 35, lamp)
 end
 
--- the loader's body and legs; each pillar's lamp shows its side
+-- the body and legs; each pillar's lamp shows its side
 local function drawBody(P, st, now)
-  P.fill(20, BODY_TOP, 94, BODY_TOP + 1, K.steel)
+  P.fill(20, 43, 94, 44, K.steel)
+  P.fill(55, 45, 59, 65, K.dark)
+  P.fill(20, 66, 94, 68, K.dark)
+  P.fill(23, 69, 31, 74, K.steel)
+  P.fill(83, 69, 91, 74, K.steel)
+  P.fill(26, 75, 28, 81, K.grey)
+  P.fill(86, 75, 88, 81, K.grey)
+  P.fill(51, 69, 52, 81, K.grey)
+  P.fill(62, 69, 63, 81, K.grey)
   for _, side in ipairs(M.SIDES) do
     local x0 = side == "A" and 20 or 87
     local sd = st.sides[side] or {}
-    P.fill(x0, 45, x0 + 7, 70, K.dark)
-    P.box(x0, 45, x0 + 7, 70, K.steel)
+    P.fill(x0, 45, x0 + 7, 68, K.dark)
+    P.box(x0, 45, x0 + 7, 68, K.steel)
     local lamp = K.grey
-    if faulted(sd, now) then lamp = blink(now, 2) and K.red or K.redDim
-    elseif isActive(st, side) then lamp = blink(now, 1.5) and K.amber or K.amberDim
+    if faulted(sd, now) then lamp = flash(now, K.red, K.redDim)
+    elseif isActive(st, side) then lamp = K.amber
     elseif sd.silo == "full" then lamp = K.green end
-    P.fill(x0 + 2, 62, x0 + 5, 66, lamp)
+    P.fill(x0 + 2, 57, x0 + 5, 61, lamp)
   end
-  -- the centre spine, the band along the foot, the legs
-  P.fill(55, BODY_TOP + 2, 59, 70, K.dark)
-  P.box(55, BODY_TOP + 2, 59, 70, K.steel)
-  P.fill(20, 67, 94, BODY_BOT, K.dark)
-  P.line(20, 67, 94, 67, K.steel)
-  for _, x in ipairs({ 31, 40, 74, 83 }) do P.fill(x, 68, x + 1, 69, K.amberDim) end
-  P.fill(22, 70, 32, 75, K.steel)
-  P.fill(82, 70, 92, 75, K.steel)
-  P.fill(25, 76, 29, 82, K.grey)
-  P.fill(85, 76, 89, 82, K.grey)
-  P.fill(51, 70, 52, 82, K.grey)
-  P.fill(62, 70, 63, 82, K.grey)
-  P.line(0, 83, 113, 83, K.dark, 1, 2)
 end
 
 -- silos the unit carries away after a load
@@ -411,135 +392,73 @@ local function drawCarried(P, st)
   end
 end
 
--- one silo: top y, how full (0..1), outline colour, fill colour, dotted; dx
--- shifts it sideways (sliding in)
-local function drawSilo(P, cx, top, full, col, fillCol, dotted)
+-- one silo: top y, how full (0..1), outline colour, fill colour
+local function drawSilo(P, cx, top, full, col, fillCol)
   local x0, x1 = cx - SILO_W / 2, cx + SILO_W / 2
   local y1 = top + SILO_H - 1
   if full and full > 0 then
     local h = floor((SILO_H - 2) * min(1, full) + 0.5)
     if h > 0 then P.fill(x0 + 1, y1 - h, x1 - 1, y1 - 1, fillCol or K.amber) end
   end
-  P.box(x0, top, x1, y1, col, dotted)
-  -- the three blocks of a silo
-  if not dotted then
-    for k = 1, 2 do
-      local y = top + floor(SILO_H * k / 3)
-      P.line(x0, y, x0 + 1, y, col)
-      P.line(x1 - 1, y, x1, y, col)
-    end
-  end
+  P.box(x0, top, x1, y1, col)
 end
 
--- items riding from (xa) to (xb) at y: dots every 5, moving with time
-local function drawItems(P, xa, xb, y, now, col)
-  local dir = xb > xa and 1 or -1
-  local len = abs(xb - xa)
-  local off = (now * 14) % 5
-  for d = 0, len, 5 do
-    local p = d + off
-    if p <= len then P.fill(xa + dir * p, y - 1, xa + dir * p + 1, y, col) end
-  end
-end
-
--- the belt itself: dashes marching the way it runs
-local function drawBelt(P, xa, xb, y, now, col, live)
-  local dir = xb > xa and 1 or -1
-  local phase = floor((now * (live and 10 or 3)) % 4)
-  P.line(xa, y, xb, y, col, 2, 4, dir > 0 and -phase or phase)
-end
+local UP = { lifting = true, up = true, gone = true, reaching = true }
 
 local function drawBay(P, st, side, now)
   local cx = BAY[side]
-  local outer = side == "A" and -1 or 1
   local sd = st.sides[side] or {}
   local job = st.job
   local active = isActive(st, side)
   local step = active and job.step or nil
   local silo = sd.silo or "none"
+  local bad = faulted(sd, now)
 
-  -- the machine window: copper, lit while the placer works
-  local wx0 = side == "A" and 29 or 77
-  local feedHot = active and (step == "feed" or step == "place" or step == "silo")
-  P.fill(wx0 + 1, 48, wx0 + 7, 56, feedHot and (blink(now, 3) and K.amber or K.amberDim) or K.amberDim)
-  P.box(wx0, 47, wx0 + 8, 57, feedHot and K.amber or K.steel)
+  -- the placer's window: flashes while it counts its feed and places
+  local wx0 = side == "A" and 30 or 77
+  local placing = step == "silo" or step == "feed" or step == "place"
+  P.fill(wx0 + 1, 48, wx0 + 6, 55, placing and flash(now, K.amber, K.amberDim) or K.amberDim)
+  P.box(wx0, 47, wx0 + 7, 56, placing and K.amber or K.steel)
 
-  -- the belt from this side's storage (off beyond the pillar) to the bay
-  local loading = not (job and job.kind == "unload" and active) and silo ~= "emptying"
-  local bayEdge = cx + outer * (SILO_W / 2 + 1)
-  local inner = side == "A" and 28 or 86          -- the pillar's inner face
-  local far = side == "A" and 16 or 98             -- from the storage, beyond the pillar
-  local moving = active and (step == "fill" or step == "empty")
-  local from, to = inner, bayEdge
-  if not loading then from, to = to, from end
-  drawBelt(P, from, to, 60, now, moving and K.amber or K.grey, moving)
-  if moving then
-    if loading then drawItems(P, far, bayEdge, 59, now, K.bright)
-    else drawItems(P, bayEdge, far, 59, now, K.bright) end
+  -- the belt between the pillar and the bay: flashes while items move
+  local bx0 = side == "A" and 28 or cx + SILO_W / 2 + 1
+  local bx1 = side == "A" and cx - SILO_W / 2 - 1 or 86
+  local moving = step == "fill" or step == "empty"
+  P.fill(bx0, 61, bx1, 62, moving and flash(now, K.amber, K.amberDim) or K.grey)
+
+  -- the pusher, and its rod while a silo is up on it
+  local pushing = step == "push" or step == "retract" or step == "release"
+  P.fill(cx - 3, 63, cx + 3, 65, pushing and flash(now, K.amber, K.amberDim) or K.steel)
+  if silo == "lifting" or silo == "up" or silo == "reaching" then
+    P.fill(cx - 1, UP_TOP + SILO_H, cx, 62, K.silver)
   end
 
-  -- the pusher in the foot, and its rod up to the silo
-  P.fill(cx - 3, 62, cx + 3, 66, K.steel)
-  local top = REST_TOP
-  if silo == "lifting" or silo == "reaching" then
-    top = REST_TOP - floor((REST_TOP - UP_TOP) * ease(progress(job, now, 3)) + 0.5)
-  elseif silo == "up" or silo == "gone" then
-    top = UP_TOP
-  elseif silo == "lowering" then
-    top = UP_TOP + floor((REST_TOP - UP_TOP) * ease(progress(job, now, 3)) + 0.5)
-  end
-  local rodTop = top + SILO_H
-  if silo == "gone" then
-    rodTop = UP_TOP + SILO_H + floor((REST_TOP - UP_TOP) * ease(progress(job, now, 3)) + 0.5)
-  end
-  if rodTop < 62 then P.fill(cx - 1, rodTop, cx, 61, K.silver) end
-
-  -- the silo
+  -- the silo, where it is
   local fill = 0
-  if silo == "full" or silo == "up" or silo == "lifting" or silo == "gone" or silo == "lowering" then fill = 1 end
+  if silo == "full" or silo == "lifting" or silo == "up" or silo == "lowering" or silo == "reaching" then fill = 1 end
   if silo == "partial" then fill = 0.4 end
-  if silo == "filling" then
+  if silo == "filling" or silo == "emptying" then
     local items, moved = job and job.items, job and job.moved
-    fill = (items and moved and items > 0) and (moved / items) or (0.15 + 0.85 * ((now / 8) % 1))
-  elseif silo == "emptying" then
-    local items, moved = job and job.items, job and job.moved
-    fill = (items and moved and items > 0) and (1 - moved / items) or (1 - (now / 8) % 1)
+    local done = (items and moved and items > 0) and (moved / items) or 0.5
+    fill = silo == "filling" and done or (1 - done)
   end
-  if silo == "none" then
-    drawSilo(P, cx, REST_TOP, 0, K.grey, nil, true)
-  elseif silo == "placing" then
-    -- sliding in from the placer, over and over until it is down
-    local t = (now % 1.6) / 1.6
-    drawSilo(P, cx + outer * floor(7 * (1 - ease(t)) + 0.5), REST_TOP, 0,
-             blink(now, 4) and K.amber or K.steel, nil, false)
-  elseif silo == "assembling" then
-    drawSilo(P, cx, REST_TOP, 0, K.ice, nil, false)
-    local k = floor(now * 6) % 4
-    local pts = { { -7, -2 }, { 7, 3 }, { -7, 9 }, { 7, 14 } }
-    for i, p in ipairs(pts) do
-      if (i - 1 + k) % 2 == 0 then P.fill(cx + p[1], REST_TOP + p[2], cx + p[1] + 1, REST_TOP + p[2] + 1, K.bright) end
-    end
-  elseif silo == "reaching" then
-    -- an unload: the pusher rises to the silo the unit brought
-    drawSilo(P, cx, UP_TOP, 1, K.ice, K.amber, false)
-    drawSilo(P, cx, REST_TOP, 0, K.grey, nil, true)
-  elseif silo == "gone" then
-    -- loaded: the silo is the unit's now
-    drawSilo(P, cx, UP_TOP, 1, K.ice, K.amberDim, false)
-    drawSilo(P, cx, REST_TOP, 0, K.grey, nil, true)
+  local top = UP[silo] and UP_TOP or REST_TOP
+  if silo == "none" or silo == "gone" then
+    P.box(cx - SILO_W / 2, REST_TOP, cx + SILO_W / 2, REST_TOP + SILO_H - 1, bad and flash(now, K.red, K.dark) or K.dark)
+    if silo == "gone" then drawSilo(P, cx, UP_TOP, 1, K.ice, K.amberDim) end
   else
-    local col = (silo == "full" or silo == "up") and K.silver or K.steel
-    drawSilo(P, cx, top, fill, col, K.amber, false)
+    local col = K.steel
+    if silo == "full" or silo == "up" then col = K.silver end
+    if silo == "placing" then col = flash(now, K.amber, K.steel) end
+    if silo == "assembling" then col = flash(now, K.bright, K.iceDim) end
+    if silo == "reaching" or silo == "lifting" or silo == "up" then col = K.ice end
+    if bad then col = flash(now, K.red, K.redDim) end
+    drawSilo(P, cx, top, fill, col, K.amber)
   end
 
   -- sticking or letting go: the join with the unit flashes
-  if active and (step == "stick" or step == "release") and blink(now, 5) then
-    P.fill(cx - 5, UP_TOP - 2, cx + 5, UP_TOP - 1, step == "stick" and K.green or K.amber)
-  end
-  -- a job called off on this side
-  if faulted(sd, now) then
-    P.line(cx - 7, REST_TOP - 1, cx + 7, REST_TOP + SILO_H + 1, K.red)
-    P.line(cx + 7, REST_TOP - 1, cx - 7, REST_TOP + SILO_H + 1, K.red)
+  if (step == "stick" or step == "release") and blink(now, 2) then
+    P.fill(cx - 5, 25, cx + 5, 26, step == "stick" and K.green or K.amber)
   end
 end
 
