@@ -173,6 +173,33 @@ function I.pack(lines, slots)
   return out
 end
 
+--- The page for the k-th silo of a flight, at the depot: the fields the base
+-- sent in load.start (inv_*, from lib/orders.lua O.invoiceFields) and what the
+-- depot itself counted into that silo, { item = count } - so the page says
+-- what was measured, never what was planned (DELIVERIES.md). beforeExtra is
+-- what went into this flight's earlier silos: SHIPPED BEFORE counts the one
+-- flying alongside. Returns the inv table I.page takes, or nil without an order.
+function I.fromFields(f, k, counted, beforeExtra)
+  if type(f) ~= "table" or type(f.inv_order) ~= "string" then return nil end
+  local shipment = math.floor(tonumber(f.inv_first) or 1) + (k or 1) - 1
+  local inv = { order = f.inv_order, shipment = shipment,
+                shipments = math.max(shipment, math.floor(tonumber(f.inv_last) or shipment)),
+                date = f.inv_date, who = f.inv_who, x = f.inv_x, y = f.inv_y, z = f.inv_z,
+                total = f.inv_total, paid = f.inv_paid }
+  counted = counted or {}
+  if f.inv_multi or not f.inv_item then
+    local list = {}
+    for item, n in pairs(counted) do list[#list + 1] = { item = item, this = n } end
+    table.sort(list, function(a, b) if a.this ~= b.this then return a.this > b.this end return a.item < b.item end)
+    inv.items, inv.complete = list, shipment >= inv.shipments
+  else
+    inv.item, inv.ordered = f.inv_item, f.inv_ordered
+    inv.before = (tonumber(f.inv_before) or 0) + (beforeExtra or 0)
+    inv.this = counted[f.inv_item] or 0
+  end
+  return inv
+end
+
 --- One item's shipments as plain amounts, for an order of a single thing.
 function I.shipments(amount, stack, slots)
   local out = {}
