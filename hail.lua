@@ -329,15 +329,17 @@ end
 -- (its own tariff, the same sum it charges at the end) and whether a free
 -- unit is already on station near the customer. Returns the answer, or nil
 -- when nothing comes back in time.
-local function askQuote(from, tx, tz, name)
-  local ask = F.fareAsk(from, { x = tx, z = tz, name = name }, nonce())
-  say(ask)
-  local t0 = os.clock()
-  while os.clock() - t0 < 1.5 do
-    local _, msg = rednet.receive(F.PROTO, 1.5 - (os.clock() - t0))
-    if type(msg) == "table" and msg.type == "fare.quote" and msg.re == ask.nonce and (F.check(msg)) then
-      if type(msg.free) == "number" then freeUnits = msg.free end
-      return msg
+local function askQuote(from, tx, tz, name, tries)
+  for _ = 1, tries or 1 do
+    local ask = F.fareAsk(from, { x = tx, z = tz, name = name }, nonce())
+    say(ask)
+    local t0 = os.clock()
+    while os.clock() - t0 < 1.5 do
+      local _, msg = rednet.receive(F.PROTO, 1.5 - (os.clock() - t0))
+      if type(msg) == "table" and msg.type == "fare.quote" and msg.re == ask.nonce and (F.check(msg)) then
+        if type(msg.free) == "number" then freeUnits = msg.free end
+        return msg
+      end
     end
   end
   return nil
@@ -816,7 +818,7 @@ local function follow(job, from, name, route)
     log[#log + 1] = string.format("%s %s", textutils.formatTime(os.time(), true), line)
     while #log > 6 do table.remove(log, 1) end
   end
-  note(route.board and "unit on station nearby" or "unit requested")
+  note(route.aboard and "aboard" or (route.board and "unit on station nearby" or "unit requested"))
   rideCanvas = nil                    -- a fresh canvas per ride
   local result
 
@@ -826,7 +828,7 @@ local function follow(job, from, name, route)
     if not drawRide({ away = away, state = state, unit = drone, spin = n,
                       start = startAway, eta = eta, log = log, showLog = showLog,
                       from = pickup, to = dest, zone = (state ~= "riding") and zone or nil,
-                      board = route.board, zoneR = LZ_R }) then
+                      board = route.board, aboard = route.aboard, zoneR = LZ_R }) then
       frame("TRANSIT: " .. tostring(name):upper(),
             drone and ("unit " .. (UI and UI.unitName(drone) or drone)) or "assigning a unit")
       at(1, 6, state == "enroute" and "unit inbound"
@@ -946,7 +948,9 @@ local function oneRide(tx, ty, tz, name)
   -- nearby. If one is, there is no landing to arrange - they walk to it.
   frame("CHECKING", shown)
   at(2, 6, "consulting the directorate", DIM)
-  local quote = askQuote(from, tx, tz, name)
+  -- twice: a lost answer is what sends someone standing ON a unit off to
+  -- find a landing spot
+  local quote = askQuote(from, tx, tz, name, 2)
   local near = quote and quote.near
   local pickup = from
   if not near then
@@ -972,7 +976,10 @@ local function oneRide(tx, ty, tz, name)
   local row = near and 9 or (pickup.name and 10 or 9)
   field(row, "fare", quote and money(quote.fare) or "unavailable", quote and AMBER or DIM)
   if balance then field(row + 1, "balance", money(balance), balance < 0 and INK or AMBER) end
-  if near then
+  if near and quote.aboard then
+    at(2, row + 3, "you are aboard", AMBER)
+    at(2, row + 4, "ent, then g to depart", DIM)
+  elseif near then
     at(2, row + 3, "unit on station nearby", AMBER)
     at(2, row + 4, "walk over, board, press g", DIM)
   elseif freeUnits == 0 then
@@ -986,7 +993,7 @@ local function oneRide(tx, ty, tz, name)
   stats.requests = (stats.requests or 0) + 1
   -- the name goes too: the base checks it against its own places, which is
   -- how a ride home is known to be free
-  local req = F.request(pickup, { x = tx, z = tz, y = ty, name = name }, nonce(), me)
+  local req = F.request(pickup, { x = tx, z = tz, y = ty, name = name }, nonce(), me, from)
   say(req)
 
   frame("REQUESTING UNIT", shown)
@@ -1078,7 +1085,8 @@ local function oneRide(tx, ty, tz, name)
   if assigned and assigned.px and assigned.pz then
     pickup = { x = assigned.px, y = assigned.py or pickup.y, z = assigned.pz, name = pickup.name }
   end
-  local how = follow(job, from, shown, { pickup = pickup, to = to, board = board })
+  local how = follow(job, from, shown, { pickup = pickup, to = to, board = board,
+                                         aboard = board and (assigned.aboard or (near and quote.aboard)) })
   askBalance(1.5)                 -- the fare lands as the ride ends
   if how == "done" then
     F.record(stats, "ride", { at = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time(),

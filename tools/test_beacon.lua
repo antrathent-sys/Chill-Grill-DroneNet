@@ -274,6 +274,13 @@ check("a dock from pads.lua counts as a dock", tlm(w)[2].phase == "docked")
 w = run(drone({ velocity = STILL, cycles = 3, latch = "back", files = { ["fly.lua"] = FAR_HOME,
   ["pads.lua"] = 'return { { name = "field", kind = "pad", x = 1892, y = 70, z = 365 } }' } }))
 check("a landing pad is not a dock: still on one is landed", tlm(w)[2].phase == "landed")
+-- a depot the base sent it to is on no list here: where fly last docked is
+w = run(drone({ velocity = STILL, cycles = 3, files = { ["fly.lua"] = FAR_HOME,
+  [".docked"] = "1892.40 365.60 98.50 chid-1" } }))
+check("still where fly last docked (a depot): docked", tlm(w)[2].phase == "docked", tlm(w)[2].phase)
+w = run(drone({ velocity = STILL, cycles = 3, files = { ["fly.lua"] = FAR_HOME,
+  [".docked"] = "2497.50 -3296.50 77.50 chid-1" } }))
+check("still somewhere else: landed, whatever it last docked at", tlm(w)[2].phase == "landed", tlm(w)[2].phase)
 w = run(drone({ charging = true }))
 check("charging is docked", tlm(w)[2].phase == "docked")
 w = run(drone({ files = { ["pads.lua"] = 'return { { name = "home", x = 100, y = 64, z = -40 } }',

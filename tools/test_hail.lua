@@ -118,11 +118,16 @@ local function world(opts)
       elseif msg.type == "account.ask" then reply(F.accountInfo("alex", 500, 3, "a-" .. #w.said))
       elseif msg.type == "fare.ask" then
         w.fareAsked = msg
-        reply(F.fareQuote(opts.fare or 13, "flat fare", "q-" .. #w.said, msg.nonce, opts.near, opts.free))
+        w.fareAsks = (w.fareAsks or 0) + 1
+        -- opts.loseQuote: the first answer never arrives
+        if not (opts.loseQuote and w.fareAsks == 1) then
+          reply(F.fareQuote(opts.fare or 13, "flat fare", "q-" .. #w.said, msg.nonce, opts.near, opts.free))
+        end
       elseif msg.type == "taxi.request" then
         w.request = msg
         if opts.near then
           msg.board, msg.px, msg.pz, msg.py = true, opts.near.x, opts.near.z, opts.near.y
+          msg.aboard = opts.near.aboard
         end
         reply(F.assign("j-1", msg))
         if opts.relocate or opts.relocateTimeout then
@@ -344,6 +349,21 @@ check("it says so at confirm, and the home dock is called CINDER HQ",
   has(nb, "UNIT ON STATION NEARBY") and has(nb, "UNIT AT") and has(nb, "CINDER HQ"))
 check("the ride screen says walk to it", has(nb, "WALK TO UNIT"))
 check("and G takes it from there", nb.went == true)
+
+print("standing on the unit already")
+local onb = run(world({ near = { unit = "drone-1", x = 2497, y = 76, z = -3297, aboard = true },
+                        gpsPos = { 2497, 78, -3297 }, loseQuote = true, inputs = {
+  { key = KEYS.enter },                    -- the nearest place
+  { key = KEYS.enter },                    -- confirm
+  { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+check("no landing zone and no platform to walk to", not has(onb, "LANDING ZONE") and not has(onb, "PROCEED TO PLATFORM"))
+check("a lost first answer is asked again", onb.fareAsks == 2, tostring(onb.fareAsks))
+check("confirm says they are aboard", has(onb, "YOU ARE ABOARD"))
+check("the ride screen says on board, press G", has(onb, "ON BOARD") and has(onb, "PRESS G TO DEPART")
+  and not has(onb, "WALK TO UNIT"))
+check("the request says where the terminal is", onb.request and onb.request.ax == 2497 and onb.request.az == -3297)
+check("and G takes it from there", onb.went == true)
 
 print("a pickup that could not land")
 local ob = run(world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter } },

@@ -242,7 +242,8 @@ end
 -- view = { state, unit, away, start, eta, log, showLog, spin, place,
 --          from = {x,y,z}, to = {x,y,z},     the order, in coordinates
 --          zone = n, zoneR = n,              customer's distance from the pickup spot
---          board = true }                    walk to a unit already on station
+--          board = true,                     walk to a unit already on station
+--          aboard = true }                   standing on it already
 function M.ride(T, c, view)
   local w, h = c.w, c.h
   c:clear()
@@ -275,7 +276,9 @@ function M.ride(T, c, view)
   -- once it is on station, or - walking to a unit already standing nearby -
   -- how far they have left to go.
   local label, big, ink
-  if view.board and view.state ~= "riding" then
+  if view.aboard and view.state ~= "riding" then
+    label, big, ink = "ON BOARD", "READY", T.C.ok
+  elseif view.board and view.state ~= "riding" then
     label = "WALK TO UNIT"
     big = view.zone and tostring(math.floor(view.zone)) or "--"
     ink = (view.zone and view.zone <= zoneR) and T.C.ok or (view.zone and T.C.text or T.C.rule)
@@ -309,6 +312,9 @@ function M.ride(T, c, view)
       c:text(2, 17 + (k - first), tostring(log[k]):upper():sub(1, w - 2),
              (k == #log) and T.C.text or T.C.faint)
     end
+  elseif view.aboard and view.state ~= "riding" then
+    c:text(2, 17, "ON BOARD", T.C.ok)
+    c:text(2, 18, "PRESS G TO DEPART", T.C.faint)
   elseif view.board and view.state ~= "riding" and view.zone then
     if view.zone <= zoneR then
       c:text(2, 17, "ALONGSIDE", T.C.ok)

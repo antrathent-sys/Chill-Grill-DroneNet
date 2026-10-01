@@ -220,6 +220,43 @@ boardReq.board = true
 local ba = F.assign("j-b", boardReq)
 check("boarding travels in the order", ba.board == true)
 check("and means no pickup flight", F.legCommand("pickup", ba) == nil)
+
+print("standing on a unit")
+local ab = {
+  ["drone-1"] = { seen = 100, phase = "idle", x = 2497.5, y = 76.5, z = -3296.5, energy = 80, spd = 0 },
+  ["drone-2"] = { seen = 100, docked = true, x = 1892, y = 98, z = 365 },
+}
+local aid, _, adist = F.aboardUnit(ab, 2496, 78, -3297, 101)
+check("a unit at a depot, reading neither docked nor landed, is the one underfoot",
+  aid == "drone-1" and adist < 2, tostring(aid))
+check("7 blocks off is beside it, not on it", F.aboardUnit(ab, 2504.6, 78, -3296.5, 101) == nil)
+check("20 blocks below it is not on it", F.aboardUnit(ab, 2497, 56, -3297, 101) == nil)
+check("a pocket with no height still counts across", F.aboardUnit(ab, 2497, nil, -3297, 101) == "drone-1")
+ab["drone-1"].spd = 12
+local none, whyMoving = F.aboardUnit(ab, 2497, 78, -3297, 101)
+check("not while it is moving", none == nil and tostring(whyMoving):find("moving", 1, true) ~= nil, tostring(whyMoving))
+ab["drone-1"].spd, ab["drone-1"].job = 0, "j-3"
+check("not while it is on a job", F.aboardUnit(ab, 2497, 78, -3297, 101) == nil)
+ab["drone-1"].job, ab["drone-1"].energy = nil, 20
+local lowId, whyLow = F.aboardUnit(ab, 2497, 78, -3297, 101)
+check("off a dock, not on a flat battery", lowId == nil and tostring(whyLow):find("battery", 1, true) ~= nil, tostring(whyLow))
+ab["drone-2"].energy = 20
+check("latched on a dock it is charging: a low battery is fine", F.aboardUnit(ab, 1893, 99, 366, 101) == "drone-2")
+check("and not once it has gone quiet", F.aboardUnit(ab, 1893, 99, 366, 200) == nil)
+local atReq = F.request({ name = "kodiak", x = 2400, y = 72, z = -3269 }, { x = 958, z = 505 }, "r-a", "alex",
+  { x = 2497, y = 78, z = -3297 })
+check("a request says where the terminal is, apart from the pickup",
+  atReq.px == 2400 and atReq.ax == 2497 and atReq.ay == 78 and atReq.az == -3297 and (F.check(atReq)))
+check("and without one, nothing extra", F.request({ x = 1, z = 2 }, { x = 3, z = 4 }, "r-b").ax == nil)
+check("a fare question carries the height too", F.fareAsk({ x = 1, y = 70, z = 2 }, { x = 3, z = 4 }, "f-1").py == 70)
+local aq = F.fareQuote(13, "flat fare", "q-2", "a-2", { unit = "drone-1", x = 2497, y = 76, z = -3296, aboard = true })
+check("a quote can say they are aboard", aq.aboard == true and aq.near == "drone-1" and (F.check(aq)))
+local abReq = F.request({ x = 2497, y = 76, z = -3296 }, { x = 958, z = 505 }, "r-c")
+abReq.board, abReq.aboard = true, true
+local aa = F.assign("j-a", abReq)
+check("aboard travels in the order, with boarding", aa.board == true and aa.aboard == true)
+check("so no pickup flight either", F.legCommand("pickup", aa) == nil)
+
 local rel = F.relocate("j-1", 130.6, 64.2, 215.9, "r-1")
 check("a new spot is a valid message, in whole blocks", (F.check(rel)) and rel.px == 130 and rel.pz == 215)
 check("holding above is a job state", (F.check(F.state("j-1", "drone-1", "relocate", "held", "s-1"))))

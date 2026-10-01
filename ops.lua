@@ -610,6 +610,10 @@ local function reply(to, msg)
 end
 
 local function dispatch(req, from)
+  -- Standing on a unit already (F.aboardUnit): that one, from where it
+  -- stands - no pickup flight, no queue. Where the terminal itself is, not
+  -- the pickup it chose, which may be a platform further off.
+  local aboard = F.aboardUnit(fleet, req.ax or req.px, req.ay or req.py, req.az or req.pz, os.clock())
   -- The destination as this computer knows it. A known place's own record
   -- wins over what the terminal sent, which is also what makes a ride home
   -- free only when it really goes home.
@@ -639,7 +643,18 @@ local function dispatch(req, from)
     if known.kind == "pad" then req.pad = nil end
   end
   local pad = known or { name = pickupName, x = req.px, y = req.py, z = req.pz }
-  local id, why = F.pick(fleet, pad, os.clock())
+  local id, why = aboard, nil
+  if aboard then
+    local ad = fleet[aboard]
+    req.board, req.aboard = true, true
+    req.px, req.py, req.pz = math.floor(ad.x), type(ad.y) == "number" and math.floor(ad.y) or req.py, math.floor(ad.z)
+    local at = F.placeFor(pads, nil, ad.x, ad.z, 8)
+    pickupName = at and at.name or nil
+    req.pad = nil
+    log("%s is aboard %s - departs from there", tostring(req.who or from), aboard)
+  else
+    id, why = F.pick(fleet, pad, os.clock())
+  end
   if not id then
     -- nobody free: take a place in the line rather than turning them away
     local stranded = false
@@ -661,7 +676,7 @@ local function dispatch(req, from)
   end
   -- a free unit already on station near the customer: no pickup flight, they
   -- walk to it and press G. The ride starts from where it stands.
-  do
+  if not aboard then
     local nid, nd = F.nearUnit(fleet, req.px, req.pz, os.clock(), BOARD_NEAR)
     if nid then
       id = nid
@@ -2120,7 +2135,10 @@ function handle(from, msg, customer, sealedBy)
           -- the rate slot is only spent on a hail we are really going to act on
           local slowEnough, whyRate = F.rateOk(lastHail, caller, os.clock(), HAIL_EVERY)
           -- the fleet's own places (a depot) are nobody's pickup or destination
-          local inside = padsLib and (padsLib.internalAt(pads, msg.pad, msg.px, msg.pz, F.PLACE_NEAR)
+          -- - except that someone already standing on a unit there leaves
+          -- with it: nothing flies in to fetch them
+          local onUnit = F.aboardUnit(fleet, msg.ax or msg.px, msg.ay or msg.py, msg.az or msg.pz, os.clock())
+          local inside = padsLib and ((not onUnit and padsLib.internalAt(pads, msg.pad, msg.px, msg.pz, F.PLACE_NEAR))
                                       or padsLib.internalAt(pads, msg.toName, msg.tx, msg.tz, F.PLACE_NEAR))
           if inside then
             pcall(rednet.send, from, F.ack("j-none", "ops", false, "not a place customers can use", nonce()), F.PROTO)
@@ -2146,13 +2164,16 @@ function handle(from, msg, customer, sealedBy)
         -- a price for the confirm screen: the same destination rules and the
         -- same tariff as the charge at the end, so the quote is the fare
         -- a free unit already on station nearby: the customer walks to it,
-        -- and the ride - and so the fare - starts from where it stands
-        local nid, nd = F.nearUnit(fleet, msg.px, msg.pz, os.clock(), BOARD_NEAR)
+        -- and the ride - and so the fare - starts from where it stands.
+        -- Standing on one already, that one (F.aboardUnit).
+        local aid = F.aboardUnit(fleet, msg.px, msg.py, msg.pz, os.clock())
+        local nid, nd = aid, aid and fleet[aid]
+        if not nid then nid, nd = F.nearUnit(fleet, msg.px, msg.pz, os.clock(), BOARD_NEAR) end
         local near
         if nid then
           local at = F.placeFor(pads, nil, nd.x, nd.z, 8)
           near = { unit = nid, x = math.floor(nd.x), y = type(nd.y) == "number" and math.floor(nd.y) or nil,
-                   z = math.floor(nd.z), place = at and at.name or nil }
+                   z = math.floor(nd.z), place = at and at.name or nil, aboard = aid ~= nil }
           msg.px, msg.pz = nd.x, nd.z
         end
         local blocks, toName = F.quoteBlocks(publicPads, msg)

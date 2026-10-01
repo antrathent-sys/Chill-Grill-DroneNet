@@ -117,6 +117,24 @@ do
 end
 local DOCK_NEAR = 4       -- blocks from a dock that count as on it
 
+-- Where fly last docked (fly.lua FL.dockSeen: "x z h name"), re-read when
+-- fly has written it again: a depot the base sent it to is on no list here,
+-- and without it a unit latched at one reads landed, not docked.
+local lastDock = { mod = nil, at = nil }
+local function lastDocked()
+  if not fs.exists(".docked") then return nil end
+  local okA, attr = pcall(fs.attributes, ".docked")
+  local mod = okA and type(attr) == "table" and attr.modified or nil
+  if mod == nil or mod ~= lastDock.mod then
+    local f = fs.open(".docked", "r")
+    local lx, lz = (f and f.readAll() or ""):match("^(%S+) (%S+)")
+    if f then f.close() end
+    lastDock.mod = mod
+    lastDock.at = tonumber(lx) and tonumber(lz) and { x = tonumber(lx), z = tonumber(lz) } or nil
+  end
+  return lastDock.at
+end
+
 -- Every flight the beacon starts is marked while it runs, so fly knows it
 -- was started from here and simply returns, rather than starting a second
 -- beacon inside itself (fly.lua BEACON_AFTER).
@@ -186,6 +204,8 @@ local function status()
     for _, d in ipairs(docks) do
       if (d.x - x) ^ 2 + (d.z - z) ^ 2 <= DOCK_NEAR * DOCK_NEAR then onDock = true break end
     end
+    local ld = not onDock and still and lastDocked()
+    if ld and (ld.x - x) ^ 2 + (ld.z - z) ^ 2 <= DOCK_NEAR * DOCK_NEAR then onDock = true end
   end
   local docked = (type(name) == "string" and name ~= "") or charging or (still and onDock)
   local landed = still and not docked

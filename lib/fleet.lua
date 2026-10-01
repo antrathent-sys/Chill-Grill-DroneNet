@@ -280,10 +280,14 @@ end
 
 -- from is where the customer is: a pad record { name, x, y, z } if they are
 -- standing on one, or just { x, y, z } if they hailed from anywhere else.
-function F.request(from, dest, nonce, who)
-  return { v = F.VERSION, type = "taxi.request", nonce = nonce, who = who,
-           pad = from.name, px = from.x, py = from.y, pz = from.z,
-           tx = dest.x, tz = dest.z, ty = dest.y, toName = dest.name }
+-- at: where the terminal itself is, when the pickup is somewhere else (a
+-- platform it chose) - so the base can tell it is standing on a unit
+function F.request(from, dest, nonce, who, at)
+  local r = { v = F.VERSION, type = "taxi.request", nonce = nonce, who = who,
+              pad = from.name, px = from.x, py = from.y, pz = from.z,
+              tx = dest.x, tz = dest.z, ty = dest.y, toName = dest.name }
+  if type(at) == "table" and num(at.x) and num(at.z) then r.ax, r.ay, r.az = at.x, at.y, at.z end
+  return r
 end
 
 -- How close typed coordinates have to be to a known place to count as it.
@@ -323,7 +327,8 @@ function F.assign(job, req)
            tx = req.tx, tz = req.tz, ty = req.ty,
            -- a unit already on station where the customer is: no pickup
            -- flight, they walk to it and press G
-           board = req.board and true or nil }
+           board = req.board and true or nil,
+           aboard = req.aboard and true or nil }     -- and standing on it already
 end
 
 --- A new pickup spot for a job whose unit could not land. The customer's
@@ -502,7 +507,7 @@ function F.placesAsk(nonce) return { v = F.VERSION, type = "places.ask", nonce =
 -- is charged anything. The base answers with fare.quote, naming this ask's
 -- nonce in `re` so the terminal knows which question it answers.
 function F.fareAsk(from, dest, nonce)
-  return { v = F.VERSION, type = "fare.ask", nonce = nonce, px = from.x, pz = from.z,
+  return { v = F.VERSION, type = "fare.ask", nonce = nonce, px = from.x, py = from.y, pz = from.z,
            tx = dest.x, tz = dest.z, toName = dest.name }
 end
 
@@ -512,6 +517,7 @@ function F.fareQuote(fare, why, nonce, re, near, free)
   -- a free unit already on station near the customer: they can walk to it
   if type(near) == "table" and str(near.unit) then
     q.near, q.nx, q.ny, q.nz, q.nplace = near.unit, near.x, near.y, near.z, near.place
+    q.aboard = near.aboard and true or nil     -- standing on it already
   end
   return q
 end
@@ -530,6 +536,44 @@ function F.nearUnit(fleet, x, z, now, within, maxAge)
   end
   if best then return best, fleet[best], bestD end
   return nil
+end
+
+-- A terminal this close to a unit is standing ON it (Alex, 2026-10-01: "if a
+-- player is literally on the rocket it does not need to go to a spot").
+-- Across, from the terminal's fix to the unit's reported position: the craft
+-- is a few blocks wide and a fix is whole blocks. Up or down, ABOARD_UP.
+F.ABOARD_NEAR = 6
+F.ABOARD_UP = 10
+
+--- The unit a terminal at x, y, z is standing on: heard from lately, on no
+-- job, not in distress, not moving, nearest first. Unlike nearUnit it does
+-- not ask the unit to read docked or landed: one latched at a depot no list
+-- on board knows reads neither, and with someone on it, it goes nowhere
+-- without them. A unit at rest off a dock must still have the charge for a
+-- ride (LANDED_MIN). Returns id, record, distance; or nil and why.
+function F.aboardUnit(fleet, x, y, z, now, maxAge)
+  if not (num(x) and num(z)) then return nil, "no position" end
+  local best, bestD, why
+  for id, d in pairs(fleet or {}) do
+    if type(d) == "table" and num(d.x) and num(d.z) then
+      local dist = math.sqrt((d.x - x) ^ 2 + (d.z - z) ^ 2)
+      local level = not (num(y) and num(d.y)) or math.abs(d.y - y) <= F.ABOARD_UP
+      if dist <= F.ABOARD_NEAR and level then
+        local bad
+        if d.job then bad = "on job " .. tostring(d.job)
+        elseif not num(d.seen) or now - d.seen > (maxAge or 15) then bad = "no telemetry"
+        elseif d.phase == "sos" then bad = "in distress"
+        elseif num(d.spd) and d.spd > 1 then bad = "moving"
+        elseif not d.docked and num(d.energy) and d.energy < F.LANDED_MIN then
+          bad = string.format("battery %d%%", math.floor(d.energy))
+        end
+        if bad then why = why or (id .. ": " .. bad)
+        elseif not bestD or dist < bestD then best, bestD = id, dist end
+      end
+    end
+  end
+  if best then return best, fleet[best], bestD end
+  return nil, why
 end
 
 --- How far a ride really goes, and to which known place: the destination is
