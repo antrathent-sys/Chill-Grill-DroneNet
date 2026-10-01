@@ -146,7 +146,10 @@ end
 --- Fold one ping into the tower's picture. contacts: unit -> contact. rec:
 -- the unit's registry record. Returns the events worth writing down:
 -- "first" (heard for the first time since the tower started), "depart",
--- "arrive", "sos", "sos-clear", "craft" (now on a different vehicle).
+-- "arrive", "sos", "sos-clear". The vehicle's Sable id is kept as the last
+-- one heard and nothing more: players pack craft into containers and put them
+-- out again, which makes a new one each time (Alex, 2026-10-01), so a unit
+-- going quiet or turning up on a "different" vehicle is ordinary.
 function N.track(contacts, rec, m, now)
   local c = contacts[rec.unit]
   local events = {}
@@ -160,7 +163,6 @@ function N.track(contacts, rec, m, now)
   end
   if m.st == "sos" and c.st ~= "sos" then events[#events + 1] = "sos" end
   if c.st == "sos" and m.st ~= "sos" then events[#events + 1] = "sos-clear" end
-  if m.sid and rec.sid and m.sid ~= rec.sid then events[#events + 1] = "craft" end
   c.call, c.kind, c.n = rec.call, rec.kind, rec.n
   c.x, c.y, c.z, c.spd, c.vs, c.hdg, c.st = m.x, m.y, m.z, m.spd, m.vs, m.hdg, m.st
   local h = math.rad(m.hdg or 0)

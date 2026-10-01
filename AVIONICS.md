@@ -132,12 +132,12 @@ registration written to it.
 |---|---|
 | position, height, speed, heading, climb | the live picture; the registry keeps the last of each |
 | state | moving, standing, distress |
-| vehicle | Sable's unique id, its name and its mass. The unit is **bound** to the first vehicle it is heard from, and moving it to another is noticed and logged |
+| vehicle | Sable's id, name and mass, as last heard - for reference only. Players pack craft into containers and put them out again, which makes a new one each time, so nothing depends on it |
 | first and last heard | dates |
 
 **In the log** (`navlog.csv` on the tower, one line per event, rolled at
-256 KB): registered, first contact, bound to a vehicle, departed, arrived,
-distress and distress over, changed vehicle, updated, revoked - each with
+256 KB): registered, first contact, departed, arrived, distress and
+distress over, updated, revoked - each with
 the time, the registration, the callsign and the position. Never one line
 per ping. The long record belongs outside the game (SERVICE.md).
 
@@ -174,6 +174,13 @@ answering it within ten seconds.
 
 ## Limits to design round
 
+- **Vehicles come and go.** A craft packed into a container takes its unit
+  with it: the unit goes quiet, and the tower shows it **AWAY** with when it
+  was last heard - never an alarm. Put out again, the unit starts by itself
+  and carries on under the same registration. Keep the surface simple
+  (Alex, 2026-10-01): nothing the player does with the craft should need
+  anything doing at the tower.
+
 - **Unregistered craft are invisible.** There is no radar in Sable or
   Aeronautics (checked in their source): the tower sees exactly the craft
   that report. That is why registration matters, and why a control zone
@@ -190,6 +197,12 @@ answering it within ten seconds.
   rotated. The tower's computer has 1 MB like every other.
 
 ## Decided, 2026-10-01
+
+- **Distress is manual**, two touches on the screen (Alex: "manual SOS via
+  the touchscreen is fine"). It needs an advanced monitor; a plain one
+  cannot be touched.
+- **Keep the surface simple.** One screen, two big numbers, one key; three
+  questions to register; a craft packed away is ordinary.
 
 1. **CINDER supplies the kits.**
 2. **Registration is heavily encouraged**, not required.

@@ -17,7 +17,10 @@
 --   .navkeys     unit id -> key, one line each (seckey's format)
 --   navreg.lua   the registry: one record per unit (lib/nav.lua)
 --   navlog.csv   one line per event: registered, first heard, departed,
---                arrived, distress, changed vehicle, revoked
+--                arrived, distress, updated, revoked
+--
+-- A unit that goes quiet is AWAY, never an alarm: players pack their craft
+-- into containers, and the unit goes with it until it is put out again.
 --   .pong.ctr    the counter every pong is sealed under
 
 local N = dofile("lib/nav.lua")
@@ -294,18 +297,14 @@ local function hear(msg)
   if m.sname then rec.sname = m.sname end
   if m.mass then rec.mass = m.mass end
   for _, ev in ipairs(events) do
-    local detail = nil
-    if ev == "craft" then detail = tostring(rec.sid) .. " -> " .. tostring(m.sid) end
     -- "first" is first since this tower started; only the very first ever is news
     if ev ~= "first" or neverHeard then
-      logEvent(rec, ev, c, detail)
+      logEvent(rec, ev, c, ev == "first" and m.sname or nil)
       lastEvent = string.format("%s %s %s", N.regNumber(rec.n), rec.call, ev:upper())
     end
   end
-  if m.sid and m.sid ~= rec.sid then
-    if not rec.sid then logEvent(rec, "bound", c, m.sid) end
-    rec.sid = m.sid
-  end
+  -- the vehicle as last heard, for reference: a packed craft comes back new
+  if m.sid then rec.sid = m.sid end
   dirty = true
   answer(rec, c, m)
 end
@@ -341,20 +340,33 @@ local function board()
   T.band(c, 1, "CINDER TRAFFIC", string.format("%d HEARD  %d REG", live, #recs), T.C.text, T.C.faint)
   c:text(2, 3, string.format("%-8s %-16s %-4s %-5s %5s %6s %6s", "REG", "CALLSIGN", "TYPE", "STATE", "SPD", "ALT",
     "HEARD"), T.C.faint)
+  -- distress first, then everything heard lately, then those away (packed,
+  -- parked out of range, switched off), the most recently heard first
   local list = {}
   for _, ct in pairs(contacts) do list[#list + 1] = ct end
+  local function rank(ct)
+    if now - ct.t > N.STALE then return 2 end
+    return ct.st == "sos" and 0 or 1
+  end
   table.sort(list, function(a, b)
-    local sa, sb = a.st == "sos" and 0 or 1, b.st == "sos" and 0 or 1
-    if sa ~= sb then return sa < sb end
+    local ra, rb = rank(a), rank(b)
+    if ra ~= rb then return ra < rb end
+    if ra == 2 then return a.t > b.t end
     return a.n < b.n
   end)
+  local function ago(s)
+    if s < 60 then return s .. "S" end
+    if s < 3600 then return math.floor(s / 60) .. "M" end
+    if s < 86400 then return math.floor(s / 3600) .. "H" end
+    return math.floor(s / 86400) .. "D"
+  end
   for i, ct in ipairs(list) do
     local y = 3 + i
     if y >= h - 1 then break end
     local age = math.floor(now - ct.t)
     local stale = age > N.STALE
-    local row = string.format("%-8s %-16s %-4s %-5s %5d %6d %5ds", N.regNumber(ct.n), ct.call:sub(1, 16),
-      N.TYPES[ct.kind].short, stale and "LOST" or ct.st:upper(), math.floor(ct.spd + 0.5), math.floor(ct.y + 0.5), age)
+    local row = string.format("%-8s %-16s %-4s %-5s %5d %6d %6s", N.regNumber(ct.n), ct.call:sub(1, 16),
+      N.TYPES[ct.kind].short, stale and "AWAY" or ct.st:upper(), math.floor(ct.spd + 0.5), math.floor(ct.y + 0.5), ago(age))
     if ct.st == "sos" and not stale then
       c:text(1, y, string.rep(" ", w), T.C.text, T.C.accent)
       c:text(2, y, row:sub(1, w - 2), T.C.text, T.C.accent)

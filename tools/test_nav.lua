@@ -92,8 +92,9 @@ check("distress", ev[1] == "sos")
 _, ev = N.track(cs, R, N.ping(N.reading({ x = 9, y = 0, z = 0 }, nil)), 8)
 check("distress over", ev[1] == "sos-clear")
 R.sid = "old"
-_, ev = N.track(cs, R, N.ping(N.reading({ x = 9, y = 0, z = 0 }, nil), nil, { id = "new" }), 10)
-check("on a different vehicle", ev[1] == "craft")
+local cNew
+cNew, ev = N.track(cs, R, N.ping(N.reading({ x = 9, y = 0, z = 0 }, nil), nil, { id = "new" }), 10)
+check("a craft packed and put out again comes back with a new id: remembered, no event", #ev == 0 and cNew.sid == "new")
 _, ev = N.track(cs, R, N.ping(N.reading({ x = 9, y = 0, z = 0 }, { x = 5, y = 0, z = 0 })), 10 + N.STALE + 30)
 check("after a long silence moving again is not a departure from where it was", #ev == 0 or ev[1] ~= "depart")
 

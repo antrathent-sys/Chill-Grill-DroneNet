@@ -161,8 +161,8 @@ check("the registry learns where each was heard and on what vehicle", after[1].s
   and after[1].sname == "Falcon" and after[1].mass == 1500 and after[1].x == 0 and after[1].y == 100
   and after[2].sid == "uuid-hawk" and after[1].last ~= nil, N.serialise(after))
 local log = tw.files["navlog.csv"] or ""
-check("the log: first contact, bound to its vehicle, distress", log:find(",nav-0001,FALCON,first,", 1, true)
-  and log:find(",nav-0001,FALCON,bound,0,100,0,uuid-falcon", 1, true) and log:find(",nav-0001,FALCON,sos,", 1, true), log)
+check("the log: first contact with the vehicle's name, then distress", log:find(",nav-0001,FALCON,first,0,100,0,Falcon", 1, true)
+  and log:find(",nav-0001,FALCON,sos,", 1, true) and not log:find("bound", 1, true), log)
 
 -- a revocation done beside it is picked up at the next sync
 local tw2 = runningTower()
