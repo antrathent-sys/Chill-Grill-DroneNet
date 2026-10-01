@@ -8,6 +8,58 @@ pack's own configs (5.2) and in Sable's and Aeronautics' source where that
 was read; the rest is general Minecraft and Create knowledge and is marked
 as such.
 
+## What spark showed, 2026-10-02
+
+One profile (`uiqBYjrju8.sparkprofile`, taken by zombiehead_tw): the main
+server thread, sampled every 4 ms for 31 minutes, 3 then 4 players on,
+NeoForge 21.1.250, 147 mods, a 12-core EPYC, a 10 GB heap. Read with a
+protobuf decoder here, so these are the numbers in the file, not a reading
+of the web view.
+
+- **The server has no headroom.** TPS 15.8 over the profile (15.8 / 15.9 /
+  15.7 over 1, 5 and 15 minutes); a tick takes 58 ms at the median, 78 ms at
+  the 95th percentile, 1,244 ms at worst. In the calm minutes it ran at 19
+  to 20 TPS on 46 to 50 ms a tick: right at the 50 ms limit, so anything
+  extra drops it.
+- **Sable's physics is the biggest single cost: about 22 ms of every tick**,
+  44% of the calm minutes and 38.5% of the whole profile. The "lambda" in
+  the call tree is `SubLevelContainer.lambda$tick$0` - Java's name for the
+  unnamed function inside Sable's tick that runs once per physics object.
+  It has nothing to do with LAMBDA-001. Under it, `Rapier3D.step` (the
+  physics engine, a native library) is 30.7% of the thread, and **28% is the
+  server thread sitting in a system call inside that library** - waiting,
+  most likely for Rapier's own worker threads to finish the step. Sable's
+  other costs are small: tracking 0.7%, its chunk tickets 0.7%, plot ticking
+  0.2%. So it is not tracking or chunk churn; it is **how much there is to
+  simulate**: how many physics objects are loaded and awake.
+- **Create is about a quarter of the tick** (block entities, 15 ms a tick in
+  the calm minutes). Two odd hot spots: a Create Tweaked Controllers mixin on
+  every kinetic block entity (1.5% on its own) and Immersive Furniture
+  hashing item stacks (0.95%).
+- **The bad stretch** (minutes 16 to 22: a fourth player, entities up from
+  2,200 to 3,000) added 28 ms a tick: **11 ms of mob AI** (animals,
+  villagers) and **8 ms of block entities**, mostly Create. Sable rose only
+  2.6 ms. That is somebody's base - farm animals, a trading hall, machines -
+  coming into range.
+- **Far more of the world is held loaded than three players need**: spark
+  counts 22,000 to 26,000 chunks all through. Spark's count includes the
+  part-loaded ring round every loaded area, so the true number of full
+  chunks is lower, but three players at view distance 8 account for perhaps
+  5,000. The rest is islands held by force-loads: chunk loaders, `/forceload`,
+  claims, and **Sable's own tickets round every physics object**, wherever
+  it is. Each of those islands is also a physics object being simulated.
+- **Not the cause**: CC:Tweaked, all of everyone's computers together, is
+  0.16% of the server thread. Garbage collection is 119 young collections in
+  7 hours at about 73 ms each - a few hitches, not the lag. **Distant
+  Horizons is not installed on this server** (it is not among the 147 mods),
+  so the Distant Horizons section further down does not apply here.
+
+**What it means.** The baseline is physics objects plus Create, with no
+room left; players' bases push it over. The one number nobody has yet is
+**how many physics objects are loaded**, and where: `/sable info @e` lists
+them, `@e[speed=0.01..]` the ones that never come to rest, and `/sable
+forceload query` and `/forceload query` what holds them loaded.
+
 ## First, read the symptom
 
 A server at 20 TPS has 50 ms per tick. Lag is the tick taking longer. When
@@ -30,7 +82,7 @@ they stand.
 | tool | what it tells you | who |
 |---|---|---|
 | `/neoforge tps` | mean tick time and TPS per dimension, built into NeoForge | operator |
-| **spark** (server-side mod, not in the pack) | the real answer. `/spark tps` and `/spark health` (TPS, MSPT, memory, CPU); `/spark profiler start --only-ticks-over 60` ... `/spark profiler stop` records only the slow ticks and gives a link to a call tree you can open down to the exact mod and method; `/spark tickmonitor` reports each long tick as it happens; `/spark gc` for garbage-collection pauses | operator; clients do not need it |
+| **spark** (server-side mod, on the server since 2026-10-02) | the real answer. `/spark tps` and `/spark health` (TPS, MSPT, memory, CPU); `/spark profiler start --only-ticks-over 60` ... `/spark profiler stop` records only the slow ticks and gives a link to a call tree you can open down to the exact mod and method; `/spark tickmonitor` reports each long tick as it happens; `/spark gc` for garbage-collection pauses | operator; clients do not need it |
 | `/forceload query` | the chunks force-loaded in this dimension (vanilla) | operator |
 | `/sable info @e` | every loaded physics object, with name and position; filters like `@e[distance=..320]`, `@e[speed=0.01..]` (moving ones), `@e[mass=1000..]`, `sort=nearest`, `limit=` | operator |
 | `/sable forceload query` | physics objects that are force-loaded | operator |
@@ -81,15 +133,17 @@ entities. Nothing here needs a player nearby once the chunk is loaded.
 |---|---|
 | **force-loaded chunks** | farms and factories that run with their owner offline; Open Parties and Claims can force-load claims, including for offline players, if the server allows it |
 | **chunk generation** | the most expensive thing a server does. Fast travel into new land generates chunk after chunk. **This server's world is pre-generated** (Alex, 2026-10-01), so travel loads chunks rather than creating them |
-| **Distant Horizons** | see below: in this pack it asks the server itself to load every chunk out to 4,096 blocks round each player |
+| **Distant Horizons** | in the pack for clients, **not on this server** (spark's mod list, 2026-10-02) |
 | **entities** | items on the ground, mob farms, villagers, armour stands - checked against each other every tick |
-| **memory** | 123 mods and Distant Horizons need room. Too little and the garbage collector pauses the whole server: lag spikes with nobody doing anything (`/spark gc` shows it) |
+| **memory** | 147 mods need room. Too little and the garbage collector pauses the whole server: lag spikes with nobody doing anything (`/spark gc` shows it) |
 | **computers** | CC:Tweaked runs every computer on one thread (`computer_threads = 1`) and lets their peripheral calls take up to 10 ms of each 50 ms tick (`max_main_global_time = 10`). A computer polling inventories in a loop spends that |
 
-## Distant Horizons on this server
+## Distant Horizons, where a server runs it
 
-How it works, from the pack's own `DistantHorizons.toml` and its
-descriptions of each setting:
+**Not this server**: the 2026-10-02 profile shows it is not installed
+there. Written 2026-10-01 from the pack's own `DistantHorizons.toml`, before
+the profile, and kept for any server that does run it. How it works, from
+that file and its descriptions of each setting:
 
 - Each player's client asks the server for LOD data - simplified terrain -
   for everything out to `lodChunkRenderDistanceRadius = 256` chunks. With
@@ -158,7 +212,7 @@ config:
   a year, of inactivity.
 
 So with offline force-loading at its default, OPAC is not what runs with
-nobody on. **It also means CINDER's base and depots stop when Alex and his
+nobody on. **It also means CINDER's base and depots stop when Alex and their
 party are offline**, unless they are server claims, `/forceload`ed by an
 admin, or held by a chunk loader - INFRASTRUCTURE.md risk 6. Worth one check: the server's own default player config
 (`openpartiesandclaims-default-player-config.toml`, in the world's
@@ -173,12 +227,13 @@ loaded wherever it is parked, owner online or not.
 
 In the order I would do them on this server:
 
-1. **Measure.** Add spark (server only) and take a profile of slow ticks
-   with `--only-ticks-over 60`, once idle with one player on and once
-   during a long flight. Everything below is a guess until then.
-2. **Settle Distant Horizons.** The first suspect: switch its generator to
-   `PRE_EXISTING_ONLY` and cut its threads (above). The world is already
-   pre-generated, so players lose nothing.
+1. **Count the physics objects.** The profile's biggest cost (above).
+   `/sable info @e`, then `@e[speed=0.01..]` for the restless ones; remove
+   wreckage, abandoned craft and stray assembled blocks, and ask owners to
+   pack craft they are not using into their containers.
+2. **Find what holds the world loaded.** `/forceload query`, `/sable
+   forceload query`, chunk loader blocks on craft, Open Parties and Claims
+   force-loads. Each loaded island is chunks and a physics object.
 3. **Fence the world.** It is pre-generated; a world border to match keeps
    it that way.
 4. **Audit force-loading.** `/forceload query`, Open Parties and Claims'
@@ -190,8 +245,9 @@ In the order I would do them on this server:
    abandoned craft. Packing a craft into its container removes it as a
    physics object. Consider a lower `maxBlocksMoved` than 128,000.
 6. **View and simulation distance.** Simulation distance decides how far
-   round each player things tick; 6 to 8 chunks is plenty with Distant
-   Horizons drawing the far view.
+   round each player things tick; it is 8 here, which is reasonable. Mob AI
+   was 11 ms a tick when one base came into range: entity limits per chunk,
+   or fewer animals and villagers in one place, are the lever there.
 7. **Memory and restarts.** Enough RAM with a modern collector, checked
    with `/spark health`; a scheduled restart if anything grows with uptime.
 8. **Big builds.** Agree what a factory may be - a mega-factory left
@@ -212,13 +268,15 @@ fight lag, our flights are what degrade first.
 
 ## For this server, now
 
-With minimal players, a pre-generated world, and the lag gone at a 160
-tracking range, the order I would test in:
+After the 2026-10-02 profile, in order:
 
-1. Distant Horizons' generator to `PRE_EXISTING_ONLY` and its threads down,
-   with the tracking range back at 320. If the lag stays away, that was it,
-   and the range can stay generous.
-2. `/chunky progress` - a pre-generation task left running is lag on its
-   own, even on a finished world if someone restarted it.
-3. The server's OPAC default player config: offline force-loading off.
-4. A spark profile of the slow ticks, whatever the answers above.
+1. `/sable info @e` - how many physics objects, and where. With 22 ms a tick
+   in the physics step, this is the number that matters most.
+2. `/sable info @e[speed=0.01..]` - the ones that never sleep: each keeps
+   the physics step busy every tick.
+3. `/forceload query`, `/sable forceload query` and the chunk loaders - what
+   is holding 20,000 chunks with three players on.
+4. `/chunky progress` - a pre-generation task left running is lag on its
+   own, even on a finished world.
+5. A second profile with one player on, idle, to see the floor without
+   anyone's base loaded.
