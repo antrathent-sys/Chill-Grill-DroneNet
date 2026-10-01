@@ -248,6 +248,9 @@ answering it within ten seconds.
 5. **Building started now**, as a consumer product under the CINDER brand,
    for every kind of vehicle, not only aircraft.
 
-Still open: CINDER's own units on the tower's picture (through the base's
+Still open: **players finding their own craft** (Alex, 2026-10-01: "worth thinking
+about how we let players find their crafts on their own") - the tower knows
+where each unit was last heard, and an owner has no way to ask it yet;
+CINDER's own units on the tower's picture (through the base's
 read-only feed), the tower's picture on the flight wall and the admin
 pocket, and steps 3 to 7 of the traffic control.
