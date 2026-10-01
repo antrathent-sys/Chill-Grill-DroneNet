@@ -16,38 +16,58 @@ Steps 1 to 3 of the traffic control below are in, 6 and 7 in part.
 
 ## Setting it up
 
-**The tower** - the master, a computer of its own at CHI with an ender
-modem, a disk drive and monitors (a 3x3 or bigger shows the radar, any other
-the board):
+**What pulls and what pushes (Alex, 2026-10-01).** Every computer in the
+traffic service updates itself from the repo on boot, and pulls only its own
+role's files, never the whole repo. Only the **master tower** - inside
+CINDER's claims, where nobody else can get at it - carries the shared
+`common` files (uploads, the machine folder, key tools), so it is the only
+one that can push. Units and display-only centres are BARE roles
+(`startup.lua` BARE): their own files and nothing else, no token, nothing
+that uploads, and startup never touches a thruster or a redstone output on
+them.
+
+**The master tower** - an advanced computer of its own inside CINDER's
+claims, with an ender modem, a disk drive and an advanced monitor 3x3 or
+bigger for the radar (any smaller one shows the board):
 
 ```
 wget run https://raw.githubusercontent.com/antrathent-sys/Chill-Grill-DroneNet/main/startup.lua role tower
 label set tower
+tower here CHI <x> <y> <z>
+tower range 2000
+reboot
 ```
 
-It autoruns `tower` from the next boot. Tell it where it is, so every unit
-can be told and its radar centred: `tower here CHI 2497 70 -3297`, and
-`tower range 2000` for the radar's outer ring. `tower register` in a second
-tab registers a unit; `tower list`, `tower show CR-0001`, `tower revoke
-CR-0001`, `tower log`.
+`tower here` is the tower's own name and place (F3), so its radar is centred
+on it and every unit is told where it is; `tower range` is the radar's outer
+ring. It autoruns `tower` from then on. To register while it runs: press a
+key during `autorun: tower in 3 s` for the shell, `bg tower` to run it in a
+tab of its own, and `tower register` in this one. `tower list`, `tower show
+CR-0001`, `tower revoke CR-0001`, `tower log`.
 
 **More traffic centres** - display only, anywhere (Alex, 2026-10-01: every
-ping still goes to the master). Put the new centre's computer, or a floppy
-for it, in the master's drive and run `tower centre add NORTH 1200 80 -400`.
-On the centre: the same `role tower` first command; with a floppy, `tower
-join`. It shows the master's picture centred on itself - the same radar and
-board - and answers no one. The master feeds each centre a sealed picture
-every 2 seconds; a centre that stops hearing it says `NO FEED FROM MASTER`.
-Every unit is told where all the centres are. `tower centre list`, `tower
-centre drop NORTH`.
+ping still goes to the master). Role `centre`, not `tower`: the first
+command with `role centre`, then put the centre's computer (or a floppy for
+it) in the master's drive and run `tower centre add NORTH 1200 80 -400`;
+with a floppy, `tower join` on the centre. It shows the master's picture
+centred on itself - the same radar and board - and answers no one. The
+master feeds each centre a sealed picture every 2 seconds; a centre that
+stops hearing it says `NO FEED FROM MASTER`. Every unit is told where all
+the centres are. `tower centre list`, `tower centre drop NORTH`.
 
-**A unit** - an advanced computer: put it in the tower's disk drive and run
-`tower register`. It asks the owner's player name, the vehicle type (air,
-land, sea, sub) and a callsign, then writes the unit's software, its key and
-its registration, labels it and ejects it. On the vehicle it needs an
+**A unit** - an advanced computer. Place it once, turn it on and `label set
+nav-new`, then break it: labelled, it keeps its files as an item. Put it in
+the master's disk drive and run `tower register`. It asks the owner's player
+name, the vehicle type (air, land, sea, sub) and a callsign, then writes the
+unit's software, its key, its registration and the tower's own `startup.lua`
+with role `nav`, labels it and ejects it. On the vehicle it needs an
 advanced monitor (any size; one block works, a 2x1 strip is the intended
-one) and an ender modem beside it. It starts by itself. To update one, put
-it back in the drive and run `tower register` again: it keeps its key.
+one) and an ender modem beside it; turn it on once and it runs by itself
+from then on. Every boot it pulls its own files from the repo behind the
+CINDER NAV boot screen and goes straight into the instruments: nothing about
+the update is shown to the owner, there is no shell (Ctrl+T does nothing),
+no token and nothing that pushes. A new key or a new registration still
+comes from the master's drive - `tower register` again keeps its key.
 
 ## The pieces
 

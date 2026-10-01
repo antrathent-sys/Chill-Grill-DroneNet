@@ -15,8 +15,11 @@
 -- screen starts on the next page along from the ones before it. Monitors
 -- placed side by side merge into one; separate screens need a gap.
 --
--- It is a consumer device. kiosk.lua is its startup (no shell, no updater),
--- and it is updated by bringing it back to the tower. It takes no orders:
+-- It is a consumer device. startup.lua with role nav is its startup: every
+-- boot it pulls only these files from the repo, quietly behind the CINDER NAV
+-- boot screen, then runs this with no shell (Ctrl+T does nothing). No token,
+-- nothing that pushes; a new key or registration comes from the tower's
+-- drive (tower register). It takes no orders:
 -- nothing in it touches a thruster, a redstone output or anything else on the
 -- vehicle, and nothing the tower sends can.
 --

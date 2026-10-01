@@ -157,17 +157,19 @@ local function fakeFs(files)
 end
 local src = {}
 for _, f in ipairs(N.FILES) do src["src/" .. f] = "-- " .. f end
-src["src/kiosk.lua"] = "-- kiosk"
+src["src/startup.lua"] = "-- startup"
 local function copy(t) local o = {} for k, v in pairs(t) do o[k] = v end return o end
 local fsys = fakeFs(copy(src))
 check("a blank computer", N.inspect(fsys, "disk").kind == "blank")
 local KH = string.rep("ab", 32)
 local okI, nI = N.install(fsys, "disk", { rec = good, keyHex = KH, src = "src", version = "abc1234" })
-check("installed: every file, kiosk as its startup, running nav", okI and nI == #N.FILES + 1
-  and fsys.files["disk/startup.lua"] == "-- kiosk" and fsys.files["disk/.kiosk"] == "nav\n"
+check("installed: every file, the tower's startup as its own, role nav, running nav", okI and nI == #N.FILES + 1
+  and fsys.files["disk/startup.lua"] == "-- startup" and fsys.files["disk/.role"] == "nav\n"
+  and fsys.files["disk/.autorun"] == "nav\n"
   and fsys.files["disk/lib/navui.lua"] == "-- lib/navui.lua" and fsys.files["disk/ccryptolib/internal/hw.lua"])
-check("its identity, label and key", fsys.files["disk/.pass"] == "nav-0001\n" and fsys.files["disk/.navkey"] == KH .. "\n"
-  and N.parseUnitFile(fsys.files["disk/.nav"]).call == "FALCON ONE" and fsys.files["disk/.version"] == "abc1234\n")
+check("its identity, key and build", fsys.files["disk/.navkey"] == KH .. "\n"
+  and N.parseUnitFile(fsys.files["disk/.nav"]).call == "FALCON ONE" and fsys.files["disk/.commit"] == "abc1234\n")
+check("nothing of a pass on it", fsys.files["disk/.pass"] == nil and fsys.files["disk/.kiosk"] == nil)
 local seen = N.inspect(fsys, "disk")
 check("then it is a unit, and knows which", seen.kind == "unit" and seen.me.unit == "nav-0001" and seen.me.n == 1)
 fsys.files["disk/.navkey.ctr"] = "128"
@@ -180,6 +182,18 @@ check("a new key resets the counter", N.install(fsys, "disk", { rec = good, keyH
 local devFs = fakeFs({ ["disk/.fleetkeys"] = "x", ["disk/ops.lua"] = "x" })
 check("CINDER's own machines are refused", N.inspect(devFs, "disk").kind == "dev")
 check("a customer's pass is not a unit", N.inspect(fakeFs({ ["disk/.pass"] = "sam" }), "disk").kind == "pass")
+check("any role but nav is one of CINDER's machines", N.inspect(fakeFs({ ["disk/.role"] = "drone\n" }), "disk").kind == "dev")
+check("so is a display-only centre", N.inspect(fakeFs({ ["disk/.role"] = "centre" }), "disk").kind == "dev")
+check("and a centre's key alone gives one away", N.inspect(fakeFs({ ["disk/.centrekey"] = "x" }), "disk").kind == "dev")
+-- the files a unit is made with are exactly what it pulls afterwards
+local MAN = assert(loadstring(assert(io.open(DIR .. "/../manifest.lua")):read("*a")))()
+local inMan, inFiles, gap = {}, {}, {}
+for _, f in ipairs(MAN.nav or {}) do inMan[f] = true end
+for _, f in ipairs(N.FILES) do inFiles[f] = true if not inMan[f] then gap[#gap + 1] = "manifest lacks " .. f end end
+for f in pairs(inMan) do if f ~= "startup.lua" and not inFiles[f] then gap[#gap + 1] = "N.FILES lacks " .. f end end
+check("the manifest's nav role is N.FILES plus startup.lua", inMan["startup.lua"] and #gap == 0, table.concat(gap, ", "))
+check("and has nothing that uploads or holds keys for others",
+  not inMan["upload.lua"] and not inMan["machine.lua"] and not inMan["seckey.lua"] and not inMan["paste.lua"])
 check("somebody's files", N.inspect(fakeFs({ ["disk/game.lua"] = "x" }), "disk").kind == "other")
 local missing = fakeFs({ ["disk/keep.lua"] = "mine", ["src/nav.lua"] = "x" })
 local okM, whyM = N.install(missing, "disk", { rec = good, keyHex = KH, src = "src" })

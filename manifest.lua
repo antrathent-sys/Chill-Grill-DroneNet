@@ -69,11 +69,33 @@ return {
   -- kiosk.lua as their startup and no updater or token on them at all.
   pocket = { "hail.lua", "lib/display.lua", "lib/hailui.lua", "lib/tui.lua" },
 
-  -- the CINDER traffic tower (AVIONICS.md): registers CINDER NAV units through
-  -- its disk drive, so it carries everything a unit runs, and answers their
-  -- pings (startup autorun tower). Never holds a fleet key.
-  tower = { "tower.lua", "lib/nav.lua", "lib/navui.lua", "nav.lua", "kiosk.lua", "lib/display.lua", "lib/tui.lua",
-            "lib/hailui.lua", "lib/towerui.lua" },     -- kiosk.lua looks for hailui (optional on a unit, which boots plainer without it)
+  -- the MASTER CINDER traffic tower (AVIONICS.md), inside CINDER's claims:
+  -- registers CINDER NAV units through its disk drive, so it carries
+  -- everything a unit runs, and answers their pings (startup autorun tower).
+  -- The one computer of the traffic service with common, so the one that can
+  -- push. Never holds a fleet key.
+  tower = { "tower.lua", "lib/nav.lua", "lib/navui.lua", "nav.lua", "lib/display.lua", "lib/tui.lua",
+            "lib/towerui.lua" },
+
+  -- BARE roles (startup.lua BARE): nothing from common - no uploads, no
+  -- machine folder, no key tools - and startup never touches a thruster or a
+  -- redstone output on them. They pull only this, and push nothing.
+
+  -- a display-only traffic centre, anywhere (tower centre add on the master,
+  -- startup autorun tower): the master's picture, answering no one
+  centre = { "startup.lua", "tower.lua", "lib/nav.lua", "lib/towerui.lua", "lib/display.lua", "lib/tui.lua",
+             "lib/seclink.lua",
+          "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
+          "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
+          "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua", "ccryptolib/internal/hw.lua" },
+
+  -- a CINDER NAV unit on somebody's vehicle (tower register writes it): pulls
+  -- these quietly behind the CINDER NAV boot screen, then runs nav; no shell
+  nav = { "startup.lua", "nav.lua", "lib/nav.lua", "lib/navui.lua", "lib/display.lua", "lib/tui.lua",
+          "lib/seclink.lua",
+          "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
+          "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
+          "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua", "ccryptolib/internal/hw.lua" },
 
   -- Alex's admin pocket: the fleet from the feed, trips of several legs, Go and
   -- Cancel, all asked of the base (seckey admin set disk, label it, run admin)

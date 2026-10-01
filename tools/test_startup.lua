@@ -390,17 +390,24 @@ for role, list in pairs(realMan) do
 end
 check("every file the manifest names exists", #missing == 0, table.concat(missing, ", "))
 
--- every dofile / shell.run inside a role's programs is carried by that role (or common)
+-- every dofile / shell.run inside a role's programs is carried by that role
+-- (or common, for any role but a BARE one, which takes nothing from it)
+local BARE = assert(loadstring("return " .. assert((readFile(SRC) or ""):match("local BARE = (%b{})"),
+  "startup.lua has no BARE list")))()
+-- what a BARE role can do without: startup's machine folder is skipped for
+-- it, and display.lua only uses names.lua under pcall (CINDER's unit names)
+local BARE_OPTIONAL = { ["startup.lua>lib/machine.lua"] = true, ["lib/display.lua>lib/names.lua"] = true }
 local gaps = {}
 for role, list in pairs(realMan) do
   if role ~= "common" then
     local has = {}
-    for _, n in ipairs(realMan.common) do has[n] = true end
+    if not BARE[role] then for _, n in ipairs(realMan.common) do has[n] = true end end
     for _, n in ipairs(list) do has[n] = true end
     for _, n in ipairs(list) do
       local src = readFile(ROOT .. n) or ""
       for dep in src:gmatch('dofile%s*,?%s*%(?%s*"([%w_/%.%-]+%.lua)"') do
-        if all[dep] and not has[dep] then gaps[#gaps + 1] = role .. ":" .. n .. " needs " .. dep end
+        local optional = BARE[role] and BARE_OPTIONAL[n .. ">" .. dep]
+        if all[dep] and not has[dep] and not optional then gaps[#gaps + 1] = role .. ":" .. n .. " needs " .. dep end
       end
       for prog in src:gmatch('shell%.run%(%s*"([%w_%-]+)"') do
         local dep = prog .. ".lua"
@@ -432,6 +439,30 @@ for role, list in pairs(realMan) do
   end
 end
 check("every role that runs hail can draw its boot screen", #bootGaps == 0, table.concat(bootGaps, "; "))
+local navBoot = {}
+for _, n in ipairs(realMan.nav or {}) do navBoot[n] = true end
+check("a nav unit can draw its own boot screen, and carries its updater",
+  navBoot["lib/display.lua"] and navBoot["lib/tui.lua"] and navBoot["lib/navui.lua"] and navBoot["startup.lua"])
+for role in pairs(BARE) do
+  local has = {}
+  for _, n in ipairs(realMan[role] or {}) do has[n] = true end
+  check("BARE role " .. role .. " is in the manifest, with its updater and nothing that pushes",
+    realMan[role] and has["startup.lua"] and not has["upload.lua"] and not has["machine.lua"])
+end
+
+print("a BARE role: its own files only, nothing touched at boot")
+local BMAN = [[return { common = { "startup.lua", "upload.lua", "machine.lua" },
+  nav = { "startup.lua", "nav.lua", "lib/navui.lua" }, drone = { "fly.lua" } }]]
+local thrTouched = 0
+local b1 = world({ manifest = BMAN, label = "nav-0001", files = { [".role"] = "nav\n", [".hold"] = "back" },
+                   thrusters = { { setPowerNormalized = function() thrTouched = thrTouched + 1 end,
+                                   setVector = function() thrTouched = thrTouched + 1 end } } })
+run(b1)
+local asked = table.concat(b1.fetched or {}, " ")
+check("pulls only its own list", b1.files["nav.lua"] and b1.files["lib/navui.lua"] and not b1.files["upload.lua"]
+  and not b1.files["machine.lua"], asked)
+check("asks for no machine folder and no tune", not asked:find("machines/", 1, true) and not asked:find("tunes/", 1, true), asked)
+check("touches no thruster and raises no redstone on someone's vehicle", thrTouched == 0 and next(b1.rs) == nil)
 
 print("a customer's program boots quietly")
 -- .autorun = hail at power-on: the boot screen, the update behind it, then
@@ -463,6 +494,31 @@ check("hail runs as the customer sees it", qb.loaded == "hail.lua" and qb.hailAr
 check("the update still ran, into the log instead of onto the screen",
   (qb.files[".startup.log"] or ""):find("role", 1, true) ~= nil and not printedHas(qb, "role:"))
 check("Ctrl+T gives the developer a shell", printedHas(qb, "starts it again"))
+local function quietNav()
+  local q = quietWorld(1)
+  q.files[".autorun"] = "nav"
+  q.files[".role"] = "nav"
+  local e = q.env
+  e.loadfile = function(path)
+    q.loaded = path
+    q.runsNav = (q.runsNav or 0) + 1
+    return function(...)
+      q.navArgs = { ... }
+      q.rawEvents = e.os.pullEvent == e.os.pullEventRaw
+      error("Terminated", 0)                   -- Ctrl+T, or anything else that stops it
+    end
+  end
+  e.os.pullEventRaw = function() return "terminate" end
+  -- the restart's pause is where the test gets out of the loop
+  e.sleep = function() q.sleeps = (q.sleeps or 0) + 1 if q.sleeps >= 2 then error("stop the test", 0) end end
+  return q
+end
+local qn = quietNav()
+local okQN, errQN = run(qn)
+check("a nav unit boots quietly into nav", qn.loaded == "nav.lua" and qn.navArgs and qn.navArgs[1] == "kiosk"
+  and not printedHas(qn, "in 3 s"))
+check("with Ctrl+T only another event: no shell, it starts again", qn.rawEvents == true and qn.runsNav == 2
+  and not printedHas(qn, "starts it again"), tostring(errQN))
 local later = quietWorld(60)
 run(later)
 check("`startup` typed later is the developer's boot again", printedHas(later, "in 3 s"))

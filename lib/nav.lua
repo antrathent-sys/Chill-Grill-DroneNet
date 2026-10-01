@@ -440,8 +440,11 @@ end
 -- ------------------------------------------------------------ the install --
 
 -- Everything a unit runs: nav and the libraries it loads, the sealed link and
--- the crypto under it. kiosk.lua becomes its startup, as on a customer's pass:
--- no shell, no updater, no token. Updated by coming back to the tower.
+-- the crypto under it - the manifest's nav role, less startup.lua. The
+-- tower's own startup.lua becomes the unit's, with role nav: every boot it
+-- pulls just these from the repo, quietly behind the CINDER NAV boot screen,
+-- and runs nav with no shell. No token and nothing that pushes (Alex,
+-- 2026-10-01). The copies written here mean it runs before its first pull.
 N.FILES = {
   "nav.lua", "lib/nav.lua", "lib/navui.lua", "lib/display.lua", "lib/tui.lua", "lib/seclink.lua",
   "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
@@ -449,9 +452,12 @@ N.FILES = {
   "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua",
   "ccryptolib/internal/hw.lua",
 }
-N.STARTUP = "kiosk.lua"
--- Found on CINDER's own machines and never on a unit: refused untouched.
-N.DEV_MARKERS = { ".ghtoken", ".fleetkeys", ".dronekey", ".custkeys", ".navkeys", ".role", ".installed", ".autorun" }
+N.STARTUP = "startup.lua"
+N.ROLE = "nav"
+-- Found on CINDER's own machines and never on a unit: refused untouched. So
+-- is any role but nav.
+N.DEV_MARKERS = { ".ghtoken", ".fleetkeys", ".dronekey", ".custkeys", ".navkeys", ".adminkey", ".watchkey",
+                  ".centrekey", ".centrekeys" }
 N.KEEP = { [".navkey"] = true, [".navkey.ctr"] = true, [".nav"] = true, [".navpages"] = true }
 
 local function join(a, b) return (a == "" or a == nil) and b or (a .. "/" .. b) end
@@ -498,6 +504,10 @@ function N.inspect(fsys, mount)
   for _, m in ipairs(N.DEV_MARKERS) do
     if fsys.exists(join(mount, m)) then return { kind = "dev", marker = m, files = files } end
   end
+  local role = readAll(fsys, join(mount, ".role"))
+  if role and role:gsub("%s+", "") ~= N.ROLE then
+    return { kind = "dev", marker = ".role " .. role:gsub("%s+", ""), files = files }
+  end
   if fsys.exists(join(mount, ".nav")) then
     return { kind = "unit", me = N.parseUnitFile(readAll(fsys, join(mount, ".nav"))), files = files }
   end
@@ -533,10 +543,10 @@ function N.install(fsys, mount, opts)
     fsys.copy(join(src, f), dst)
   end
   fsys.copy(join(src, N.STARTUP), join(mount, "startup.lua"))
-  writeText(fsys, join(mount, ".kiosk"), "nav\n")
-  writeText(fsys, join(mount, ".pass"), rec.unit .. "\n")     -- kiosk keeps the label on it
+  writeText(fsys, join(mount, ".role"), N.ROLE .. "\n")
+  writeText(fsys, join(mount, ".autorun"), "nav\n")
   writeText(fsys, join(mount, ".nav"), N.unitFile(rec))
-  if opts.version then writeText(fsys, join(mount, ".version"), opts.version .. "\n") end
+  if opts.version then writeText(fsys, join(mount, ".commit"), opts.version:gsub("%s+$", "") .. "\n") end
   if opts.keyHex then
     writeText(fsys, join(mount, ".navkey"), opts.keyHex .. "\n")
     if fsys.exists(join(mount, ".navkey.ctr")) then fsys.delete(join(mount, ".navkey.ctr")) end

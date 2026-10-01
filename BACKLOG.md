@@ -36,6 +36,7 @@ is paid, and what happens to one that cannot be delivered.
 | 7 | **Fix the GPS array.** Run `gpscheck <x> <y> <z>` on a known block; a pocket fix at the rules pad was 13.5 blocks and 65 Y out. Open-ground pickups still ride on it. | risk 4 |
 | 8 | **A ride ending at a dock should ferry onto it, not land beside it.** One 01-24 ride set down on the dock structure at 23 degrees. | this session |
 | 9 | **An abort after a unit is assigned tells nobody** - the drone keeps coming. | queue work, 84a48c7 |
+| 10 | **Follow the customer to a platform.** Agreed 2026-10-01: if the 10 s `job.where` puts them on a known platform away from an open-ground pickup, re-send the unit there; never to new open ground (the 9x9 check was for the old spot). | hail, 06f7671 |
 
 ## Performance
 

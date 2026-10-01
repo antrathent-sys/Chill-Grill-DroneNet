@@ -25,11 +25,17 @@
 -- crashes or ends. `fly` is refused: a drone must never take off by itself
 -- because a chunk reloaded.
 --
--- A customer's program (hail) boots differently: straight into the CINDER
--- boot screen, the update running quietly behind its loading line, then the
--- program - no 3 s wait and no file list. What startup would have printed
--- goes to .startup.log. Ctrl+T is the way to the shell. Running `startup` by
--- hand later is the developer's boot again, output and all.
+-- A customer's program (hail, nav) boots differently: straight into the
+-- CINDER boot screen, the update running quietly behind its loading line,
+-- then the program - no 3 s wait and no file list. What startup would have
+-- printed goes to .startup.log. On Alex's hail pocket Ctrl+T is the way to the
+-- shell, and `startup` typed later is the developer's boot again; a CINDER NAV
+-- unit on someone's vehicle has no shell at all (Ctrl+T does nothing).
+--
+-- BARE roles - a CINDER NAV unit, a display-only traffic centre - take
+-- nothing from the manifest's common list (no uploads, no machine folder),
+-- never have a thruster or a redstone output touched at boot, and fetch
+-- nothing but their own files. They pull; they never push.
 local REPO   = "antrathent-sys/Chill-Grill-DroneNet"
 local BRANCH = "main"
 -- What to pull is manifest.lua in the repo, by this computer's role; there is
@@ -40,11 +46,23 @@ local INSTALLED_FILE = ".installed"  -- the files startup put here, one per line
 local MANIFEST = "manifest.lua"
 local HOLD_FILE = ".hold"            -- the side to raise at every boot
 local HOLD_SIDES = { top = true, bottom = true, left = true, right = true, front = true, back = true }
+local BARE = { nav = true, centre = true }
+
+-- this computer's role as it stands, before any update (a BARE one is
+-- somebody else's vehicle, or a screen: nothing at boot may touch it)
+local roleNow = ""
+if fs.exists(ROLE_FILE) then
+  local f = fs.open(ROLE_FILE, "r")
+  roleNow = f and (f.readAll() or ""):gsub("%s+", "") or ""
+  if f then f.close() end
+end
 
 -- ------------------------------------------------------------- quiet boot
 -- Decided before anything prints: a customer's program, at power-on (not a
--- `startup` typed later), with no arguments.
-local QUIET = { hail = true }
+-- `startup` typed later), with no arguments. ui draws its boot screen; shell
+-- says whether Ctrl+T gets one.
+local QUIET = { hail = { ui = "lib/hailui.lua", shell = true },
+                nav  = { ui = "lib/navui.lua", shell = false } }
 local BOOT_LOG = ".startup.log"
 local quietCmd = nil
 if select("#", ...) == 0 and os.clock() < 10 and fs.exists(AUTORUN_FILE) then
@@ -78,7 +96,7 @@ local bootDraw = function() end
 if quietCmd then
   local okD, D = pcall(dofile, "lib/display.lua")
   local okT, T = pcall(dofile, "lib/tui.lua")
-  local okU, UI = pcall(dofile, "lib/hailui.lua")
+  local okU, UI = pcall(dofile, QUIET[quietCmd:match("^(%S+)")].ui)
   if okD and okT and okU and type(D) == "table" and type(T) == "table"
      and type(UI) == "table" and UI.boot then
     T.apply(term)
@@ -165,7 +183,7 @@ if args[1] == "role" then
       f.close()
     end
     print("role: " .. (role ~= "" and role or "none - nothing is pulled until it has one"))
-    print("startup role <drone|base|depot|screens|tower|pad|pocket|admin|rs|all> to change it")
+    print("startup role <drone|base|depot|screens|tower|centre|nav|pad|pocket|admin|rs|all> to change it")
     return
   end
   roleRequest = args[2]:lower()
@@ -175,7 +193,7 @@ end
 -- the connector's side goes straight back up before anything slower (the
 -- update) runs. The connector lets go on its power going OFF, and only fly's
 -- undock step does that on purpose.
-if not roleRequest then
+if not roleRequest and not BARE[roleNow] then
   local side = heldSide()
   if HOLD_SIDES[side] and redstone then
     redstone.setOutput(side, true)
@@ -190,7 +208,7 @@ end
 -- legitimately has thrust on while this computer is booting (fly never
 -- autoruns), so every vector thruster is zeroed before anything slower runs.
 -- Peripheral calls only - the dock hold above is redstone and stays up.
-if not roleRequest and peripheral and peripheral.find then
+if not roleRequest and not BARE[roleNow] and peripheral and peripheral.find then
   local thrs = { peripheral.find("vector_thruster") }
   for _, thr in ipairs(thrs) do
     pcall(thr.setPowerNormalized, 0)
@@ -350,15 +368,16 @@ local function rolesOf(man)
   return keys
 end
 
--- common, then the named roles' files (every role when roles is nil), once each
-local function filesFor(man, roles)
+-- common, then the named roles' files (every role when roles is nil), once each.
+-- bare: the roles' own lists only (BARE)
+local function filesFor(man, roles, bare)
   local out, seen = {}, {}
   local function add(list)
     for _, name in ipairs(list or {}) do
       if not seen[name] then seen[name], out[#out + 1] = true, name end
     end
   end
-  add(man.common)
+  if not bare then add(man.common) end
   for _, k in ipairs(roles or rolesOf(man)) do add(man[k]) end
   return out
 end
@@ -389,7 +408,8 @@ end
 -- A role's own startup: what it runs on every boot, set when the role is
 -- given unless this computer already has an autorun. The base runs ops by
 -- hand; a pocket runs hail or admin when picked up; a pad is set by hand.
-local DEFAULT_AUTORUN = { drone = "beacon", depot = "depot", screens = "control", rs = "rsio", tower = "tower" }
+local DEFAULT_AUTORUN = { drone = "beacon", depot = "depot", screens = "control", rs = "rsio", tower = "tower",
+                          centre = "tower", nav = "nav" }
 
 -- and what a person does after the first pull, printed once
 local NEXT = {
@@ -408,7 +428,10 @@ local NEXT = {
   pocket  = { "hail - the developer's terminal; customers' passes come from provision on the base" },
   rs      = { "reboot - rsio runs on boot" },
   tower   = { "label set tower; fit an ender modem, a disk drive and a monitor",
-              "tower register registers a CINDER NAV unit; reboot - the tower runs on boot" },
+              "tower here <NAME> <x> <y> <z>; tower register registers a CINDER NAV unit; reboot - the tower runs on boot" },
+  centre  = { "label set <centre name>; fit an ender modem and monitors",
+              "on the master, this computer in its drive: tower centre add <NAME> <x> <y> <z>; reboot" },
+  nav     = { "a unit is made at the master tower: tower register, with this computer in its drive" },
   pad     = { "startup autorun taxipad" },
 }
 
@@ -451,7 +474,7 @@ local function update(roleRequest)
       wanted = filesFor(man)
       print("WARNING: role all is the whole repo, over 1 MB - only for a computer with the room")
     elseif role ~= "common" and man[role] then
-      wanted = filesFor(man, { role })
+      wanted = filesFor(man, { role }, BARE[role])
     else
       print(string.format("startup: no role '%s' (roles: %s, all)", role, table.concat(rolesOf(man), ", ")))
       return
@@ -519,7 +542,8 @@ local function update(roleRequest)
   -- without a word, which is why the repo wins and says so.
   --
   -- tunes/<name>.lua still works, for the drones that came before folders.
-  do
+  -- A BARE role has no folder and asks for none.
+  if not BARE[role] then
     local me = (os.getComputerLabel and os.getComputerLabel())
                or ("drone-" .. tostring(os.getComputerID and os.getComputerID() or "?"))
     local okM, MACHINE = pcall(dofile, "lib/machine.lua")
@@ -620,12 +644,15 @@ if quietCmd then
   bootDraw(1)
   if bootLog then pcall(bootLog.close) bootLog = nil end
   local prog = quietCmd:match("^(%S+)")
+  -- no shell for this one: Ctrl+T is just another event, and the program
+  -- restarts behind the boot screen whatever stops it
+  if not QUIET[prog].shell then os.pullEvent = os.pullEventRaw end
   while true do
     local env = setmetatable({ shell = shell, multishell = multishell }, { __index = _G })
     local fn, lerr = loadfile(prog .. ".lua", nil, env)
     local ok, err
     if fn then ok, err = pcall(fn, "kiosk") else ok, err = false, lerr end
-    if not ok and tostring(err) == "Terminated" then
+    if not ok and tostring(err) == "Terminated" and QUIET[prog].shell then
       for i = 0, 15 do
         pcall(term.setPaletteColour, 2 ^ i, term.nativePaletteColour(2 ^ i))
       end

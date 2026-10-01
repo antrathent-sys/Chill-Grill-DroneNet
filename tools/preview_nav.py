@@ -6,7 +6,7 @@
 The unit (lib/navui.lua): every page on a one-block screen (15x10 at text
 scale 0.5) - speed, height, heading, radar, status - then the overview on a
 2x1 strip and a 2x2 panel, and the states that matter (an advisory, no tower,
-distress, unregistered). With --tower, the tower's own screens
+distress, unregistered) and the boot screen startup draws. With --tower, the tower's own screens
 (lib/towerui.lua): the radar on a 3x3 monitor (57x38) and the board. Drawn
 with lib/tui.lua's palette through tools/ccfont.py, the renderer checked
 against in-game screenshots. Needs lupa and Pillow.
@@ -65,6 +65,7 @@ function(root, which)
     page(36, 10, air(), "radar", "2x1 radar")
     page(36, 24, air({ traffic = { hawk, barge, tug } }), "overview", "2x2 overview")
     page(36, 24, air({ traffic = { hawk, barge, tug } }), "radar", "2x2 radar")
+    add(51, 19, "boot, on the computer itself", function(c) UI.boot(T, c, { frac = 0.6, ver = "f6affcc" }) end)
   else
     local contacts = {
       { n = 1, reg = "CR-0001", call = "FALCON", kind = "air", x = 2497 + 640, y = 214, z = -3297 + 300, spd = 80, hdg = 70, st = "move", t = 99 },

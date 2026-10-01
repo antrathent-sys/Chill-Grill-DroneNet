@@ -5,6 +5,7 @@
 --   M.render(T, c, view, page) -> hit    draw one page on a lib/display.lua canvas
 --   M.pages(kind, w)                     the pages a screen of that width cycles through
 --   M.onSos(hit, x, y)                   was a touch on the distress key?
+--   M.boot(T, c, view)                   the boot screen startup.lua draws (view.frac, view.ver)
 --
 -- Every screen fitted to a unit shows one page, and a touch anywhere but the
 -- SOS key moves it to the next; each screen keeps its own (Alex, 2026-10-01:
@@ -31,6 +32,22 @@
 -- hit: { sos = { x1, x2, y } }. Pure; tools/test_nav.lua.
 
 local M = {}
+
+-- The boot screen, on the computer's own screen while startup pulls the
+-- update behind it: the masthead, a filling line, the build in the corner.
+function M.boot(T, c, view)
+  local w, h = c.w, c.h
+  c:clear()
+  local after = T.masthead(c, math.max(1, math.floor(h / 2) - 3), "CINDER", T.C.text, "NAV")
+  local bw = math.max(6, w - 10)
+  local x = math.floor((w - bw) / 2) + 1
+  local py = after * 3 + 2
+  local px0, px1 = (x - 1) * 2 + 1, (x - 1 + bw) * 2
+  c:line(px0, py, px1, py, T.C.rule)
+  local fill = math.floor((px1 - px0 + 1) * math.max(0, math.min(1, view.frac or 0)))
+  if fill > 0 then c:line(px0, py, px0 + fill - 1, py, T.C.accent) end
+  if view.ver then c:text(2, h, "REV " .. tostring(view.ver):upper():sub(1, 7), T.C.rule) end
+end
 
 local floor, abs, max, min = math.floor, math.abs, math.max, math.min
 local RANGE = 1000            -- the radar's ring, as far as a pong's traffic reaches

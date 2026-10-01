@@ -67,7 +67,7 @@ print("registering a unit")
 local function towerWorld(lines)
   local w = withFs(W.new(DIR, { label = "tower", S = S, lines = lines }))
   for _, f in ipairs(N.FILES) do w.files[f] = readRepo(f) end
-  w.files["kiosk.lua"] = readRepo("kiosk.lua")
+  w.files["startup.lua"] = readRepo("startup.lua")
   w.ejected, w.labelled = 0, nil
   w.periph.drive_0 = { type = "drive", m = {
     hasData = function() return true end, getMountPath = function() return "disk" end,
@@ -84,8 +84,9 @@ check("registered: a record, a key, a log line", w.err == nil and #recs == 1 and
   and recs[1].kind == "sea" and recs[1].call == "SEA WOLF" and recs[1].owner == "alex_r"
   and (w.files[".navkeys"] or ""):find("nav-0001=" .. HEX3, 1, true)
   and (w.files["navlog.csv"] or ""):find(",CR-0001,nav-0001,SEA WOLF,registered,", 1, true), w.err or w.text)
-check("the unit has its software, key and identity, and kiosk as its startup", w.files["disk/nav.lua"]
-  and w.files["disk/.navkey"] == HEX3 .. "\n" and w.files["disk/startup.lua"] == readRepo("kiosk.lua")
+check("the unit has its software, key and identity, and the updater as its startup, role nav", w.files["disk/nav.lua"]
+  and w.files["disk/.navkey"] == HEX3 .. "\n" and w.files["disk/startup.lua"] == readRepo("startup.lua")
+  and w.files["disk/.role"] == "nav\n" and w.files["disk/.autorun"] == "nav\n"
   and N.parseUnitFile(w.files["disk/.nav"]).unit == "nav-0001")
 check("labelled, ejected, and told what to fit", w.labelled == "nav-0001" and w.ejected == 1
   and w.text:find("REGISTERED CR-0001  SEA WOLF  VESSEL  for alex_r", 1, true), w.text)
