@@ -188,9 +188,9 @@ check("a missing source file stops it before anything is deleted", not okM and w
 check("no key on the unit and none given is refused", not N.install(fakeFs(copy(src)), "disk", { rec = good, src = "src" }))
 
 print("the screen")
-local function shot(w, h, view)
+local function shot(w, h, view, page)
   local c = D.canvas(w, h)
-  local hit = UI.render(T, c, view)
+  local hit = UI.render(T, c, view, page)
   local rows = {}
   for y = 1, h do rows[y] = (c:row(y)):gsub("[\128-\255]", " ") end
   return table.concat(rows, "\n"), hit, c
@@ -221,9 +221,68 @@ local subTxt = shot(36, 10, view("sub"))
 check("a submarine shows depth", subTxt:find("DEPTH", 1, true) and not subTxt:find("ALT", 1, true), subTxt)
 local boatTxt = shot(36, 10, view("sea"))
 check("a boat shows heading big and its position", boatTxt:find("HDG", 1, true) and boatTxt:find("POS 812 -3300", 1, true), boatTxt)
-local tiny = shot(15, 10, view("air"))
-check("one block: still speed, height and the key", tiny:find("SPD", 1, true) and tiny:find("ALT", 1, true)
-  and tiny:find("147", 1, true) and tiny:find("SOS", 1, true), tiny)
+print("pages")
+check("a one-block screen cycles speed, height, heading, radar, status", table.concat(UI.pages("air", 15), ",")
+  == "speed,height,heading,radar,status")
+check("a wide one starts on the overview", UI.pages("air", 36)[1] == "overview" and #UI.pages("air", 36) == 6)
+check("a boat has no height page", table.concat(UI.pages("sea", 15), ",") == "speed,heading,radar,status")
+check("a land vehicle puts heading before height", UI.pages("land", 15)[2] == "heading")
+check("the next page, and round again", UI.nextPage("air", 15, "speed") == "height"
+  and UI.nextPage("air", 15, "status") == "speed" and UI.nextPage("air", 15, "nonsense") == "speed")
+local sp = shot(15, 10, view("air"), "speed")
+check("speed: the title, which page of how many, B/S, heading under it, the key", sp:find("SPEED", 1, true)
+  and sp:find("1/5", 1, true) and sp:find("B/S", 1, true) and sp:find("HDG 037", 1, true)
+  and sp:find("TOWER", 1, true) and sp:find("SOS", 1, true), sp)
+local ht = shot(15, 10, view("air"), "height")
+check("height: ALTITUDE, Y and the climb", ht:find("ALTITUDE", 1, true) and ht:find("2/5", 1, true)
+  and ht:find("V/S +1.5", 1, true), ht)
+local dp = shot(15, 10, view("sub"), "height")
+check("a submarine's height page is depth below sea", dp:find("DEPTH", 1, true) and dp:find("BELOW SEA", 1, true), dp)
+local hd = shot(15, 10, view("air"), "heading")
+check("heading: the compass point in words", hd:find("HEADING", 1, true) and hd:find("NORTHEAST", 1, true), hd)
+local high = shot(15, 10, view("air", { r = N.reading({ x = 0, y = 1079, z = 0 }, nil) }), "height")
+check("a four-figure height still fits a block", high:find("ALTITUDE", 1, true), high)
+local st = shot(15, 10, view("air", { centres = N.centresFrom(N.reading({ x = 812, y = 147, z = -3300 }, nil),
+  { { name = "CHI", x = 2000, y = 70, z = -3300 }, { name = "NORTH", x = 812, y = 80, z = -9000 } }) }), "status")
+check("status: callsign, type, tower, traffic, the nearest centre and its direction", st:find("FALCON", 1, true)
+  and st:find("AIRCRAFT", 1, true) and st:find("TOWER CONTACT", 1, true) and st:find("TRAFFIC 1", 1, true)
+  and st:find("CHI 1.2K E", 1, true) and st:find("CR-0001", 1, true), st)
+local stNone = shot(15, 10, view("air"), "status")
+check("...or says it knows of none", stNone:find("NO CENTRE KNOWN", 1, true), stNone)
+local function pixelsOf(c, col)
+  local n = 0
+  for _, v in pairs(c.px) do if v == col then n = n + 1 end end
+  return n
+end
+local _, _, rc = shot(15, 10, view("air", { traffic = { { call = "HAWK", brg = 0, dist = 500, dy = 0, warn = true },
+  { call = "BARGE", brg = 180, dist = 900, dy = 0 } },
+  centres = { { name = "CHI", brg = 90, dist = 400 }, { name = "FAR", brg = 0, dist = 5000 } } }), "radar")
+local rt = shot(15, 10, view("air"), "radar")
+check("radar: RADAR and its range in the title", rt:find("RADAR", 1, true) and rt:find("1K", 1, true), rt)
+check("...a ring, you, a dot per vehicle (warned in rust), centres in green, nothing past the ring",
+  pixelsOf(rc, T.C.rule) > 20 and pixelsOf(rc, T.C.warn) == 4 and pixelsOf(rc, T.C.ok) == 4
+  and pixelsOf(rc, T.C.text) >= 9)
+local rl = shot(15, 10, view("air", { link = "none", traffic = {} }), "radar")
+check("...and NO TOWER when it has no picture", rl:find("NO TOWER", 1, true), rl)
+local adv = shot(15, 10, view("air", { adv = "TRAFFIC 12 O'CLOCK 300 SAME LEVEL" }), "speed")
+check("an advisory on every page, shortened to fit a block", adv:find("TFC 12H 300", 1, true), adv)
+local advR = shot(15, 10, view("air", { adv = "TRAFFIC 12 O'CLOCK 300 SAME LEVEL" }), "radar")
+check("...the radar too", advR:find("TFC 12H 300", 1, true), advR)
+for _, kind in ipairs(N.TYPE_ORDER) do
+  for _, w in ipairs({ 15, 36, 57 }) do
+    for _, page in ipairs(UI.pages(kind, w)) do
+      for _, h in ipairs({ 10, 24, 38 }) do
+        local okP, txt, hit = pcall(shot, w, h, view(kind), page)
+        if not (okP and hit.sos and hit.sos.y == h and hit.page == page) then
+          check(string.format("%s %s at %dx%d draws with the key", kind, page, w, h), false, txt)
+        end
+      end
+    end
+  end
+end
+check("every page of every vehicle draws at every size, with the key on its bottom row", true)
+local def = shot(36, 10, view("air"))
+check("no page given: a wide screen shows the overview", def:find("CINDER NAV", 1, true) and def:find("SPD B/S", 1, true), def)
 local panel = shot(36, 24, view("air", { traffic = { { call = "HAWK", reg = "CR-0002", kind = "air", brg = 90,
   dist = 1200, dy = -20, warn = true } }, adv = "TRAFFIC 3 O'CLOCK 1.2K BELOW" }))
 check("a panel lists traffic by clock, distance and height", panel:find("HAWK", 1, true) and panel:find("1.2K", 1, true)
@@ -239,6 +298,81 @@ check("unregistered says where to take it", unreg:find("UNREGISTERED", 1, true) 
 local still = shot(36, 10, view("air", { r = N.reading({ x = 0, y = 70, z = 0 }, nil), craft = false }))
 check("no vehicle: says so, heading blank", still:find("NO CRAFT", 1, true) and still:find("HDG ---", 1, true), still)
 
+
+print("centres")
+check("a centre's name: capitals, letters digits and dashes", N.validCentre(" chi ") == "CHI"
+  and N.validCentre("north-2") == "NORTH-2" and not N.validCentre("x") and not N.validCentre("a b")
+  and N.centreId("CHI") == "ctr-chi")
+local cs2 = N.parseCentres(N.centresString({ { name = "chi", x = 2497.4, y = 70, z = -3297.6 },
+  { name = "NORTH", x = 1200, y = 80, z = -400 }, { name = "?", x = 1, y = 1, z = 1 } }))
+check("centres round-trip, the bad one dropped", #cs2 == 2 and cs2[1].name == "CHI" and cs2[1].z == -3298
+  and cs2[2].x == 1200)
+local near = N.centresFrom({ x = 1200, y = 70, z = 0 }, cs2)
+check("nearest first, with bearing and distance", near[1].name == "NORTH" and near[1].dist == 400
+  and near[1].brg == 0 and near[2].name == "CHI")
+check("compass points", N.cardinal(0) == "N" and N.cardinal(44) == "NE" and N.cardinal(181) == "S"
+  and N.cardinal(300) == "NW" and N.cardinal(359) == "N")
+local cf = N.parseCentreFile(N.centreFile({ name = "NORTH", x = 1200, y = 80, z = -400, master = "CHI" }))
+check("a centre's own file", cf and cf.name == "NORTH" and cf.x == 1200 and cf.z == -400 and cf.master == "CHI")
+check("...and nonsense is not one", N.parseCentreFile("name=?\n") == nil and N.parseCentreFile(nil) == nil)
+local pp = N.parsePong(N.pong({}, nil, { centres = cs2 }))
+check("a pong carries the centres", #pp.centres == 2 and pp.centres[1].name == "CHI")
+local pcs = {}
+N.track(pcs, rec(1, "FALCON"), N.ping(N.reading({ x = 10, y = 90, z = 20 }, { x = 5, y = 0, z = 0 })), 100)
+N.track(pcs, rec(2, "HAWK", "sea"), N.ping(N.reading({ x = -50, y = 63, z = 0 }, nil), "sos"), 95)
+N.track(pcs, rec(3, "GONE"), N.ping(N.reading({ x = 0, y = 0, z = 0 }, nil)), 100 - N.PIC_AWAY - 10)
+local pic = N.picture(pcs, cs2, 100)
+local back3 = N.parsePicture(pic, 1000)
+check("the master's picture: live and recently away contacts, not long gone", back3 and #back3.contacts == 2
+  and #back3.centres == 2, pic.ct)
+local byCall = {}
+for _, ct in ipairs(back3.contacts) do byCall[ct.call] = ct end
+check("...each with position, speed, heading, state, and how long ago", byCall.FALCON and byCall.FALCON.x == 10
+  and byCall.FALCON.spd == 5 and byCall.FALCON.hdg == 90 and byCall.FALCON.t == 1000
+  and byCall.HAWK.st == "sos" and byCall.HAWK.kind == "sea" and byCall.HAWK.t == 995 and byCall.HAWK.hdg == nil)
+check("not a picture is nil", N.parsePicture({ type = "nav.pong" }) == nil)
+
+print("the tower's screens")
+local TU = dofile(DIR .. "/../lib/towerui.lua")
+check("the radar wants a 3x3 or bigger", TU.wantsRadar(57, 38) and TU.wantsRadar(78, 52) and not TU.wantsRadar(36, 24))
+local function tshot(fn, w, h, v)
+  local c = D.canvas(w, h)
+  TU[fn](T, c, v)
+  local rows = {}
+  for y = 1, h do rows[y] = (c:row(y)):gsub("[\128-\255]", " ") end
+  return table.concat(rows, "\n"), c
+end
+local tv = { name = "CHI", x = 0, z = 0, range = 2000, now = 100, regs = 4, centres = {
+    { name = "CHI", x = 0, z = 0 }, { name = "NORTH", x = 0, z = -1500 }, { name = "FAR", x = 9000, z = 0 } },
+  contacts = {
+    { n = 1, reg = "CR-0001", call = "FALCON", kind = "air", x = 600, y = 210, z = 300, spd = 80, hdg = 90, st = "move", t = 99 },
+    { n = 2, reg = "CR-0002", call = "HAWK", kind = "air", x = -900, y = 150, z = 400, spd = 0, st = "sos", t = 98 },
+    { n = 3, reg = "CR-0003", call = "OUTSIDE", kind = "sea", x = 5000, y = 63, z = 0, spd = 9, hdg = 0, st = "move", t = 99 },
+    { n = 4, reg = "CR-0004", call = "PACKED", kind = "land", x = 100, y = 70, z = 100, spd = 0, st = "park", t = 10 } } }
+local rtxt, rcan = tshot("radar", 57, 38, tv)
+check("the radar: who, the range, how many live", rtxt:find("CINDER TRAFFIC  CHI", 1, true) and rtxt:find("RANGE 2K", 1, true)
+  and rtxt:find("3 LIVE", 1, true), rtxt)
+check("...north, the rings' ranges, a label for each vehicle on it, distress in red",
+  rtxt:find("N", 1, true) and rtxt:find("1K", 1, true) and rtxt:find("FALCON", 1, true)
+  and rtxt:find("SOS HAWK", 1, true), rtxt)
+check("...other centres in range by name, nothing off the scope or away", rtxt:find("NORTH", 1, true)
+  and not rtxt:find("FAR", 1, true) and not rtxt:find("OUTSIDE", 1, true) and not rtxt:find("PACKED", 1, true), rtxt)
+local reds = 0
+for _, v in pairs(rcan.px) do if v == T.C.accent then reds = reds + 1 end end
+check("...the distress dot drawn red", reds == 4, reds)
+local unset = tshot("radar", 57, 38, { name = "TOWER", range = 2000, now = 0, contacts = {} })
+check("a tower that does not know where it is says how to tell it", unset:find("POSITION IS NOT SET", 1, true)
+  and unset:find("tower here", 1, true), unset)
+local btxt = tshot("board", 51, 19, tv)
+local hawkRow, falconRow, packedRow = btxt:find("CR-0002", 1, true), btxt:find("CR-0001", 1, true), btxt:find("PACKED", 1, true)
+check("the board: distress first, then live, then away with how long ago", hawkRow and falconRow and packedRow
+  and hawkRow < falconRow and falconRow < packedRow and btxt:find("AWAY", 1, true) and btxt:find("1M", 1, true)
+  and btxt:find("4 REG", 1, true), btxt)
+local narrow = tshot("board", 36, 24, tv)
+check("...and a narrower one keeps callsign, state, speed and height", narrow:find("FALCON", 1, true)
+  and narrow:find("MOVE", 1, true) and narrow:find("210", 1, true), narrow)
+local fed = tshot("radar", 57, 38, { name = "NORTH", x = 0, z = 0, range = 2000, now = 0, contacts = {}, feed = "none" })
+check("a centre that hears nothing from its master says so", fed:find("NO FEED FROM MASTER", 1, true), fed)
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("nav tests failed", 0) end

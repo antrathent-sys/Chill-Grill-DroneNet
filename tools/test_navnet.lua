@@ -252,10 +252,39 @@ check("...a second sends at once", sosPing)
 check("...and the tower's acknowledgement shows", (seen.heard or ""):find("SOS HEARD", 1, true), seen.heard)
 
 local u4 = unitWorld()
+u4.at(0.7, function(world) seen.first = screen(world) return { "noop" } end)
 u4.at(1, { "monitor_touch", "monitor_0", 5, 10 })
 u4.at(1.5, function(world) seen.miss = screen(world) return { "noop" } end)
 u4 = u4:run("nav.lua", { "kiosk" }, 2)
-check("a touch anywhere else does nothing", not (seen.miss or ""):find("TOUCH AGAIN", 1, true), seen.miss)
+check("a wide screen starts on the overview", (seen.first or ""):find("CINDER NAV", 1, true), seen.first)
+check("a touch anywhere but SOS shows the next page, and arms nothing", (seen.miss or ""):find("SPEED", 1, true)
+  and (seen.miss or ""):find("2/6", 1, true) and not (seen.miss or ""):find("TOUCH AGAIN", 1, true), seen.miss)
+check("...and the screen keeps it", (u4.files[".navpages"] or ""):find("monitor_0=speed", 1, true), u4.files[".navpages"])
+
+-- two screens: each its own page, the second starting one along
+local u9 = unitWorld()
+local rows2, cy2 = {}, 1
+u9.periph.monitor_1 = { type = "monitor", m = {
+  setTextScale = function() end, getSize = function() return 15, 10 end, setPaletteColour = function() end,
+  setCursorPos = function(_, y) cy2 = y end, blit = function(s) rows2[cy2] = s:gsub("[\128-\255]", " ") end } }
+local function screen2() local t = {} for y = 1, 10 do t[y] = rows2[y] or "" end return table.concat(t, "\n") end
+u9.at(0.7, function() seen.two = screen2() return { "noop" } end)
+u9.at(1, { "monitor_touch", "monitor_1", 3, 4 })
+u9.at(1.5, function(world) seen.twoA, seen.twoB = screen(world), screen2() return { "noop" } end)
+pongAt(u9, 1.8, {}, nil, { centres = { { name = "CHI", x = 100, y = 70, z = 1000 } } })
+u9.at(2, { "monitor_touch", "monitor_1", 3, 4 })
+u9.at(2.2, { "monitor_touch", "monitor_1", 3, 4 })
+u9.at(2.6, function() seen.twoS = screen2() return { "noop" } end)
+u9 = u9:run("nav.lua", { "kiosk" }, 3)
+check("a second screen starts one page along (a block: height)", (seen.two or ""):find("ALTITUDE", 1, true), seen.two)
+check("a touch moves only that screen on", (seen.twoB or ""):find("HEADING", 1, true)
+  and (seen.twoA or ""):find("CINDER NAV", 1, true), seen.twoB)
+check("the status page shows the nearest centre the tower named", (seen.twoS or ""):find("CHI 1.0K S", 1, true), seen.twoS)
+local u10 = unitWorld()
+u10.files[".navpages"] = "monitor_0=radar\n"
+u10.at(0.7, function(world) seen.kept = screen(world) return { "noop" } end)
+u10 = u10:run("nav.lua", { "kiosk" }, 1)
+check("after a restart each screen is back on its page", (seen.kept or ""):find("RADAR", 1, true), seen.kept)
 
 local u5 = unitWorld()
 u5.at(1, { "monitor_touch", "monitor_0", 33, 10 })
@@ -277,6 +306,109 @@ stopped.getLinearVelocity = function() return { x = 0, y = 0, z = 0 } end
 u8 = u8:run("nav.lua", { "kiosk" }, 12)
 check("standing still it pings every ten seconds", #u8.sent == 2 and u8.sent[2].t - u8.sent[1].t == N.PING_PARKED, #u8.sent)
 
+
+-- ======================================================================
+print("traffic centres")
+local function cmdWorld(args, setup, lines)
+  local cw = withFs(W.new(DIR, { label = "tower", S = S, lines = lines }))
+  if setup then setup(cw) end
+  return cw:run("tower.lua", args, 10)
+end
+local here = cmdWorld({ "here", "chi", "2497", "70", "-3297" })
+check("tower here: this master's name and place", (here.files["tower.cfg"] or ""):find("name=CHI", 1, true)
+  and (here.files["tower.cfg"] or ""):find("z=-3297", 1, true), here.text)
+local rangeW = cmdWorld({ "range", "3000" }, function(cw) cw.files["tower.cfg"] = here.files["tower.cfg"] end)
+check("tower range keeps the place", (rangeW.files["tower.cfg"] or ""):find("range=3000", 1, true)
+  and (rangeW.files["tower.cfg"] or ""):find("name=CHI", 1, true), rangeW.files["tower.cfg"])
+S.newKey = function() return KEY3 end
+local added = cmdWorld({ "centre", "add", "north", "1200", "80", "-400" }, function(cw)
+  cw.files["tower.cfg"] = here.files["tower.cfg"]
+  cw.ejected = 0
+  cw.periph.drive_0 = { type = "drive", m = { hasData = function() return true end,
+    getMountPath = function() return "disk" end, ejectDisk = function() cw.ejected = cw.ejected + 1 end,
+    setDiskLabel = function(l) cw.labelled = l end } }
+end)
+S.newKey = realNewKey
+check("tower centre add: its key and identity on the drive, its key and place here", added.err == nil
+  and added.files["disk/.centrekey"] == HEX3 .. "\n"
+  and N.parseCentreFile(added.files["disk/.centre"]).master == "CHI"
+  and (added.files[".centrekeys"] or ""):find("ctr-north=" .. HEX3, 1, true)
+  and (added.files["centres.lua"] or ""):find("NORTH=1200,80,-400", 1, true)
+  and added.labelled == "tower-north" and added.ejected == 1, added.err or added.text)
+local joined = cmdWorld({ "join" }, function(cw)
+  cw.files["disk/.centre"] = added.files["disk/.centre"]
+  cw.files["disk/.centrekey"] = added.files["disk/.centrekey"]
+  cw.periph.drive_0 = { type = "drive", m = { hasData = function() return true end, getMountPath = function() return "disk" end } }
+end)
+check("tower join on a centre: its identity off the floppy, the floppy wiped", joined.files[".centre"]
+  and joined.files[".centrekey"] == HEX3 .. "\n" and not joined.files["disk/.centrekey"], joined.text)
+
+-- the master: pongs name the centres, and the centre is fed the picture
+local function masterWorld()
+  local mw = runningTower(function(tw)
+    tw.files["tower.cfg"] = "name=CHI\nrange=2000\nx=0\ny=70\nz=0\n"
+    tw.files["centres.lua"] = "NORTH=1200,80,-400\n"
+    tw.files[".centrekeys"] = S.formatFleetKeys({ ["ctr-north"] = KEY3 }, S.CENTRE_HEADER)
+    tw.mrows = {}
+    local my = 1
+    tw.periph.monitor_9 = { type = "monitor", m = { setTextScale = function() end, setPaletteColour = function() end,
+      getSize = function() return 57, 38 end, setCursorPos = function(_, y) my = y end,
+      blit = function(s) tw.mrows[my] = s:gsub("[\128-\255]", " ") end } }
+  end)
+  return mw
+end
+local mw = masterWorld()
+pingAt(mw, 1, tx1, N.reading({ x = 300, y = 120, z = -200 }, { x = 10, y = 0, z = 0 }))
+mw = mw:run("tower.lua", {}, 7)
+local rxC, rxU2 = S.receiver(), S.receiver()
+local pongC, pics = nil, {}
+for _, s in ipairs(mw.sent) do
+  if s.env and s.env.d == S.DIR.TOWER_TO_NAV then
+    local b = rxU2.open(s.env, function() return KEY1 end, S.DIR.TOWER_TO_NAV, nil)
+    pongC = b and N.parsePong(b) or pongC
+  elseif s.env and s.env.d == S.DIR.TOWER_TO_CENTRE then
+    local b = rxC.open(s.env, function(id) return id == "ctr-north" and KEY3 or nil end, S.DIR.TOWER_TO_CENTRE, nil)
+    pics[#pics + 1] = b and N.parsePicture(b, 0)
+  end
+end
+check("a pong names every centre, the master first", pongC and #pongC.centres == 2 and pongC.centres[1].name == "CHI"
+  and pongC.centres[2].name == "NORTH", pongC and #pongC.centres)
+check("the centre is fed a sealed picture every two seconds, with what the master hears", #pics >= 3
+  and pics[#pics] and #pics[#pics].contacts == 1 and pics[#pics].contacts[1].call == "FALCON"
+  and #pics[#pics].centres == 2, #pics)
+local mscreen = table.concat(mw.mrows, "\n")
+check("the master's 3x3 monitor shows the radar, the unit on it", mscreen:find("RANGE 2K", 1, true)
+  and mscreen:find("FALCON", 1, true) and mscreen:find("NORTH", 1, true), mscreen)
+
+-- a display-only centre: shows what the master sends, answers no one
+local function centreWorld()
+  local cw = withFs(W.new(DIR, { label = "tower-north", S = S }))
+  cw.files[".centre"] = N.centreFile({ name = "NORTH", x = 1200, y = 80, z = -400, master = "CHI" })
+  cw.files[".centrekey"] = HEX3 .. "\n"
+  cw.sent, cw.mrows = {}, {}
+  radio(cw, "modem_0", cw.sent)
+  local my = 1
+  cw.periph.monitor_9 = { type = "monitor", m = { setTextScale = function() end, setPaletteColour = function() end,
+    getSize = function() return 57, 38 end, setCursorPos = function(_, y) my = y end,
+    blit = function(s) cw.mrows[my] = s:gsub("[\128-\255]", " ") end } }
+  return cw
+end
+local picTx = S.sender(KEY3, "ctr-north", S.DIR.TOWER_TO_CENTRE, nil)
+local cw = centreWorld()
+local pcs2 = {}
+N.track(pcs2, rec(1, "FALCON"), N.ping(N.reading({ x = 1500, y = 120, z = -400 }, { x = 10, y = 0, z = 0 })), 0)
+cw.at(1, function() return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL,
+  picTx.seal(N.picture(pcs2, { { name = "CHI", x = 0, y = 70, z = 0 }, { name = "NORTH", x = 1200, y = 80, z = -400 } }, 0)) } end)
+pingAt(cw, 2, tx1, N.reading({ x = 1500, y = 120, z = -400 }, nil))
+cw.at(3, function(world) seen.centre = table.concat(world.mrows, "\n") return { "noop" } end)
+cw = cw:run("tower.lua", {}, 4)
+check("a centre shows the master's traffic round its own position", (seen.centre or ""):find("CINDER TRAFFIC  NORTH", 1, true)
+  and (seen.centre or ""):find("FALCON", 1, true) and (seen.centre or ""):find("FEED", 1, true), seen.centre)
+check("...and answers no unit itself", #cw.sent == 0, #cw.sent)
+local cw2 = centreWorld():run("tower.lua", {}, 12)
+check("a centre with no feed says so", table.concat(cw2.mrows, "\n"):find("NO FEED FROM MASTER", 1, true))
+local cw3 = centreWorld():run("tower.lua", { "register" }, 3)
+check("a centre registers nothing: that is the master's", cw3.text:find("display only", 1, true), cw3.text)
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("navnet tests failed", 0) end

@@ -28,6 +28,10 @@ N.WARN_SECS = 30          -- an advisory when two would pass within WARN_DIST
 N.WARN_DIST = 40          --   inside WARN_SECS, and within WARN_DY of each
 N.WARN_DY = 30            --   other's height
 N.STALE = 60              -- seconds unheard: the tower shows it last seen, and it leaves traffic
+N.PIC_PERIOD = 2          -- seconds between the master's pictures to each display-only centre
+N.PIC_MAX = 100           -- contacts in one picture (a sealed body stays under seclink's 8 KB)
+N.PIC_AWAY = 3600         -- seconds: how long an away contact stays on a centre's board
+N.CENTRES_MAX = 8         -- centres a pong tells a unit about
 
 -- What a unit can be fitted to. The screen shows what suits each.
 N.TYPES = {
@@ -123,6 +127,7 @@ function N.pong(traffic, adv, opts)
   if adv then p.adv = tostring(adv):sub(1, 60) end
   if opts and opts.sos then p.sos = 1 end
   if opts and opts.msg then p.msg = tostring(opts.msg):sub(1, 60) end
+  if opts and opts.centres and #opts.centres > 0 then p.ctr = N.centresString(opts.centres) end
   return p
 end
 
@@ -130,12 +135,120 @@ end
 function N.parsePong(m)
   if type(m) ~= "table" or m.type ~= "nav.pong" then return nil end
   local out = { traffic = {}, adv = type(m.adv) == "string" and m.adv or nil, sos = m.sos == 1,
-                msg = type(m.msg) == "string" and m.msg or nil }
+                msg = type(m.msg) == "string" and m.msg or nil, centres = N.parseCentres(m.ctr) }
   for item in tostring(m.tr or ""):gmatch("[^;]+") do
     local call, reg, kind, brg, dist, dy, warn = item:match("^([^,]*),([^,]*),(%a+),(%-?%d+),(%d+),(%-?%d+),([01])$")
     if call then
       out.traffic[#out.traffic + 1] = { call = call, reg = reg, kind = kind, brg = tonumber(brg),
         dist = tonumber(dist), dy = tonumber(dy), warn = warn == "1" }
+    end
+  end
+  return out
+end
+
+-- ---------------------------------------------------------------- centres --
+-- Traffic centres: the master tower that hears every ping, and any number of
+-- display-only centres it feeds (Alex, 2026-10-01). Every unit is told where
+-- they all are, so its screen can show the nearest.
+
+--- A centre's name: 2 to 12 letters, digits or dashes, in capitals.
+function N.validCentre(s)
+  if type(s) ~= "string" then return nil end
+  s = s:gsub("^%s+", ""):gsub("%s+$", ""):upper()
+  if #s < 2 or #s > 12 or not s:match("^[%w%-]+$") then return nil end
+  return s
+end
+--- The id a centre's key is filed under and its packets carry.
+function N.centreId(name) return "ctr-" .. tostring(name):lower() end
+
+--- Centres as one string for a pong: "CHI,2497,70,-3297;NORTH,1200,80,-400".
+function N.centresString(list)
+  local parts = {}
+  for i = 1, math.min(#(list or {}), N.CENTRES_MAX) do
+    local c = list[i]
+    if N.validCentre(c.name) and num(c.x) and num(c.z) then
+      parts[#parts + 1] = string.format("%s,%d,%d,%d", N.validCentre(c.name), floor(c.x + 0.5),
+        floor((c.y or 0) + 0.5), floor(c.z + 0.5))
+    end
+  end
+  return table.concat(parts, ";")
+end
+function N.parseCentres(s)
+  local out = {}
+  for item in tostring(s or ""):gmatch("[^;]+") do
+    local name, x, y, z = item:match("^([%w%-]+),(%-?%d+),(%-?%d+),(%-?%d+)$")
+    if name and #out < N.CENTRES_MAX then
+      out[#out + 1] = { name = name, x = tonumber(x), y = tonumber(y), z = tonumber(z) }
+    end
+  end
+  return out
+end
+
+--- Every centre with its bearing and distance from a reading, nearest first.
+function N.centresFrom(r, centres)
+  local out = {}
+  if not (r and r.x) then return out end
+  for _, c in ipairs(centres or {}) do
+    local dx, dz = c.x - r.x, c.z - r.z
+    out[#out + 1] = { name = c.name, x = c.x, y = c.y, z = c.z, dist = sqrt(dx * dx + dz * dz),
+                      brg = N.headingOf(dx, dz) }
+  end
+  table.sort(out, function(a, b) return a.dist < b.dist end)
+  return out
+end
+
+N.CARDINALS = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
+N.CARDINAL_WORD = { N = "NORTH", NE = "NORTHEAST", E = "EAST", SE = "SOUTHEAST",
+                    S = "SOUTH", SW = "SOUTHWEST", W = "WEST", NW = "NORTHWEST" }
+--- A compass heading as one of eight points.
+function N.cardinal(brg)
+  if not brg then return "-" end
+  return N.CARDINALS[floor(((brg % 360) + 22.5) / 45) % 8 + 1]
+end
+
+--- A centre's own file: who it is, where, and which master feeds it.
+function N.centreFile(c)
+  return table.concat({ "name=" .. c.name, "x=" .. floor(c.x + 0.5), "y=" .. floor((c.y or 0) + 0.5),
+    "z=" .. floor(c.z + 0.5), "master=" .. tostring(c.master or "") }, "\n") .. "\n"
+end
+function N.parseCentreFile(text)
+  if type(text) ~= "string" then return nil end
+  local t = {}
+  for k, v in text:gmatch("(%w+)=([^\n]*)") do t[k] = v:gsub("%s+$", "") end
+  local name = N.validCentre(t.name)
+  local x, y, z = tonumber(t.x), tonumber(t.y), tonumber(t.z)
+  if not (name and x and z) then return nil end
+  return { name = name, x = x, y = y or 0, z = z, master = t.master ~= "" and t.master or nil }
+end
+
+--- The master's picture for one display-only centre: every contact live or
+-- recently away, and every centre. One sealed packet every PIC_PERIOD.
+function N.picture(contacts, centres, now)
+  local list = {}
+  for _, c in pairs(contacts or {}) do
+    if c.x and now - (c.t or -1e9) <= N.PIC_AWAY then list[#list + 1] = c end
+  end
+  table.sort(list, function(a, b) return (now - a.t) < (now - b.t) end)
+  local parts = {}
+  for i = 1, math.min(#list, N.PIC_MAX) do
+    local c = list[i]
+    parts[#parts + 1] = table.concat({ c.n, clean(c.call), c.kind or "air", floor(c.x + 0.5), floor(c.y + 0.5),
+      floor(c.z + 0.5), floor((c.spd or 0) + 0.5), c.hdg and floor(c.hdg + 0.5) % 360 or "",
+      c.st or "park", floor(now - c.t) }, ",")
+  end
+  return { type = "nav.pic", v = N.VERSION, ct = table.concat(parts, ";"), n = #parts,
+           cn = N.centresString(centres) }
+end
+function N.parsePicture(m, now)
+  if type(m) ~= "table" or m.type ~= "nav.pic" then return nil end
+  local out = { contacts = {}, centres = N.parseCentres(m.cn) }
+  for item in tostring(m.ct or ""):gmatch("[^;]+") do
+    local n, call, kind, x, y, z, spd, hdg, st, age =
+      item:match("^(%d+),([^,]*),(%a+),(%-?%d+),(%-?%d+),(%-?%d+),(%d+),(%d*),(%a+),(%d+)$")
+    if n and N.TYPES[kind] and N.STATES[st] then
+      out.contacts[#out.contacts + 1] = { n = tonumber(n), call = call, kind = kind, x = tonumber(x),
+        y = tonumber(y), z = tonumber(z), spd = tonumber(spd), hdg = tonumber(hdg), st = st,
+        t = (now or 0) - tonumber(age) }
     end
   end
   return out
@@ -339,7 +452,7 @@ N.FILES = {
 N.STARTUP = "kiosk.lua"
 -- Found on CINDER's own machines and never on a unit: refused untouched.
 N.DEV_MARKERS = { ".ghtoken", ".fleetkeys", ".dronekey", ".custkeys", ".navkeys", ".role", ".installed", ".autorun" }
-N.KEEP = { [".navkey"] = true, [".navkey.ctr"] = true, [".nav"] = true }
+N.KEEP = { [".navkey"] = true, [".navkey.ctr"] = true, [".nav"] = true, [".navpages"] = true }
 
 local function join(a, b) return (a == "" or a == nil) and b or (a .. "/" .. b) end
 local function readAll(fsys, path)

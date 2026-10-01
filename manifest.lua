@@ -73,7 +73,7 @@ return {
   -- its disk drive, so it carries everything a unit runs, and answers their
   -- pings (startup autorun tower). Never holds a fleet key.
   tower = { "tower.lua", "lib/nav.lua", "lib/navui.lua", "nav.lua", "kiosk.lua", "lib/display.lua", "lib/tui.lua",
-            "lib/hailui.lua" },     -- kiosk.lua looks for hailui (optional on a unit, which boots plainer without it)
+            "lib/hailui.lua", "lib/towerui.lua" },     -- kiosk.lua looks for hailui (optional on a unit, which boots plainer without it)
 
   -- Alex's admin pocket: the fleet from the feed, trips of several legs, Go and
   -- Cancel, all asked of the base (seckey admin set disk, label it, run admin)

@@ -16,17 +16,30 @@ Steps 1 to 3 of the traffic control below are in, 6 and 7 in part.
 
 ## Setting it up
 
-**The tower** - a computer of its own at CHI with an ender modem, a disk
-drive and a monitor:
+**The tower** - the master, a computer of its own at CHI with an ender
+modem, a disk drive and monitors (a 3x3 or bigger shows the radar, any other
+the board):
 
 ```
 wget run https://raw.githubusercontent.com/antrathent-sys/Chill-Grill-DroneNet/main/startup.lua role tower
 label set tower
 ```
 
-It autoruns `tower` from the next boot. `tower register` in a second tab
-registers a unit; `tower list`, `tower show CR-0001`, `tower revoke CR-0001`,
-`tower log`.
+It autoruns `tower` from the next boot. Tell it where it is, so every unit
+can be told and its radar centred: `tower here CHI 2497 70 -3297`, and
+`tower range 2000` for the radar's outer ring. `tower register` in a second
+tab registers a unit; `tower list`, `tower show CR-0001`, `tower revoke
+CR-0001`, `tower log`.
+
+**More traffic centres** - display only, anywhere (Alex, 2026-10-01: every
+ping still goes to the master). Put the new centre's computer, or a floppy
+for it, in the master's drive and run `tower centre add NORTH 1200 80 -400`.
+On the centre: the same `role tower` first command; with a floppy, `tower
+join`. It shows the master's picture centred on itself - the same radar and
+board - and answers no one. The master feeds each centre a sealed picture
+every 2 seconds; a centre that stops hearing it says `NO FEED FROM MASTER`.
+Every unit is told where all the centres are. `tower centre list`, `tower
+centre drop NORTH`.
 
 **A unit** - an advanced computer: put it in the tower's disk drive and run
 `tower register`. It asks the owner's player name, the vehicle type (air,
@@ -98,16 +111,32 @@ sends can ever fly somebody else's craft.
 ## What the owner sees
 
 The unit is a CINDER product and looks like one (`lib/tui.lua`, the brand
-book): cold, capitals, no shell for a casual owner.
+book): cold, capitals, no shell for a casual owner. `tools/preview_nav.py`
+renders every page.
 
-- **Instruments:** heading, ground speed, height above sea, climb.
-- **Traffic:** a radar circle with contacts by bearing and range, and a
-  short list - callsign, distance, height difference, closing.
-- **Advisories:** one line, the voice of the brand: `TRAFFIC 2 O'CLOCK 300
-  SAME LEVEL`, `ENTERING CHI CONTROL ZONE`.
-- **Distress:** one key. The tower raises it on every CINDER screen and a
-  unit can be sent to the position (the recovery transit in BRAND.md).
-- **Link:** `TOWER CONTACT` or `NO CONTACT`, and the registration.
+**Screens and pages (Alex, 2026-10-01).** Every advanced monitor fitted to the
+unit shows one page, and a touch anywhere but SOS moves it to the next. Each
+screen keeps its own page (saved on the unit, kept through restarts and
+updates), so one screen can cycle through everything, or four can be speed,
+height, radar and status for good. A new screen starts one page along from
+the screens before it. Monitors side by side merge into one; separate screens
+need a gap, or a wired modem to reach the computer.
+
+| page | on a one-block screen (15x10) |
+|---|---|
+| speed | speed big, heading under it |
+| height | height (Y level) big and climb; DEPTH below sea on a submarine; no height page on a boat |
+| heading | heading big and the compass point in words |
+| radar | **very simple**: a ring at 1 km, you in the middle, a dot for each vehicle (rust if it is on course to pass too close), a green dot for each traffic centre; your heading at the top |
+| status | callsign, type, tower link, traffic, the nearest centre with its distance and direction |
+
+A screen 30 or more wide starts on the overview (speed and height side by
+side; on a panel, the traffic list) and cycles through the same pages. Every
+page keeps the tower link and the SOS key on its bottom row, and an advisory
+across the row above, shortened to fit (`TFC 12H 310` on one block).
+
+- **Distress:** two touches on SOS, on any screen. The tower raises it, logs
+  it and acknowledges it (`SOS HEARD`); nearby units are told.
 
 ## Registration, and what CINDER collects
 
@@ -149,10 +178,12 @@ answering it within ten seconds.
 
 ## Traffic control, in the order it is built
 
-1. **The picture.** Every registered vehicle on the tower's own screen,
-   with last-seen for anything parked or out of range - **built**. CINDER's
-   own units, and the picture on the flight wall and the admin pocket - not
-   yet.
+1. **The picture.** Every registered vehicle on the tower's radar (3x3 or
+   bigger, north up, each vehicle a dot with a 30-second heading line and its
+   callsign, distress in red, other centres in green) and board, with
+   last-seen for anything away - **built**, on the master and on any number
+   of display-only centres it feeds. CINDER's own units, and the picture on
+   the flight wall and the admin pocket - not yet.
 2. **Traffic on every screen.** Each pong carries what is within 1,000
    blocks of that vehicle - **built**.
 3. **Advisories.** Pairs that would pass within 40 blocks inside 30 seconds,
@@ -203,6 +234,11 @@ answering it within ten seconds.
   cannot be touched.
 - **Keep the surface simple.** One screen, two big numbers, one key; three
   questions to register; a craft packed away is ordinary.
+- **Screens cycle by touch, and each keeps its own page**, so a player can
+  fit one or several. The unit's radar is very simple.
+- **Several traffic centres**: one master hears every ping; the others are
+  display only, and every unit is shown where they are.
+- **The tower's radar is a 3x3 monitor at least.**
 
 1. **CINDER supplies the kits.**
 2. **Registration is heavily encouraged**, not required.

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Render a CINDER NAV unit's screen as the monitor would show it.
+"""Render CINDER NAV's screens as the monitors would show them.
 
-    python tools/preview_nav.py [out.png]
+    python tools/preview_nav.py [out.png] [--tower out.png]
 
-A sheet of the screen at the sizes a unit may be fitted with (text scale 0.5:
-one block 15x10, a 2x1 strip 36x10, a 3x1 strip 57x10, a 2x2 panel 36x24),
-for each kind of vehicle and the states that matter: in contact with traffic
-and an advisory, no tower, distress armed, unregistered. Drawn with
-lib/navui.lua and lib/tui.lua's own palette through tools/ccfont.py, the
-renderer checked against in-game screenshots. Needs lupa and Pillow.
+The unit (lib/navui.lua): every page on a one-block screen (15x10 at text
+scale 0.5) - speed, height, heading, radar, status - then the overview on a
+2x1 strip and a 2x2 panel, and the states that matter (an advisory, no tower,
+distress, unregistered). With --tower, the tower's own screens
+(lib/towerui.lua): the radar on a 3x3 monitor (57x38) and the board. Drawn
+with lib/tui.lua's palette through tools/ccfont.py, the renderer checked
+against in-game screenshots. Needs lupa and Pillow.
 """
 import os, sys
 
@@ -19,52 +20,76 @@ import ccfont
 
 try:
     from lupa.lua51 import LuaRuntime
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image
 except ImportError:
     print("needs lupa and Pillow:  pip install lupa pillow", file=sys.stderr)
     sys.exit(2)
 
 RENDER = rb"""
-function(root)
+function(root, which)
   local D = dofile(root .. "/lib/display.lua")
   local T = dofile(root .. "/lib/tui.lua")
   local N = dofile(root .. "/lib/nav.lua")
   local UI = dofile(root .. "/lib/navui.lua")
-  local hawk = { call = "HAWK", reg = "CR-0002", kind = "air", brg = 20, dist = 310, dy = 3, warn = true }
-  local barge = { call = "BARGE", reg = "CR-0007", kind = "sea", brg = 200, dist = 880, dy = -84, warn = false }
-  local tug = { call = "SEA WOLF", reg = "CR-0011", kind = "sea", brg = 95, dist = 1400, dy = -84, warn = false }
-  local function v(kind, call, pos, vel, extra)
-    local view = { me = { reg = "CR-0001", call = call, kind = kind }, r = N.reading(pos, vel),
-                   link = "contact", craft = true, traffic = { hawk, barge } }
-    for k, x in pairs(extra or {}) do view[k] = x end
-    return view
+  local TU = dofile(root .. "/lib/towerui.lua")
+  local frames = {}
+  local function add(w, h, label, draw) frames[#frames + 1] = { w, h, label, draw } end
+  if which == "unit" then
+    local hawk = { call = "HAWK", reg = "CR-0002", kind = "air", brg = 20, dist = 310, dy = 3, warn = true }
+    local barge = { call = "BARGE", reg = "CR-0007", kind = "sea", brg = 200, dist = 700, dy = -84, warn = false }
+    local tug = { call = "SEA WOLF", reg = "CR-0011", kind = "sea", brg = 95, dist = 450, dy = -84, warn = false }
+    local function v(kind, call, pos, vel, extra)
+      local r = N.reading(pos, vel)
+      local view = { me = { reg = "CR-0001", call = call, kind = kind }, r = r, link = "contact", craft = true,
+                     traffic = { barge, tug },
+                     centres = N.centresFrom(r, { { name = "CHI", x = pos.x + 600, y = 70, z = pos.z + 300 },
+                                                  { name = "NORTH", x = pos.x, y = 80, z = pos.z - 4000 } }) }
+      for k, x in pairs(extra or {}) do view[k] = x end
+      return view
+    end
+    local air = function(extra) return v("air", "FALCON", { x = 812, y = 214, z = -3300 }, { x = 52, y = 2.4, z = -61 }, extra) end
+    local function page(w, h, view, p, label)
+      add(w, h, label, function(c) UI.render(T, c, view, p) end)
+    end
+    page(15, 10, air(), "speed", "1x1 speed")
+    page(15, 10, air(), "height", "1x1 altitude")
+    page(15, 10, air(), "heading", "1x1 heading")
+    page(15, 10, air(), "radar", "1x1 radar")
+    page(15, 10, air(), "status", "1x1 status")
+    page(15, 10, v("sub", "DEEP ONE", { x = 40, y = 22, z = -900 }, { x = 4, y = -0.8, z = 3 }), "height", "1x1 sub depth")
+    page(15, 10, air({ adv = "TRAFFIC 12 O'CLOCK 310 SAME LEVEL", traffic = { hawk, barge } }), "speed", "1x1 advisory")
+    page(15, 10, air({ adv = "TRAFFIC 12 O'CLOCK 310 SAME LEVEL", traffic = { hawk, barge } }), "radar", "1x1 radar, advisory")
+    page(15, 10, air({ sos = "armed" }), "speed", "1x1 SOS armed")
+    page(15, 10, air({ link = "none", traffic = {} }), "radar", "1x1 no tower")
+    page(36, 10, air({ adv = "TRAFFIC 12 O'CLOCK 310 SAME LEVEL", traffic = { hawk, barge } }), "overview", "2x1 overview")
+    page(36, 10, air(), "radar", "2x1 radar")
+    page(36, 24, air({ traffic = { hawk, barge, tug } }), "overview", "2x2 overview")
+    page(36, 24, air({ traffic = { hawk, barge, tug } }), "radar", "2x2 radar")
+  else
+    local contacts = {
+      { n = 1, reg = "CR-0001", call = "FALCON", kind = "air", x = 2497 + 640, y = 214, z = -3297 + 300, spd = 80, hdg = 70, st = "move", t = 99 },
+      { n = 2, reg = "CR-0002", call = "HAWK", kind = "air", x = 2497 - 900, y = 150, z = -3297 + 500, spd = 0, st = "sos", t = 98 },
+      { n = 7, reg = "CR-0007", call = "BARGE", kind = "sea", x = 2497 + 200, y = 63, z = -3297 - 1200, spd = 9, hdg = 200, st = "move", t = 97 },
+      { n = 9, reg = "CR-0009", call = "ROVER", kind = "land", x = 2497 - 300, y = 71, z = -3297 - 400, spd = 14, hdg = 300, st = "move", t = 99 },
+      { n = 11, reg = "CR-0011", call = "SEA WOLF", kind = "sea", x = 2497 + 1500, y = 63, z = -3297 + 900, spd = 0, st = "park", t = 99 },
+      { n = 4, reg = "CR-0004", call = "PACKED", kind = "land", x = 2500, y = 70, z = -3290, spd = 0, st = "park", t = -400 } }
+    local view = { name = "CHI", x = 2497, z = -3297, range = 2000, now = 100, regs = 14, contacts = contacts,
+                   centres = { { name = "CHI", x = 2497, z = -3297 }, { name = "NORTH", x = 2497 + 300, z = -3297 - 1600 } },
+                   lastEvent = "CR-0002 HAWK SOS" }
+    add(57, 38, "tower radar, 3x3", function(c) TU.radar(T, c, view) end)
+    add(51, 19, "tower board, its own screen", function(c) TU.board(T, c, view) end)
   end
-  local air = function(extra) return v("air", "FALCON", { x = 812, y = 214, z = -3300 }, { x = 52, y = 2.4, z = -61 }, extra) end
-  local frames = {
-    { 36, 10, air({ adv = "TRAFFIC 12 O'CLOCK 310 SAME LEVEL" }), "aircraft, strip 2x1 - advisory" },
-    { 36, 10, air({ traffic = { barge } }), "aircraft, strip 2x1 - traffic" },
-    { 57, 10, air({ traffic = { barge } }), "aircraft, strip 3x1" },
-    { 15, 10, air({ traffic = { barge } }), "aircraft, one block" },
-    { 36, 24, air({ traffic = { hawk, barge, tug } }), "aircraft, panel 2x2" },
-    { 36, 10, v("sub", "DEEP ONE", { x = 40, y = 22, z = -900 }, { x = 4, y = -0.8, z = 3 }, { traffic = { tug } }), "submarine" },
-    { 36, 10, v("sea", "SEA WOLF", { x = 2410, y = 63, z = -3120 }, { x = -9, y = 0, z = 0 }, { traffic = {} }), "vessel" },
-    { 36, 10, v("land", "ROVER", { x = 1900, y = 71, z = 360 }, { x = 0, y = 0, z = 12 }, { traffic = {} }), "land vehicle" },
-    { 36, 10, air({ link = "none", traffic = {} }), "no tower" },
-    { 36, 10, air({ sos = "armed" }), "distress armed" },
-    { 36, 10, air({ sos = "heard", traffic = {} }), "distress heard" },
-    { 36, 10, { me = { kind = "air" }, unregistered = true }, "unregistered" },
-  }
   local out, labels = {}, {}
   for i, f in ipairs(frames) do
     local c = D.canvas(f[1], f[2])
-    UI.render(T, c, f[3])
+    f[4](c)
     local rows = {}
     for y = 1, f[2] do
       local a, fg, b = c:row(y)
       rows[y] = a .. "\0" .. fg .. "\0" .. b
     end
     out[i] = table.concat(rows, "\n")
-    labels[i] = f[4]
+    labels[i] = f[3]
   end
   local pal = {}
   for k, x in pairs(T.PALETTE) do pal[#pal + 1] = k .. "=" .. string.format("%06x", x) end
@@ -73,30 +98,42 @@ end
 """
 
 
-def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "nav.png")
-    L = LuaRuntime(unpack_returned_tuples=True, encoding=None)
-    blob, labels, pal = L.eval(RENDER)(ROOT.replace("\\", "/").encode())
+def sheet(L, which, out, cols):
+    blob, labels, pal = L.eval(RENDER)(ROOT.replace("\\", "/").encode(), which.encode())
     palette = {"0": 0xF0F0F0, "f": 0x111111}
     for pair in pal.decode().split(","):
         k, v = pair.split("=")
         palette[k] = int(v, 16)
     imgs = [ccfont.draw(rows, palette, px=2, label=lab.decode())
             for rows, lab in zip(blob.split(b"\1"), labels.split(b"\1"))]
-    pad, cols = 12, 2
+    pad = 12
     rows = [imgs[i:i + cols] for i in range(0, len(imgs), cols)]
     width = max(sum(i.width for i in r) + pad * (len(r) + 1) for r in rows)
     height = sum(max(i.height for i in r) + pad for r in rows) + pad
-    sheet = Image.new("RGB", (width, height), (0, 0, 0))
+    img = Image.new("RGB", (width, height), (0, 0, 0))
     y = pad
     for r in rows:
         x = pad
         for im in r:
-            sheet.paste(im, (x, y))
+            img.paste(im, (x, y))
             x += im.width + pad
         y += max(i.height for i in r) + pad
-    sheet.save(out)
+    img.save(out)
     print("wrote " + out)
+
+
+def main():
+    args = sys.argv[1:]
+    tower = None
+    if "--tower" in args:
+        i = args.index("--tower")
+        tower = args[i + 1] if i + 1 < len(args) else os.path.join(HERE, "nav_tower.png")
+        del args[i:i + 2]
+    out = args[0] if args else os.path.join(HERE, "nav.png")
+    L = LuaRuntime(unpack_returned_tuples=True, encoding=None)
+    sheet(L, "unit", out, 5)
+    if tower:
+        sheet(L, "tower", tower, 2)
 
 
 if __name__ == "__main__":

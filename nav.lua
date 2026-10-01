@@ -2,10 +2,18 @@
 -- with one screen and an ender modem, supplied and registered by CINDER.
 --
 -- It reads where the vehicle is from Sable (CC: Sable's sublevel API), shows
--- speed, height or depth, heading and climb on the screen, and pings the
--- CINDER tower every few seconds, sealed with its own key. The tower answers
--- with the traffic near it and anything the driver should know. A touch on
--- SOS, then another, tells CINDER it is in distress.
+-- speed, height or depth, heading, a radar and its status on every screen
+-- fitted to it, and pings the CINDER tower every few seconds, sealed with its
+-- own key. The tower answers with the traffic near it, where the traffic
+-- centres are, and anything the driver should know. A touch on SOS, then
+-- another, tells CINDER it is in distress.
+--
+-- Screens: every advanced monitor attached (beside it, or on a wired modem)
+-- shows one page, and a touch anywhere but SOS moves it to the next. Each
+-- keeps its own page, saved in .navpages, so one screen can cycle through
+-- everything or four can be speed, height, radar and status for good. A new
+-- screen starts on the next page along from the ones before it. Monitors
+-- placed side by side merge into one; separate screens need a gap.
 --
 -- It is a consumer device. kiosk.lua is its startup (no shell, no updater),
 -- and it is updated by bringing it back to the tower. It takes no orders:
@@ -14,6 +22,7 @@
 --
 --   .nav      who it is: unit id, registration number, callsign, type, owner
 --   .navkey   its key (only ever speaks for this unit)
+--   .navpages which page each screen shows
 
 local N = dofile("lib/nav.lua")
 local UI = dofile("lib/navui.lua")
@@ -37,19 +46,38 @@ local view = { me = { reg = me and N.regNumber(me.n) or "", call = me and me.cal
                link = "search", traffic = {}, craft = false, unregistered = not (me and key) }
 
 -- ------------------------------------------------------------------ devices --
--- the first monitor and the first wireless (ender) modem, looked for again
--- whenever one goes missing
-local dev = { mon = nil, radio = nil, hit = {} }
+-- every monitor, each with its own page, and the first wireless (ender)
+-- modem; looked for again whenever one goes missing or another is fitted
+local PAGES_FILE = ".navpages"
+local dev = { mons = {}, radio = nil }
+local saved = {}
+for name, page in (readAll(PAGES_FILE) or ""):gmatch("([^=\n]+)=([%w]+)") do saved[name] = page end
+local function savePages()
+  local lines = {}
+  for name, m in pairs(dev.mons) do lines[#lines + 1] = name .. "=" .. m.page end
+  table.sort(lines)
+  local h = fs.open(PAGES_FILE, "w")
+  if h then h.write(table.concat(lines, "\n") .. "\n") h.close() end
+end
+local function monCount() local n = 0 for _ in pairs(dev.mons) do n = n + 1 end return n end
 local function findDevices()
-  if dev.mon and not peripheral.isPresent(dev.mon) then dev.mon = nil end
+  for name in pairs(dev.mons) do
+    if not peripheral.isPresent(name) then dev.mons[name] = nil end
+  end
   if dev.radio and not peripheral.isPresent(dev.radio) then dev.radio = nil end
   for _, n in ipairs(peripheral.getNames()) do
     local ty = peripheral.getType(n)
-    if not dev.mon and ty == "monitor" then
-      dev.mon = n
+    if ty == "monitor" and not dev.mons[n] then
       pcall(peripheral.call, n, "setTextScale", 0.5)
       T.apply({ setPaletteColour = function(...) return peripheral.call(n, "setPaletteColour", ...) end })
-      dev.canvas = nil
+      local okS, w = pcall(peripheral.call, n, "getSize")
+      w = okS and w or 15
+      local list = UI.pages(view.me.kind, w)
+      local page = saved[n]
+      local known = false
+      for _, p in ipairs(list) do if p == page then known = true end end
+      if not known then page = list[monCount() % #list + 1] end
+      dev.mons[n] = { page = page, hit = {} }
     elseif not dev.radio and ty == "modem" then
       local okW, wireless = pcall(peripheral.call, n, "isWireless")
       if okW and wireless then
@@ -68,7 +96,7 @@ local function status()
     "CINDER NAV",
     me and string.format("%s  %s  %s", N.regNumber(me.n), me.call, N.TYPES[me.kind].word) or "UNREGISTERED - TAKE THIS UNIT TO CINDER",
     "",
-    "screen: " .. (dev.mon or "NONE - fit an advanced monitor"),
+    "screens: " .. (monCount() > 0 and tostring(monCount()) or "NONE - fit an advanced monitor"),
     "radio:  " .. (dev.radio or "NONE - fit an ender modem"),
     "tower:  " .. (({ contact = "in contact", none = "no contact", search = "calling" })[view.link] or "?"),
     "craft:  " .. (view.craft and "on a vehicle" or "not on a vehicle"),
@@ -81,18 +109,19 @@ local function status()
   end
 end
 
+local centres = {}          -- where the traffic centres are, from the last pong
 local function redraw()
-  if dev.mon then
-    local okS, w, h = pcall(peripheral.call, dev.mon, "getSize")
+  view.centres = N.centresFrom(view.r, centres)
+  for name, m in pairs(dev.mons) do
+    local okS, w, h = pcall(peripheral.call, name, "getSize")
     if okS and w then
-      if not dev.canvas or dev.canvas.w ~= w or dev.canvas.h ~= h then dev.canvas = D.canvas(w, h) end
-      local c = dev.canvas
+      if not m.canvas or m.canvas.w ~= w or m.canvas.h ~= h then m.canvas = D.canvas(w, h) end
+      local c = m.canvas
       c:clear()
-      local okR, hit = pcall(UI.render, T, c, view)
-      dev.hit = okR and hit or {}
-      local mon = dev.mon
-      c:flush({ setCursorPos = function(x, y) peripheral.call(mon, "setCursorPos", x, y) end,
-                blit = function(s, f, b) peripheral.call(mon, "blit", s, f, b) end })
+      local okR, hit = pcall(UI.render, T, c, view, m.page)
+      m.hit = okR and hit or {}
+      c:flush({ setCursorPos = function(x, y) peripheral.call(name, "setCursorPos", x, y) end,
+                blit = function(s, f, b) peripheral.call(name, "blit", s, f, b) end })
     end
   end
   status()
@@ -169,6 +198,7 @@ local function hear(msg)
   if not p then return end
   unanswered = 0
   view.link, view.traffic, view.adv, view.msg = "contact", p.traffic, p.adv, p.msg
+  if #p.centres > 0 then centres = p.centres end
   if p.sos and view.sos == "sent" then view.sos = "heard" end
   redraw()
 end
@@ -178,8 +208,17 @@ end
 -- same: one touch asks, a second takes it back.
 local SOS_ARM = 5
 local armedAt = nil
-local function touched(x, y)
-  if not UI.onSos(dev.hit, x, y) then return end
+local function touched(name, x, y)
+  local m = dev.mons[name]
+  if not m then return end
+  if not UI.onSos(m.hit, x, y) then
+    -- anywhere else on the screen: its next page, kept
+    local okS, w = pcall(peripheral.call, name, "getSize")
+    m.page = UI.nextPage(view.me.kind, okS and w or 15, m.page)
+    savePages()
+    redraw()
+    return
+  end
   local now = os.clock()
   local s = view.sos
   if s == nil then view.sos, armedAt = "armed", now
@@ -244,7 +283,7 @@ end
 local function touchLoop()
   while true do
     local _, side, x, y = os.pullEvent("monitor_touch")
-    if side == dev.mon then touched(x, y) end
+    touched(side, x, y)
   end
 end
 
