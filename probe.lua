@@ -11,6 +11,11 @@
 --   probe here <x> <y> <z>
 --                    compare pose and gps against YOUR F3 position. Use this
 --                    rather than trusting either source against the other.
+--   probe ticks [secs]  how fast the world really runs (default 5 s): server
+--                    ticks per real second, and how often Sable's pose of this
+--                    craft actually changes per tick. Run it while the craft
+--                    MOVES - in a second tab (`bg probe ticks`) while fly
+--                    hovers - since a latched craft never changes.
 --   probe log [secs] sample everything for N seconds (default 30) into
 --                    probelog.csv and push it. MOVE THE CRAFT during this:
 --                    a stationary sample cannot tell us what frame the pose is
@@ -27,6 +32,54 @@ local HERE  = arg[1] == "here" and {
   x = tonumber(arg[2]), y = tonumber(arg[3]), z = tonumber(arg[4]) } or nil
 if HERE and not (HERE.x and HERE.y and HERE.z) then
   error("usage: probe here <x> <y> <z>   (your F3 position)", 0)
+end
+
+-- How often the world moves. Every sublevel call waits for a server tick, so
+-- reading the pose back to back takes one read per tick: reads per real
+-- second is the server's tick rate (20 when healthy), and the share of reads
+-- whose pose differs from the one before is how often Sable's physics updates
+-- what a computer can see (Sable steps inside each tick, 2 substeps of 25 ms
+-- by default). Asked 2026-10-01: "the sample rate got cut in half for the
+-- physics calc" - this says whether it is the server's ticks or the physics.
+if arg[1] == "ticks" then
+  if not sublevel then error("probe ticks: no sublevel API - is this computer on a craft?", 0) end
+  local secs = tonumber(arg[2]) or 5
+  print(string.format("probe ticks: reading the pose every tick for %g s - keep the craft moving", secs))
+  local function key(p)
+    if type(p) ~= "table" or type(p.position) ~= "table" then return nil end
+    local q = p.orientation or {}
+    return string.format("%.6f %.6f %.6f %.6f %.6f %.6f %.6f", p.position.x or 0, p.position.y or 0, p.position.z or 0,
+      q.x or 0, q.y or 0, q.z or 0, q.w or 0)
+  end
+  local t0, c0 = os.epoch("utc"), os.clock()
+  local reads, changes, last, run, gaps = 0, 0, nil, 0, {}
+  while os.epoch("utc") - t0 < secs * 1000 do
+    local ok, pose = pcall(sublevel.getLogicalPose)
+    local k = ok and key(pose) or nil
+    reads = reads + 1
+    run = run + 1
+    if k and last and k ~= last then
+      changes = changes + 1
+      gaps[run] = (gaps[run] or 0) + 1
+      run = 0
+    end
+    if not last then run = 0 end         -- count gaps from the first pose read
+    last = k or last
+  end
+  local real, game = (os.epoch("utc") - t0) / 1000, os.clock() - c0
+  print(string.format("%d reads in %.2f s real, %.2f s of game time", reads, real, game))
+  print(string.format("  server: %.1f ticks a second (20 is healthy)", reads / real))
+  if changes == 0 then
+    print("  the pose never changed - the craft is still (latched?). Run it while it moves.")
+  else
+    print(string.format("  pose changed on %d of %d reads (%.0f%%)", changes, reads - 1, 100 * changes / math.max(1, reads - 1)))
+    local keys = {}
+    for n in pairs(gaps) do keys[#keys + 1] = n end
+    table.sort(keys)
+    for _, n in ipairs(keys) do print(string.format("    every %d tick%s: %d times", n, n == 1 and "" or "s", gaps[n])) end
+    print("  every 1 tick = the physics updates each tick; every 2 = it moves every other tick")
+  end
+  return
 end
 
 -- Tee every print into a buffer when saving, so the file matches the screen.
