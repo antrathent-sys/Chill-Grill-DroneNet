@@ -384,14 +384,25 @@ if cmd ~= "run" then
 end
 
 -- -------------------------------------------------------------------- run --
+-- An ender modem placed straight on the computer (a wired one cannot reach
+-- the units). With none, it waits for one rather than ending: the autorun
+-- would only start it again every 3 s (2026-10-01).
 local radio
-for _, n in ipairs(peripheral.getNames()) do
-  if peripheral.getType(n) == "modem" then
-    local okW, wireless = pcall(peripheral.call, n, "isWireless")
-    if okW and wireless then radio = n break end
+local function findRadio()
+  for _, n in ipairs(peripheral.getNames()) do
+    if peripheral.getType(n) == "modem" then
+      local okW, wireless = pcall(peripheral.call, n, "isWireless")
+      if okW and wireless then return n end
+    end
   end
 end
-if not radio then print("no ender modem - the tower cannot hear anyone") return end
+radio = findRadio()
+if not radio then
+  print("no ender modem - the tower cannot hear anyone")
+  print("place one on a face of this computer; waiting for it")
+  repeat os.pullEvent("peripheral") radio = findRadio() until radio
+  print("ender modem on " .. radio)
+end
 pcall(peripheral.call, radio, "open", N.CHANNEL)
 
 -- ------------------------------------------------------------------ screens --
