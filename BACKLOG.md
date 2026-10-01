@@ -883,7 +883,9 @@ Worth building after the shuttle service is running: it shares the telemetry
 format, the screens and the queue's idea of what is nearby, and it is the
 first thing here that other people would use.
 
-**The avionics package (Alex, 2026-10-01).** CINDER hands out the
+**The avionics package (Alex, 2026-10-01)** - now designed in full in
+[AVIONICS.md](AVIONICS.md): an advanced computer, screen and ender modem per
+craft, registered, pinging a tower of its own. The first sketch: CINDER hands out the
 transponder as a kit, so every craft on the server can be tracked. Proposed
 shape, not decided:
 
