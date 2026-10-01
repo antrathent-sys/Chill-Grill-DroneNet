@@ -12,6 +12,7 @@ local sim = {
   -- run at 64 instead made a mission compute its home pad 14 blocks low.
   -- block centres, as fly.lua targets them: a pad at 100,50 is flown to at 100.5,50.5
   h = (os.getenv('START_DOCKED') and 77.5 or 64.0), x = 0.5, z = 0.5,     -- drone
+  -- START_AT="x,z": begin somewhere other than the home pad (a depot)
   vv = 0.0, speed = 0.0,
   pwr = 0.0, vx = 0.0, vy = 0.0,
   padX = 100.5, padZ = 50.5, padY = 70,
@@ -145,6 +146,11 @@ local function step(to)
   if sim.docked then
     sim.h, sim.vv = sim.padY + PARK, 0
   end
+  -- a START_DOCKED run is held where it started, home or depot, until the
+  -- first release: thrust against the latch moves nothing (CHID 1, 2026-10-01)
+  if os.getenv('START_DOCKED') and not sim.letGo then
+    sim.h, sim.vv, sim.x, sim.z, sim.wvx, sim.wvz = sim.h0, 0, sim.x0, sim.z0, 0, 0
+  end
 end
 
 -- ---------- CC API ----------
@@ -239,6 +245,13 @@ local diskLimit = os.getenv("DISK_KB") and tonumber(os.getenv("DISK_KB")) * 1024
 -- other path still goes to the flightlog writer as before
 local memFiles = {}
 if os.getenv("TELEM_KEY") then memFiles[".dronekey"] = os.getenv("TELEM_KEY") end
+if os.getenv("START_AT") then
+  local sx, sz = os.getenv("START_AT"):match("^([%-%d%.]+),([%-%d%.]+)$")
+  sim.x, sim.z = tonumber(sx), tonumber(sz)
+end
+sim.h0, sim.x0, sim.z0 = sim.h, sim.x, sim.z
+-- DOCKED_AT="x z h name": where fly.lua last docked (.docked)
+if os.getenv("DOCKED_AT") then memFiles[".docked"] = os.getenv("DOCKED_AT") end
 -- PADS="depot:100,70,50;home:0,70,0" gives the craft a pads.lua to read;
 -- ":pad" or ":dock" after the coordinates sets the kind
 if os.getenv("PADS") then
@@ -275,7 +288,7 @@ local function memHandle(path, mode)
 end
 _G.fs = {
   open = function(path, mode)
-    if memFiles[path] ~= nil or (type(path) == "string" and (path:match("%.ctr$") or path == "cal.lua" or path == ".drops")) then
+    if memFiles[path] ~= nil or (type(path) == "string" and (path:match("%.ctr$") or path == "cal.lua" or path == ".drops" or path == ".docked")) then
       return memHandle(path, mode)
     end
     return {

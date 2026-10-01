@@ -952,6 +952,11 @@ local CFG = {
   -- blocks across and of padY + DOCK_GAP), the flight does the undock step
   -- first. Only then: that step runs full thrust until it lets go, which
   -- would be a kick from the ground or the air. false = the old behaviour.
+  -- Every departure, missions included (Alex, 2026-10-01: a flight from CHID 1
+  -- pulled 8 s at full thrust against the latch and cut out - the depot was
+  -- in no pads.lua on board, the base sends its position with the order). So
+  -- the last place this craft docked counts as a known pad too (.docked,
+  -- written on every DOCKED).
   AUTO_UNDOCK = true,
   AUTO_UNDOCK_NEAR = 2.5,
   -- A short hop is not a cruise. go and dock always did climb -> cruise ->
@@ -2185,10 +2190,11 @@ else
 end
 end)() end
 
--- Starting docked? Checked before the log, the pump or any thrust, and only
--- for the modes that do not undock by themselves. find is a thrust search on
--- the spot and is left alone.
-if CFG.AUTO_UNDOCK and CFG.DOCK_SIDE and not undockFirst and not legs and mode ~= "find" and mode ~= "pads" then
+-- Starting docked? Checked before the log, the pump or any thrust, for every
+-- flight and mission that does not undock by itself already. find is a
+-- thrust search on the spot and is left alone.
+if CFG.AUTO_UNDOCK and CFG.DOCK_SIDE and not undockFirst and not (legs and legs[1] and legs[1].undock)
+   and mode ~= "find" and mode ~= "pads" then
   do
     local named = false
     if dockP then
@@ -2202,11 +2208,20 @@ if CFG.AUTO_UNDOCK and CFG.DOCK_SIDE and not undockFirst and not legs and mode ~
     -- there is nothing there to let go of
     local candidates = { PAD.home() }
     for _, pp in ipairs(PAD.list) do if pp.kind ~= "pad" then candidates[#candidates + 1] = pp end end
+    -- and where it last docked, exactly as it sat there (FL.dockSeen)
+    local fd = fs.exists(".docked") and fs.open(".docked", "r")
+    if fd then
+      local lx, lz, lh = (fd.readAll() or ""):match("^(%S+) (%S+) (%S+)")
+      fd.close()
+      if tonumber(lx) and tonumber(lz) and tonumber(lh) then
+        candidates[#candidates + 1] = { x = tonumber(lx), z = tonumber(lz), h = tonumber(lh), exact = true }
+      end
+    end
     for _, pp in ipairs(candidates) do
-      local cx = blockCentre(pp.x) + (pp.trimX or CFG.DOCK_TRIM_X)
-      local cz = blockCentre(pp.z) + (pp.trimZ or CFG.DOCK_TRIM_Z)
+      local cx = pp.exact and pp.x or blockCentre(pp.x) + (pp.trimX or CFG.DOCK_TRIM_X)
+      local cz = pp.exact and pp.z or blockCentre(pp.z) + (pp.trimZ or CFG.DOCK_TRIM_Z)
       if (pos.x - cx) ^ 2 + (pos.z - cz) ^ 2 <= CFG.AUTO_UNDOCK_NEAR ^ 2
-         and math.abs(h - (pp.y + CFG.DOCK_GAP)) <= CFG.AUTO_UNDOCK_NEAR then
+         and math.abs(h - (pp.h or pp.y + CFG.DOCK_GAP)) <= CFG.AUTO_UNDOCK_NEAR then
         onPad = true
       end
     end
@@ -2227,7 +2242,12 @@ if CFG.AUTO_UNDOCK and CFG.DOCK_SIDE and not undockFirst and not legs and mode ~
       end
     end
     if named or (frozen and onPad) then
-      undockFirst = true
+      -- a mission takes it from its first leg that flies
+      if legs then
+        for _, L in ipairs(legs) do if L.leg ~= "action" then L.undock = true break end end
+      else
+        undockFirst = true
+      end
       print("starting docked (" .. (named and "connector reports a pad" or "latched on a known pad") ..
             ") - releasing first")
     end
@@ -2863,6 +2883,17 @@ function FL.stopPoint(px, pz, vx, vz, sx, sz, tx, tz)
   return px + ux * d, pz + uz * d
 end
 
+-- Where this craft docked, as it sat: the next flight's starting-docked
+-- check knows the place even if no pads.lua on board does (a depot the base
+-- sent it to). One line, overwritten each time; a full disk only loses it.
+function FL.dockSeen(h)
+  pcall(function()
+    local f = fs.open(".docked", "w")
+    f.write(string.format("%.2f %.2f %.2f %s", pos.x, pos.z, h, dock.name ~= "" and dock.name or "-"))
+    f.close()
+  end)
+end
+
 -- the modes a stop applies to: flights to somewhere, and hovers
 function FL.stoppable(m) return m == "go" or m == "dock" or m == "fly" or m == "land" end
 
@@ -3358,7 +3389,7 @@ local function flyLeg()
            and (phase == "align" or phase == "descend" or phase == "capture") then
       -- The magnet has it. That is the whole objective, whichever phase we
       -- happened to be in when it took hold - there is nothing left to fly.
-      phase = "docked"
+      phase = "docked" FL.dockSeen(h)
       print(string.format("DOCKED to %s (from %s, %s)", 
         dock.name ~= "" and dock.name or "unnamed pad", tostring(lastPhase),
         dock.connected and "connector reports it" or
@@ -3463,7 +3494,7 @@ local function flyLeg()
     elseif phase == "capture" then
       goal = dockAlt
       if dock.connected then
-        phase = "docked" print("DOCKED to " .. dock.name)
+        phase = "docked" FL.dockSeen(h) print("DOCKED to " .. dock.name)
       elseif t - captureStart > CFG.DOCK_CAPTURE_T then
         dockTries = dockTries + 1
         goal = math.min(cruiseY, dockAlt + CFG.DOCK_RETRY_UP)

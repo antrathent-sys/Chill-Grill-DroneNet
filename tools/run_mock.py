@@ -338,6 +338,18 @@ SELFTEST = [
     # connector names its pad, so the flight opens with the undock step's
     # full thrust instead of pulling against the magnet at hover power
     ("hover from the dock releases first", ["80"], {"TMAX": "40", "START_DOCKED": "1", "UNDOCK_CHECK": "1"}, ["fly"]),
+    # latched at a depot no pads.lua on board knows, the connector naming
+    # nothing (CHID 1, 2026-10-01): the place it last docked (.docked) is
+    # enough
+    ("depot start releases first", ["go", "100", "50", "90"],
+     {"TMAX": "40", "START_DOCKED": "1", "UNNAMED_PAD": "1", "START_AT": "300.5,200.5",
+      "DOCKED_AT": "300.50 200.50 77.50 chid-1", "UNDOCK_CHECK": "1"},
+     ["climb", "cruise", "brake", "hold"]),
+    # and without it the same start is not known for docked, and pulls
+    # against the latch until it gives up - exactly the CHID 1 flight
+    ("depot start unknown", ["go", "100", "50", "90"],
+     {"TMAX": "40", "START_DOCKED": "1", "UNNAMED_PAD": "1", "START_AT": "300.5,200.5",
+      "END_CHECK": "not lifting"}, ["climb"]),
     # a pad 12 blocks away is a hop (HOP_DIST): climb, then straight to the
     # align and down - no cruise, no brake, no overshoot
     ("dock hop", ["dock", "10", "70", "8", "90"], {"TMAX": "120", "LEGS": "10.5,8.5"},
@@ -408,7 +420,7 @@ def run(args, env, logpath):
     from lupa import LuaRuntime
     for k in ("NODOCK", "START_DOCKED", "TMAX", "NOVEL", "QUAD", "SPEAKER", "GPS_QUANT", "DRIFT",
               "UPLOAD_BOOM", "LOSE_THRUSTER", "CMD_AT", "DOCK_EARLY", "PAD_SOLID",
-              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK", "START_TILT", "PINNED", "END_CHECK", "BEACON", "BEACON_PARENT", "BEACON_CHECK", "BEACON_BY", "ORDER_AT"):
+              "UNNAMED_PAD", "NO_BRIDGE", "NO_CHARGE", "LEGS", "NO_PAD", "TRIAD", "DISK_KB", "DISK_LIE", "RADIO_AT", "TELEM", "TELEM_KEY", "PARKED", "PADS", "UNDOCK_CHECK", "CAL_CHECK", "PRESET", "TUNE", "TUNE_CHECK", "BRAKE_CHECK", "CALFILE", "HDG_CHECK", "LAND_CHECK", "STICKERS", "DROP_CHECK", "FALL_CHECK", "SPOOL", "CONTACT_CHECK", "START_TILT", "PINNED", "END_CHECK", "BEACON", "BEACON_PARENT", "BEACON_CHECK", "BEACON_BY", "ORDER_AT", "START_AT", "DOCKED_AT"):
         os.environ.pop(k, None)
     os.environ.update(env)
     os.environ["HARNESS_LOG"] = logpath
