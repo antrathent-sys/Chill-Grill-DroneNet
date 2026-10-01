@@ -359,6 +359,7 @@ end
 local INCIDENTS = "incidents.csv"
 local INCIDENT_HEADER = "when,drone,job,customer,x,y,z,why"
 local BOARD_NEAR = 24         -- blocks: a free unit this close is walked to, not flown in
+local WANDER = 32             -- blocks: a customer this far from an open-ground pickup is noted
 local alerts = {}             -- unacknowledged: { drone, x, y, z, why }
 
 local function coords(x, y, z)
@@ -2190,6 +2191,27 @@ function handle(from, msg, customer, sealedBy)
         if gone then log("%s left the queue", tostring(gone.who)) end
       elseif msg.type == "job.wait" then
         QUEUE.alive(waiting, customer, from, os.clock())
+      elseif msg.type == "job.where" then
+        -- where the customer is, every 10 s from the request until they are
+        -- aboard (hail.lua). Only the terminal that asked moves its record,
+        -- the same rule as job.go.
+        local j = msg.job and jobs[msg.job]
+        if j and not (j.client and from ~= j.client) then
+          j.cx, j.cy, j.cz, j.cseen = msg.x, msg.y, msg.z, os.clock()
+          -- open ground, unit on its way, and they have walked off: worth a
+          -- line, once - it will land where they stood, not where they are
+          if not j.board and not j.wandered and (j.state == "assigned" or j.state == "enroute")
+             and type(j.px) == "number" and math.sqrt((msg.x - j.px) ^ 2 + (msg.z - j.pz) ^ 2) > WANDER then
+            j.wandered = true
+            log("%s: %s is %d blocks from the pickup", j.id, tostring(j.who or from),
+              math.floor(math.sqrt((msg.x - j.px) ^ 2 + (msg.z - j.pz) ^ 2)))
+          end
+        elseif not msg.job then
+          -- in the line: kept on their entry, so when a unit frees up the
+          -- base knows whether they are standing on it (dispatch, aboard)
+          local e = QUEUE.alive(waiting, customer, from, os.clock())
+          if e then e.ax, e.ay, e.az = msg.x, msg.y, msg.z end
+        end
       elseif msg.type == "here" then
         -- a terminal saying where it is. Only a SEALED one counts: an
         -- unsealed "here" is just someone claiming to be somewhere.
@@ -2507,7 +2529,7 @@ local function serveQueue()
             QUEUE.removeAt(waiting, i)
             local ok, job = dispatch({ v = F.VERSION, type = "taxi.request", nonce = e.nonce,
               pad = e.pad, px = e.px, py = e.py, pz = e.pz, tx = e.tx, tz = e.tz,
-              toName = e.toName, who = e.who }, e.client)
+              ax = e.ax, ay = e.ay, az = e.az, toName = e.toName, who = e.who }, e.client)
             log("%s off the queue -> %s", tostring(e.who), tostring(ok or job))
           end
         end

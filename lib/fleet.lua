@@ -39,6 +39,9 @@
 --   job.cancel    nonce                                     customer -> ops
 --   job.wait      nonce                                     customer -> ops
 --                 (still in the line: sent every 10 s while queued)
+--   job.where     x z [y] [job] nonce                       customer -> ops
+--                 (where the customer is, every WHERE_EVERY s from the
+--                  request until they are aboard; no job while queued)
 --   job.track     job drone x z [eta] nonce                  ops  -> customer
 --                 (where the taxi is, a few times a second-ish, so the
 --                  terminal can show how far away it is)
@@ -101,7 +104,7 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["places.ask"] = true, ["places.list"] = true,
             ["account.ask"] = true, ["account.info"] = true,
             ["credit.arm"] = true, ["credit.ok"] = true, ["here"] = true,
-            ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true, ["job.wait"] = true,
+            ["till.open"] = true, ["job.queued"] = true, ["job.cancel"] = true, ["job.wait"] = true, ["job.where"] = true,
             ["fare.ask"] = true, ["fare.quote"] = true, ["unit.distress"] = true,
             ["job.relocate"] = true, ["unit.stick"] = true, ["unit.stuck"] = true,
             ["unit.dropped"] = true, ["depot.hello"] = true, ["load.start"] = true,
@@ -189,6 +192,9 @@ function F.check(m)
     if not F.STATES[m.state] then return false, "state " .. tostring(m.state) end
   elseif m.type == "job.queued" then
     if not num(m.place) then return false, "no place in the queue" end
+  elseif m.type == "job.where" then
+    if not (num(m.x) and num(m.z)) then return false, "no position" end
+    if m.job ~= nil and not str(m.job) then return false, "bad job id" end
   elseif m.type == "job.track" then
     if not str(m.job) then return false, "no job id" end
     if not (num(m.x) and num(m.z)) then return false, "no position" end
@@ -649,6 +655,14 @@ function F.cancel(nonce) return { v = F.VERSION, type = "job.cancel", nonce = no
 -- waits, so one that has gone - closed, flat, out of range - drops out of the
 -- queue instead of holding a place (and later a unit) for nobody.
 function F.stillWaiting(nonce) return { v = F.VERSION, type = "job.wait", nonce = nonce } end
+
+-- Where the customer is, from their terminal every WHERE_EVERY seconds while a
+-- hail is open (Alex, 2026-10-01), in whole blocks. job is nil in the line.
+F.WHERE_EVERY = 10
+function F.where(job, x, y, z, nonce)
+  return { v = F.VERSION, type = "job.where", nonce = nonce, job = job,
+           x = math.floor(x), y = num(y) and math.floor(y) or nil, z = math.floor(z) }
+end
 
 function F.tillOpen(who, amount, nonce)
   return { v = F.VERSION, type = "till.open", nonce = nonce, who = who,

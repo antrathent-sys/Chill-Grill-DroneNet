@@ -257,6 +257,11 @@ local aa = F.assign("j-a", abReq)
 check("aboard travels in the order, with boarding", aa.board == true and aa.aboard == true)
 check("so no pickup flight either", F.legCommand("pickup", aa) == nil)
 
+local wh = F.where("j-1", 2497.6, 78.2, -3296.4, "w-1")
+check("where the customer is: a valid message, whole blocks",
+  (F.check(wh)) and wh.x == 2497 and wh.y == 78 and wh.z == -3297 and wh.job == "j-1", wh.z)
+check("in the line it names no job", (F.check(F.where(nil, 1, nil, 2, "w-2"))))
+check("and it needs a position", not F.check({ v = F.VERSION, type = "job.where", nonce = "w-3", x = 1 }))
 local rel = F.relocate("j-1", 130.6, 64.2, 215.9, "r-1")
 check("a new spot is a valid message, in whole blocks", (F.check(rel)) and rel.px == 130 and rel.pz == 215)
 check("holding above is a job state", (F.check(F.state("j-1", "drone-1", "relocate", "held", "s-1"))))

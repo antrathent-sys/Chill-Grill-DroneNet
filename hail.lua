@@ -92,6 +92,17 @@ local function say(msg)
   return pcall(rednet.broadcast, msg, F.PROTO)
 end
 
+-- Where the customer is, to the base every F.WHERE_EVERY s while a hail is
+-- open (Alex, 2026-10-01). Beside the screen, never inside it: gps.locate
+-- swallows key presses. getJob says which job - nil while in the line.
+local function reportWhere(getJob)
+  while true do
+    sleep(F.WHERE_EVERY)
+    local x, y, z = gps.locate(2)
+    if x then say(F.where(getJob(), x, y, z, nonce())) end
+  end
+end
+
 local function save()
   pcall(F.saveStats, STATS, stats, fs)
   say(F.statsMessage(stats, nonce()))
@@ -917,11 +928,17 @@ local function follow(job, from, name, route)
   -- Where the customer is against the pickup spot, every couple of seconds,
   -- beside the screen (gps.locate would eat key presses inside it). The ride
   -- screen warns them while they are inside the landing zone.
+  -- And every fifth fix (about 10 s) goes to the base, until they are aboard.
   local function watchZone()
+    local fixes = 0
     while true do
       if state ~= "riding" and state ~= "done" then
-        local x, _, z = gps.locate(1)
-        if x then zone = dist({ x = x, z = z }, pickup.x, pickup.z) end
+        local x, y, z = gps.locate(1)
+        if x then
+          zone = dist({ x = x, z = z }, pickup.x, pickup.z)
+          fixes = fixes + 1
+          if fixes % 5 == 1 then say(F.where(job, x, y, z, nonce())) end
+        end
       end
       sleep(2)
     end
@@ -991,6 +1008,12 @@ local function oneRide(tx, ty, tz, name)
   if keyPress() ~= keys.enter then return end
 
   stats.requests = (stats.requests or 0) + 1
+  -- where they are NOW goes with it, not where they were when they opened
+  -- the menu: they may have walked onto a unit while choosing
+  do
+    local nx, ny, nz = gps.locate(2)
+    if nx then from = { x = math.floor(nx), y = math.floor(ny), z = math.floor(nz) } end
+  end
   -- the name goes too: the base checks it against its own places, which is
   -- how a ride home is known to be free
   local req = F.request(pickup, { x = tx, z = tz, y = ty, name = name }, nonce(), me, from)
@@ -1030,6 +1053,7 @@ local function oneRide(tx, ty, tz, name)
   -- shuttle is assigned or the customer gives up. Every 10 s it tells the
   -- base it is still here; a terminal that goes quiet drops out of the line.
   local lastWait = os.clock()
+  local function holding()
   while place and not job do
     if os.clock() - lastWait >= 10 then
       say(F.stillWaiting(nonce()))
@@ -1057,6 +1081,10 @@ local function oneRide(tx, ty, tz, name)
       say(F.cancel(nonce()))
       place = nil
     end
+  end
+  end
+  if place and not job then
+    parallel.waitForAny(holding, function() reportWhere(function() return nil end) end)
   end
 
   if not job then

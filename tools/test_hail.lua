@@ -123,8 +123,20 @@ local function world(opts)
         if not (opts.loseQuote and w.fareAsks == 1) then
           reply(F.fareQuote(opts.fare or 13, "flat fare", "q-" .. #w.said, msg.nonce, opts.near, opts.free))
         end
+      elseif msg.type == "job.where" then
+        w.where = w.where or {}
+        w.where[#w.where + 1] = msg
       elseif msg.type == "taxi.request" then
         w.request = msg
+        if opts.queue and not w.wasQueued then
+          -- nobody free: in the line, then a unit comes free a while later
+          w.wasQueued = true
+          reply(F.queued(1, 40, "qd-1"))
+          reply(F.assign("j-1", msg), 200)
+          reply(F.state("j-1", "drone-1", "enroute", nil, "s-1"), 201)
+          reply(F.state("j-1", "drone-1", "waiting", nil, "s-2"), 300)
+          return
+        end
         if opts.near then
           msg.board, msg.px, msg.pz, msg.py = true, opts.near.x, opts.near.z, opts.near.y
           msg.aboard = opts.near.aboard
@@ -364,6 +376,22 @@ check("the ride screen says on board, press G", has(onb, "ON BOARD") and has(onb
   and not has(onb, "WALK TO UNIT"))
 check("the request says where the terminal is", onb.request and onb.request.ax == 2497 and onb.request.az == -3297)
 check("and G takes it from there", onb.went == true)
+
+print("where the customer is, every 10 s")
+local wq = run(world({ queue = true, inputs = {
+  { key = KEYS.enter },                    -- the nearest place
+  { key = KEYS.enter },                    -- a landing zone checked
+  { key = KEYS.enter },                    -- confirm
+  { char = "g", when = function(w) return w.state == "waiting" end },
+} }), "hail.lua", "kiosk")
+local inLine, onJob = 0, 0
+for _, m in ipairs(wq.where or {}) do
+  if m.job == nil then inLine = inLine + 1 elseif m.job == "j-1" then onJob = onJob + 1 end
+end
+check("in the line, with no job", inLine >= 1, inLine)
+check("and once a unit is on its way, with the job", onJob >= 1, onJob)
+check("each one a position", wq.where and wq.where[1] and wq.where[1].x == 100 and wq.where[1].z == 200)
+check("and the ride still goes", wq.went == true)
 
 print("a pickup that could not land")
 local ob = run(world({ inputs = { { key = KEYS.enter }, { key = KEYS.enter }, { key = KEYS.enter } },
