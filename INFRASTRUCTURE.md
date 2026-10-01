@@ -192,7 +192,7 @@ What to build or set up, in order:
 | 3 | Signed, pinned releases checked in `startup` | Risk 3 |
 | 4 | World files, and places and home kept per world | Risk 6 |
 | 5 | The base journal and restart recovery (ORDERS.md) | Risk 2 |
-| 6 | Base and HQ in forceloaded chunks that stay loaded offline (Open Parties and Claims has offline forceload, but only if the server config allows it: ask the admins) | The base has to be there to answer |
+| 6 | Base and HQ in forceloaded chunks that stay loaded offline. **Checked in OPAC's source 2026-10-01:** a player's force-loads run only while they (or, for a party owner, any party member) are online; offline force-loading is off by default and not player-configurable in this pack; **server claims are always force-loaded**. Ask the admins to make CINDER's base and depot chunks server claims, or `/forceload` them | The base has to be there to answer |
 | 7 | A surveyed platform network around the hubs, platforms by default, and rides to a dock ferry onto it | Risk 5 |
 | 8 | Auto-suspend and the runbook | Risk 7 |
 | 9 | A battery check on every job, and working charging at the HQ pad | Risk 8 |

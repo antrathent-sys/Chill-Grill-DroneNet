@@ -139,9 +139,14 @@ first:
 From its source (`PlayerConfigOptions`, 1.21 branch) and this pack's server
 config:
 
-- A player's force-loaded chunks stay loaded **only while they are online**
-  unless `claims.forceload.offlineForceload` is on - **default off**, with
-  the mod's own warning: *"can significantly affect server performance!"*
+- A player's force-loaded chunks stay loaded only while they are online -
+  or, if they own a party, while **any member of that party** is online -
+  unless `claims.forceload.offlineForceload` is on: **default off**, with the
+  mod's own warning, *"can significantly affect server performance!"*
+  (`ForceLoadTicketManager.ticketsShouldBeEnabled`).
+- **Server claims are always force-loaded**, whoever is online. That is the
+  way to keep chosen chunks running - a base, a depot - without turning
+  offline force-loading on for everyone.
 - In this pack players **cannot turn it on themselves**: it is not in
   `playerConfigurablePlayerConfigOptions`, nor in the list operators can set
   per player. Only the server's default player config can, for everybody.
@@ -153,7 +158,9 @@ config:
   a year, of inactivity.
 
 So with offline force-loading at its default, OPAC is not what runs with
-nobody on. Worth one check: the server's own default player config
+nobody on. **It also means CINDER's base and depots stop when Alex and his
+party are offline**, unless they are server claims, `/forceload`ed by an
+admin, or held by a chunk loader - INFRASTRUCTURE.md risk 6. Worth one check: the server's own default player config
 (`openpartiesandclaims-default-player-config.toml`, in the world's
 `serverconfig`), which the pack does not ship and which decides it.
 
