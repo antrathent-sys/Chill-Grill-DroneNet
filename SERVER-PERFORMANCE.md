@@ -80,11 +80,87 @@ entities. Nothing here needs a player nearby once the chunk is loaded.
 | cost | why |
 |---|---|
 | **force-loaded chunks** | farms and factories that run with their owner offline; Open Parties and Claims can force-load claims, including for offline players, if the server allows it |
-| **chunk generation** | the most expensive thing a server does. Fast travel into new land - an aircraft at 180 blocks a second - generates chunk after chunk. The pack ships a Chunky task (5,000 blocks round 0,0) that is about 3% done and does not resume on restart |
-| **Distant Horizons** | bundled with its **server-side generation on**: `enableServerGeneration`, `enableDistantGeneration` and real-time updates, out to 4,096 blocks and 256 chunks round each player. With one player on, the server can be doing a great deal of work for that one client |
+| **chunk generation** | the most expensive thing a server does. Fast travel into new land generates chunk after chunk. **This server's world is pre-generated** (Alex, 2026-10-01), so travel loads chunks rather than creating them |
+| **Distant Horizons** | see below: in this pack it asks the server itself to load every chunk out to 4,096 blocks round each player |
 | **entities** | items on the ground, mob farms, villagers, armour stands - checked against each other every tick |
 | **memory** | 123 mods and Distant Horizons need room. Too little and the garbage collector pauses the whole server: lag spikes with nobody doing anything (`/spark gc` shows it) |
 | **computers** | CC:Tweaked runs every computer on one thread (`computer_threads = 1`) and lets their peripheral calls take up to 10 ms of each 50 ms tick (`max_main_global_time = 10`). A computer polling inventories in a loop spends that |
+
+## Distant Horizons on this server
+
+How it works, from the pack's own `DistantHorizons.toml` and its
+descriptions of each setting:
+
+- Each player's client asks the server for LOD data - simplified terrain -
+  for everything out to `lodChunkRenderDistanceRadius = 256` chunks. With
+  `enableServerGeneration = true` the server builds what the client lacks,
+  out to `maxGenerationRequestDistance = 4096` blocks, taking up to
+  `generationRequestRateLimit = 20` requests a second from each client.
+  With `enableRealTimeUpdates = true` it also sends changes within 256
+  chunks as they happen.
+- **How the server builds it is the generator mode, and this pack uses
+  `distantGeneratorMode = "INTERNAL_SERVER"`.** DH's own description: *"Ask
+  the local server to generate/load each chunk ... may cause
+  server/simulation lag ... unlike other modes this option DOES save
+  generated chunks to Minecraft's region files."* So every chunk out to
+  4,096 blocks round each player is **loaded by the server itself** - a
+  pre-generated world only means it is loaded rather than generated. That
+  is tens of thousands of chunks, through the same chunk system the game
+  runs on, for one player.
+- It runs on `numberOfThreads = 9` threads at `threadRunTimeRatio = 1.0`.
+  On a host with few cores, nine busy threads starve the main thread that
+  runs the ticks, even if none of DH's own work is on it.
+
+**Why it would explain this server's lag, and why the tracking range
+helped.** Sable loads every physics object stored in a chunk whenever that
+chunk is loaded, by anything (its plot `ChunkMapMixin`), and saves it when the
+chunk goes again. With DH loading chunks in a ring around the player, objects
+in that ring are loaded, sent to the player in full if they are within the
+tracking range, then unloaded and saved, over and over - invisible to the
+player, who sees only terrain out there. At a 320 tracking range a ring of
+that churn reached the player; at 160, roughly the view distance, it does
+not. That fits "nothing in range, lags anyway, fixed at 160". It is the
+likeliest explanation, not a proven one: a spark profile would show Sable's
+loading and tracking, and DH's chunk requests, by name.
+
+**What to change**, on the server's `DistantHorizons.toml`, least drastic
+first:
+
+1. `distantGeneratorMode = "PRE_EXISTING_ONLY"` - *"Only create LOD data for
+   already generated chunks."* The world is pre-generated, so players lose
+   nothing, and DH stops asking the server to load chunks for it.
+2. `numberOfThreads` down to 2 or 3, and `threadRunTimeRatio` below 1.0, so
+   DH can never crowd out the main thread.
+3. `maxGenerationRequestDistance` and `realTimeUpdateDistanceRadiusInChunks`
+   lower, or `enableServerGeneration = false`, if it is still a cost.
+
+## Open Parties and Claims force-loading
+
+From its source (`PlayerConfigOptions`, 1.21 branch) and this pack's server
+config:
+
+- A player's force-loaded chunks stay loaded **only while they are online**
+  unless `claims.forceload.offlineForceload` is on - **default off**, with
+  the mod's own warning: *"can significantly affect server performance!"*
+- In this pack players **cannot turn it on themselves**: it is not in
+  `playerConfigurablePlayerConfigOptions`, nor in the list operators can set
+  per player. Only the server's default player config can, for everybody.
+- Each player can force-load at most `maxPlayerClaimForceloads = 10` chunks,
+  plus party bonuses.
+- There is no timed decay of force-loads as such. They stop when the owner
+  logs off (with offline force-loading off), and a player's claims - and so
+  their force-loads - expire after `playerClaimsExpirationTime = 8760` hours,
+  a year, of inactivity.
+
+So with offline force-loading at its default, OPAC is not what runs with
+nobody on. Worth one check: the server's own default player config
+(`openpartiesandclaims-default-player-config.toml`, in the world's
+`serverconfig`), which the pack does not ship and which decides it.
+
+What does stay loaded with nobody on: vanilla `/forceload` chunks, Sable
+force-loads (`/sable forceload query`), and **chunk loaders on craft** -
+Aeronautic Additions' loader keeps a craft's chunks plus two all round
+loaded wherever it is parked, owner online or not.
 
 ## What a server owner can do
 
@@ -93,14 +169,11 @@ In the order I would do them on this server:
 1. **Measure.** Add spark (server only) and take a profile of slow ticks
    with `--only-ticks-over 60`, once idle with one player on and once
    during a long flight. Everything below is a guess until then.
-2. **Settle Distant Horizons.** With one player on and the lag gone at a
-   lower tracking range, this is the first suspect: try
-   `enableServerGeneration = false` and `enableRealTimeUpdates = false` in
-   the server's `DistantHorizons.toml` for a day. Clients still see
-   distance from what they have loaded.
-3. **Pre-generate and fence the world.** Finish a Chunky task over the area
-   people use and set a world border to match, during quiet hours. Every
-   flight afterwards loads chunks instead of creating them.
+2. **Settle Distant Horizons.** The first suspect: switch its generator to
+   `PRE_EXISTING_ONLY` and cut its threads (above). The world is already
+   pre-generated, so players lose nothing.
+3. **Fence the world.** It is pre-generated; a world border to match keeps
+   it that way.
 4. **Audit force-loading.** `/forceload query`, Open Parties and Claims'
    force-load settings (offline force-loading especially), chunk loader
    blocks, `/sable forceload query`. Every force-loaded factory runs with
@@ -122,7 +195,8 @@ In the order I would do them on this server:
 
 | what | cost | what we do |
 |---|---|---|
-| **LAMBDA-001 in flight** | its chunk loader's 5x5 area moves at up to 187 blocks a second; Sable holds chunks round it too | pre-generation fixes the worst of it; we fly direct, and never loiter |
+| **LAMBDA-001 in flight** | its chunk loader's 5x5 area moves at up to 187 blocks a second; Sable holds chunks round it too | the world is pre-generated, so it loads rather than generates; we fly direct, and never loiter |
+| **LAMBDA-001 parked** | if its chunk loader stays on while docked, it keeps a 5x5 area round its dock loaded all day, and everything in it ticking | to check: whether the loader can be off while parked |
 | **silos** | every assembled silo is a physics object until taken apart, including delivered ones and test silos in the bays | a rule to recycle or take apart silos at their destination |
 | **our computers** | drone (10 Hz, Sable and thruster calls), base, depot (reads its silos every second during a fill), screens, tower and every nav unit (Sable twice a second) - all on the one CC thread and its 10 ms | slow down when nothing is happening: depots between fills, nav units when parked |
 
@@ -131,13 +205,13 @@ fight lag, our flights are what degrade first.
 
 ## For this server, now
 
-With minimal players and the lag gone at a 160 tracking range, the order I
-would test in:
+With minimal players, a pre-generated world, and the lag gone at a 160
+tracking range, the order I would test in:
 
-1. `/chunky progress` - a pre-generation task left running is lag on its
-   own.
-2. With the range back at 320, does the lag come back? If not, a restart
-   applied with the change is the likelier fix.
-3. If it comes back: Distant Horizons' server generation off, range at 320,
-   same place.
+1. Distant Horizons' generator to `PRE_EXISTING_ONLY` and its threads down,
+   with the tracking range back at 320. If the lag stays away, that was it,
+   and the range can stay generous.
+2. `/chunky progress` - a pre-generation task left running is lag on its
+   own, even on a finished world if someone restarted it.
+3. The server's OPAC default player config: offline force-loading off.
 4. A spark profile of the slow ticks, whatever the answers above.
