@@ -24,7 +24,7 @@
 os.pullEvent = os.pullEventRaw           -- terminate is just another event now
 
 local PASS, PROGRAM, CRASH = ".pass", ".kiosk", ".crash"
-local ALLOWED = { hail = true }          -- stations will join this list
+local ALLOWED = { hail = true, nav = true }   -- a pass runs hail, a CINDER NAV unit runs nav
 local CRASH_MAX = 4096                   -- bytes of history kept
 
 local function readLine(path)

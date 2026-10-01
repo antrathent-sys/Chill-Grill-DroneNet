@@ -165,7 +165,7 @@ if args[1] == "role" then
       f.close()
     end
     print("role: " .. (role ~= "" and role or "none - nothing is pulled until it has one"))
-    print("startup role <drone|base|depot|screens|pad|pocket|admin|rs|all> to change it")
+    print("startup role <drone|base|depot|screens|tower|pad|pocket|admin|rs|all> to change it")
     return
   end
   roleRequest = args[2]:lower()
@@ -389,7 +389,7 @@ end
 -- A role's own startup: what it runs on every boot, set when the role is
 -- given unless this computer already has an autorun. The base runs ops by
 -- hand; a pocket runs hail or admin when picked up; a pad is set by hand.
-local DEFAULT_AUTORUN = { drone = "beacon", depot = "depot", screens = "control", rs = "rsio" }
+local DEFAULT_AUTORUN = { drone = "beacon", depot = "depot", screens = "control", rs = "rsio", tower = "tower" }
 
 -- and what a person does after the first pull, printed once
 local NEXT = {
@@ -407,6 +407,8 @@ local NEXT = {
   admin   = { "on the base: seckey admin new <you>; here: seckey admin set disk, label set <you>", "admin" },
   pocket  = { "hail - the developer's terminal; customers' passes come from provision on the base" },
   rs      = { "reboot - rsio runs on boot" },
+  tower   = { "label set tower; fit an ender modem, a disk drive and a monitor",
+              "tower register registers a CINDER NAV unit; reboot - the tower runs on boot" },
   pad     = { "startup autorun taxipad" },
 }
 

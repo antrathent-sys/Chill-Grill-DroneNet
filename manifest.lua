@@ -69,6 +69,12 @@ return {
   -- kiosk.lua as their startup and no updater or token on them at all.
   pocket = { "hail.lua", "lib/display.lua", "lib/hailui.lua", "lib/tui.lua" },
 
+  -- the CINDER traffic tower (AVIONICS.md): registers CINDER NAV units through
+  -- its disk drive, so it carries everything a unit runs, and answers their
+  -- pings (startup autorun tower). Never holds a fleet key.
+  tower = { "tower.lua", "lib/nav.lua", "lib/navui.lua", "nav.lua", "kiosk.lua", "lib/display.lua", "lib/tui.lua",
+            "lib/hailui.lua" },     -- kiosk.lua looks for hailui (optional on a unit, which boots plainer without it)
+
   -- Alex's admin pocket: the fleet from the feed, trips of several legs, Go and
   -- Cancel, all asked of the base (seckey admin set disk, label it, run admin)
   admin = { "admin.lua", "lib/watch.lua", "lib/state.lua" },

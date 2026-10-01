@@ -1,0 +1,251 @@
+-- nav: CINDER NAV, the unit on a vehicle (AVIONICS.md). An advanced computer
+-- with one screen and an ender modem, supplied and registered by CINDER.
+--
+-- It reads where the vehicle is from Sable (CC: Sable's sublevel API), shows
+-- speed, height or depth, heading and climb on the screen, and pings the
+-- CINDER tower every few seconds, sealed with its own key. The tower answers
+-- with the traffic near it and anything the driver should know. A touch on
+-- SOS, then another, tells CINDER it is in distress.
+--
+-- It is a consumer device. kiosk.lua is its startup (no shell, no updater),
+-- and it is updated by bringing it back to the tower. It takes no orders:
+-- nothing in it touches a thruster, a redstone output or anything else on the
+-- vehicle, and nothing the tower sends can.
+--
+--   .nav      who it is: unit id, registration number, callsign, type, owner
+--   .navkey   its key (only ever speaks for this unit)
+
+local N = dofile("lib/nav.lua")
+local UI = dofile("lib/navui.lua")
+local D = dofile("lib/display.lua")
+local T = dofile("lib/tui.lua")
+local SEC = dofile("lib/seclink.lua")
+local unpack_ = table.unpack or unpack
+
+local function readAll(p)
+  if not fs.exists(p) then return nil end
+  local h = fs.open(p, "r")
+  if not h then return nil end
+  local s = h.readAll()
+  h.close()
+  return s
+end
+
+local me = N.parseUnitFile(readAll(".nav"))
+local key = me and SEC.readKeyFile(".navkey")
+local view = { me = { reg = me and N.regNumber(me.n) or "", call = me and me.call or "", kind = me and me.kind or "air" },
+               link = "search", traffic = {}, craft = false, unregistered = not (me and key) }
+
+-- ------------------------------------------------------------------ devices --
+-- the first monitor and the first wireless (ender) modem, looked for again
+-- whenever one goes missing
+local dev = { mon = nil, radio = nil, hit = {} }
+local function findDevices()
+  if dev.mon and not peripheral.isPresent(dev.mon) then dev.mon = nil end
+  if dev.radio and not peripheral.isPresent(dev.radio) then dev.radio = nil end
+  for _, n in ipairs(peripheral.getNames()) do
+    local ty = peripheral.getType(n)
+    if not dev.mon and ty == "monitor" then
+      dev.mon = n
+      pcall(peripheral.call, n, "setTextScale", 0.5)
+      T.apply({ setPaletteColour = function(...) return peripheral.call(n, "setPaletteColour", ...) end })
+      dev.canvas = nil
+    elseif not dev.radio and ty == "modem" then
+      local okW, wireless = pcall(peripheral.call, n, "isWireless")
+      if okW and wireless then
+        dev.radio = n
+        pcall(peripheral.call, n, "open", N.CHANNEL)
+      end
+    end
+  end
+end
+
+-- the computer's own screen: who it is and what is fitted, for whoever opens it
+local function status()
+  if not term or not term.clear then return end
+  term.clear()
+  local lines = {
+    "CINDER NAV",
+    me and string.format("%s  %s  %s", N.regNumber(me.n), me.call, N.TYPES[me.kind].word) or "UNREGISTERED - TAKE THIS UNIT TO CINDER",
+    "",
+    "screen: " .. (dev.mon or "NONE - fit an advanced monitor"),
+    "radio:  " .. (dev.radio or "NONE - fit an ender modem"),
+    "tower:  " .. (({ contact = "in contact", none = "no contact", search = "calling" })[view.link] or "?"),
+    "craft:  " .. (view.craft and "on a vehicle" or "not on a vehicle"),
+    "",
+    "This unit reports its position to CINDER.",
+  }
+  for i, l in ipairs(lines) do
+    if term.setCursorPos then term.setCursorPos(1, i) end
+    if term.write then term.write(l) end
+  end
+end
+
+local function redraw()
+  if dev.mon then
+    local okS, w, h = pcall(peripheral.call, dev.mon, "getSize")
+    if okS and w then
+      if not dev.canvas or dev.canvas.w ~= w or dev.canvas.h ~= h then dev.canvas = D.canvas(w, h) end
+      local c = dev.canvas
+      c:clear()
+      local okR, hit = pcall(UI.render, T, c, view)
+      dev.hit = okR and hit or {}
+      local mon = dev.mon
+      c:flush({ setCursorPos = function(x, y) peripheral.call(mon, "setCursorPos", x, y) end,
+                blit = function(s, f, b) peripheral.call(mon, "blit", s, f, b) end })
+    end
+  end
+  status()
+end
+
+-- -------------------------------------------------------------- the vehicle --
+local craft = nil            -- Sable's id, name and mass for the vehicle, read now and then
+local craftAt = -1e9
+local gpsPrev = nil
+
+local function sense()
+  local pose, vel
+  if sublevel then
+    parallel.waitForAll(
+      function() local ok, r = pcall(sublevel.getLogicalPose) if ok then pose = r end end,
+      function() local ok, r = pcall(sublevel.getLinearVelocity) if ok then vel = r end end)
+  end
+  if type(pose) == "table" and type(pose.position) == "table" then
+    view.craft = true
+    if os.clock() - craftAt > 60 then
+      craftAt = os.clock()
+      local c = {}
+      parallel.waitForAll(
+        function() local ok, r = pcall(sublevel.getUniqueId) if ok then c.id = r end end,
+        function() local ok, r = pcall(sublevel.getName) if ok then c.name = r end end,
+        function() local ok, r = pcall(sublevel.getMass) if ok then c.mass = r end end)
+      craft = c
+    end
+    return N.reading(pose.position, type(vel) == "table" and vel or nil, view.r)
+  end
+  -- not on a vehicle: GPS, if the server has one, with its velocity differenced
+  view.craft = false
+  if gps and gps.locate then
+    local x, y, z = gps.locate(0.5)
+    if x then
+      local now = os.clock()
+      local v = { x = 0, y = 0, z = 0 }
+      if gpsPrev and now > gpsPrev.t then
+        local dt = now - gpsPrev.t
+        v = { x = (x - gpsPrev.x) / dt, y = (y - gpsPrev.y) / dt, z = (z - gpsPrev.z) / dt }
+      end
+      gpsPrev = { x = x, y = y, z = z, t = now }
+      return N.reading({ x = x, y = y, z = z }, v, view.r)
+    end
+  end
+  return nil
+end
+
+-- ----------------------------------------------------------------- the link --
+local tx = (me and key) and SEC.sender(key, me.unit, SEC.DIR.NAV_TO_TOWER, ".navkey.ctr") or nil
+local rx = SEC.receiver()
+local unanswered = 0
+
+local function ping()
+  if not (tx and dev.radio and view.r) then return end
+  local st = (view.sos == "sent" or view.sos == "heard" or view.sos == "cancel") and "sos"
+             or (view.r.moving and "move" or "park")
+  local env = tx.seal(N.ping(view.r, st, craft))
+  if env then
+    pcall(peripheral.call, dev.radio, "transmit", N.CHANNEL, N.CHANNEL, env)
+    unanswered = unanswered + 1
+    if unanswered >= N.LINK_LOST and view.link ~= "none" then
+      view.link, view.traffic, view.adv = "none", {}, nil
+      redraw()
+    end
+  end
+end
+
+local function hear(msg)
+  if type(msg) ~= "table" or not msg.sl then return end
+  local body = rx.open(msg, function(id) return me and id == me.unit and key or nil end,
+                       SEC.DIR.TOWER_TO_NAV, N.MAX_AGE_MS)
+  local p = body and N.parsePong(body)
+  if not p then return end
+  unanswered = 0
+  view.link, view.traffic, view.adv, view.msg = "contact", p.traffic, p.adv, p.msg
+  if p.sos and view.sos == "sent" then view.sos = "heard" end
+  redraw()
+end
+
+-- ----------------------------------------------------------------- distress --
+-- one touch arms the key for a few seconds, a second sends. Once sent, the
+-- same: one touch asks, a second takes it back.
+local SOS_ARM = 5
+local armedAt = nil
+local function touched(x, y)
+  if not UI.onSos(dev.hit, x, y) then return end
+  local now = os.clock()
+  local s = view.sos
+  if s == nil then view.sos, armedAt = "armed", now
+  elseif s == "armed" then view.sos, armedAt = "sent", nil os.queueEvent("nav_ping")
+  elseif s == "sent" or s == "heard" then view.sos, armedAt = "cancel", now
+  elseif s == "cancel" then view.sos, armedAt = nil, nil os.queueEvent("nav_ping") end
+  redraw()
+end
+local function disarm()
+  if armedAt and os.clock() - armedAt > SOS_ARM then
+    if view.sos == "armed" then view.sos = nil elseif view.sos == "cancel" then view.sos = "sent" end
+    armedAt = nil
+    redraw()
+  end
+end
+
+-- -------------------------------------------------------------------- loops --
+findDevices()
+redraw()
+
+if view.unregistered then
+  -- nothing to do but say so, for as long as it is switched on
+  while true do
+    sleep(30)
+    findDevices()
+    redraw()
+  end
+end
+
+local function senseLoop()
+  local n = 0
+  while true do
+    local r = sense()
+    if r then view.r = r end
+    disarm()
+    n = n + 1
+    if n % 10 == 0 then findDevices() end
+    redraw()
+    sleep(0.5)
+  end
+end
+
+local function pingLoop()
+  while true do
+    ping()
+    local wait = (view.r and not view.r.moving and not view.sos) and N.PING_PARKED or N.PING_MOVING
+    local timer = os.startTimer(wait)
+    while true do
+      local e, p = os.pullEvent()
+      if (e == "timer" and p == timer) or e == "nav_ping" then break end
+    end
+  end
+end
+
+local function radioLoop()
+  while true do
+    local _, _, ch, _, msg = os.pullEvent("modem_message")
+    if ch == N.CHANNEL then hear(msg) end
+  end
+end
+
+local function touchLoop()
+  while true do
+    local _, side, x, y = os.pullEvent("monitor_touch")
+    if side == dev.mon then touched(x, y) end
+  end
+end
+
+parallel.waitForAny(senseLoop, pingLoop, radioLoop, touchLoop)

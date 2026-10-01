@@ -27,7 +27,8 @@ P.STARTUP = "kiosk.lua"                  -- becomes the pass's startup.lua
 -- Found on any of Alex's own machines and never on a pass. A medium with one
 -- of these is refused outright: provisioning wipes things, and it must never
 -- be pointed at a drone or the base by mistake.
-P.DEV_MARKERS = { ".ghtoken", ".fleetkeys", ".dronekey", ".custkeys", ".role", ".installed", ".autorun" }
+P.DEV_MARKERS = { ".ghtoken", ".fleetkeys", ".dronekey", ".custkeys", ".role", ".installed", ".autorun",
+                  ".nav" }          -- a CINDER NAV unit: the tower updates those, never provision
 
 -- What survives an update that keeps the key: the key and its counter, the
 -- owner, and the pass's own usage count and places.
