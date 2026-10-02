@@ -608,7 +608,7 @@ N.ROLE = "nav"
 -- is any role but nav.
 N.DEV_MARKERS = { ".ghtoken", ".fleetkeys", ".dronekey", ".custkeys", ".navkeys", ".adminkey", ".watchkey",
                   ".centrekey", ".centrekeys", ".navdeskkey", ".kioskkeys" }
-N.KEEP = { [".navkey"] = true, [".navkey.ctr"] = true, [".nav"] = true, [".navpages"] = true }
+N.KEEP = { [".navkey"] = true, [".navkey.ctr"] = true, [".nav"] = true, [".navpages"] = true, [".navtaught"] = true }
 
 local function join(a, b) return (a == "" or a == nil) and b or (a .. "/" .. b) end
 local function readAll(fsys, path)

@@ -506,7 +506,30 @@ check("a touch on the key, and not elsewhere", UI.onSos({ sos = { x1 = 30, x2 = 
 local unreg = shot(36, 10, { me = { kind = "air" }, unregistered = true })
 check("unregistered says where to take it", unreg:find("UNREGISTERED", 1, true) and unreg:find("TAKE THIS UNIT TO CINDER", 1, true), unreg)
 local still = shot(36, 10, view("air", { r = N.reading({ x = 0, y = 70, z = 0 }, nil), craft = false }))
-check("no vehicle: says so, heading blank", still:find("NO CRAFT", 1, true) and still:find("HDG ---", 1, true), still)
+check("not on a vehicle: the setup page says so, and what to do", still:find("SET UP", 1, true)
+  and still:find("NOT ON A VEHICLE", 1, true) and still:find("PLACE THE COMPUTER ON YOUR CRAFT", 1, true), still)
+
+print("a unit that teaches itself")
+local bare = shot(15, 10, view("air", { noRadio = true, craft = false, noTouch = true }))
+check("everything missing, on one block: each problem and its fix", bare:find("NO ENDER", 1, true)
+  and bare:find("MODEM", 1, true) and bare:find("+2", 1, true), bare)
+local noModem = shot(36, 10, view("air", { noRadio = true }))
+check("no ender modem: says to put one on the computer", noModem:find("NO ENDER MODEM", 1, true)
+  and noModem:find("PUT ONE ON THE COMPUTER", 1, true) and not noModem:find("B/S", 1, true), noModem)
+local noTouch = shot(36, 10, view("air", { noTouch = true }))
+check("only plain monitors: SOS needs an advanced one", noTouch:find("SOS NEEDS AN ADVANCED MONITOR", 1, true), noTouch)
+check("fitted right: no problems", #UI.problems(view("air")) == 0)
+local function shotOpts(w, h, v, page, opts)
+  local c = D.canvas(w, h)
+  UI.render(T, c, v, page, opts)
+  local rows = {}
+  for y = 1, h do rows[y] = (c:row(y)):gsub("[\128-\255]", " ") end
+  return table.concat(rows, "\n")
+end
+local untouched = shotOpts(15, 10, view("air"), "speed", { hint = true })
+check("a screen never touched says TAP (TOUCH when wide) where its page number goes", untouched:find("TAP", 1, true)
+  and not untouched:find("1/5", 1, true), untouched)
+check("once touched, the page number", shotOpts(15, 10, view("air"), "speed", {}):find("1/5", 1, true))
 
 
 print("centres")

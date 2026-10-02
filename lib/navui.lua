@@ -32,6 +32,7 @@
 -- hit: { sos = { x1, x2, y } }. Pure; tools/test_nav.lua.
 
 local M = {}
+local tag          -- a page's place in the cycle, or TOUCH (defined with the notices below)
 
 -- The boot screen, on the computer's own screen while startup pulls the
 -- update behind it: the masthead, a filling line, the build in the corner.
@@ -174,6 +175,52 @@ local function advBand(T, c, view)
   return true
 end
 
+-- The page's place in the cycle, "2/5" - or TOUCH until this screen has been
+-- touched once, which is how an owner learns the screens change (Alex,
+-- 2026-10-02: "they should teach how to use themselves")
+local HINT = false
+tag = function(idx, n, c) return HINT and ((c and c.w < 20) and "TAP" or "TOUCH") or (idx .. "/" .. n) end
+
+-- What stops the unit working, each with what to do about it, most basic
+-- first: { { title, fix }, ... }. Empty when it is fitted right.
+function M.problems(view)
+  local out = {}
+  if view.noRadio then out[#out + 1] = { "NO ENDER MODEM", "PUT ONE ON THE COMPUTER" } end
+  if view.craft == false then out[#out + 1] = { "NOT ON A VEHICLE", "PLACE THE COMPUTER ON YOUR CRAFT" } end
+  if view.noTouch then out[#out + 1] = { "NO TOUCH SCREEN", "SOS NEEDS AN ADVANCED MONITOR" } end
+  return out
+end
+
+-- words to lines no wider than w
+local function wrap(s, w)
+  local lines, line = {}, ""
+  for word in tostring(s):gmatch("%S+") do
+    if line == "" then line = word
+    elseif #line + 1 + #word <= w then line = line .. " " .. word
+    else lines[#lines + 1] = line line = word end
+  end
+  if line ~= "" then lines[#lines + 1] = line end
+  return lines
+end
+
+-- the setup page: every problem and its fix, until there are none
+local function setupPage(T, c, view, probs)
+  local more = #probs > 1 and (c.w >= 30 and (#probs .. " TO DO") or ("+" .. (#probs - 1))) or nil
+  T.band(c, 1, c.w >= 30 and "CINDER NAV  SET UP" or "SET UP", more, T.C.text, T.C.warn)
+  local y = 3
+  for _, p in ipairs(probs) do
+    for _, l in ipairs(wrap(p[1], c.w - 2)) do
+      if y <= c.h - 1 then center(c, y, l, T.C.warn) end
+      y = y + 1
+    end
+    for _, l in ipairs(wrap(p[2], c.w - 2)) do
+      if y <= c.h - 1 then center(c, y, l, T.C.faint) end
+      y = y + 1
+    end
+    y = y + 1
+  end
+end
+
 local function unregistered(T, c)
   T.band(c, 1, c.w >= 30 and "CINDER NAV" or "CINDER")
   center(c, floor(c.h / 2) - 1, "UNREGISTERED", T.C.warn)
@@ -274,7 +321,7 @@ local function bigOf(page, view)
 end
 
 local function numberPage(T, c, view, page, idx, n)
-  T.band(c, 1, titleOf(page, view.me.kind), idx .. "/" .. n, T.C.text, T.C.faint)
+  T.band(c, 1, titleOf(page, view.me.kind), tag(idx, n, c), T.C.text, T.C.faint)
   local text, label, small = bigOf(page, view)
   if not view.craft and page ~= "heading" then small = "NO CRAFT" end
   local top, bottom = 3, c.h - 2
@@ -297,7 +344,7 @@ end
 -- the radar: a ring, you in the middle, a dot for each vehicle and centre.
 -- Heading up when there is a heading, north up when there is not.
 local function radarPage(T, c, view, idx, n)
-  T.band(c, 1, "RADAR", (c.w >= 20 and (idx .. "/" .. n .. "  ") or "") .. "1K", T.C.text, T.C.faint)
+  T.band(c, 1, "RADAR", (c.w >= 20 and (tag(idx, n, c) .. "  ") or "") .. "1K", T.C.text, T.C.faint)
   local hasAdv = view.adv ~= nil
   local topRow, botRow = 2, c.h - (hasAdv and 2 or 1)
   local py0, py1 = (topRow - 1) * 3 + 1, botRow * 3
@@ -362,7 +409,7 @@ end
 -- Altimeter: as in an aircraft, the long needle goes round once per 100
 -- blocks and the short one once per 1,000, with Y in figures.
 local function altimeterPage(T, c, view, idx, n)
-  T.band(c, 1, "ALTIMETER", idx .. "/" .. n, T.C.text, T.C.faint)
+  T.band(c, 1, "ALTIMETER", tag(idx, n, c), T.C.text, T.C.faint)
   local cx, cy, R = dialGeom(c)
   c:circle(cx, cy, R, T.C.rule)
   for i = 0, 9 do tick(c, cx, cy, R, i * 36, i == 0 and 3 or 2, i == 0 and T.C.text or T.C.faint) end
@@ -379,7 +426,7 @@ end
 
 -- Depth gauge: once round per 100 blocks below sea level, depth in figures.
 local function depthPage(T, c, view, idx, n)
-  T.band(c, 1, "DEPTH", idx .. "/" .. n, T.C.text, T.C.faint)
+  T.band(c, 1, "DEPTH", tag(idx, n, c), T.C.text, T.C.faint)
   local cx, cy, R = dialGeom(c)
   c:circle(cx, cy, R, T.C.rule)
   for i = 0, 9 do tick(c, cx, cy, R, i * 36, i == 0 and 3 or 2, i == 0 and T.C.text or T.C.faint) end
@@ -396,7 +443,7 @@ local function speedoPage(T, c, view, idx, n)
   local spd = view.r and view.r.spd or 0
   local full = 20
   while full < spd and full < 320 do full = full * 2 end
-  T.band(c, 1, "SPEED", (c.w >= 20 and (idx .. "/" .. n .. "  ") or "") .. "/" .. full, T.C.text, T.C.faint)
+  T.band(c, 1, "SPEED", (c.w >= 20 and (tag(idx, n, c) .. "  ") or "") .. "/" .. full, T.C.text, T.C.faint)
   local cx, cy, R = dialGeom(c)
   for i = 0, 8 do
     local deg = -135 + i * 270 / 8
@@ -411,7 +458,7 @@ end
 
 -- Compass: north up, the needle on the heading, N E S W round the ring.
 local function compassPage(T, c, view, idx, n)
-  T.band(c, 1, "COMPASS", idx .. "/" .. n, T.C.text, T.C.faint)
+  T.band(c, 1, "COMPASS", tag(idx, n, c), T.C.text, T.C.faint)
   local cx, cy, R = dialGeom(c)
   c:circle(cx, cy, R, T.C.rule)
   for i = 0, 7 do tick(c, cx, cy, R, i * 45, (i % 2 == 0) and 2 or 1, T.C.faint) end
@@ -429,7 +476,7 @@ end
 
 local function statusPage(T, c, view, idx, n)
   local wide = c.w >= 30
-  T.band(c, 1, wide and "CINDER NAV" or "CINDER", wide and (view.me.reg or "") or (idx .. "/" .. n),
+  T.band(c, 1, wide and "CINDER NAV" or "CINDER", wide and (view.me.reg or "") or (tag(idx, n, c)),
     T.C.text, T.C.faint)
   local word = ({ air = "AIRCRAFT", land = "LAND VEHICLE", sea = "VESSEL", sub = "SUBMARINE" })[view.me.kind] or ""
   local link = ({ contact = { "TOWER CONTACT", T.C.ok }, none = { "NO TOWER CONTACT", T.C.warn },
@@ -454,9 +501,16 @@ local function statusPage(T, c, view, idx, n)
 end
 
 -- -------------------------------------------------------------------- draw --
-function M.render(T, c, view, page)
+-- opts.hint: this screen has not been touched yet (TOUCH in the header)
+function M.render(T, c, view, page, opts)
   c:fill(1, 1, c.w, c.h, T.C.ground)
   if view.unregistered then return unregistered(T, c) end
+  local probs = M.problems(view)
+  if #probs > 0 then
+    setupPage(T, c, view, probs)
+    return { sos = footer(T, c, view), page = page }
+  end
+  HINT = opts and opts.hint or false
   local list = M.pages(view.me.kind, c.w)
   local idx = 1
   for i, p in ipairs(list) do if p == page then idx = i end end

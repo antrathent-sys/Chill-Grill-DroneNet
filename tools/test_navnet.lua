@@ -516,7 +516,7 @@ local function unitWorld(opts)
   u.sent, u.rows = {}, {}
   radio(u, "modem_1", u.sent)
   local cy = 1
-  u.periph.monitor_0 = { type = "monitor", m = {
+  u.periph.monitor_0 = { type = "monitor", m = { isColour = function() return true end,
     setTextScale = function() end, getSize = function() return 36, 10 end, setPaletteColour = function() end,
     setCursorPos = function(_, y) cy = y end,
     blit = function(s) u.rows[cy] = s:gsub("[\128-\255]", " ") end } }
@@ -591,7 +591,7 @@ check("...and the screen keeps it", (u4.files[".navpages"] or ""):find("monitor_
 -- two screens: each its own page, the second starting one along
 local u9 = unitWorld()
 local rows2, cy2 = {}, 1
-u9.periph.monitor_1 = { type = "monitor", m = {
+u9.periph.monitor_1 = { type = "monitor", m = { isColour = function() return true end,
   setTextScale = function() end, getSize = function() return 15, 10 end, setPaletteColour = function() end,
   setCursorPos = function(_, y) cy2 = y end, blit = function(s) rows2[cy2] = s:gsub("[\128-\255]", " ") end } }
 local function screen2() local t = {} for y = 1, 10 do t[y] = rows2[y] or "" end return table.concat(t, "\n") end

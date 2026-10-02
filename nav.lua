@@ -52,9 +52,19 @@ local view = { me = { reg = me and N.regNumber(me.n) or "", call = me and me.cal
 -- every monitor, each with its own page, and the first wireless (ender)
 -- modem; looked for again whenever one goes missing or another is fitted
 local PAGES_FILE = ".navpages"
+local TAUGHT_FILE = ".navtaught"      -- screens touched at least once: they stop saying TOUCH
 local dev = { mons = {}, radio = nil }
 local saved = {}
 for name, page in (readAll(PAGES_FILE) or ""):gmatch("([^=\n]+)=([%w]+)") do saved[name] = page end
+local taught = {}
+for name in (readAll(TAUGHT_FILE) or ""):gmatch("[^\n]+") do taught[name] = true end
+local function saveTaught()
+  local lines = {}
+  for name in pairs(taught) do lines[#lines + 1] = name end
+  table.sort(lines)
+  local h = fs.open(TAUGHT_FILE, "w")
+  if h then h.write(table.concat(lines, "\n") .. "\n") h.close() end
+end
 local function savePages()
   local lines = {}
   for name, m in pairs(dev.mons) do lines[#lines + 1] = name .. "=" .. m.page end
@@ -80,7 +90,8 @@ local function findDevices()
       local known = false
       for _, p in ipairs(list) do if p == page then known = true end end
       if not known then page = list[monCount() % #list + 1] end
-      dev.mons[n] = { page = page, hit = {} }
+      local okC, colour = pcall(peripheral.call, n, "isColour")
+      dev.mons[n] = { page = page, hit = {}, touch = okC and colour or false }
     elseif not dev.radio and ty == "modem" then
       local okW, wireless = pcall(peripheral.call, n, "isWireless")
       if okW and wireless then
@@ -99,10 +110,13 @@ local function status()
     "CINDER NAV",
     me and string.format("%s  %s  %s", N.regNumber(me.n), me.call, N.TYPES[me.kind].word) or "UNREGISTERED - TAKE THIS UNIT TO CINDER",
     "",
-    "screens: " .. (monCount() > 0 and tostring(monCount()) or "NONE - fit an advanced monitor"),
-    "radio:  " .. (dev.radio or "NONE - fit an ender modem"),
-    "tower:  " .. (({ contact = "in contact", none = "no contact", search = "calling" })[view.link] or "?"),
-    "craft:  " .. (view.craft and "on a vehicle" or "not on a vehicle"),
+    "screens: " .. (monCount() > 0 and (tostring(monCount()) .. (view.noTouch and
+      " - none can be touched: SOS needs an ADVANCED monitor" or "")) or "NONE - put an advanced monitor against this computer"),
+    "radio:  " .. (dev.radio or "NONE - put an ender modem on this computer"),
+    "tower:  " .. (({ contact = "in contact", none = "no contact - CINDER may be down", search = "calling" })[view.link] or "?"),
+    "craft:  " .. (view.craft and "on a vehicle" or "NOT on a vehicle - place this computer on your craft"),
+    "",
+    "Touch a screen for its next page. Two touches on SOS call CINDER.",
     "",
     "This unit reports its position to CINDER.",
   }
@@ -115,13 +129,18 @@ end
 local centres = {}          -- where the traffic centres are, from the last pong
 local function redraw()
   view.centres = N.centresFrom(view.r, centres)
+  -- what the setup page and the computer's own screen tell the owner to fix
+  view.noRadio = dev.radio == nil
+  local anyTouch = false
+  for _, m in pairs(dev.mons) do if m.touch then anyTouch = true end end
+  view.noTouch = monCount() > 0 and not anyTouch
   for name, m in pairs(dev.mons) do
     local okS, w, h = pcall(peripheral.call, name, "getSize")
     if okS and w then
       if not m.canvas or m.canvas.w ~= w or m.canvas.h ~= h then m.canvas = D.canvas(w, h) end
       local c = m.canvas
       c:clear()
-      local okR, hit = pcall(UI.render, T, c, view, m.page)
+      local okR, hit = pcall(UI.render, T, c, view, m.page, { hint = m.touch and not taught[name] })
       m.hit = okR and hit or {}
       c:flush({ setCursorPos = function(x, y) peripheral.call(name, "setCursorPos", x, y) end,
                 blit = function(s, f, b) peripheral.call(name, "blit", s, f, b) end })
@@ -214,6 +233,7 @@ local armedAt = nil
 local function touched(name, x, y)
   local m = dev.mons[name]
   if not m then return end
+  if not taught[name] then taught[name] = true saveTaught() end
   if not UI.onSos(m.hit, x, y) then
     -- anywhere else on the screen: its next page, kept
     local okS, w = pcall(peripheral.call, name, "getSize")

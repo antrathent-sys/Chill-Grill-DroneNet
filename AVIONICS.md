@@ -236,6 +236,14 @@ need a gap, or a wired modem to reach the computer.
 | radar | **very simple**: a ring at 1 km, you in the middle, a dot for each vehicle (rust if it is on course to pass too close), a green dot for each traffic centre; your heading at the top |
 | status | callsign, type, tower link, traffic, the nearest centre with its distance and direction |
 
+**It teaches itself** (Alex, 2026-10-02). While something is missing, every
+screen shows SET UP with each problem and what to do: NO ENDER MODEM - put
+one on the computer; NOT ON A VEHICLE - place the computer on your craft; NO
+TOUCH SCREEN - SOS needs an advanced monitor. A screen that has never been
+touched says TAP (TOUCH when wide) where its page number goes, until it is
+touched once (`.navtaught`). The computer's own screen lists the same, with
+the fix beside each, and how the screens and SOS work.
+
 A screen 30 or more wide starts on the overview (speed and height side by
 side; on a panel, the traffic list) and cycles through the same pages. Every
 page keeps the tower link and the SOS key on its bottom row, and an advisory
