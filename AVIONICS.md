@@ -88,7 +88,9 @@ A kiosk, all on its own computer's wired network:
 - the seat: a Create Seat, a Display Link on it reading Entity Name, a
   CC:C Bridge target block;
 - a disk drive;
-- a **stock chest** on CINDER's side, filled with advanced computers that
+- **stock**: one chest or several (one per part works - Alex's booth has a
+  chest each for computers, monitors and modems) on CINDER's side, filled
+  with advanced computers that
   have been **placed and switched on once** (a disk drive can only read a
   computer that has; no label needed), advanced monitors and ender modems;
 - an **out chest** the seated player can open.

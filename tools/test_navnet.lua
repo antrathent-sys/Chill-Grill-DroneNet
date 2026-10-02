@@ -421,13 +421,64 @@ check("navdesk setup with nothing fitted says what is missing", bare.err == nil
   and bare.text:find("seat: NONE", 1, true) and bare.text:find("monitor: NONE", 1, true), bare.err or bare.text)
 local setupW = kioskWorld(true)
 setupW.files["navdesk.cfg"] = nil
-setupW.lines = { "1", "2" }
+setupW.lines = { "2" }
 setupW = setupW:run("navdesk.lua", { "setup" }, 5)
 check("navdesk setup finds the monitor, drive and seat, and asks which chest is which",
   setupW.err == nil and (setupW.files["navdesk.cfg"] or ""):find("monitor=monitor_9", 1, true)
   and (setupW.files["navdesk.cfg"] or ""):find("drive=drive_0", 1, true)
   and setupW.text:find("seat: create_target_0", 1, true)
-  and (setupW.files["navdesk.cfg"] or ""):find("stock=", 1, true), setupW.err or setupW.text)
+  and (setupW.files["navdesk.cfg"] or ""):find("out=minecraft:chest_1", 1, true)
+  and (setupW.files["navdesk.cfg"] or ""):find("stock=minecraft:chest_0", 1, true), setupW.err or setupW.text)
+
+-- Alex's booth (2026-10-02): chest_0 gives, three more each hold one part
+local km = kioskWorld(true)
+km.files["navdesk.cfg"] = "monitor=monitor_9\ndrive=drive_0\nstock=minecraft:chest_2,minecraft:chest_3,minecraft:chest_4\n"
+  .. "out=minecraft:chest_0\n"
+km.out = {}
+local function part(name, count)
+  local held = { { name = name, count = count } }
+  return { type = "minecraft:chest", m = {
+    list = function()
+      local t = {}
+      for k, v in pairs(held) do t[k] = { name = v.name, count = v.count } end
+      return t
+    end,
+    pushItems = function(to, slot, n)
+      local it = held[slot]
+      if not it then return 0 end
+      n = math.min(n or it.count, it.count)
+      if to == "drive_0" then
+        if km.inDrive then return 0 end
+        km.inDrive, n = it.name, 1
+      else
+        km.out[#km.out + 1] = { name = it.name, count = n }
+      end
+      it.count = it.count - n
+      if it.count == 0 then held[slot] = nil end
+      return n
+    end,
+    pullItems = function(from)
+      if from == "drive_0" and km.inDrive then held[9] = { name = km.inDrive, count = 1 } km.inDrive = nil return 1 end
+      return 0
+    end } }
+end
+km.periph["minecraft:chest_2"] = part("computercraft:computer_advanced", 3)
+km.periph["minecraft:chest_3"] = part("computercraft:monitor_advanced", 6)
+km.periph["minecraft:chest_4"] = part("computercraft:wireless_modem_advanced", 3)
+km.periph["minecraft:chest_0"] = km.periph["minecraft:chest_1"]
+km.periph["minecraft:chest_1"] = nil
+local function mTouch(t, view, id) local x, y = at(view, id) km.at(t, { "monitor_touch", "monitor_9", x, y }) end
+mTouch(2, { state = "hello", who = "sam_k", stock = 3 }, "register")
+mTouch(3, { state = "type" }, "kind:sea")
+for i, ch in ipairs({ "B", "O", "A", "T" }) do mTouch(3 + i * 0.3, { state = "callsign", call = "" }, "key:" .. ch) end
+mTouch(5.5, { state = "callsign", call = "BOAT" }, "next")
+mTouch(6.5, { state = "confirm", call = "BOAT" }, "register")
+km = km:run("navdesk.lua", {}, 9)
+local gotM = {}
+for _, it in ipairs(km.out) do gotM[it.name] = (gotM[it.name] or 0) + it.count end
+check("a stock of several chests, one per part: the whole kit still comes out",
+  gotM["computercraft:computer_advanced"] == 1 and gotM["computercraft:monitor_advanced"] == 2
+  and gotM["computercraft:wireless_modem_advanced"] == 1, km.err or tostring(#km.out))
 
 local ko = kioskWorld(true)
 local function oTouch(t, view, id) local x, y = at(view, id) ko.at(t, { "monitor_touch", "monitor_9", x, y }) end

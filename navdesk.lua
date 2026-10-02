@@ -15,7 +15,9 @@
 --
 --   navdesk              run (startup autorun navdesk)
 --   navdesk setup        find the monitor, drive and seat; ask which chest is which
---   navdesk stock <inventory> | out <inventory> | monitor <name> | drive <name>
+--   navdesk stock <inventory> [more...] | out <inventory> | monitor <name> | drive <name>
+--                        the stock can be several chests - one per part of the kit (Alex,
+--                        2026-10-02: chest_0 gives, the others each hold one part)
 --   navdesk join         take this kiosk's identity off the floppy the master wrote
 --   navdesk status       what it is, what it uses, how many kits it holds
 --
@@ -67,6 +69,22 @@ local function isInventory(n)
 end
 -- the first peripheral of a kind, or nil (said, not left out: tostring() of
 -- nothing at all is an error - the first setup in game, 2026-10-02)
+-- the stock chests, from navdesk.cfg's comma-separated stock=
+local function stocksOf(cfg)
+  local out = {}
+  for n in tostring(cfg.stock or ""):gmatch("[^,%s]+") do out[#out + 1] = n end
+  return out
+end
+-- what all of them hold, as one list() for N.kitsIn
+local function stockList(names)
+  local all = {}
+  for _, n in ipairs(names) do
+    local okL, l = pcall(peripheral.call, n, "list")
+    if okL and type(l) == "table" then for _, it in pairs(l) do all[#all + 1] = it end end
+  end
+  return all
+end
+
 local function firstOf(kind)
   for _, n in ipairs(peripheral.getNames()) do if peripheral.getType(n) == kind then return n end end
   return nil
@@ -95,12 +113,16 @@ end
 if cmd == "setup" or cmd == "stock" or cmd == "out" or cmd == "monitor" or cmd == "drive" then
   local cfg = loadCfg()
   if cmd ~= "setup" then
-    local name = args[2]
-    if not (name and peripheral.isPresent(name)) then print("navdesk " .. cmd .. " <peripheral name>") return end
-    if (cmd == "stock" or cmd == "out") and not isInventory(name) then print(name .. " is not an inventory") return end
-    cfg[cmd] = name
+    local names = {}
+    for i = 2, (cmd == "stock") and #args or 2 do names[#names + 1] = args[i] end
+    if #names == 0 then print("navdesk " .. cmd .. " <peripheral name>" .. (cmd == "stock" and " [more...]" or "")) return end
+    for _, name in ipairs(names) do
+      if not peripheral.isPresent(name) then print(name .. " is not on this computer's network") return end
+      if (cmd == "stock" or cmd == "out") and not isInventory(name) then print(name .. " is not an inventory") return end
+    end
+    cfg[cmd] = table.concat(names, ",")
     saveCfg(cfg)
-    print(cmd .. ": " .. name)
+    print(cmd .. ": " .. cfg[cmd])
     return
   end
   -- the monitor: the biggest advanced one; the drive and the seat: the first
@@ -122,15 +144,20 @@ if cmd == "setup" or cmd == "stock" or cmd == "out" or cmd == "monitor" or cmd =
     if peripheral.getType(n) ~= "drive" and isInventory(n) then invs[#invs + 1] = n end
   end
   if #invs < 2 then
-    print("needs two chests on this computer's network - the stock (CINDER's side) and the out chest (the player's)")
+    print("needs two chests or more on this computer's network - stock (CINDER's side) and the out chest (the player's)")
   else
-    for i, n in ipairs(invs) do print(string.format("  %d  %s  (%d kits in it)", i, n,
-      N.kitsIn(select(2, pcall(peripheral.call, n, "list"))))) end
-    write("which is the STOCK chest (number)? ")
-    local s = invs[tonumber(read() or "")]
+    for i, n in ipairs(invs) do print(string.format("  %d  %s", i, n)) end
     write("which is the OUT chest the player opens (number)? ")
     local o = invs[tonumber(read() or "")]
-    if s and o and s ~= o then cfg.stock, cfg.out = s, o else print("two different chests, please - nothing saved for them") end
+    if o then
+      local st = {}
+      for _, n in ipairs(invs) do if n ~= o then st[#st + 1] = n end end
+      cfg.out, cfg.stock = o, table.concat(st, ",")
+      print("out: " .. o)
+      print("stock: " .. cfg.stock .. "  (" .. N.kitsIn(stockList(st)) .. " kits in them)")
+    else
+      print("no such number - nothing saved for the chests")
+    end
   end
   saveCfg(cfg)
   print("saved in " .. CFG .. " - reboot, or run navdesk")
@@ -145,9 +172,7 @@ if cmd == "status" then
   print("kiosk: " .. (me and (me.name .. " of " .. tostring(me.master)) or "not joined - tower kiosk add on the master"))
   print("key: " .. (key and "yes" or "no - open: the master must have tower kiosk open"))
   for _, k in ipairs({ "monitor", "drive", "stock", "out" }) do print(string.format("  %-8s %s", k, tostring(cfg[k]))) end
-  if cfg.stock and isInventory(cfg.stock) then
-    print("kits in stock: " .. N.kitsIn(select(2, pcall(peripheral.call, cfg.stock, "list"))))
-  end
+  if cfg.stock then print("kits in stock: " .. N.kitsIn(stockList(stocksOf(cfg)))) end
   return
 end
 
@@ -255,8 +280,7 @@ kiosk = KL.new({
   end,
   stock = function()
     if not (cfg.stock and cfg.out) then return nil end
-    local okL, list = pcall(peripheral.call, cfg.stock, "list")
-    return okL and N.kitsIn(list) or 0
+    return N.kitsIn(stockList(stocksOf(cfg)))
   end,
   callFree = function(call, except)
     local a, why = ask("callFree", { call = call, except = except })
@@ -268,21 +292,23 @@ kiosk = KL.new({
   -- back), the unit the tower files written onto it, then it, two monitors
   -- and an ender modem into the out chest
   kit = function(owner, kind, call)
-    local d, st, out = drive(), cfg.stock, cfg.out
-    if not (d and st and out) then return nil, "THE KIOSK'S CHESTS ARE NOT SET UP" end
+    local d, stocks, out = drive(), stocksOf(cfg), cfg.out
+    if not (d and #stocks > 0 and out) then return nil, "THE KIOSK'S CHESTS ARE NOT SET UP" end
     if peripheral.call(d, "hasData") then return nil, "THE DRIVE IS NOT EMPTY" end
-    local okL, list = pcall(peripheral.call, st, "list")
-    if not okL then return nil, "CANNOT READ THE STOCK" end
-    local loaded = false
-    for slot, it in pairs(list) do
-      if not loaded and it.name == N.KIT.computer then
-        local okP, moved = pcall(peripheral.call, st, "pushItems", d, slot, 1)
-        if okP and moved == 1 then
-          for _ = 1, 10 do
-            if peripheral.call(d, "hasData") then loaded = true break end
-            sleep(0.1)
+    -- st: the chest the computer came from, and goes back to if anything fails
+    local loaded, st = false, nil
+    for _, from in ipairs(stocks) do
+      local okL, list = pcall(peripheral.call, from, "list")
+      for slot, it in pairs(okL and list or {}) do
+        if not loaded and it.name == N.KIT.computer then
+          local okP, moved = pcall(peripheral.call, from, "pushItems", d, slot, 1)
+          if okP and moved == 1 then
+            for _ = 1, 10 do
+              if peripheral.call(d, "hasData") then loaded = true break end
+              sleep(0.1)
+            end
+            if loaded then st = from else pcall(peripheral.call, from, "pullItems", d, 1) end
           end
-          if not loaded then pcall(peripheral.call, st, "pullItems", d, 1) end
         end
       end
     end
@@ -305,11 +331,13 @@ kiosk = KL.new({
     pcall(peripheral.call, out, "pullItems", d, 1)
     for _, need in ipairs(N.KIT) do
       local left = need.count
-      local okL2, l2 = pcall(peripheral.call, st, "list")
-      for slot, it in pairs(okL2 and l2 or {}) do
-        if left > 0 and it.name == need.name then
-          local okM, moved = pcall(peripheral.call, st, "pushItems", out, slot, left)
-          if okM and type(moved) == "number" then left = left - moved end
+      for _, from in ipairs(stocks) do
+        local okL2, l2 = pcall(peripheral.call, from, "list")
+        for slot, it in pairs(okL2 and l2 or {}) do
+          if left > 0 and it.name == need.name then
+            local okM, moved = pcall(peripheral.call, from, "pushItems", out, slot, left)
+            if okM and type(moved) == "number" then left = left - moved end
+          end
         end
       end
     end
