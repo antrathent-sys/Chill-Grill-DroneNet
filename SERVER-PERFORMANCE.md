@@ -83,6 +83,26 @@ Ten minutes, 6 players. TPS 9 to 10; a tick takes 90 ms at the median.
   server's GC flags).
 - Chunks held: 26,000, rising to 41,000 for four minutes.
 
+### Memory, same day (`/spark gc`, heap summary `8xQQLnw4k2`)
+
+- `/spark gc`: 50 full collections at **1.5 s each, one every 3 m 45 s** -
+  the freezes. Young collections (37 ms every 7 s) are normal.
+- The heap summary (taken after a full collection) shows **4.4 GB live in a
+  10.5 GB heap**. Memory is not full and nothing large is leaking, so the
+  full collections are not simply "out of room". Likelier: something
+  forcing them (`System.gc()` from a server-only mod - BlueMap, ServerCore
+  and the like were not in the client pack to scan; none of the 125 pack
+  jars does it on the server), or the heap fragmenting on large one-off
+  arrays (chunk data, big network packets) that G1 cannot place. The fixes:
+  `-XX:+DisableExplicitGC`, a larger `-XX:G1HeapRegionSize` (16M), or
+  Generational ZGC; `-Xlog:gc*:file=logs/gc.log:time,uptime` says which.
+- **WorldEdit** keeps its own copy of every block state in the pack -
+  450,112, one per Minecraft block state - each with a Guava lookup table
+  (447,184 of them): roughly **1 GB** of the 4.4. Removing WorldEdit if it
+  is rarely used frees it.
+- For scale: BlueMap 92 MB, Create 18 MB, Sable 9 MB, CC:Tweaked's Lua
+  (every computer, CINDER's included) 4 MB.
+
 ## First, read the symptom
 
 A server at 20 TPS has 50 ms per tick. Lag is the tick taking longer. When
