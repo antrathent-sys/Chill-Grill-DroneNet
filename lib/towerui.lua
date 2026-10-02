@@ -154,9 +154,16 @@ function M.board(T, c, view)
   T.band(c, 1, "CINDER TRAFFIC  " .. (view.name or ""),
     view.regs and string.format("%d HEARD  %d REG", count, view.regs) or string.format("%d HEARD", count),
     T.C.text, T.C.faint)
-  local wide = c.w >= 50
-  c:text(2, 3, wide and string.format("%-8s %-12s %-4s %-5s %4s %5s %5s", "REG", "CALLSIGN", "TYPE", "STATE", "SPD",
-    "ALT", "HEARD") or string.format("%-12s %-5s %4s %5s", "CALLSIGN", "STATE", "SPD", "ALT"), T.C.faint)
+  -- where each one is, X and Z, at every width (Alex, 2026-10-03: "add
+  -- coordinates to the tui of controllers too"); a narrower board gives up
+  -- type and heard (51 wide, the tower's own screen), then reg and speed
+  local size = c.w >= 64 and "wide" or c.w >= 50 and "mid" or "narrow"
+  local HEAD = {
+    wide = { "%-8s %-12s %-4s %-4s %4s %5s %6s %6s %5s", "REG", "CALLSIGN", "TYPE", "STATE", "SPD", "ALT", "X", "Z", "HEARD" },
+    mid = { "%-7s %-10s %-4s %3s %4s %6s %6s", "REG", "CALLSIGN", "STATE", "SPD", "ALT", "X", "Z" },
+    narrow = { "%-10s %-4s %4s %6s %6s", "CALLSIGN", "STATE", "ALT", "X", "Z" } }
+  local h = HEAD[size]
+  c:text(2, 3, string.format(h[1], (unpack or table.unpack)(h, 2)):sub(1, c.w - 2), T.C.faint)
   -- distress first, then everything heard lately, then those away (packed,
   -- parked out of range, switched off), the most recently heard first
   local list = {}
@@ -172,11 +179,20 @@ function M.board(T, c, view)
     local y = 3 + i
     if y >= c.h - 1 then break end
     local away = not live(view, ct)
-    local state = away and "AWAY" or tostring(ct.st):upper()
-    local row = wide and string.format("%-8s %-12s %-4s %-5s %4d %5d %5s", ct.reg or "", tostring(ct.call):sub(1, 12),
-      SHORT[ct.kind] or "", state, floor((ct.spd or 0) + 0.5), floor((ct.y or 0) + 0.5), ago(now - ct.t))
-      or string.format("%-12s %-5s %4d %5d", tostring(ct.call):sub(1, 12), state, floor((ct.spd or 0) + 0.5),
-        floor((ct.y or 0) + 0.5))
+    local state = (away and "AWAY" or tostring(ct.st):upper()):sub(1, 4)
+    local spd, alt = floor((ct.spd or 0) + 0.5), floor((ct.y or 0) + 0.5)
+    local x, z = floor((ct.x or 0) + 0.5), floor((ct.z or 0) + 0.5)
+    local call = tostring(ct.call)
+    local row
+    if size == "wide" then
+      row = string.format("%-8s %-12s %-4s %-4s %4d %5d %6d %6d %5s", ct.reg or "", call:sub(1, 12),
+        SHORT[ct.kind] or "", state, spd, alt, x, z, ago(now - ct.t))
+    elseif size == "mid" then
+      row = string.format("%-7s %-10s %-4s %3d %4d %6d %6d", tostring(ct.reg or ""):sub(1, 7), call:sub(1, 10), state,
+        spd, alt, x, z)
+    else
+      row = string.format("%-10s %-4s %4d %6d %6d", call:sub(1, 10), state, alt, x, z)
+    end
     if ct.st == "sos" and not away then
       c:text(1, y, string.rep(" ", c.w), T.C.text, T.C.accent)
       c:text(2, y, row:sub(1, c.w - 2), T.C.text, T.C.accent)

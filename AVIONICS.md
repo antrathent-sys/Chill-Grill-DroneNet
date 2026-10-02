@@ -55,6 +55,11 @@ master feeds each centre a sealed picture every 2 seconds; a centre that
 stops hearing it says `NO FEED FROM MASTER`. Every unit is told where all
 the centres are. `tower centre list`, `tower centre drop NORTH`.
 
+Every tower and centre shows the other centres inside its range ring: a
+green cross with the name on the radar, and a `CENTRES` line on the board
+(nearest first, distance and direction). The board gives every vehicle's
+X and Z beside its height - on the computer's own screen too.
+
 **A unit** - an advanced computer. Place it once, turn it on and `label set
 nav-new`, then break it: labelled, it keeps its files as an item. Put it in
 the master's disk drive, sit the owner in the tower's seat, and run `tower

@@ -610,12 +610,17 @@ check("a tower that does not know where it is says how to tell it", unset:find("
   and unset:find("tower here", 1, true), unset)
 local btxt = tshot("board", 51, 19, tv)
 local hawkRow, falconRow, packedRow = btxt:find("CR-0002", 1, true), btxt:find("CR-0001", 1, true), btxt:find("PACKED", 1, true)
-check("the board: distress first, then live, then away with how long ago", hawkRow and falconRow and packedRow
-  and hawkRow < falconRow and falconRow < packedRow and btxt:find("AWAY", 1, true) and btxt:find("1M", 1, true)
+check("the board: distress first, then live, then away", hawkRow and falconRow and packedRow
+  and hawkRow < falconRow and falconRow < packedRow and btxt:find("AWAY", 1, true)
   and btxt:find("4 REG", 1, true), btxt)
+check("...each one's X and Z on the tower's own screen", btxt:find("CR-0001 FALCON     MOVE  80  210    600    300", 1, true)
+  and btxt:find("-900    400", 1, true), btxt)
+local wideB = tshot("board", 79, 24, tv)
+check("...a wide board: type, coordinates and how long ago", wideB:find("AIR  MOVE   80   210    600    300    1S", 1, true)
+  and wideB:find("1M", 1, true), wideB)
 local narrow = tshot("board", 36, 24, tv)
-check("...and a narrower one keeps callsign, state, speed and height", narrow:find("FALCON", 1, true)
-  and narrow:find("MOVE", 1, true) and narrow:find("210", 1, true), narrow)
+check("...and a narrower one keeps callsign, state, height and where", narrow:find("FALCON     MOVE  210    600    300", 1, true),
+  narrow)
 local fed = tshot("radar", 57, 38, { name = "NORTH", x = 0, z = 0, range = 2000, now = 0, contacts = {}, feed = "none" })
 check("a centre that hears nothing from its master says so", fed:find("NO FEED FROM MASTER", 1, true), fed)
 print("")
