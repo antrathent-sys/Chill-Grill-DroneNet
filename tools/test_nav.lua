@@ -589,6 +589,11 @@ check("stealth shows on the tower's own screens", tshot("board", 51, 19, hid):fi
   and tshot("radar", 57, 38, hid):find("CINDER HIDDEN", 1, true))
 hid.cinder = "none"
 check("and a lost feed from the base", tshot("board", 51, 19, hid):find("NO CINDER FEED", 1, true))
+local btxt = tshot("board", 51, 19, tv)
+check("the board lists the other centres in range, nearest first, not the far one", btxt:find("CENTRES  NORTH 1.5K N", 1, true)
+  and not btxt:find("FAR", 1, true), btxt)
+check("...and says so when there are none", tshot("board", 51, 19, { name = "CHI", x = 0, z = 0, range = 2000, now = 1,
+  contacts = {}, centres = { { name = "CHI", x = 0, z = 0 } } }):find("CENTRES  NONE IN RANGE", 1, true))
 local rtxt, rcan = tshot("radar", 57, 38, tv)
 check("the radar: who, the range, how many live", rtxt:find("CINDER TRAFFIC  CHI", 1, true) and rtxt:find("RANGE 2K", 1, true)
   and rtxt:find("3 LIVE", 1, true), rtxt)

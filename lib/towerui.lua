@@ -121,6 +121,31 @@ M.ago = ago
 
 local SHORT = { air = "AIR", land = "LAND", sea = "SEA", sub = "SUB" }
 
+-- The other traffic centres inside this one's range ring, nearest first:
+-- { name, dist, word } - the same ones its radar draws (Alex, 2026-10-03:
+-- "i want other towers to show on the screens if in range")
+local POINTS = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
+function M.centresInRange(view)
+  local out = {}
+  if not (view.x and view.z) then return out end
+  for _, ct in ipairs(view.centres or {}) do
+    if ct.name ~= view.name and ct.x and ct.z then
+      local dx, dz = ct.x - view.x, ct.z - view.z
+      local d = sqrt(dx * dx + dz * dz)
+      if d <= (view.range or 2000) then
+        local brg = (math.deg(math.atan2 and math.atan2(dx, -dz) or math.atan(dx, -dz)) + 360) % 360
+        out[#out + 1] = { name = ct.name, dist = d, word = POINTS[floor((brg + 22.5) / 45) % 8 + 1] }
+      end
+    end
+  end
+  table.sort(out, function(a, b) return a.dist < b.dist end)
+  return out
+end
+local function distWord(d)
+  if d >= 1000 then return string.format("%.1fK", d / 1000) end
+  return tostring(floor(d / 10 + 0.5) * 10)
+end
+
 function M.board(T, c, view)
   c:fill(1, 1, c.w, c.h, T.C.ground)
   local now = view.now or 0
@@ -145,7 +170,7 @@ function M.board(T, c, view)
   end)
   for i, ct in ipairs(list) do
     local y = 3 + i
-    if y >= c.h then break end
+    if y >= c.h - 1 then break end
     local away = not live(view, ct)
     local state = away and "AWAY" or tostring(ct.st):upper()
     local row = wide and string.format("%-8s %-12s %-4s %-5s %4d %5d %5s", ct.reg or "", tostring(ct.call):sub(1, 12),
@@ -160,6 +185,12 @@ function M.board(T, c, view)
     end
   end
   if #list == 0 then c:text(2, 5, "NOTHING HEARD YET", T.C.faint) end
+  -- the other centres in range, on the row above the foot
+  local near = M.centresInRange(view)
+  local parts = {}
+  for _, ct in ipairs(near) do parts[#parts + 1] = string.format("%s %s %s", ct.name, distWord(ct.dist), ct.word) end
+  c:text(2, c.h - 1, ("CENTRES  " .. (#parts > 0 and table.concat(parts, "  ") or "NONE IN RANGE")):sub(1, c.w - 2),
+    #parts > 0 and T.C.ok or T.C.faint)
   local footRight = view.feed == "none" and "NO FEED"
     or (view.cinder == "stealth" and "CINDER HIDDEN") or (view.cinder == "none" and "NO CINDER FEED")
     or ((view.refused or 0) > 0 and (view.refused .. " REFUSED") or nil)
