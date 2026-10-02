@@ -65,8 +65,11 @@ local function isInventory(n)
   local ok, l = pcall(peripheral.call, n, "list")
   return ok and type(l) == "table"
 end
+-- the first peripheral of a kind, or nil (said, not left out: tostring() of
+-- nothing at all is an error - the first setup in game, 2026-10-02)
 local function firstOf(kind)
   for _, n in ipairs(peripheral.getNames()) do if peripheral.getType(n) == kind then return n end end
+  return nil
 end
 
 -- ------------------------------------------------------------- commands --
@@ -110,8 +113,10 @@ if cmd == "setup" or cmd == "stock" or cmd == "out" or cmd == "monitor" or cmd =
     end
   end
   cfg.monitor, cfg.drive = best, firstOf("drive")
-  print("monitor: " .. tostring(cfg.monitor) .. "   drive: " .. tostring(cfg.drive)
-    .. "   seat: " .. tostring(firstOf("create_target")))
+  print("monitor: " .. (cfg.monitor or "NONE - an advanced monitor, 3x2 or bigger")
+    .. "   drive: " .. (cfg.drive or "NONE"))
+  print("seat: " .. (firstOf("create_target")
+    or "NONE - a Create Seat, a Display Link on it reading Entity Name, a CC:C Bridge target block"))
   local invs = {}
   for _, n in ipairs(peripheral.getNames()) do
     if peripheral.getType(n) ~= "drive" and isInventory(n) then invs[#invs + 1] = n end
@@ -349,8 +354,8 @@ local function draw()
                  blit = function(s, f, b) peripheral.call(name, "blit", s, f, b) end })
 end
 
-print(string.format("kiosk %s for %s - monitor %s, drive %s", me.name, tostring(me.master), tostring(cfg.monitor),
-  tostring(cfg.drive)))
+print(string.format("kiosk %s for %s - monitor %s, drive %s", me.name, me.master or "the master tower",
+  cfg.monitor or "none", cfg.drive or "none"))
 if not (cfg.monitor and cfg.stock and cfg.out) then print("not set up: navdesk setup") end
 local timer = os.startTimer(0.5)
 local lastStatus = -STATUS_EVERY

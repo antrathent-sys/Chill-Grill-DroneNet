@@ -413,6 +413,22 @@ check("the kit in the out chest: the unit, two monitors, an ender modem",
   gotK["computercraft:computer_advanced"] == 1 and gotK["computercraft:monitor_advanced"] == 2
   and gotK["computercraft:wireless_modem_advanced"] == 1 and kw.out[1].written, tostring(#kw.out))
 
+-- setup on a bare computer: says what is missing instead of failing
+local bare = withFs(W.new(DIR, { label = "kiosk-hq", S = S, lines = { "1", "2" } }))
+for _, f in ipairs({ "navdesk.lua", "lib/nav.lua", "lib/seclink.lua" }) do bare.files[f] = readRepo(f) end
+bare = bare:run("navdesk.lua", { "setup" }, 5)
+check("navdesk setup with nothing fitted says what is missing", bare.err == nil
+  and bare.text:find("seat: NONE", 1, true) and bare.text:find("monitor: NONE", 1, true), bare.err or bare.text)
+local setupW = kioskWorld(true)
+setupW.files["navdesk.cfg"] = nil
+setupW.lines = { "1", "2" }
+setupW = setupW:run("navdesk.lua", { "setup" }, 5)
+check("navdesk setup finds the monitor, drive and seat, and asks which chest is which",
+  setupW.err == nil and (setupW.files["navdesk.cfg"] or ""):find("monitor=monitor_9", 1, true)
+  and (setupW.files["navdesk.cfg"] or ""):find("drive=drive_0", 1, true)
+  and setupW.text:find("seat: create_target_0", 1, true)
+  and (setupW.files["navdesk.cfg"] or ""):find("stock=", 1, true), setupW.err or setupW.text)
+
 local ko = kioskWorld(true)
 local function oTouch(t, view, id) local x, y = at(view, id) ko.at(t, { "monitor_touch", "monitor_9", x, y }) end
 oTouch(2, { state = "hello", who = "sam_k", stock = 1 }, "register")
