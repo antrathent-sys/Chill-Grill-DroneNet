@@ -137,8 +137,11 @@ function K:touch(id)
         return self:go("error", { msg = { "YOU HAVE " .. K.MAX_PER_OWNER .. " UNITS REGISTERED",
                                           "A CINDER OPERATOR CAN REGISTER MORE" } })
       end
-      local stock = io.stock()
-      if not stock or stock < 1 then
+      local stock, whyNot = io.stock()
+      if not stock then
+        return self:go("error", { msg = { "THIS KIOSK IS NOT SET UP", tostring(whyNot or "") } })
+      end
+      if stock < 1 then
         return self:go("error", { msg = { "KITS ARE OUT OF STOCK", "CINDER HAS BEEN TOLD - PLEASE COME BACK LATER" } })
       end
       if io.drive() then

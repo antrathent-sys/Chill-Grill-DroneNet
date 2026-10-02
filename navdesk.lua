@@ -299,7 +299,7 @@ kiosk = KL.new({
     return a and a.nextReg or "CR-????"
   end,
   stock = function()
-    if not (cfg.stock and cfg.out) then return nil end
+    if not (cfg.stock and cfg.out) then return nil, cfg.stock and "NO OUT CHEST SET" or "NO STOCK CHESTS SET" end
     return N.kitsIn(stockList(stocksOf(cfg)))
   end,
   callFree = function(call, except)
@@ -316,23 +316,37 @@ kiosk = KL.new({
     if not (d and #stocks > 0 and out) then return nil, "THE KIOSK'S CHESTS ARE NOT SET UP" end
     if peripheral.call(d, "hasData") then return nil, "THE DRIVE IS NOT EMPTY" end
     -- st: the chest the computer came from, and goes back to if anything fails
-    local loaded, st = false, nil
+    -- which step failed is said exactly (2026-10-02: "nothing in stock" read
+    -- the same for a computer that would not move and one never switched on)
+    local loaded, st, tried, unread, stuck = false, nil, 0, 0, nil
     for _, from in ipairs(stocks) do
       local okL, list = pcall(peripheral.call, from, "list")
       for slot, it in pairs(okL and list or {}) do
         if not loaded and it.name == N.KIT.computer then
+          tried = tried + 1
           local okP, moved = pcall(peripheral.call, from, "pushItems", d, slot, 1)
           if okP and moved == 1 then
             for _ = 1, 10 do
               if peripheral.call(d, "hasData") then loaded = true break end
               sleep(0.1)
             end
-            if loaded then st = from else pcall(peripheral.call, from, "pullItems", d, 1) end
+            if loaded then st = from
+            else
+              unread = unread + 1
+              pcall(peripheral.call, from, "pullItems", d, 1)
+            end
+          else
+            stuck = okP and "the drive would not take it" or tostring(moved)
           end
         end
       end
     end
-    if not loaded then return nil, "NO PREPARED COMPUTER IN STOCK" end
+    if not loaded then
+      print(string.format("kit: %d computer(s) tried, %d never switched on, moving: %s", tried, unread, tostring(stuck or "fine")))
+      if tried == 0 then return nil, "NO ADVANCED COMPUTER IN STOCK" end
+      if unread > 0 then return nil, "STOCK COMPUTERS WERE NEVER SWITCHED ON" end
+      return nil, "COULD NOT MOVE A COMPUTER INTO THE DRIVE"
+    end
     local a, why = ask("register", { owner = owner, kind = kind, call = call })
     if not (a and a.ok) then
       pcall(peripheral.call, st, "pullItems", d, 1)
@@ -409,6 +423,7 @@ if cfg.stock then
   local all = stockList(stocksOf(cfg))
   print("kits in stock: " .. N.kitsIn(all) .. "  (" .. N.kitParts(all) .. ")")
 end
+print("out chest: " .. (cfg.out or "NONE - navdesk setup"))
 local timer = os.startTimer(0.5)
 local lastStatus = -STATUS_EVERY
 while true do
