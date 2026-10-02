@@ -52,11 +52,14 @@ end
 local floor, abs, max, min = math.floor, math.abs, math.max, math.min
 local RANGE = 1000            -- the radar's ring, as far as a pong's traffic reaches
 
+-- Each kind's own gauge in place of the plain figures (2026-10-02): an
+-- aircraft's altimeter, a land vehicle's speedometer, a vessel's compass, a
+-- submarine's depth gauge.
 M.PAGES = {
-  air  = { "speed", "height", "heading", "radar", "status" },
-  land = { "speed", "heading", "height", "radar", "status" },
-  sea  = { "speed", "heading", "radar", "status" },
-  sub  = { "speed", "height", "heading", "radar", "status" },
+  air  = { "speed", "altimeter", "heading", "radar", "status" },
+  land = { "speedo", "heading", "height", "radar", "status" },
+  sea  = { "speed", "compass", "radar", "status" },
+  sub  = { "speed", "depth", "heading", "radar", "status" },
 }
 
 --- The pages a screen cycles through: a wide one starts on the overview.
@@ -322,6 +325,108 @@ local function radarPage(T, c, view, idx, n)
   advBand(T, c, view)
 end
 
+-- ------------------------------------------------------------------ gauges --
+-- A round gauge in pixels: a ring of ticks, needles from the middle, the
+-- reading in figures low in the dial. One for each kind of vehicle (Alex,
+-- 2026-10-02: "a proper altimeter if it's a plane"): an aircraft's altimeter,
+-- a land vehicle's speedometer, a vessel's compass, a submarine's depth gauge.
+local function dialGeom(c)
+  local topRow, botRow = 2, c.h - 2
+  local py0, py1 = (topRow - 1) * 3 + 1, botRow * 3
+  local cx, cy = c.w + 0.5, (py0 + py1) / 2
+  return cx, cy, min(c.w - 1.5, (py1 - py0) / 2 - 0.5)
+end
+local function polar(cx, cy, r, deg)
+  local a = math.rad(deg)
+  return cx + math.sin(a) * r, cy - math.cos(a) * r
+end
+local function tick(c, cx, cy, R, deg, len, col)
+  local x0, y0 = polar(cx, cy, R - len, deg)
+  local x1, y1 = polar(cx, cy, R, deg)
+  c:line(x0, y0, x1, y1, col)
+end
+local function needle(c, cx, cy, len, deg, col)
+  local x, y = polar(cx, cy, len, deg)
+  c:line(cx, cy, x, y, col)
+end
+-- the figures, in a window in the lower half of the dial
+local function window(c, cy, R, s, ink)
+  local row = floor((cy + R * 0.55 - 1) / 3) + 1
+  center(c, row, s, ink)
+end
+-- the line under the dial, when there is no advisory to show there
+local function underDial(T, c, view, s)
+  if not view.adv and s then center(c, c.h - 1, s:sub(1, c.w), T.C.faint) end
+end
+
+-- Altimeter: as in an aircraft, the long needle goes round once per 100
+-- blocks and the short one once per 1,000, with Y in figures.
+local function altimeterPage(T, c, view, idx, n)
+  T.band(c, 1, "ALTIMETER", idx .. "/" .. n, T.C.text, T.C.faint)
+  local cx, cy, R = dialGeom(c)
+  c:circle(cx, cy, R, T.C.rule)
+  for i = 0, 9 do tick(c, cx, cy, R, i * 36, i == 0 and 3 or 2, i == 0 and T.C.text or T.C.faint) end
+  if R >= 14 then for i = 0, 49 do if i % 5 ~= 0 then tick(c, cx, cy, R, i * 7.2, 1, T.C.rule) end end end
+  local y = view.r and view.r.y
+  if y then
+    needle(c, cx, cy, R * 0.5, (y % 1000) / 1000 * 360, T.C.accent)
+    needle(c, cx, cy, R - 2, (y % 100) / 100 * 360, T.C.text)
+  end
+  window(c, cy, R, M.value(view.r, "alt"), T.C.text)
+  underDial(T, c, view, view.craft and ("V/S " .. M.value(view.r, "vs")) or "NO CRAFT")
+  advBand(T, c, view)
+end
+
+-- Depth gauge: once round per 100 blocks below sea level, depth in figures.
+local function depthPage(T, c, view, idx, n)
+  T.band(c, 1, "DEPTH", idx .. "/" .. n, T.C.text, T.C.faint)
+  local cx, cy, R = dialGeom(c)
+  c:circle(cx, cy, R, T.C.rule)
+  for i = 0, 9 do tick(c, cx, cy, R, i * 36, i == 0 and 3 or 2, i == 0 and T.C.text or T.C.faint) end
+  local d = view.r and view.r.depth
+  if d then needle(c, cx, cy, R - 2, (max(0, d) % 100) / 100 * 360, d > 0 and T.C.text or T.C.faint) end
+  window(c, cy, R, (d and d <= 0) and "SURF" or M.value(view.r, "depth"), T.C.text)
+  underDial(T, c, view, view.craft and ("V/S " .. M.value(view.r, "vs")) or "NO CRAFT")
+  advBand(T, c, view)
+end
+
+-- Speedometer: a 270-degree sweep to a full scale that grows with the
+-- speed, 20 / 40 / 80 / 160 / 320 blocks a second.
+local function speedoPage(T, c, view, idx, n)
+  local spd = view.r and view.r.spd or 0
+  local full = 20
+  while full < spd and full < 320 do full = full * 2 end
+  T.band(c, 1, "SPEED", (c.w >= 20 and (idx .. "/" .. n .. "  ") or "") .. "/" .. full, T.C.text, T.C.faint)
+  local cx, cy, R = dialGeom(c)
+  for i = 0, 8 do
+    local deg = -135 + i * 270 / 8
+    tick(c, cx, cy, R, deg, (i % 4 == 0) and 3 or 2, (i % 4 == 0) and T.C.text or T.C.faint)
+  end
+  for i = 0, 54 do local x, y = polar(cx, cy, R, -135 + i * 5) c:pix(x, y, T.C.rule) end
+  needle(c, cx, cy, R - 2, -135 + min(spd, full) / full * 270, T.C.accent)
+  window(c, cy, R, M.value(view.r, "spd"), T.C.text)
+  underDial(T, c, view, view.craft and ("HDG " .. M.value(view.r, "hdg")) or "NO CRAFT")
+  advBand(T, c, view)
+end
+
+-- Compass: north up, the needle on the heading, N E S W round the ring.
+local function compassPage(T, c, view, idx, n)
+  T.band(c, 1, "COMPASS", idx .. "/" .. n, T.C.text, T.C.faint)
+  local cx, cy, R = dialGeom(c)
+  c:circle(cx, cy, R, T.C.rule)
+  for i = 0, 7 do tick(c, cx, cy, R, i * 45, (i % 2 == 0) and 2 or 1, T.C.faint) end
+  for i, l in ipairs({ "N", "E", "S", "W" }) do
+    local x, y = polar(cx, cy, R - 3.5, (i - 1) * 90)
+    c:text(floor((x - 1) / 2) + 1, floor((y - 1) / 3) + 1, l, l == "N" and T.C.text or T.C.faint)
+  end
+  local h = view.r and view.r.hdg
+  if h then needle(c, cx, cy, R - 2, h, T.C.accent) end
+  window(c, cy, R, M.value(view.r, "hdg"), T.C.text)
+  local cp = h and cardinal(h)
+  underDial(T, c, view, cp and CARD_WORD[cp] or "NOT MOVING")
+  advBand(T, c, view)
+end
+
 local function statusPage(T, c, view, idx, n)
   local wide = c.w >= 30
   T.band(c, 1, wide and "CINDER NAV" or "CINDER", wide and (view.me.reg or "") or (idx .. "/" .. n),
@@ -359,6 +464,10 @@ function M.render(T, c, view, page)
   if page == "overview" then overview(T, c, view)
   elseif page == "radar" then radarPage(T, c, view, idx, #list)
   elseif page == "status" then statusPage(T, c, view, idx, #list)
+  elseif page == "altimeter" then altimeterPage(T, c, view, idx, #list)
+  elseif page == "depth" then depthPage(T, c, view, idx, #list)
+  elseif page == "speedo" then speedoPage(T, c, view, idx, #list)
+  elseif page == "compass" then compassPage(T, c, view, idx, #list)
   else numberPage(T, c, view, page, idx, #list) end
   return { sos = footer(T, c, view), page = page }
 end

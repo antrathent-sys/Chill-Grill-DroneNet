@@ -71,6 +71,31 @@ the update is shown to the owner, there is no shell (Ctrl+T does nothing),
 no token and nothing that pushes. A new key or a new registration still
 comes from the master's drive - `tower register` again keeps its key.
 
+**The registration kiosk** (Alex, 2026-10-02: players register their own
+vehicles). Beside the master, on its wired network: an advanced monitor 3x2
+or bigger (4x3 gives a full-size keyboard), the seat (a Create Seat, a
+Display Link on it reading Entity Name, a CC:C Bridge target block) and a
+disk drive. `tower kiosk monitor_3 drive_1` on the master (`tower kiosk
+off` to stop). The master runs it beside everything else, so no key ever
+leaves the tower (`lib/navkiosk.lua`, screens `lib/kioskui.lua`;
+`tools/preview_nav.py --kiosk` renders them). The player:
+
+1. sits down - the kiosk greets them by name, which is the owner;
+2. puts the computer from their CINDER NAV kit in the drive (a CINDER
+   machine, a transit pass, a computer with files on it, or a unit
+   registered to someone else is refused, and the screen says why);
+3. touches the vehicle type - AIRCRAFT, LAND VEHICLE, VESSEL, SUBMARINE,
+   each with the gauge it will get;
+4. types a callsign on the screen's keyboard;
+5. checks owner, type, callsign and the registration it will get, and
+   touches REGISTER; takes the unit back when it says REGISTERED.
+
+Their own unit back in the drive offers UPDATE (software, same key) or
+CHANGE (type and callsign, same registration). A player can register five
+units themselves (`navkiosk.lua` MAX_PER_OWNER); more at the tower. Getting
+up for three seconds, or ninety seconds without a touch part-way through,
+starts again.
+
 ## The pieces
 
 ```mermaid
@@ -146,9 +171,13 @@ need a gap, or a wired modem to reach the computer.
 
 | page | on a one-block screen (15x10) |
 |---|---|
-| speed | speed big, heading under it |
-| height | height (Y level) big and climb; DEPTH below sea on a submarine; no height page on a boat |
-| heading | heading big and the compass point in words |
+| speed | speed big, heading under it (aircraft, vessel, submarine) |
+| altimeter | **an aircraft's gauge** (2026-10-02): a dial whose long needle goes round once per 100 blocks and short one once per 1,000, Y in figures in the dial, the climb under it |
+| speedometer | **a land vehicle's gauge**: a 270-degree dial whose full scale grows with the speed (20, 40, 80, 160, 320 b/s), the speed in figures |
+| compass | **a vessel's gauge**: north up, N E S W round the ring, the needle on the heading, the point in words |
+| depth | **a submarine's gauge**: once round per 100 blocks below sea level, the depth in figures, SURF at the surface |
+| height | height (Y level) big and climb - on a land vehicle |
+| heading | heading big and the compass point in words (aircraft, land vehicle, submarine) |
 | radar | **very simple**: a ring at 1 km, you in the middle, a dot for each vehicle (rust if it is on course to pass too close), a green dot for each traffic centre; your heading at the top |
 | status | callsign, type, tower link, traffic, the nearest centre with its distance and direction |
 

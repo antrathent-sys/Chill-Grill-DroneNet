@@ -75,7 +75,7 @@ return {
   -- The one computer of the traffic service with common, so the one that can
   -- push. Never holds a fleet key.
   tower = { "tower.lua", "lib/nav.lua", "lib/navui.lua", "nav.lua", "lib/display.lua", "lib/tui.lua",
-            "lib/towerui.lua" },
+            "lib/towerui.lua", "lib/kioskui.lua", "lib/navkiosk.lua" },
 
   -- BARE roles (startup.lua BARE): nothing from common - no uploads, no
   -- machine folder, no key tools - and startup never touches a thruster or a

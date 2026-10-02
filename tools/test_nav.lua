@@ -232,6 +232,96 @@ local pc = N.parsePicture(N.picture({ a = N.cinderContact({}, { unit = "drone-1"
 check("a centre's picture carries it, and shows it as CINDER", pc.contacts[1] and pc.contacts[1].n == 0
   and N.regOf(pc.contacts[1]) == "CINDER" and pc.contacts[1].call == "LAMBDA-001")
 
+print("the registration kiosk")
+local KL = dofile(DIR .. "/../lib/navkiosk.lua")
+local KUI = dofile(DIR .. "/../lib/kioskui.lua")
+local function fakeKiosk()
+  local f = { t = 0, who = nil, disk = nil, regs = {}, ejected = 0, made = nil, refreshed = nil }
+  f.io = {
+    seated = function() return f.who end,
+    drive = function() return f.disk end,
+    eject = function() f.ejected = f.ejected + 1 f.disk = nil end,
+    find = function(unit) for _, r in ipairs(f.regs) do if r.unit == unit then return r end end end,
+    count = function(owner)
+      local n = 0
+      for _, r in ipairs(f.regs) do if r.owner == owner and not r.revoked then n = n + 1 end end
+      return n
+    end,
+    nextReg = function() return N.regNumber(#f.regs + 1) end,
+    validCall = N.validCall,
+    register = function(owner, kind, call)
+      f.made = { owner = owner, kind = kind, call = call }
+      local rec = { n = #f.regs + 1, unit = N.unitId(#f.regs + 1), owner = owner, kind = kind, call = call }
+      rec.reg = N.regNumber(rec.n)
+      f.regs[#f.regs + 1] = rec
+      return rec
+    end,
+    refresh = function(unit, kind, call)
+      f.refreshed = { unit = unit, kind = kind, call = call }
+      local r = f.io.find(unit)
+      return { reg = r.reg, call = call or r.call }
+    end,
+    now = function() return f.t end,
+  }
+  f.k = KL.new(f.io)
+  return f
+end
+local kf = fakeKiosk()
+kf.k:tick()
+check("nobody seated: the attract screen", kf.k.view.state == "attract")
+kf.who = "alex_r" kf.k:tick()
+check("someone sits: welcome, by name, and wait for the computer", kf.k.view.state == "hello" and kf.k.view.who == "alex_r")
+kf.disk = { kind = "dev", marker = ".fleetkeys" } kf.k:tick()
+check("one of CINDER's machines in the drive: said so, nothing done", kf.k.view.state == "hello" and kf.k.view.drive == "dev")
+kf.disk = { kind = "blank" } kf.k:tick()
+check("a blank computer: on to the vehicle type", kf.k.view.state == "type")
+kf.k:touch("kind:air")
+check("the type chosen: on to the callsign", kf.k.view.state == "callsign" and kf.k.view.kind == "air")
+for _, ch in ipairs({ "F", "A", "L", "C", "O", "N", " ", " ", "1" }) do kf.k:touch("key:" .. ch) end
+check("typed on the screen, no double spaces", kf.k.view.call == "FALCON 1", kf.k.view.call)
+kf.k:touch("del") kf.k:touch("key:2")
+check("delete takes the last one off", kf.k.view.call == "FALCON 2")
+kf.k:touch("next")
+check("next: the confirm screen, with the registration it will get", kf.k.view.state == "confirm"
+  and kf.k.view.reg == "CR-0001" and kf.k.view.who == "alex_r")
+kf.k:touch("register")
+check("register: made in the seated player's name", kf.made and kf.made.owner == "alex_r" and kf.made.kind == "air"
+  and kf.made.call == "FALCON 2" and kf.k.view.state == "done" and kf.k.view.reg == "CR-0001")
+kf.k:touch("done")
+check("done: the unit is handed back", kf.ejected == 1 and kf.k.view.state == "hello")
+-- the same unit back in the drive: theirs
+kf.disk = { kind = "unit", me = { unit = "nav-0001" } } kf.k:tick()
+check("their own unit: update or change it", kf.k.view.state == "mine" and kf.k.view.unit.reg == "CR-0001")
+kf.k:touch("change") kf.k:touch("kind:sea") kf.k:touch("del") kf.k:touch("key:3") kf.k:touch("next")
+check("changing it keeps its registration", kf.k.view.state == "confirm" and kf.k.view.reg == "CR-0001")
+kf.k:touch("register")
+check("...and only changes it", kf.refreshed and kf.refreshed.unit == "nav-0001" and kf.refreshed.kind == "sea"
+  and kf.refreshed.call == "FALCON 3" and #kf.regs == 1)
+kf.k:touch("done")
+kf.who = "sam_k" kf.disk = { kind = "unit", me = { unit = "nav-0001" } } kf.k:tick()
+check("someone else's unit: refused, said so", kf.k.view.state == "hello" and kf.k.view.drive == "theirs"
+  and kf.k.view.who == "sam_k")
+kf.who = nil kf.t = 1 kf.k:tick() kf.t = 5 kf.k:tick()
+check("the seat empty a few seconds: back to the start", kf.k.view.state == "attract")
+local lim = fakeKiosk()
+for i = 1, KL.MAX_PER_OWNER do lim.regs[i] = { n = i, unit = N.unitId(i), owner = "alex_r", reg = N.regNumber(i) } end
+lim.who, lim.disk = "alex_r", { kind = "blank" }
+lim.k:tick()
+check("a player at the limit is sent to a CINDER operator", lim.k.view.state == "error"
+  and tostring(lim.k.view.msg[1]):find("5 UNITS", 1, true))
+local idle = fakeKiosk()
+idle.who, idle.disk = "alex_r", { kind = "blank" }
+idle.k:tick() idle.k:touch("kind:land")
+idle.t = KL.IDLE + 1 idle.k:tick()
+check("walked off part-way (still seated): back to the welcome", idle.k.view.state == "hello")
+local hitsK = KUI.render(T, D.canvas(57, 24), { state = "type", who = "alex_r" })
+check("the screen's buttons are where a touch finds them", KUI.hit(hitsK, 3, 6) == "kind:air"
+  and KUI.hit(hitsK, 1, 1) == nil)
+local kb = KUI.render(T, D.canvas(57, 24), { state = "callsign", who = "alex_r", call = "" })
+local keysFound = 0
+for _, h in ipairs(kb) do if h.id:match("^key:") then keysFound = keysFound + 1 end end
+check("the keyboard: every letter, digit, dash and space", keysFound == 38, keysFound)
+
 print("the screen")
 local function shot(w, h, view, page)
   local c = D.canvas(w, h)
@@ -267,26 +357,36 @@ check("a submarine shows depth", subTxt:find("DEPTH", 1, true) and not subTxt:fi
 local boatTxt = shot(36, 10, view("sea"))
 check("a boat shows heading big and its position", boatTxt:find("HDG", 1, true) and boatTxt:find("POS 812 -3300", 1, true), boatTxt)
 print("pages")
-check("a one-block screen cycles speed, height, heading, radar, status", table.concat(UI.pages("air", 15), ",")
-  == "speed,height,heading,radar,status")
+check("an aircraft's block cycles speed, the altimeter, heading, radar, status", table.concat(UI.pages("air", 15), ",")
+  == "speed,altimeter,heading,radar,status")
+check("each kind has its own gauge", UI.pages("land", 15)[1] == "speedo" and UI.pages("sub", 15)[2] == "depth"
+  and UI.pages("sea", 15)[2] == "compass")
 check("a wide one starts on the overview", UI.pages("air", 36)[1] == "overview" and #UI.pages("air", 36) == 6)
-check("a boat has no height page", table.concat(UI.pages("sea", 15), ",") == "speed,heading,radar,status")
+check("a boat has no height page", table.concat(UI.pages("sea", 15), ",") == "speed,compass,radar,status")
 check("a land vehicle puts heading before height", UI.pages("land", 15)[2] == "heading")
-check("the next page, and round again", UI.nextPage("air", 15, "speed") == "height"
+check("the next page, and round again", UI.nextPage("air", 15, "speed") == "altimeter"
   and UI.nextPage("air", 15, "status") == "speed" and UI.nextPage("air", 15, "nonsense") == "speed")
 local sp = shot(15, 10, view("air"), "speed")
 check("speed: the title, which page of how many, B/S, heading under it, the key", sp:find("SPEED", 1, true)
   and sp:find("1/5", 1, true) and sp:find("B/S", 1, true) and sp:find("HDG 037", 1, true)
   and sp:find("TOWER", 1, true) and sp:find("SOS", 1, true), sp)
-local ht = shot(15, 10, view("air"), "height")
-check("height: ALTITUDE, Y and the climb", ht:find("ALTITUDE", 1, true) and ht:find("2/5", 1, true)
-  and ht:find("V/S +1.5", 1, true), ht)
-local dp = shot(15, 10, view("sub"), "height")
-check("a submarine's height page is depth below sea", dp:find("DEPTH", 1, true) and dp:find("BELOW SEA", 1, true), dp)
+local ht = shot(15, 10, view("air"), "altimeter")
+check("the altimeter: a dial, Y in figures in it, the climb under it", ht:find("ALTIMETER", 1, true)
+  and ht:find("2/5", 1, true) and ht:find("147", 1, true) and ht:find("V/S +1.5", 1, true), ht)
+local dp = shot(15, 10, view("sub"), "depth")
+check("a submarine's depth gauge, with the depth in figures", dp:find("DEPTH", 1, true)
+  and dp:find(tostring(N.SEA_LEVEL - 147 > 0 and (N.SEA_LEVEL - 147) or "SURF"), 1, true), dp)
+local lv = shot(15, 10, view("land"), "speedo")
+check("a land vehicle's speedometer: its full scale and the speed in figures", lv:find("SPEED", 1, true)
+  and lv:find("/", 1, true) and lv:find("HDG 037", 1, true), lv)
+check("...and its height page is still there", shot(15, 10, view("land"), "height"):find("ALTITUDE", 1, true))
+local cp = shot(15, 10, view("sea"), "compass")
+check("a vessel's compass: N on the ring, the heading in figures, the point in words", cp:find("COMPASS", 1, true)
+  and cp:find("N", 1, true) and cp:find("037", 1, true) and cp:find("NORTHEAST", 1, true), cp)
 local hd = shot(15, 10, view("air"), "heading")
 check("heading: the compass point in words", hd:find("HEADING", 1, true) and hd:find("NORTHEAST", 1, true), hd)
-local high = shot(15, 10, view("air", { r = N.reading({ x = 0, y = 1079, z = 0 }, nil) }), "height")
-check("a four-figure height still fits a block", high:find("ALTITUDE", 1, true), high)
+local high = shot(15, 10, view("air", { r = N.reading({ x = 0, y = 1079, z = 0 }, nil) }), "altimeter")
+check("a four-figure height still fits a block", high:find("1079", 1, true), high)
 local st = shot(15, 10, view("air", { centres = N.centresFrom(N.reading({ x = 812, y = 147, z = -3300 }, nil),
   { { name = "CHI", x = 2000, y = 70, z = -3300 }, { name = "NORTH", x = 812, y = 80, z = -9000 } }) }), "status")
 check("status: callsign, type, tower, traffic, the nearest centre and its direction", st:find("FALCON", 1, true)

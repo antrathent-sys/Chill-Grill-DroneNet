@@ -231,6 +231,45 @@ end
 check("no watch key: no CINDER units at all", nPong and #nPong.traffic == 0)
 check("the feed's channel is the base's", N.CINDER_FEED == dofile(DIR .. "/../lib/watch.lua").CHANNEL)
 
+-- the kiosk on the running master: someone sits, puts a blank computer in,
+-- touches their way through, and it is registered in their name
+local tk = runningTower(function(w)
+  w.files["tower.cfg"] = "name=CHI\nrange=2000\nkiosk=monitor_9\n"
+  w.periph.monitor_9 = { type = "monitor", m = { getSize = function() return 57, 24 end, setTextScale = function() end,
+    setPaletteColour = function() end, setCursorPos = function() end, blit = function() end } }
+  w.periph.create_target_0 = { type = "create_target", m = { getLine = function() return "sam_k" end } }
+  w.periph.drive_0 = { type = "drive", m = { hasData = function() return w.files["disk/.nav"] ~= nil or w.blank end,
+    getMountPath = function() return "disk" end, ejectDisk = function() w.ejected = (w.ejected or 0) + 1 end,
+    setDiskLabel = function(l) w.labelled = l end } }
+  w.blank = true
+  for _, f in ipairs(N.FILES) do w.files[f] = readRepo(f) end
+  w.files["startup.lua"] = readRepo("startup.lua")
+end)
+S.newKey = function() return KEY3 end
+-- the type screen's AIRCRAFT button, then the keyboard (row 2 is QWERTY), next, register
+local function touchAt(t, x, y) tk.at(t, { "monitor_touch", "monitor_9", x, y }) end
+touchAt(3, 5, 6)                -- AIRCRAFT
+local KUI2 = dofile(DIR .. "/../lib/kioskui.lua")
+local D2, T2 = dofile(DIR .. "/../lib/display.lua"), dofile(DIR .. "/../lib/tui.lua")
+local kbHits = KUI2.render(T2, D2.canvas(57, 24), { state = "callsign", call = "" })
+local function keyAt(ch)
+  for _, h in ipairs(kbHits) do if h.id == "key:" .. ch then return h.x1, h.y1 end end
+end
+local t0 = 4
+for i, ch in ipairs({ "K", "I", "T", "E" }) do local x, y = keyAt(ch) touchAt(t0 + i * 0.3, x, y) end
+local nextHits = KUI2.render(T2, D2.canvas(57, 24), { state = "callsign", call = "KITE" })
+for _, h in ipairs(nextHits) do if h.id == "next" then touchAt(6, h.x1, h.y1) end end
+local confHits = KUI2.render(T2, D2.canvas(57, 24), { state = "confirm", call = "KITE" })
+for _, h in ipairs(confHits) do if h.id == "register" then touchAt(7, h.x1, h.y1) end end
+tk = tk:run("tower.lua", {}, 9)
+S.newKey = realNewKey
+local rk = N.loadRegistry(tk.files["navreg.lua"] or "")
+local mine
+for _, r in ipairs(rk) do if r.call == "KITE" then mine = r end end
+check("registered at the kiosk, in the seated player's name", mine and mine.owner == "sam_k" and mine.idby == "seat"
+  and mine.kind == "air" and tk.files["disk/.navkey"] == HEX3 .. "\n", tk.err or (mine and mine.owner) or tk.text)
+check("its software and role on the computer", tk.files["disk/.role"] == "nav\n" and tk.files["disk/nav.lua"] ~= nil)
+
 -- a revocation done beside it is picked up at the next sync
 local tw2 = runningTower()
 pingAt(tw2, 1, tx2, headOn2)
@@ -343,7 +382,7 @@ u9.at(2, { "monitor_touch", "monitor_1", 3, 4 })
 u9.at(2.2, { "monitor_touch", "monitor_1", 3, 4 })
 u9.at(2.6, function() seen.twoS = screen2() return { "noop" } end)
 u9 = u9:run("nav.lua", { "kiosk" }, 3)
-check("a second screen starts one page along (a block: height)", (seen.two or ""):find("ALTITUDE", 1, true), seen.two)
+check("a second screen starts one page along (a block: the altimeter)", (seen.two or ""):find("ALTIMETER", 1, true), seen.two)
 check("a touch moves only that screen on", (seen.twoB or ""):find("HEADING", 1, true)
   and (seen.twoA or ""):find("CINDER NAV", 1, true), seen.twoB)
 check("the status page shows the nearest centre the tower named", (seen.twoS or ""):find("CHI 1.0K S", 1, true), seen.twoS)

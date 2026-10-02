@@ -6,7 +6,8 @@
 The unit (lib/navui.lua): every page on a one-block screen (15x10 at text
 scale 0.5) - speed, height, heading, radar, status - then the overview on a
 2x1 strip and a 2x2 panel, and the states that matter (an advisory, no tower,
-distress, unregistered) and the boot screen startup draws. With --tower, the tower's own screens
+distress, unregistered), each kind's gauge, and the boot screen startup draws.
+With --kiosk, the registration kiosk's screens (lib/kioskui.lua). With --tower, the tower's own screens
 (lib/towerui.lua): the radar on a 3x3 monitor (57x38) and the board. Drawn
 with lib/tui.lua's palette through tools/ccfont.py, the renderer checked
 against in-game screenshots. Needs lupa and Pillow.
@@ -52,11 +53,19 @@ function(root, which)
       add(w, h, label, function(c) UI.render(T, c, view, p) end)
     end
     page(15, 10, air(), "speed", "1x1 speed")
-    page(15, 10, air(), "height", "1x1 altitude")
     page(15, 10, air(), "heading", "1x1 heading")
     page(15, 10, air(), "radar", "1x1 radar")
     page(15, 10, air(), "status", "1x1 status")
-    page(15, 10, v("sub", "DEEP ONE", { x = 40, y = 22, z = -900 }, { x = 4, y = -0.8, z = 3 }), "height", "1x1 sub depth")
+    page(15, 10, air(), "altimeter", "1x1 altimeter")
+    page(36, 24, air(), "altimeter", "2x2 altimeter")
+    local car = v("land", "ROVER", { x = 40, y = 70, z = -900 }, { x = 21, y = 0, z = -14 })
+    page(15, 10, car, "speedo", "1x1 speedometer")
+    page(36, 24, car, "speedo", "2x2 speedometer")
+    local boat = v("sea", "SEA WOLF", { x = 40, y = 63, z = -900 }, { x = 6, y = 0, z = 6 })
+    page(15, 10, boat, "compass", "1x1 compass")
+    page(36, 24, boat, "compass", "2x2 compass")
+    local deep = v("sub", "DEEP ONE", { x = 40, y = 22, z = -900 }, { x = 4, y = -0.8, z = 3 })
+    page(15, 10, deep, "depth", "1x1 depth gauge")
     page(15, 10, air({ adv = "TRAFFIC 12 O'CLOCK 310 SAME LEVEL", traffic = { hawk, barge } }), "speed", "1x1 advisory")
     page(15, 10, air({ adv = "TRAFFIC 12 O'CLOCK 310 SAME LEVEL", traffic = { hawk, barge } }), "radar", "1x1 radar, advisory")
     page(15, 10, air({ sos = "armed" }), "speed", "1x1 SOS armed")
@@ -66,6 +75,20 @@ function(root, which)
     page(36, 24, air({ traffic = { hawk, barge, tug } }), "overview", "2x2 overview")
     page(36, 24, air({ traffic = { hawk, barge, tug } }), "radar", "2x2 radar")
     add(51, 19, "boot, on the computer itself", function(c) UI.boot(T, c, { frac = 0.6, ver = "f6affcc" }) end)
+  elseif which == "kiosk" then
+    local K = dofile(root .. "/lib/kioskui.lua")
+    local function k(label, view, w, h) add(w or 57, h or 24, label, function(c) K.render(T, c, view) end) end
+    k("attract", { state = "attract" })
+    k("seated, waiting for the computer", { state = "hello", who = "alex_r", n = 1 })
+    k("seated, wrong computer", { state = "hello", who = "alex_r", drive = "other" })
+    k("a unit already theirs", { state = "mine", who = "alex_r", unit = { reg = "CR-0007", call = "FALCON ONE", kind = "air" } })
+    k("vehicle type", { state = "type", who = "alex_r", kind = "air" })
+    k("callsign", { state = "callsign", who = "alex_r", call = "FALCON ON" })
+    k("confirm", { state = "confirm", who = "alex_r", kind = "air", call = "FALCON ONE", reg = "CR-0012" })
+    k("writing", { state = "working", frac = 0.6 })
+    k("done", { state = "done", reg = "CR-0012", call = "FALCON ONE" })
+    k("refused", { state = "error", msg = { "YOU HAVE 5 UNITS REGISTERED", "A CINDER OPERATOR CAN REGISTER MORE" } })
+    k("callsign on a 4x3", { state = "callsign", who = "alex_r", call = "FALCON" }, 79, 38)
   else
     local contacts = {
       { n = 1, reg = "CR-0001", call = "FALCON", kind = "air", x = 2497 + 640, y = 214, z = -3297 + 300, spd = 80, hdg = 70, st = "move", t = 99 },
@@ -126,6 +149,11 @@ def sheet(L, which, out, cols):
 def main():
     args = sys.argv[1:]
     tower = None
+    if "--kiosk" in args:
+        i = args.index("--kiosk")
+        out = args[i + 1] if i + 1 < len(args) else os.path.join(HERE, "nav_kiosk.png")
+        sheet(LuaRuntime(unpack_returned_tuples=True, encoding=None), "kiosk", out, 2)
+        return
     if "--tower" in args:
         i = args.index("--tower")
         tower = args[i + 1] if i + 1 < len(args) else os.path.join(HERE, "nav_tower.png")

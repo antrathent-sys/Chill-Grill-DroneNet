@@ -397,7 +397,9 @@ local BARE = assert(loadstring("return " .. assert((readFile(SRC) or ""):match("
 -- what a BARE role can do without: startup's machine folder is skipped for
 -- it, and display.lua only uses names.lua under pcall (CINDER's unit names)
 local BARE_OPTIONAL = { ["startup.lua>lib/machine.lua"] = true, ["lib/display.lua>lib/names.lua"] = true,
-                        ["tower.lua>lib/names.lua"] = true }
+                        ["tower.lua>lib/names.lua"] = true,
+                        -- the kiosk is the master's; a centre never runs it
+                        ["tower.lua>lib/kioskui.lua"] = true, ["tower.lua>lib/navkiosk.lua"] = true }
 local gaps = {}
 for role, list in pairs(realMan) do
   if role ~= "common" then
