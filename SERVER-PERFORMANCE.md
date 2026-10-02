@@ -141,9 +141,28 @@ Mod versions for 1.21.1 NeoForge are to be checked before adding anything.
   factory gauges; contraption size limits (`maxBlocksMoved`, and
   Simulated's 128,000) lower.
 
-**Sable and Aeronautics**
-- 1 substep; clear abandoned craft and wreckage; ask players to pack craft
-  they are not using; chunk loaders only where needed.
+**Sable and Aeronautics** (settings from Sable's source, 2026-10-02)
+- `sub_level_substeps_per_tick` 2 -> 1 (Sable's server config): the
+  physics step is about 22 ms a tick and runs once per substep.
+- `sub_level_tracking_range`: keep it at 160 (it was 320).
+- `sub_level_remove_min` is -10,000: anything that falls out of the world
+  is simulated all the way down - over a minute of falling at the drag
+  terminal speed of about 120 blocks a second. About -128 removes it soon
+  after it leaves the world.
+- `sub_level_saving_log_message = false`: one less line per save.
+- Runtime, op only: `/sable debug config solver_iterations` - 18 here
+  against Rapier's own default of 4. A second lever after substeps; it is
+  what keeps joints stiff, so test it.
+- Simulated's `maxBlocksMoved` is 128,000: big craft cost more to collide,
+  save and send. 10,000 to 20,000 still allows large ships.
+- Aeronautic Additions' `chunkLoadPadding` 2 -> 1: a craft's chunk loader
+  holds 3x3 chunks instead of 5x5.
+- Habits: a craft resting on the ground with its engines off settles and
+  goes to sleep in the physics engine, costing almost nothing; one hovering
+  on balloons or bobbing on water never settles. Park craft landed or
+  docked, pack the ones not in use into their containers, and clear
+  wreckage (splitting leaves fragments): `/sable info @e`, then `/sable
+  remove`.
 
 **Chunk loaders** (Alex, 2026-10-02: how many of the 20,000+ are players'
 vanilla loaders?)
