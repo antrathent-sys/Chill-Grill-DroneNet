@@ -172,7 +172,27 @@ if cmd == "status" then
   print("kiosk: " .. (me and (me.name .. " of " .. tostring(me.master)) or "not joined - tower kiosk add on the master"))
   print("key: " .. (key and "yes" or "no - open: the master must have tower kiosk open"))
   for _, k in ipairs({ "monitor", "drive", "stock", "out" }) do print(string.format("  %-8s %s", k, tostring(cfg[k]))) end
-  if cfg.stock then print("kits in stock: " .. N.kitsIn(stockList(stocksOf(cfg)))) end
+  -- what each chest really holds, by item name: a wrong kind of modem or
+  -- monitor is the usual reason a full chest counts as no kits
+  for _, n in ipairs(stocksOf(cfg)) do
+    local okL, l = pcall(peripheral.call, n, "list")
+    if not (okL and type(l) == "table") then
+      print("  " .. n .. ": CANNOT READ - not on this computer's network?")
+    else
+      local names = {}
+      for _, it in pairs(l) do names[it.name] = (names[it.name] or 0) + it.count end
+      local parts = {}
+      for name, c in pairs(names) do parts[#parts + 1] = c .. " " .. name end
+      print("  " .. n .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "empty"))
+    end
+  end
+  if cfg.stock then
+    local all = stockList(stocksOf(cfg))
+    print("kits in stock: " .. N.kitsIn(all) .. "  (" .. N.kitParts(all) .. ")")
+  else
+    print("no stock chests set - navdesk setup")
+  end
+  if not cfg.out then print("no out chest set - navdesk setup") end
   return
 end
 
@@ -385,6 +405,10 @@ end
 print(string.format("kiosk %s for %s - monitor %s, drive %s", me.name, me.master or "the master tower",
   cfg.monitor or "none", cfg.drive or "none"))
 if not (cfg.monitor and cfg.stock and cfg.out) then print("not set up: navdesk setup") end
+if cfg.stock then
+  local all = stockList(stocksOf(cfg))
+  print("kits in stock: " .. N.kitsIn(all) .. "  (" .. N.kitParts(all) .. ")")
+end
 local timer = os.startTimer(0.5)
 local lastStatus = -STATUS_EVERY
 while true do

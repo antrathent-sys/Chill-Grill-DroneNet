@@ -370,6 +370,9 @@ check("callsigns: free, taken, reserved", N.callFree({}, "falcon one") == "FALCO
 check("kits counted from a chest: the scarcest part decides", N.kitsIn({
   { name = "computercraft:computer_advanced", count = 3 }, { name = "computercraft:monitor_advanced", count = 5 },
   { name = "computercraft:wireless_modem_advanced", count = 9 } }) == 2)
+check("the parts of a kit, the short ones first", N.kitParts({ { name = "computercraft:monitor_advanced", count = 4 },
+  { name = "computercraft:wireless_modem_normal", count = 3 } })
+  == "advanced computers 0/1, ender modems 0/1, advanced monitors 4/2")
 local apps = N.parseApps(N.appsText({ { n = 1, when = 5, who = "alex_r", name = "NORTH", x = 1200, z = -400, status = "pending" } }))
 check("applications survive their file", apps[1] and apps[1].name == "NORTH" and apps[1].z == -400 and apps[1].status == "pending")
 local hitsK = KUI.render(T, D.canvas(57, 24), { state = "type", who = "alex_r" })

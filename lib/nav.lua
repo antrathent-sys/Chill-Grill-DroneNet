@@ -447,6 +447,27 @@ N.KIT = {
   { name = "computercraft:wireless_modem_advanced", count = 1 },
 }
 
+--- Each part of a kit against what one kit needs, for a person to read:
+-- "computers 0/1, monitors 4/2, ender modems 1/1" - the short ones first.
+N.KIT_WORDS = { ["computercraft:computer_advanced"] = "advanced computers",
+                ["computercraft:monitor_advanced"] = "advanced monitors",
+                ["computercraft:wireless_modem_advanced"] = "ender modems" }
+function N.kitParts(list)
+  local have = {}
+  for _, it in pairs(list or {}) do
+    if type(it) == "table" and type(it.name) == "string" then have[it.name] = (have[it.name] or 0) + (it.count or 1) end
+  end
+  local parts = { { N.KIT.computer, 1 } }
+  for _, need in ipairs(N.KIT) do parts[#parts + 1] = { need.name, need.count } end
+  local short, fine = {}, {}
+  for _, p in ipairs(parts) do
+    local line = string.format("%s %d/%d", N.KIT_WORDS[p[1]] or p[1], have[p[1]] or 0, p[2])
+    if (have[p[1]] or 0) < p[2] then short[#short + 1] = line else fine[#fine + 1] = line end
+  end
+  for _, l in ipairs(fine) do short[#short + 1] = l end
+  return table.concat(short, ", ")
+end
+
 --- How many kits an inventory's list() holds (computers counted as they
 -- are; whether each can be read is found out when one is tried).
 function N.kitsIn(list)
