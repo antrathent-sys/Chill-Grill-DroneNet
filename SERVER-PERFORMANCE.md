@@ -131,6 +131,25 @@ Mod versions for 1.21.1 NeoForge are to be checked before adding anything.
 - Not chunk-generation mods (C2ME and the like): the world is
   pre-generated, and they touch the chunk code Sable hooks.
 
+**Create, measured** (both 2026-10-02 profiles, ms per tick, 3-4 then 6
+players). Create is 12 to 20 ms a tick in all.
+- **Frogports and chain conveyors** (Create 6 package logistics): 2.7 to
+  2.8 together - the biggest named Create cost. Then fans 0.4 / 1.9, belts
+  1.0 / 1.8, chutes 0.7 / 1.1, funnels 0.5 / 0.8, pumps 0.4 / 0.8.
+- **Create Tweaked Controllers costs 0.9 to 1.4 ms a tick on its own**: a
+  mixin on every kinetic block's `getFlickerScore` that always answers 0
+  (read from its bytecode). That also switches off Create's protection
+  against machines flickered on and off by redstone, and allocates on
+  every call - more garbage for the collector. Remove it if nobody needs
+  it, or take it to its author.
+- Settings in `create-server.toml` (the pack's values; the server's may
+  differ), each a little less work for a little less speed:
+  `fanBlockCheckRate` 30 -> 60, `fanPushDistance` and `fanPullDistance`
+  20 -> 12, `defaultExtractionTimer` 8 -> 12, `brassTunnelTimer` 10 -> 15,
+  `factoryGaugeTimer` 100 -> 200, `hosePulleyRange` 128 -> 64.
+- Already right: Create Threaded Trains moves train navigation off the
+  main thread.
+
 **Create specifically**
 - Machines and farms run whenever their chunks are loaded: ask players to
   put a clutch or redstone stop on big builds and switch them off when idle.
