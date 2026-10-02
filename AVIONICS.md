@@ -72,29 +72,58 @@ no token and nothing that pushes. A new key or a new registration still
 comes from the master's drive - `tower register` again keeps its key.
 
 **The registration kiosk** (Alex, 2026-10-02: players register their own
-vehicles). Beside the master, on its wired network: an advanced monitor 3x2
-or bigger (4x3 gives a full-size keyboard), the seat (a Create Seat, a
-Display Link on it reading Entity Name, a CC:C Bridge target block) and a
-disk drive. `tower kiosk monitor_3 drive_1` on the master (`tower kiosk
-off` to stop). The master runs it beside everything else, so no key ever
-leaves the tower (`lib/navkiosk.lua`, screens `lib/kioskui.lua`;
-`tools/preview_nav.py --kiosk` renders them). The player:
+vehicles, and the kit comes with the registration). Beside the master, on
+its wired network:
+
+- an advanced monitor, 3x2 or bigger (4x3 gives a full-size keyboard);
+- the seat: a Create Seat, a Display Link on it reading Entity Name, a
+  CC:C Bridge target block;
+- a disk drive;
+- a **stock chest** on CINDER's side, filled with advanced computers that
+  have been **placed and switched on once** (a disk drive can only read a
+  computer that has; no label needed - CC:Tweaked keeps its id when it is
+  broken), advanced monitors and ender modems;
+- an **out chest** the seated player can open.
+
+```
+tower kiosk monitor_3 drive_1
+tower kiosk stock minecraft:chest_4
+tower kiosk out minecraft:chest_5
+```
+
+The master runs it beside everything else, so no key ever leaves the tower
+(`lib/navkiosk.lua`, screens `lib/kioskui.lua`; `tools/preview_nav.py
+--kiosk` renders them). The player:
 
 1. sits down - the kiosk greets them by name, which is the owner;
-2. puts the computer from their CINDER NAV kit in the drive (a CINDER
-   machine, a transit pass, a computer with files on it, or a unit
-   registered to someone else is refused, and the screen says why);
+2. touches REGISTER A VEHICLE (it says when kits are out of stock);
 3. touches the vehicle type - AIRCRAFT, LAND VEHICLE, VESSEL, SUBMARINE,
    each with the gauge it will get;
-4. types a callsign on the screen's keyboard;
-5. checks owner, type, callsign and the registration it will get, and
-   touches REGISTER; takes the unit back when it says REGISTERED.
+4. types a callsign on the screen's keyboard - **refused if another live
+   unit has it ("TAKEN BY CR-0007"), or if it starts CINDER, LAMBDA, ZETA,
+   TOWER or ATC** (N.callFree; `tower register` checks the same);
+5. checks owner, type, callsign and registration, and touches REGISTER.
+   The kiosk moves a computer from the stock into its drive (one the drive
+   cannot read goes back, and the tower's board says so), writes the unit,
+   and puts it, two advanced monitors and an ender modem in the out chest:
+   REGISTERED, YOUR KIT IS IN THE CHEST BESIDE YOU.
 
-Their own unit back in the drive offers UPDATE (software, same key) or
-CHANGE (type and callsign, same registration). A player can register five
-units themselves (`navkiosk.lua` MAX_PER_OWNER); more at the tower. Getting
-up for three seconds, or ninety seconds without a touch part-way through,
-starts again.
+Their own unit put in the drive offers UPDATE (software, same key) or
+CHANGE (type and callsign, same registration); it comes back in the out
+chest. Anything else in the drive is to be taken out first. A player can
+register five units themselves (`navkiosk.lua` MAX_PER_OWNER); more at the
+tower. Getting up for three seconds, or ninety seconds without a touch
+part-way through, starts again.
+
+**Hosting a traffic centre** (Alex, 2026-10-02: "a way to apply for an
+ATC"). The kiosk's other button: the centre's name (2 to 12 letters,
+digits or dashes), where it would stand (X and Z), and APPLY. One waiting
+application per player; a name already a centre or applied for is
+refused. Applications go to `centreapps.csv` on the master and its board
+shows each as it arrives. `tower centre apps` lists the waiting ones,
+`tower centre approve <n>` approves one and prints the `tower centre add`
+to run with the centre's computer in the drive, `tower centre refuse
+<n>`.
 
 ## The pieces
 

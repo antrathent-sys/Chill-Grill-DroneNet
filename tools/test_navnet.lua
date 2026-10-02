@@ -231,36 +231,69 @@ end
 check("no watch key: no CINDER units at all", nPong and #nPong.traffic == 0)
 check("the feed's channel is the base's", N.CINDER_FEED == dofile(DIR .. "/../lib/watch.lua").CHANNEL)
 
--- the kiosk on the running master: someone sits, puts a blank computer in,
--- touches their way through, and it is registered in their name
+-- the kiosk on the running master: someone sits, touches their way through,
+-- and walks off with a written unit, two monitors and an ender modem
 local tk = runningTower(function(w)
-  w.files["tower.cfg"] = "name=CHI\nrange=2000\nkiosk=monitor_9\n"
+  w.files["tower.cfg"] = "name=CHI\nrange=2000\nkiosk=monitor_9\nkioskDrive=drive_0\n"
+    .. "kioskStock=minecraft:chest_0\nkioskOut=minecraft:chest_1\n"
   w.periph.monitor_9 = { type = "monitor", m = { getSize = function() return 57, 24 end, setTextScale = function() end,
     setPaletteColour = function() end, setCursorPos = function() end, blit = function() end } }
   w.periph.create_target_0 = { type = "create_target", m = { getLine = function() return "sam_k" end } }
-  w.periph.drive_0 = { type = "drive", m = { hasData = function() return w.files["disk/.nav"] ~= nil or w.blank end,
-    getMountPath = function() return "disk" end, ejectDisk = function() w.ejected = (w.ejected or 0) + 1 end,
+  w.stock = { { name = "computercraft:computer_advanced", count = 1 }, { name = "computercraft:monitor_advanced", count = 2 },
+              { name = "computercraft:wireless_modem_advanced", count = 1 } }
+  w.out = {}
+  w.periph.drive_0 = { type = "drive", m = { hasData = function() return w.inDrive ~= nil end,
+    getMountPath = function() return "disk" end, ejectDisk = function() w.inDrive = nil end,
     setDiskLabel = function(l) w.labelled = l end } }
-  w.blank = true
+  w.periph["minecraft:chest_0"] = { type = "minecraft:chest", m = {
+    list = function()
+      local t = {}
+      for k, v in pairs(w.stock) do t[k] = { name = v.name, count = v.count } end
+      return t
+    end,
+    pushItems = function(to, slot, n)
+      local it = w.stock[slot]
+      if not it then return 0 end
+      n = math.min(n or it.count, it.count)
+      if to == "drive_0" then
+        if w.inDrive then return 0 end
+        w.inDrive, n = it.name, 1
+      else
+        w.out[#w.out + 1] = { name = it.name, count = n }
+      end
+      it.count = it.count - n
+      if it.count == 0 then w.stock[slot] = nil end
+      return n
+    end,
+    pullItems = function(from)
+      if from == "drive_0" and w.inDrive then w.stock[9] = { name = w.inDrive, count = 1 } w.inDrive = nil return 1 end
+      return 0
+    end } }
+  w.periph["minecraft:chest_1"] = { type = "minecraft:chest", m = {
+    list = function() return w.out end,
+    pullItems = function(from)
+      if from == "drive_0" and w.inDrive then
+        w.out[#w.out + 1] = { name = w.inDrive, count = 1, written = w.files["disk/.nav"] ~= nil }
+        w.inDrive = nil
+        return 1
+      end
+      return 0
+    end } }
   for _, f in ipairs(N.FILES) do w.files[f] = readRepo(f) end
   w.files["startup.lua"] = readRepo("startup.lua")
 end)
 S.newKey = function() return KEY3 end
--- the type screen's AIRCRAFT button, then the keyboard (row 2 is QWERTY), next, register
-local function touchAt(t, x, y) tk.at(t, { "monitor_touch", "monitor_9", x, y }) end
-touchAt(3, 5, 6)                -- AIRCRAFT
 local KUI2 = dofile(DIR .. "/../lib/kioskui.lua")
 local D2, T2 = dofile(DIR .. "/../lib/display.lua"), dofile(DIR .. "/../lib/tui.lua")
-local kbHits = KUI2.render(T2, D2.canvas(57, 24), { state = "callsign", call = "" })
-local function keyAt(ch)
-  for _, h in ipairs(kbHits) do if h.id == "key:" .. ch then return h.x1, h.y1 end end
+local function at(view, id)
+  for _, h in ipairs(KUI2.render(T2, D2.canvas(57, 24), view)) do if h.id == id then return h.x1, h.y1 end end
 end
-local t0 = 4
-for i, ch in ipairs({ "K", "I", "T", "E" }) do local x, y = keyAt(ch) touchAt(t0 + i * 0.3, x, y) end
-local nextHits = KUI2.render(T2, D2.canvas(57, 24), { state = "callsign", call = "KITE" })
-for _, h in ipairs(nextHits) do if h.id == "next" then touchAt(6, h.x1, h.y1) end end
-local confHits = KUI2.render(T2, D2.canvas(57, 24), { state = "confirm", call = "KITE" })
-for _, h in ipairs(confHits) do if h.id == "register" then touchAt(7, h.x1, h.y1) end end
+local function touchAt(t, x, y) tk.at(t, { "monitor_touch", "monitor_9", x, y }) end
+touchAt(2, at({ state = "hello", who = "sam_k", stock = 1 }, "register"))
+touchAt(3, at({ state = "type" }, "kind:air"))
+for i, ch in ipairs({ "K", "I", "T", "E" }) do touchAt(3 + i * 0.3, at({ state = "callsign", call = "" }, "key:" .. ch)) end
+touchAt(5.5, at({ state = "callsign", call = "KITE" }, "next"))
+touchAt(6.5, at({ state = "confirm", call = "KITE" }, "register"))
 tk = tk:run("tower.lua", {}, 9)
 S.newKey = realNewKey
 local rk = N.loadRegistry(tk.files["navreg.lua"] or "")
@@ -268,7 +301,14 @@ local mine
 for _, r in ipairs(rk) do if r.call == "KITE" then mine = r end end
 check("registered at the kiosk, in the seated player's name", mine and mine.owner == "sam_k" and mine.idby == "seat"
   and mine.kind == "air" and tk.files["disk/.navkey"] == HEX3 .. "\n", tk.err or (mine and mine.owner) or tk.text)
-check("its software and role on the computer", tk.files["disk/.role"] == "nav\n" and tk.files["disk/nav.lua"] ~= nil)
+check("written onto a computer from the stock", tk.files["disk/.role"] == "nav\n" and tk.files["disk/nav.lua"] ~= nil
+  and tk.labelled == mine.unit)
+local got = {}
+for _, it in ipairs(tk.out) do got[it.name] = (got[it.name] or 0) + it.count end
+check("the kit in the chest beside the seat: the unit, two monitors, an ender modem",
+  got["computercraft:computer_advanced"] == 1 and got["computercraft:monitor_advanced"] == 2
+  and got["computercraft:wireless_modem_advanced"] == 1 and tk.out[1].written and tk.inDrive == nil,
+  tk.err or tostring(#tk.out))
 
 -- a revocation done beside it is picked up at the next sync
 local tw2 = runningTower()

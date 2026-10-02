@@ -236,7 +236,7 @@ print("the registration kiosk")
 local KL = dofile(DIR .. "/../lib/navkiosk.lua")
 local KUI = dofile(DIR .. "/../lib/kioskui.lua")
 local function fakeKiosk()
-  local f = { t = 0, who = nil, disk = nil, regs = {}, ejected = 0, made = nil, refreshed = nil }
+  local f = { t = 0, who = nil, disk = nil, regs = {}, ejected = 0, kits = 3, made = nil, refreshed = nil, apps = {} }
   f.io = {
     seated = function() return f.who end,
     drive = function() return f.disk end,
@@ -248,9 +248,11 @@ local function fakeKiosk()
       return n
     end,
     nextReg = function() return N.regNumber(#f.regs + 1) end,
-    validCall = N.validCall,
-    register = function(owner, kind, call)
+    stock = function() return f.kits end,
+    callFree = function(call, except) return N.callFree(f.regs, call, except) end,
+    kit = function(owner, kind, call)
       f.made = { owner = owner, kind = kind, call = call }
+      f.kits = f.kits - 1
       local rec = { n = #f.regs + 1, unit = N.unitId(#f.regs + 1), owner = owner, kind = kind, call = call }
       rec.reg = N.regNumber(rec.n)
       f.regs[#f.regs + 1] = rec
@@ -261,6 +263,12 @@ local function fakeKiosk()
       local r = f.io.find(unit)
       return { reg = r.reg, call = call or r.call }
     end,
+    validCentre = N.validCentre,
+    apply = function(owner, name, x, z)
+      for _, a in ipairs(f.apps) do if a.who == owner then return nil, "YOU HAVE AN APPLICATION WAITING" end end
+      f.apps[#f.apps + 1] = { who = owner, name = name, x = x, z = z }
+      return true
+    end,
     now = function() return f.t end,
   }
   f.k = KL.new(f.io)
@@ -270,11 +278,10 @@ local kf = fakeKiosk()
 kf.k:tick()
 check("nobody seated: the attract screen", kf.k.view.state == "attract")
 kf.who = "alex_r" kf.k:tick()
-check("someone sits: welcome, by name, and wait for the computer", kf.k.view.state == "hello" and kf.k.view.who == "alex_r")
-kf.disk = { kind = "dev", marker = ".fleetkeys" } kf.k:tick()
-check("one of CINDER's machines in the drive: said so, nothing done", kf.k.view.state == "hello" and kf.k.view.drive == "dev")
-kf.disk = { kind = "blank" } kf.k:tick()
-check("a blank computer: on to the vehicle type", kf.k.view.state == "type")
+check("someone sits: welcome, by name, with the kits in stock", kf.k.view.state == "hello"
+  and kf.k.view.who == "alex_r" and kf.k.view.stock == 3)
+kf.k:touch("register")
+check("register: straight to the vehicle type - the kit brings the computer", kf.k.view.state == "type")
 kf.k:touch("kind:air")
 check("the type chosen: on to the callsign", kf.k.view.state == "callsign" and kf.k.view.kind == "air")
 for _, ch in ipairs({ "F", "A", "L", "C", "O", "N", " ", " ", "1" }) do kf.k:touch("key:" .. ch) end
@@ -285,19 +292,60 @@ kf.k:touch("next")
 check("next: the confirm screen, with the registration it will get", kf.k.view.state == "confirm"
   and kf.k.view.reg == "CR-0001" and kf.k.view.who == "alex_r")
 kf.k:touch("register")
-check("register: made in the seated player's name", kf.made and kf.made.owner == "alex_r" and kf.made.kind == "air"
-  and kf.made.call == "FALCON 2" and kf.k.view.state == "done" and kf.k.view.reg == "CR-0001")
+check("register: the kit made in the seated player's name", kf.made and kf.made.owner == "alex_r"
+  and kf.made.kind == "air" and kf.made.call == "FALCON 2" and kf.k.view.state == "done" and kf.k.view.kit
+  and kf.k.view.reg == "CR-0001")
 kf.k:touch("done")
-check("done: the unit is handed back", kf.ejected == 1 and kf.k.view.state == "hello")
--- the same unit back in the drive: theirs
+check("done: back to the welcome", kf.k.view.state == "hello")
+-- the callsign is now taken
+kf.k:touch("register") kf.k:touch("kind:land")
+for _, ch in ipairs({ "F", "A", "L", "C", "O", "N", " ", "2" }) do kf.k:touch("key:" .. ch) end
+kf.k:touch("next")
+check("a callsign already in use is refused, and says by whom", kf.k.view.state == "callsign"
+  and kf.k.view.note == "TAKEN BY CR-0001", kf.k.view.note)
+for _ = 1, 8 do kf.k:touch("del") end
+for _, ch in ipairs({ "L", "A", "M", "B", "D", "A", "-", "9" }) do kf.k:touch("key:" .. ch) end
+kf.k:touch("next")
+check("so is one of CINDER's names", kf.k.view.note == "RESERVED FOR CINDER", kf.k.view.note)
+kf.k:touch("back") kf.k:touch("back")
+check("back, back: the welcome", kf.k.view.state == "hello")
+-- their unit back in the drive
 kf.disk = { kind = "unit", me = { unit = "nav-0001" } } kf.k:tick()
-check("their own unit: update or change it", kf.k.view.state == "mine" and kf.k.view.unit.reg == "CR-0001")
+check("their own unit in the drive: update or change it", kf.k.view.state == "mine" and kf.k.view.unit.reg == "CR-0001")
 kf.k:touch("change") kf.k:touch("kind:sea") kf.k:touch("del") kf.k:touch("key:3") kf.k:touch("next")
-check("changing it keeps its registration", kf.k.view.state == "confirm" and kf.k.view.reg == "CR-0001")
+check("changing it keeps its registration, its own callsign is no clash", kf.k.view.state == "confirm"
+  and kf.k.view.reg == "CR-0001")
 kf.k:touch("register")
 check("...and only changes it", kf.refreshed and kf.refreshed.unit == "nav-0001" and kf.refreshed.kind == "sea"
-  and kf.refreshed.call == "FALCON 3" and #kf.regs == 1)
-kf.k:touch("done")
+  and kf.refreshed.call == "FALCON 3" and #kf.regs == 1 and kf.k.view.updated)
+kf.k:touch("done") kf.disk = nil kf.k:tick()
+kf.disk = { kind = "blank" } kf.k:tick()
+check("anything else in the drive: asked to take it out", kf.k.view.drive == "other")
+kf.k:touch("register")
+check("...before a kit is made", kf.k.view.state == "error" and kf.k.view.msg[1]:find("OUT OF THE DRIVE", 1, true))
+kf.k:touch("done") kf.disk = nil
+kf.kits = 0 kf.k:tick() kf.k:touch("register")
+check("no kits in stock: said so, nothing started", kf.k.view.state == "error"
+  and kf.k.view.msg[1]:find("OUT OF STOCK", 1, true))
+kf.k:touch("done") kf.kits = 3
+-- hosting a traffic centre
+kf.k:tick() kf.k:touch("apply")
+check("apply: the centre's name first", kf.k.view.state == "appname")
+for _, ch in ipairs({ "N", "O", "R", "T", "H" }) do kf.k:touch("key:" .. ch) end
+kf.k:touch("next")
+check("then where", kf.k.view.state == "appwhere" and kf.k.view.appName == "NORTH")
+for _, ch in ipairs({ "1", "2", "0", "0", " ", "-", "4", "0", "0" }) do kf.k:touch("key:" .. ch) end
+kf.k:touch("next")
+check("X and Z read off what was typed", kf.k.view.state == "appconfirm" and kf.k.view.x == 1200 and kf.k.view.z == -400)
+kf.k:touch("send")
+check("sent: recorded for CINDER to review", kf.k.view.state == "appdone" and kf.apps[1] and kf.apps[1].name == "NORTH"
+  and kf.apps[1].who == "alex_r")
+kf.k:touch("done") kf.k:touch("apply")
+for _, ch in ipairs({ "E", "A", "S", "T" }) do kf.k:touch("key:" .. ch) end
+kf.k:touch("next")
+for _, ch in ipairs({ "1", " ", "2" }) do kf.k:touch("key:" .. ch) end
+kf.k:touch("next") kf.k:touch("send")
+check("one application at a time", kf.k.view.state == "error" and kf.k.view.msg[2]:find("WAITING", 1, true))
 kf.who = "sam_k" kf.disk = { kind = "unit", me = { unit = "nav-0001" } } kf.k:tick()
 check("someone else's unit: refused, said so", kf.k.view.state == "hello" and kf.k.view.drive == "theirs"
   and kf.k.view.who == "sam_k")
@@ -305,15 +353,25 @@ kf.who = nil kf.t = 1 kf.k:tick() kf.t = 5 kf.k:tick()
 check("the seat empty a few seconds: back to the start", kf.k.view.state == "attract")
 local lim = fakeKiosk()
 for i = 1, KL.MAX_PER_OWNER do lim.regs[i] = { n = i, unit = N.unitId(i), owner = "alex_r", reg = N.regNumber(i) } end
-lim.who, lim.disk = "alex_r", { kind = "blank" }
-lim.k:tick()
+lim.who = "alex_r"
+lim.k:tick() lim.k:touch("register")
 check("a player at the limit is sent to a CINDER operator", lim.k.view.state == "error"
   and tostring(lim.k.view.msg[1]):find("5 UNITS", 1, true))
 local idle = fakeKiosk()
-idle.who, idle.disk = "alex_r", { kind = "blank" }
-idle.k:tick() idle.k:touch("kind:land")
+idle.who = "alex_r"
+idle.k:tick() idle.k:touch("register") idle.k:touch("kind:land")
 idle.t = KL.IDLE + 1 idle.k:tick()
 check("walked off part-way (still seated): back to the welcome", idle.k.view.state == "hello")
+check("callsigns: free, taken, reserved", N.callFree({}, "falcon one") == "FALCON ONE"
+  and select(2, N.callFree({ { n = 4, unit = "nav-0004", call = "FALCON ONE" } }, " falcon  one")) == "TAKEN BY CR-0004"
+  and N.callFree({ { n = 4, unit = "nav-0004", call = "FALCON ONE" } }, "FALCON ONE", "nav-0004") == "FALCON ONE"
+  and N.callFree({ { n = 4, unit = "nav-0004", call = "FALCON ONE", revoked = "x" } }, "FALCON ONE") == "FALCON ONE"
+  and select(2, N.callFree({}, "cinder 1")) == "RESERVED FOR CINDER")
+check("kits counted from a chest: the scarcest part decides", N.kitsIn({
+  { name = "computercraft:computer_advanced", count = 3 }, { name = "computercraft:monitor_advanced", count = 5 },
+  { name = "computercraft:wireless_modem_advanced", count = 9 } }) == 2)
+local apps = N.parseApps(N.appsText({ { n = 1, when = 5, who = "alex_r", name = "NORTH", x = 1200, z = -400, status = "pending" } }))
+check("applications survive their file", apps[1] and apps[1].name == "NORTH" and apps[1].z == -400 and apps[1].status == "pending")
 local hitsK = KUI.render(T, D.canvas(57, 24), { state = "type", who = "alex_r" })
 check("the screen's buttons are where a touch finds them", KUI.hit(hitsK, 3, 6) == "kind:air"
   and KUI.hit(hitsK, 1, 1) == nil)
@@ -321,6 +379,10 @@ local kb = KUI.render(T, D.canvas(57, 24), { state = "callsign", who = "alex_r",
 local keysFound = 0
 for _, h in ipairs(kb) do if h.id:match("^key:") then keysFound = keysFound + 1 end end
 check("the keyboard: every letter, digit, dash and space", keysFound == 38, keysFound)
+local nb = KUI.render(T, D.canvas(57, 24), { state = "appwhere", who = "alex_r", text = "" })
+local numKeys = 0
+for _, h in ipairs(nb) do if h.id:match("^key:") then numKeys = numKeys + 1 end end
+check("a place is typed on digits, minus and space only", numKeys == 12, numKeys)
 
 print("the screen")
 local function shot(w, h, view, page)

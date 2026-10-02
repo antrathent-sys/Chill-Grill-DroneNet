@@ -405,6 +405,67 @@ function N.validCall(s)
   return s
 end
 
+-- One callsign per vehicle, and CINDER's own names are CINDER's: nobody can
+-- pose as LAMBDA-001 or the tower (Alex, 2026-10-02: "are there checks to
+-- see if callsign is already used?"). The callsign, cleaned, or nil and why.
+N.RESERVED_CALLS = { "^CINDER", "^LAMBDA", "^ZETA", "^TOWER", "^ATC" }
+function N.callFree(recs, call, exceptUnit)
+  local c = N.validCall(call)
+  if not c then return nil, "2 TO 16 LETTERS, DIGITS, SPACES OR DASHES" end
+  for _, p in ipairs(N.RESERVED_CALLS) do
+    if c:match(p) then return nil, "RESERVED FOR CINDER" end
+  end
+  for _, r in ipairs(recs or {}) do
+    if not r.revoked and r.unit ~= exceptUnit and N.validCall(r.call) == c then
+      return nil, "TAKEN BY " .. N.regNumber(r.n)
+    end
+  end
+  return c
+end
+
+-- What the kiosk hands a player with their unit: an advanced computer (one
+-- that has been placed and turned on once - only then can a disk drive read
+-- it), two advanced monitors and an ender modem.
+N.KIT = {
+  computer = "computercraft:computer_advanced",
+  { name = "computercraft:monitor_advanced", count = 2 },
+  { name = "computercraft:wireless_modem_advanced", count = 1 },
+}
+
+--- How many kits an inventory's list() holds (computers counted as they
+-- are; whether each can be read is found out when one is tried).
+function N.kitsIn(list)
+  local have = {}
+  for _, it in pairs(list or {}) do
+    if type(it) == "table" and type(it.name) == "string" then have[it.name] = (have[it.name] or 0) + (it.count or 1) end
+  end
+  local n = have[N.KIT.computer] or 0
+  for _, need in ipairs(N.KIT) do n = math.min(n, floor((have[need.name] or 0) / need.count)) end
+  return n
+end
+
+-- Applications to host a traffic centre, from the kiosk: one CSV line each,
+-- "n,when,who,name,x,z,status" with status pending, approved or refused.
+N.APPS_HEADER = "n,when,who,name,x,z,status"
+function N.parseApps(text)
+  local out = {}
+  for line in tostring(text or ""):gmatch("[^\r\n]+") do
+    local n, when, who, name, x, z, st = line:match("^(%d+),(%d*),([%w_]+),([%w%-]+),(%-?%d+),(%-?%d+),(%a+)$")
+    if n then
+      out[#out + 1] = { n = tonumber(n), when = tonumber(when), who = who, name = name, x = tonumber(x),
+                        z = tonumber(z), status = st }
+    end
+  end
+  return out
+end
+function N.appsText(list)
+  local lines = { N.APPS_HEADER }
+  for _, a in ipairs(list) do
+    lines[#lines + 1] = string.format("%d,%d,%s,%s,%d,%d,%s", a.n, a.when or 0, a.who, a.name, a.x, a.z, a.status)
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
 -- idby: how the owner was known - "seat" (sat in the tower's seat) or "typed"
 local FIELDS = { "n", "unit", "owner", "idby", "call", "kind", "issued", "by", "sid", "sname", "mass", "first", "last",
                  "x", "y", "z", "revoked" }

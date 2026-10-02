@@ -1,9 +1,12 @@
 --- navkiosk: the CINDER NAV registration kiosk's logic (AVIONICS.md). A
--- player registers their own vehicle (Alex, 2026-10-02): they sit in the
--- kiosk's seat, which names them, put their unit's computer in the drive, and
--- the touch screen (lib/kioskui.lua) takes them through vehicle type, callsign
--- and confirm. The master tower runs it beside everything else, so the keys
--- never leave the tower.
+-- player registers their own vehicle and walks away with its kit (Alex,
+-- 2026-10-02): they sit in the kiosk's seat, which names them, choose the
+-- vehicle type and a callsign on the touch screen (lib/kioskui.lua), and the
+-- kiosk takes a computer from its stock, writes the unit onto it, and puts it
+-- in the chest beside them with two monitors and an ender modem. Their own
+-- unit put in the drive can be updated or changed. The same kiosk takes
+-- applications to host a traffic centre. The master tower runs it, so no key
+-- ever leaves the tower.
 --
 --   local k = K.new(io)
 --   k:tick()        every half second: the seat and the drive
@@ -11,47 +14,51 @@
 --   k.view          what kioskui draws
 --
 -- io, supplied by the tower:
---   seated() -> name | nil      who is in the seat (lib/nav.lua N.seatName)
---   drive() -> info | nil       what is in the drive (N.inspect), nil when empty
---   eject()
---   find(unit) -> rec | nil     a registry record by unit id
---   count(owner) -> n           live registrations in that player's name
---   nextReg() -> "CR-0012"      what a new unit would be
---   validCall(s) -> call | nil
---   register(owner, kind, call) -> rec | nil, why
---   refresh(unit, kind, call) -> rec | nil, why     kind/call nil: unchanged
+--   seated() -> name | nil           who is in the seat (N.seatName)
+--   drive() -> info | nil            what is in the drive (N.inspect), nil when empty
+--   eject()                          the drive's contents to the chest (or out)
+--   find(unit) -> rec | nil          a registry record by unit id, with .reg
+--   count(owner) -> n                live registrations in that player's name
+--   nextReg() -> "CR-0012"
+--   stock() -> n | nil               complete kits in stock; nil: no stock fitted
+--   callFree(call, exceptUnit) -> call | nil, why
+--   kit(owner, kind, call) -> rec | nil, why       register a unit from stock, hand the kit over
+--   refresh(unit, kind, call) -> rec | nil, why    the unit in the drive; kind/call nil: unchanged
+--   validCentre(name) -> name | nil
+--   apply(owner, name, x, z) -> true | nil, why    an application to host a traffic centre
 --   now() -> seconds
 -- Pure apart from io; tools/test_nav.lua drives it with a fake.
 
 local K = {}
 
-K.MAX_PER_OWNER = 5     -- registrations a player can make for themselves; more at the tower
+K.MAX_PER_OWNER = 5     -- units a player can register themselves; more at the tower
 K.IDLE = 90             -- s without a touch part-way through: back to the start
 K.SEAT_GRACE = 3        -- s the seat may read empty before the session ends
 K.DONE_SHOW = 30        -- s the result stays up
 K.CALL_MAX = 16
+K.TEXT = { callsign = { field = "call", max = 16 }, appname = { field = "text", max = 12 },
+           appwhere = { field = "text", max = 15 } }
 
 function K.new(io)
-  local k = setmetatable({ io = io, view = { state = "attract", n = 0 }, touched = 0 }, { __index = K })
-  return k
+  return setmetatable({ io = io, view = { state = "attract", n = 0 }, touched = 0 }, { __index = K })
 end
 
 local function lower(s) return tostring(s or ""):lower() end
 
 function K:go(state, extra)
-  local who = self.view.who
-  self.view = { state = state, who = who, n = self.view.n }
+  self.view = { state = state, who = self.view.who, n = self.view.n }
   for key, v in pairs(extra or {}) do self.view[key] = v end
   self.touched = self.io.now()
   return true
 end
 
--- what is in the drive, for someone seated: a new unit to make, one of
--- theirs, or a reason not to touch it
-function K:lookAtDrive()
+-- the welcome: kits in stock, and whatever is in the drive
+function K:hello()
   local v, io = self.view, self.io
+  v.stock = io.stock()
   local info = io.drive()
-  if not info then v.drive = nil return false end
+  v.drive = nil
+  if not info then return end
   if info.kind == "unit" and info.me then
     local rec = io.find(info.me.unit)
     if rec and not rec.revoked then
@@ -59,19 +66,12 @@ function K:lookAtDrive()
         return self:go("mine", { unit = { id = rec.unit, reg = rec.reg, call = rec.call, kind = rec.kind } })
       end
       v.drive = "theirs"
-      return false
+      return
     end
-    info = { kind = "blank" }       -- revoked or unknown here: made afresh
+    v.drive = "other"
+    return
   end
-  if info.kind == "blank" then
-    if io.count(v.who) >= K.MAX_PER_OWNER then
-      return self:go("error", { msg = { "YOU HAVE " .. K.MAX_PER_OWNER .. " UNITS REGISTERED",
-                                        "A CINDER OPERATOR CAN REGISTER MORE" } })
-    end
-    return self:go("type", { mode = "new" })
-  end
-  v.drive = info.kind               -- dev, pass, other
-  return false
+  v.drive = info.kind == "blank" and "other" or info.kind     -- dev, pass, other
 end
 
 --- The seat and the drive. True when the screen should be drawn again.
@@ -94,14 +94,34 @@ function K:tick()
   if v.state == "attract" or lower(who) ~= lower(v.who) then
     self.view = { state = "hello", who = who, n = v.n }
     self.touched = now
-    return self:lookAtDrive() or true
   end
-  if v.state == "hello" then return self:lookAtDrive() or true end
-  if v.state == "type" or v.state == "callsign" or v.state == "confirm" or v.state == "mine" then
-    if not io.drive() or now - self.touched > K.IDLE then return self:go("hello") end
+  if self.view.state == "hello" then self:hello() return true end
+  if v.state ~= "done" and v.state ~= "error" and v.state ~= "appdone" and v.state ~= "working"
+     and now - self.touched > K.IDLE then
+    return self:go("hello")
   end
-  if (v.state == "done" or v.state == "error") and now - self.touched > K.DONE_SHOW then return self:touch("done") end
-  return v.state == "hello"
+  if v.state == "mine" and not io.drive() then return self:go("hello") end
+  if (v.state == "done" or v.state == "error" or v.state == "appdone") and now - self.touched > K.DONE_SHOW then
+    return self:touch("done")
+  end
+  return false
+end
+
+-- typing on the screen's keyboard, into the field the state types into
+function K:typing(id)
+  local v = self.view
+  local t = K.TEXT[v.state]
+  local text = v[t.field] or ""
+  local ch = id:match("^key:(.)$")
+  if ch then
+    if #text < t.max and not (ch == " " and (text == "" or text:sub(-1) == " ")) then text = text .. ch end
+  elseif id == "del" then
+    text = text:sub(1, -2)
+  else
+    return false
+  end
+  v[t.field], v.note = text, nil
+  return true
 end
 
 --- A button. True when the screen should be drawn again.
@@ -110,12 +130,26 @@ function K:touch(id)
   if not id then return false end
   self.touched = io.now()
   local s = v.state
+  if K.TEXT[s] and self:typing(id) then return true end
   if s == "hello" then
-    if id == "cancel" then io.eject() return self:go("hello") end
+    if id == "register" then
+      if io.count(v.who) >= K.MAX_PER_OWNER then
+        return self:go("error", { msg = { "YOU HAVE " .. K.MAX_PER_OWNER .. " UNITS REGISTERED",
+                                          "A CINDER OPERATOR CAN REGISTER MORE" } })
+      end
+      local stock = io.stock()
+      if not stock or stock < 1 then
+        return self:go("error", { msg = { "KITS ARE OUT OF STOCK", "CINDER HAS BEEN TOLD - PLEASE COME BACK LATER" } })
+      end
+      if io.drive() then
+        return self:go("error", { msg = { "TAKE YOUR COMPUTER OUT OF THE DRIVE", "THE KIT COMES WITH ONE" } })
+      end
+      return self:go("type", { mode = "new" })
+    end
+    if id == "apply" then return self:go("appname", { text = "" }) end
   elseif s == "mine" then
     if id == "cancel" then io.eject() return self:go("hello") end
     if id == "update" then
-      self:go("working", { frac = 0.5 })
       local rec, why = io.refresh(v.unit.id)
       if not rec then return self:go("error", { msg = { "COULD NOT UPDATE IT", tostring(why) } }) end
       return self:go("done", { reg = rec.reg, call = rec.call, updated = true })
@@ -130,24 +164,14 @@ function K:touch(id)
     end
     local kind = id:match("^kind:(%a+)$")
     if kind then
-      v.kind = kind
-      v.call = v.call or ""
-      v.state = "callsign"
+      v.kind, v.call, v.state = kind, v.call or "", "callsign"
       return true
     end
   elseif s == "callsign" then
-    local ch = id:match("^key:(.)$")
-    if ch then
-      if #v.call < K.CALL_MAX and not (ch == " " and (v.call == "" or v.call:sub(-1) == " ")) then
-        v.call = v.call .. ch
-      end
-      return true
-    end
-    if id == "del" then v.call = v.call:sub(1, -2) return true end
     if id == "back" then v.state = "type" return true end
     if id == "next" then
-      local call = io.validCall(v.call)
-      if not call then return false end
+      local call, why = io.callFree(v.call, v.mode == "change" and v.unit.id or nil)
+      if not call then v.note = why return true end
       v.call = call
       v.reg = v.mode == "change" and v.unit.reg or io.nextReg()
       v.state = "confirm"
@@ -157,18 +181,35 @@ function K:touch(id)
     if id == "back" then v.state = "callsign" return true end
     if id == "register" then
       local kind, call, mode, unit = v.kind, v.call, v.mode, v.unit
-      self:go("working", { frac = 0.5 })
       local rec, why
       if mode == "change" then rec, why = io.refresh(unit.id, kind, call)
-      else rec, why = io.register(self.view.who, kind, call) end
-      if not rec then return self:go("error", { msg = { "COULD NOT WRITE YOUR UNIT", tostring(why) } }) end
-      return self:go("done", { reg = rec.reg, call = rec.call })
+      else rec, why = io.kit(v.who, kind, call) end
+      if not rec then return self:go("error", { msg = { "COULD NOT MAKE YOUR UNIT", tostring(why) } }) end
+      return self:go("done", { reg = rec.reg, call = rec.call, kit = mode ~= "change", updated = mode == "change" })
     end
-  elseif s == "done" or s == "error" then
-    if id == "done" then
-      if s == "done" then io.eject() end
-      return self:go("hello")
+  elseif s == "appname" then
+    if id == "back" then return self:go("hello") end
+    if id == "next" then
+      local name = io.validCentre(v.text)
+      if not name then v.note = "2 TO 12 LETTERS, DIGITS OR DASHES" return true end
+      return self:go("appwhere", { appName = name, text = "" })
     end
+  elseif s == "appwhere" then
+    if id == "back" then return self:go("appname", { text = v.appName }) end
+    if id == "next" then
+      local x, z = tostring(v.text):match("^(%-?%d+) (%-?%d+)$")
+      if not x then v.note = "X, A SPACE, THEN Z" return true end
+      return self:go("appconfirm", { appName = v.appName, x = tonumber(x), z = tonumber(z) })
+    end
+  elseif s == "appconfirm" then
+    if id == "back" then return self:go("appwhere", { appName = v.appName, text = v.x .. " " .. v.z }) end
+    if id == "send" then
+      local ok, why = io.apply(v.who, v.appName, v.x, v.z)
+      if not ok then return self:go("error", { msg = { "APPLICATION NOT SENT", tostring(why) } }) end
+      return self:go("appdone", { appName = v.appName })
+    end
+  elseif s == "done" or s == "error" or s == "appdone" then
+    if id == "done" then return self:go("hello") end
   end
   return false
 end
