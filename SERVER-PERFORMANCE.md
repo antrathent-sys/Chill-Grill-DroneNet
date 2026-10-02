@@ -201,6 +201,20 @@ players). Create is 12 to 20 ms a tick in all.
   `factoryGaugeTimer` 100 -> 200, `hosePulleyRange` 128 -> 64.
 - Already right: Create Threaded Trains moves train navigation off the
   main thread.
+- **Create's entities are cheap**: 1.4 ms a tick (first profile), 2.5 ms
+  (second) - against 12 to 20 ms for its machines. Moving contraptions
+  0.6 / 1.3, packages 0.35, train carriages 0.2; super glue (256 of them)
+  and Simulated's honey glue (220) next to nothing. The entity ids are
+  `create:contraption`, `stationary_contraption`, `gantry_contraption`,
+  `carriage_contraption`, `package`, `seat`, `super_glue`,
+  `crafting_blueprint`, `potato_projectile`. What can be done:
+  - `create:package` (a dropped box) can take a ServerCore custom
+    activation type - say 32 blocks, tick interval 20 - harmlessly. About
+    0.3 ms.
+  - Contraptions must keep full speed. Fewer of them instead: bearings and
+    pistons set to place their blocks when stopped are blocks again, not
+    entities, while idle; windmills cannot be. `maxBlocksMoved` (2048)
+    caps their size.
 
 **Create specifically**
 - Machines and farms run whenever their chunks are loaded: ask players to
