@@ -288,6 +288,27 @@ check("one the kiosk could not write is taken back out", not (tq.files[".navkeys
 check("an application to host a centre is filed", ans.h and ans.h.ok
   and (tq.files["centreapps.csv"] or ""):find("1,%d+,sam_k,NORTH,1200,%-400,pending"))
 check("and how many kits each kiosk has", (tq.files["kiosks.status"] or ""):find("kiosk-hq=0,", 1, true))
+-- open (no keys): answered in the clear only while the master says so
+local function plainAsk(tw, t, q, fields)
+  tw.at(t, function()
+    local m = { type = "kq", q = q, op = "info", owner = "alex_r", kiosk = "LOBBY" }
+    for k, v in pairs(fields or {}) do m[k] = v end
+    return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, m }
+  end)
+end
+local to = runningTower(function(w) w.files["kiosks.open"] = "x" end)
+plainAsk(to, 1, "p1")
+to = to:run("tower.lua", {}, 3)
+local plain
+for _, s in ipairs(to.sent) do if type(s.env) == "table" and s.env.type == "ka" and s.env.re == "p1" then plain = s.env end end
+check("open: a kiosk with no key is answered in the clear, by its name", plain and plain.to == "kiosk-lobby"
+  and plain.count == 1, to.err)
+local tc2 = runningTower()
+plainAsk(tc2, 1, "p2")
+tc2 = tc2:run("tower.lua", {}, 3)
+local plain2
+for _, s in ipairs(tc2.sent) do if type(s.env) == "table" and s.env.type == "ka" then plain2 = s.env end end
+check("closed (the default): no answer without a key", plain2 == nil)
 local unknown = S.sender(KEY1, "kiosk-x", S.DIR.KIOSK_TO_TOWER, nil)
 local tu = runningTower()
 tu.at(1, function() return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL,
@@ -298,12 +319,12 @@ for _, s in ipairs(tu.sent) do if s.env and s.env.id == "kiosk-x" then answeredS
 check("a kiosk the master does not know gets no answer", not answeredStranger)
 
 -- the kiosk itself (navdesk.lua), against a stand-in for the master
-local function kioskWorld()
+local function kioskWorld(open)
   local w = withFs(W.new(DIR, { label = "kiosk-hq", S = S }))
   for _, f in ipairs(N.FILES) do w.files[f] = readRepo(f) end
   for _, f in ipairs({ "startup.lua", "navdesk.lua", "lib/navkiosk.lua", "lib/kioskui.lua" }) do w.files[f] = readRepo(f) end
   w.files[".navdesk"] = N.kioskFile({ name = "HQ", master = "CHI" })
-  w.files[".navdeskkey"] = HEX2 .. "\n"
+  if not open then w.files[".navdeskkey"] = HEX2 .. "\n" end
   w.files["navdesk.cfg"] = "monitor=monitor_9\ndrive=drive_0\nstock=minecraft:chest_0\nout=minecraft:chest_1\n"
   w.periph.monitor_9 = { type = "monitor", m = { getSize = function() return 57, 24 end, setTextScale = function() end,
     setPaletteColour = function() end, setCursorPos = function() end, blit = function() end, isColour = function() return true end } }
@@ -353,7 +374,9 @@ local function kioskWorld()
   w.asked = {}
   w.periph.modem_0 = { type = "modem", m = { isWireless = function() return true end, open = function() end,
     transmit = function(ch, _, env)
-      local b = mrx.open(env, function(id) return id == "kiosk-hq" and KKEY or nil end, S.DIR.KIOSK_TO_TOWER, nil)
+      local b
+      if open then b = (type(env) == "table" and not env.sl) and env or nil
+      else b = mrx.open(env, function(id) return id == "kiosk-hq" and KKEY or nil end, S.DIR.KIOSK_TO_TOWER, nil) end
       if not b then return end
       w.asked[#w.asked + 1] = b.op
       local a = { type = "ka", re = b.q, ok = true }
@@ -364,6 +387,7 @@ local function kioskWorld()
           b.owner, HEX3
       elseif b.op == "written" then w.writtenOk = b.ok end
       local reply = mtx.seal(a)
+      if open then a.to = "kiosk-" .. tostring(b.kiosk):lower() reply = a end
       w.at(w.clock + 0.05, { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, reply })
     end } }
   return w
@@ -388,6 +412,17 @@ for _, it in ipairs(kw.out) do gotK[it.name] = (gotK[it.name] or 0) + it.count e
 check("the kit in the out chest: the unit, two monitors, an ender modem",
   gotK["computercraft:computer_advanced"] == 1 and gotK["computercraft:monitor_advanced"] == 2
   and gotK["computercraft:wireless_modem_advanced"] == 1 and kw.out[1].written, tostring(#kw.out))
+
+local ko = kioskWorld(true)
+local function oTouch(t, view, id) local x, y = at(view, id) ko.at(t, { "monitor_touch", "monitor_9", x, y }) end
+oTouch(2, { state = "hello", who = "sam_k", stock = 1 }, "register")
+oTouch(3, { state = "type" }, "kind:air")
+for i, ch in ipairs({ "K", "I", "T", "E" }) do oTouch(3 + i * 0.3, { state = "callsign", call = "" }, "key:" .. ch) end
+oTouch(5.5, { state = "callsign", call = "KITE" }, "next")
+oTouch(6.5, { state = "confirm", call = "KITE" }, "register")
+ko = ko:run("navdesk.lua", {}, 9)
+check("with no key the kiosk works in the clear, under its own name", ko.files["disk/.navkey"] == HEX3 .. "\n"
+  and ko.text:find("NO KEY", 1, true), ko.err or ko.text)
 
 -- a revocation done beside it is picked up at the next sync
 local tw2 = runningTower()

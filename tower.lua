@@ -100,6 +100,10 @@ local function yes(q) return ask(q .. " (y/n)"):lower():sub(1, 1) == "y" end
 local CFG, CENTRES, CKEYS, PIC_CTR = "tower.cfg", "centres.lua", ".centrekeys", ".pic.ctr"
 local APPS = "centreapps.csv"      -- applications to host a centre, from the kiosks
 local KKEYS, KSTATUS, KIOSK_CTR = ".kioskkeys", "kiosks.status", ".kiosk.ctr"   -- registration kiosks
+-- Open (Alex, 2026-10-02: "disable the key for now"): while this file exists
+-- the master also answers kiosks with no key, in the clear. For testing: a new
+-- unit's key then goes over the air unsealed, and any computer could ask.
+local KOPEN = "kiosks.open"
 local ME_FILE, ME_KEY = ".centre", ".centrekey"
 local function loadCfg()
   local t = {}
@@ -369,7 +373,19 @@ end
 if cmd == "kiosk" or cmd == "kiosks" then
   local sub = (args[2] or "list"):lower()
   local keys = SEC.readFleetKeys(KKEYS)
+  if sub == "open" or sub == "closed" or sub == "close" then
+    if sub == "open" then
+      writeText(KOPEN, "kiosks without a key are answered in the clear - tower kiosk closed ends it\n")
+      print("kiosks OPEN: any kiosk is answered without a key, in the clear - a new unit's key goes over the air")
+      print("unsealed and any computer can ask. For testing; tower kiosk closed to end it.")
+    else
+      if fs.exists(KOPEN) then fs.delete(KOPEN) end
+      print("kiosks closed: only kiosks with a key from tower kiosk add are answered")
+    end
+    return
+  end
   if sub == "list" then
+    print(fs.exists(KOPEN) and "kiosks OPEN - answered without a key (tower kiosk closed)" or "kiosks closed - keys only")
     local st = {}
     for id, stock, t in (readAll(KSTATUS) or ""):gmatch("([%w%-]+)=(%-?%d+),(%d+)") do st[id] = { tonumber(stock), tonumber(t) } end
     local any = false
@@ -411,7 +427,7 @@ if cmd == "kiosk" or cmd == "kiosks" then
     print("then navdesk setup. The running tower answers it within 10 s.")
     return
   end
-  print("tower kiosk [list | add <NAME> | drop <NAME>]")
+  print("tower kiosk [list | add <NAME> | drop <NAME> | open | closed]")
   return
 end
 
@@ -538,7 +554,7 @@ end
 if cmd ~= "run" then
   print("tower [run | register | list | show <reg> | revoke <reg> | log [n] | here <NAME> <x> <y> <z> | range <blocks>")
   print("       | centre [list | add <NAME> <x> <y> <z> | drop <NAME> | apps | approve <n> | refuse <n>] | join")
-  print("       | kiosk [list | add <NAME> | drop <NAME>]")
+  print("       | kiosk [list | add <NAME> | drop <NAME> | open | closed]")
   return
 end
 
@@ -653,6 +669,7 @@ local centreList = loadCentres()
 local contacts, senders, picSenders = {}, {}, {}
 local rx = SEC.receiver()
 local kioskKeys, kioskSenders = SEC.readFleetKeys(KKEYS), {}
+local kiosksOpen = fs.exists(KOPEN)
 -- CINDER's own units, from the base's read-only feed: this tower is a public
 -- watcher (lib/watch.lua W.isPublic), told where each unit is and nothing
 -- while the base is in stealth. `seckey watch new tower` on the base,
@@ -690,6 +707,7 @@ local function sync()
   for unit in pairs(senders) do if not keys[unit] then senders[unit] = nil end end
   cfg = loadCfg()
   kioskKeys = SEC.readFleetKeys(KKEYS)
+  kiosksOpen = fs.exists(KOPEN)
   for id in pairs(kioskSenders) do if not kioskKeys[id] then kioskSenders[id] = nil end end
   centreKeys = SEC.readFleetKeys(CKEYS)
   centreList = loadCentres()
@@ -841,7 +859,18 @@ local function kioskOp(id, b)
 end
 
 local function hearKiosk(msg)
-  if type(msg) ~= "table" or not msg.sl or msg.d ~= SEC.DIR.KIOSK_TO_TOWER then return end
+  if type(msg) ~= "table" then return end
+  -- open: a plain question from a kiosk with no key, answered in the clear
+  if not msg.sl then
+    local name = kiosksOpen and msg.type == "kq" and N.validCentre(msg.kiosk)
+    if not name then return end
+    local id = N.kioskId(name)
+    local a = kioskOp(id, msg)
+    a.type, a.re, a.to = "ka", msg.q, id
+    pcall(peripheral.call, radio, "transmit", N.CHANNEL, N.CHANNEL, a)
+    return
+  end
+  if msg.d ~= SEC.DIR.KIOSK_TO_TOWER then return end
   local body = rx.open(msg, function(id) return kioskKeys[id] end, SEC.DIR.KIOSK_TO_TOWER, N.MAX_AGE_MS)
   if not (body and body.type == "kq" and type(body.id) == "string") then return end
   local id = body.id
@@ -888,7 +917,8 @@ local function radioLoop()
   while true do
     local _, _, ch, _, msg = os.pullEvent("modem_message")
     if ch == N.CHANNEL then
-      if type(msg) == "table" and msg.d == SEC.DIR.KIOSK_TO_TOWER then hearKiosk(msg) else hear(msg) end
+      if type(msg) == "table" and (msg.d == SEC.DIR.KIOSK_TO_TOWER or msg.type == "kq") then hearKiosk(msg)
+      else hear(msg) end
     elseif ch == N.CINDER_FEED then hearCinder(msg) end
   end
 end

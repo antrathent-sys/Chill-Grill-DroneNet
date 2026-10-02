@@ -108,6 +108,14 @@ On the master: `tower kiosk list` (each kiosk, its kits in stock, when it
 was last heard - the tower's board says when one runs out), `tower kiosk
 drop HQ`.
 
+**Open, for testing** (Alex, 2026-10-02: "disable the key for now"):
+`tower kiosk open` on the master and it also answers kiosks that have no
+key, in the clear - skip step 2, and the kiosk goes by its computer's label
+(`label set kiosk-hq` makes it HQ) and says NO KEY when it starts. While it
+is open a new unit's key crosses the air unsealed and any computer could
+ask to register, so `tower kiosk closed` (the default) before it is in
+players' hands, and give each kiosk its key then.
+
 The player:
 
 1. sits down - the kiosk greets them by name, which is the owner;

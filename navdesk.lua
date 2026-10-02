@@ -138,7 +138,7 @@ local key = SEC.readKeyFile(ME_KEY)
 if cmd == "status" then
   local cfg = loadCfg()
   print("kiosk: " .. (me and (me.name .. " of " .. tostring(me.master)) or "not joined - tower kiosk add on the master"))
-  print("key: " .. (key and "yes" or "no"))
+  print("key: " .. (key and "yes" or "no - open: the master must have tower kiosk open"))
   for _, k in ipairs({ "monitor", "drive", "stock", "out" }) do print(string.format("  %-8s %s", k, tostring(cfg[k]))) end
   if cfg.stock and isInventory(cfg.stock) then
     print("kits in stock: " .. N.kitsIn(select(2, pcall(peripheral.call, cfg.stock, "list"))))
@@ -152,9 +152,13 @@ if cmd ~= "run" then
 end
 
 -- -------------------------------------------------------------------- run --
-if not (me and key) then
-  print("not a kiosk yet: on the master tower, tower kiosk add <NAME> with this computer in its drive")
-  return
+-- No key: open, for testing (tower kiosk open on the master) - questions and
+-- answers in the clear, named after this computer's label
+local open = not key
+if open then
+  local label = os.getComputerLabel and os.getComputerLabel() or nil
+  me = me or { name = N.validCentre(tostring(label or ""):gsub("^kiosk%-", "")) or ("K" .. os.getComputerID()) }
+  print("NO KEY: talking to the tower in the clear as " .. me.name .. " - the master needs tower kiosk open")
 end
 local myId = N.kioskId(me.name)
 local radio
@@ -171,7 +175,7 @@ pcall(peripheral.call, radio, "open", N.CHANNEL)
 
 local KL, KUI = dofile("lib/navkiosk.lua"), dofile("lib/kioskui.lua")
 local D, T = dofile("lib/display.lua"), dofile("lib/tui.lua")
-local tx, rx = SEC.sender(key, myId, SEC.DIR.KIOSK_TO_TOWER, CTR), SEC.receiver()
+local tx, rx = (not open) and SEC.sender(key, myId, SEC.DIR.KIOSK_TO_TOWER, CTR) or nil, SEC.receiver()
 local cfg = loadCfg()
 local seq = 0
 
@@ -183,13 +187,21 @@ local function ask(op, fields)
   local q = tostring(os.epoch and os.epoch("utc") or os.clock()) .. "-" .. seq
   local m = { type = "kq", q = q, op = op }
   for k, v in pairs(fields or {}) do m[k] = v end
-  local env = tx.seal(m)
-  if not env then return nil, "COULD NOT SEAL THE REQUEST" end
+  local env = m
+  if open then m.kiosk = me.name
+  else
+    env = tx.seal(m)
+    if not env then return nil, "COULD NOT SEAL THE REQUEST" end
+  end
   pcall(peripheral.call, radio, "transmit", N.CHANNEL, N.CHANNEL, env)
   local timer = os.startTimer(ASK_WAIT)
   while true do
     local e, a, ch, _, msg = os.pullEvent()
     if e == "timer" and a == timer then return nil, "THE REGISTRY CANNOT BE REACHED" end
+    if open and e == "modem_message" and ch == N.CHANNEL and type(msg) == "table" and not msg.sl
+       and msg.type == "ka" and msg.re == q and msg.to == myId then
+      return msg
+    end
     if e == "modem_message" and ch == N.CHANNEL and type(msg) == "table" and msg.sl and msg.d == SEC.DIR.TOWER_TO_KIOSK then
       local b = rx.open(msg, function(id) return id == myId and key or nil end, SEC.DIR.TOWER_TO_KIOSK, N.MAX_AGE_MS)
       if b and b.type == "ka" and b.re == q then return b end
