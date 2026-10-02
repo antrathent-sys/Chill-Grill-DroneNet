@@ -198,6 +198,21 @@ end
 --- The id a centre's key is filed under and its packets carry.
 function N.centreId(name) return "ctr-" .. tostring(name):lower() end
 
+-- Registration kiosks (navdesk.lua): computers of their own wherever players
+-- are, which ask the master tower to register a unit and hand the kit over.
+-- A kiosk is named like a centre and filed under kiosk-<name>.
+N.KIOSK_MAX = 5           -- units a player can register at a kiosk; more at the tower
+function N.kioskId(name) return "kiosk-" .. tostring(name):lower() end
+function N.kioskFile(k) return "name=" .. k.name .. "\nmaster=" .. tostring(k.master or "") .. "\n" end
+function N.parseKioskFile(text)
+  if type(text) ~= "string" then return nil end
+  local t = {}
+  for k, v in text:gmatch("(%w+)=([^\n]*)") do t[k] = v:gsub("%s+$", "") end
+  local name = N.validCentre(t.name)
+  if not name then return nil end
+  return { name = name, master = t.master ~= "" and t.master or nil }
+end
+
 --- Centres as one string for a pong: "CHI,2497,70,-3297;NORTH,1200,80,-400".
 function N.centresString(list)
   local parts = {}
@@ -571,7 +586,7 @@ N.ROLE = "nav"
 -- Found on CINDER's own machines and never on a unit: refused untouched. So
 -- is any role but nav.
 N.DEV_MARKERS = { ".ghtoken", ".fleetkeys", ".dronekey", ".custkeys", ".navkeys", ".adminkey", ".watchkey",
-                  ".centrekey", ".centrekeys" }
+                  ".centrekey", ".centrekeys", ".navdeskkey", ".kioskkeys" }
 N.KEEP = { [".navkey"] = true, [".navkey.ctr"] = true, [".nav"] = true, [".navpages"] = true }
 
 local function join(a, b) return (a == "" or a == nil) and b or (a .. "/" .. b) end

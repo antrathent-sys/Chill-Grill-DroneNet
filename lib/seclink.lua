@@ -35,7 +35,9 @@ S.DIR = { DRONE_TO_BASE = 1, BASE_TO_DRONE = 2,
           ADMIN_TO_BASE = 4,    -- the admin pocket's requests (admin.lua), under its own key
           NAV_TO_TOWER = 5,     -- a CINDER NAV unit's pings (nav.lua), under the unit's own key
           TOWER_TO_NAV = 6,     -- the tower's pongs back to one unit (tower.lua)
-          TOWER_TO_CENTRE = 7 } -- the master tower's picture to a display-only centre
+          TOWER_TO_CENTRE = 7,  -- the master tower's picture to a display-only centre
+          KIOSK_TO_TOWER = 8,   -- a registration kiosk's requests (navdesk.lua), under its own key
+          TOWER_TO_KIOSK = 9 }  -- the master tower's answers to one kiosk
 S.RESERVE = 64          -- counter values reserved per disk write
 S.ROOT = ""             -- where ccryptolib/ lives; tests point this at the repo
 
@@ -135,6 +137,7 @@ S.WATCH_HEADER = "Watcher keys - screens and towers that only see the feed, one 
 S.ADMIN_HEADER = "Admin pocket keys - they ask the base for trips, one line each. Keep this computer private."
 S.NAV_HEADER = "CINDER NAV unit keys - one line per registered unit. They speak to this tower and nothing else."
 S.CENTRE_HEADER = "Traffic centre keys - display-only centres this master tower feeds, one line each."
+S.KIOSK_HEADER = "Registration kiosk keys - kiosks that ask this master tower to register units, one line each."
 
 --- The text of a key list, sorted by id, under a comment line: the one place
 -- the file format is written, so seckey and provision cannot drift apart.

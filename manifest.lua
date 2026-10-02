@@ -75,7 +75,7 @@ return {
   -- The one computer of the traffic service with common, so the one that can
   -- push. Never holds a fleet key.
   tower = { "tower.lua", "lib/nav.lua", "lib/navui.lua", "nav.lua", "lib/display.lua", "lib/tui.lua",
-            "lib/towerui.lua", "lib/kioskui.lua", "lib/navkiosk.lua" },
+            "lib/towerui.lua" },
 
   -- BARE roles (startup.lua BARE): nothing from common - no uploads, no
   -- machine folder, no key tools - and startup never touches a thruster or a
@@ -88,6 +88,15 @@ return {
           "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
           "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
           "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua", "ccryptolib/internal/hw.lua" },
+
+  -- a registration kiosk (navdesk.lua, startup autorun navdesk), wherever
+  -- players are: it asks the master to register units and writes them onto
+  -- computers from its stock, so it carries everything a unit runs
+  kiosk = { "startup.lua", "navdesk.lua", "lib/navkiosk.lua", "lib/kioskui.lua",
+            "nav.lua", "lib/nav.lua", "lib/navui.lua", "lib/display.lua", "lib/tui.lua", "lib/seclink.lua",
+            "ccryptolib/aead.lua", "ccryptolib/chacha20.lua", "ccryptolib/poly1305.lua",
+            "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
+            "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua", "ccryptolib/internal/hw.lua" },
 
   -- a CINDER NAV unit on somebody's vehicle (tower register writes it): pulls
   -- these quietly behind the CINDER NAV boot screen, then runs nav; no shell

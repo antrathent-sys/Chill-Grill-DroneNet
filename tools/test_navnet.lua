@@ -231,13 +231,82 @@ end
 check("no watch key: no CINDER units at all", nPong and #nPong.traffic == 0)
 check("the feed's channel is the base's", N.CINDER_FEED == dofile(DIR .. "/../lib/watch.lua").CHANNEL)
 
--- the kiosk on the running master: someone sits, touches their way through,
--- and walks off with a written unit, two monitors and an ender modem
-local tk = runningTower(function(w)
-  w.files["tower.cfg"] = "name=CHI\nrange=2000\nkiosk=monitor_9\nkioskDrive=drive_0\n"
-    .. "kioskStock=minecraft:chest_0\nkioskOut=minecraft:chest_1\n"
+-- ======================================================================
+print("a registration kiosk and the master")
+local KUI2 = dofile(DIR .. "/../lib/kioskui.lua")
+local D2, T2 = dofile(DIR .. "/../lib/display.lua"), dofile(DIR .. "/../lib/tui.lua")
+local function at(view, id)
+  for _, h in ipairs(KUI2.render(T2, D2.canvas(57, 24), view)) do if h.id == id then return h.x1, h.y1 end end
+end
+-- the master answering a kiosk's sealed questions
+local KKEY = S.parseKey(HEX2)
+local kq = S.sender(KKEY, "kiosk-hq", S.DIR.KIOSK_TO_TOWER, nil)
+local tq = runningTower(function(w)
+  w.files[".kioskkeys"] = S.formatFleetKeys({ ["kiosk-hq"] = KKEY }, S.KIOSK_HEADER)
+end)
+local function askAt(t, q, op, fields)
+  tq.at(t, function()
+    local m = { type = "kq", q = q, op = op }
+    for k, v in pairs(fields or {}) do m[k] = v end
+    return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, kq.seal(m) }
+  end)
+end
+S.newKey = function() return KEY3 end
+askAt(1, "a", "info", { owner = "alex_r" })
+askAt(1.5, "b", "callFree", { call = "falcon" })
+askAt(2, "c", "callFree", { call = "lambda-1" })
+askAt(2.5, "d", "register", { owner = "sam_k", kind = "sea", call = "kite" })
+askAt(3, "e", "written", { unit = "nav-0003", ok = true })
+askAt(3.5, "f", "register", { owner = "sam_k", kind = "air", call = "kite" })
+askAt(4, "g", "refresh", { unit = "nav-0003", owner = "alex_r", call = "KESTREL" })
+askAt(4.5, "h", "apply", { owner = "sam_k", name = "NORTH", x = 1200, z = -400 })
+askAt(5, "i", "status", { stock = 0 })
+askAt(5.5, "j", "register", { owner = "sam_k", kind = "air", call = "hawk2" })
+askAt(6, "k", "written", { unit = "nav-0004", ok = false })
+tq = tq:run("tower.lua", {}, 8)
+S.newKey = realNewKey
+local rxK, ans = S.receiver(), {}
+for _, s in ipairs(tq.sent) do
+  local b = s.env and s.env.id == "kiosk-hq" and rxK.open(s.env, function() return KKEY end, S.DIR.TOWER_TO_KIOSK, nil)
+  if b and b.type == "ka" then ans[b.re] = b end
+end
+check("the master answers the kiosk: alex_r has one unit, the next is CR-0003", ans.a and ans.a.count == 1
+  and ans.a.nextReg == "CR-0003", tq.err)
+check("a taken callsign and a CINDER one are refused", ans.b and not ans.b.ok and ans.b.why == "TAKEN BY CR-0001"
+  and ans.c and ans.c.why == "RESERVED FOR CINDER")
+check("register: filed, and the new unit's key sent back, sealed to that kiosk", ans.d and ans.d.ok
+  and ans.d.unit == "nav-0003" and ans.d.reg == "CR-0003" and ans.d.call == "KITE" and ans.d.key == HEX3)
+check("a second unit cannot take the same callsign", ans.f and not ans.f.ok and ans.f.why == "TAKEN BY CR-0003")
+check("someone else cannot change a player's unit", ans.g and not ans.g.ok and ans.g.why == "NOT YOUR UNIT")
+local regK = N.loadRegistry(tq.files["navreg.lua"] or "")
+local kite
+for _, r in ipairs(regK) do if r.unit == "nav-0003" then kite = r end end
+check("the kiosk's unit is in the registry, owner off its seat, filed by the kiosk", kite and kite.owner == "sam_k"
+  and kite.idby == "seat" and kite.by == "kiosk-hq" and (tq.files[".navkeys"] or ""):find("nav-0003=", 1, true))
+check("one the kiosk could not write is taken back out", not (tq.files[".navkeys"] or ""):find("nav-0004=", 1, true)
+  and #regK == 3, #regK)
+check("an application to host a centre is filed", ans.h and ans.h.ok
+  and (tq.files["centreapps.csv"] or ""):find("1,%d+,sam_k,NORTH,1200,%-400,pending"))
+check("and how many kits each kiosk has", (tq.files["kiosks.status"] or ""):find("kiosk-hq=0,", 1, true))
+local unknown = S.sender(KEY1, "kiosk-x", S.DIR.KIOSK_TO_TOWER, nil)
+local tu = runningTower()
+tu.at(1, function() return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL,
+  unknown.seal({ type = "kq", q = "z", op = "info", owner = "x" }) } end)
+tu = tu:run("tower.lua", {}, 3)
+local answeredStranger = false
+for _, s in ipairs(tu.sent) do if s.env and s.env.id == "kiosk-x" then answeredStranger = true end end
+check("a kiosk the master does not know gets no answer", not answeredStranger)
+
+-- the kiosk itself (navdesk.lua), against a stand-in for the master
+local function kioskWorld()
+  local w = withFs(W.new(DIR, { label = "kiosk-hq", S = S }))
+  for _, f in ipairs(N.FILES) do w.files[f] = readRepo(f) end
+  for _, f in ipairs({ "startup.lua", "navdesk.lua", "lib/navkiosk.lua", "lib/kioskui.lua" }) do w.files[f] = readRepo(f) end
+  w.files[".navdesk"] = N.kioskFile({ name = "HQ", master = "CHI" })
+  w.files[".navdeskkey"] = HEX2 .. "\n"
+  w.files["navdesk.cfg"] = "monitor=monitor_9\ndrive=drive_0\nstock=minecraft:chest_0\nout=minecraft:chest_1\n"
   w.periph.monitor_9 = { type = "monitor", m = { getSize = function() return 57, 24 end, setTextScale = function() end,
-    setPaletteColour = function() end, setCursorPos = function() end, blit = function() end } }
+    setPaletteColour = function() end, setCursorPos = function() end, blit = function() end, isColour = function() return true end } }
   w.periph.create_target_0 = { type = "create_target", m = { getLine = function() return "sam_k" end } }
   w.stock = { { name = "computercraft:computer_advanced", count = 1 }, { name = "computercraft:monitor_advanced", count = 2 },
               { name = "computercraft:wireless_modem_advanced", count = 1 } }
@@ -279,36 +348,46 @@ local tk = runningTower(function(w)
       end
       return 0
     end } }
-  for _, f in ipairs(N.FILES) do w.files[f] = readRepo(f) end
-  w.files["startup.lua"] = readRepo("startup.lua")
-end)
-S.newKey = function() return KEY3 end
-local KUI2 = dofile(DIR .. "/../lib/kioskui.lua")
-local D2, T2 = dofile(DIR .. "/../lib/display.lua"), dofile(DIR .. "/../lib/tui.lua")
-local function at(view, id)
-  for _, h in ipairs(KUI2.render(T2, D2.canvas(57, 24), view)) do if h.id == id then return h.x1, h.y1 end end
+  -- the stand-in master: opens each question, answers it a moment later
+  local mrx, mtx = S.receiver(), S.sender(KKEY, "kiosk-hq", S.DIR.TOWER_TO_KIOSK, nil)
+  w.asked = {}
+  w.periph.modem_0 = { type = "modem", m = { isWireless = function() return true end, open = function() end,
+    transmit = function(ch, _, env)
+      local b = mrx.open(env, function(id) return id == "kiosk-hq" and KKEY or nil end, S.DIR.KIOSK_TO_TOWER, nil)
+      if not b then return end
+      w.asked[#w.asked + 1] = b.op
+      local a = { type = "ka", re = b.q, ok = true }
+      if b.op == "info" then a.count, a.nextReg = 0, "CR-0009"
+      elseif b.op == "callFree" then a.call = N.validCall(b.call)
+      elseif b.op == "register" then
+        a.unit, a.n, a.reg, a.call, a.kind, a.owner, a.key = "nav-0009", 9, "CR-0009", N.validCall(b.call), b.kind,
+          b.owner, HEX3
+      elseif b.op == "written" then w.writtenOk = b.ok end
+      local reply = mtx.seal(a)
+      w.at(w.clock + 0.05, { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, reply })
+    end } }
+  return w
 end
-local function touchAt(t, x, y) tk.at(t, { "monitor_touch", "monitor_9", x, y }) end
-touchAt(2, at({ state = "hello", who = "sam_k", stock = 1 }, "register"))
-touchAt(3, at({ state = "type" }, "kind:air"))
-for i, ch in ipairs({ "K", "I", "T", "E" }) do touchAt(3 + i * 0.3, at({ state = "callsign", call = "" }, "key:" .. ch)) end
-touchAt(5.5, at({ state = "callsign", call = "KITE" }, "next"))
-touchAt(6.5, at({ state = "confirm", call = "KITE" }, "register"))
-tk = tk:run("tower.lua", {}, 9)
-S.newKey = realNewKey
-local rk = N.loadRegistry(tk.files["navreg.lua"] or "")
-local mine
-for _, r in ipairs(rk) do if r.call == "KITE" then mine = r end end
-check("registered at the kiosk, in the seated player's name", mine and mine.owner == "sam_k" and mine.idby == "seat"
-  and mine.kind == "air" and tk.files["disk/.navkey"] == HEX3 .. "\n", tk.err or (mine and mine.owner) or tk.text)
-check("written onto a computer from the stock", tk.files["disk/.role"] == "nav\n" and tk.files["disk/nav.lua"] ~= nil
-  and tk.labelled == mine.unit)
-local got = {}
-for _, it in ipairs(tk.out) do got[it.name] = (got[it.name] or 0) + it.count end
-check("the kit in the chest beside the seat: the unit, two monitors, an ender modem",
-  got["computercraft:computer_advanced"] == 1 and got["computercraft:monitor_advanced"] == 2
-  and got["computercraft:wireless_modem_advanced"] == 1 and tk.out[1].written and tk.inDrive == nil,
-  tk.err or tostring(#tk.out))
+local kw = kioskWorld()
+local function kTouch(t, view, id) local x, y = at(view, id) kw.at(t, { "monitor_touch", "monitor_9", x, y }) end
+kTouch(2, { state = "hello", who = "sam_k", stock = 1 }, "register")
+kTouch(3, { state = "type" }, "kind:air")
+for i, ch in ipairs({ "K", "I", "T", "E" }) do kTouch(3 + i * 0.3, { state = "callsign", call = "" }, "key:" .. ch) end
+kTouch(5.5, { state = "callsign", call = "KITE" }, "next")
+kTouch(6.5, { state = "confirm", call = "KITE" }, "register")
+kw = kw:run("navdesk.lua", {}, 9)
+local unitFile = N.parseUnitFile(kw.files["disk/.nav"])
+check("the kiosk asked the master, never decided itself", table.concat(kw.asked, ","):find("callFree", 1, true)
+  and table.concat(kw.asked, ","):find("register", 1, true), kw.err or table.concat(kw.asked, ","))
+check("the unit written with the master's number and key, role nav", unitFile and unitFile.unit == "nav-0009"
+  and unitFile.call == "KITE" and unitFile.owner == "sam_k" and kw.files["disk/.navkey"] == HEX3 .. "\n"
+  and kw.files["disk/.role"] == "nav\n" and kw.labelled == "nav-0009", kw.err)
+check("and the master told it was written", kw.writtenOk == true)
+local gotK = {}
+for _, it in ipairs(kw.out) do gotK[it.name] = (gotK[it.name] or 0) + it.count end
+check("the kit in the out chest: the unit, two monitors, an ender modem",
+  gotK["computercraft:computer_advanced"] == 1 and gotK["computercraft:monitor_advanced"] == 2
+  and gotK["computercraft:wireless_modem_advanced"] == 1 and kw.out[1].written, tostring(#kw.out))
 
 -- a revocation done beside it is picked up at the next sync
 local tw2 = runningTower()

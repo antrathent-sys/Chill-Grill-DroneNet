@@ -71,29 +71,44 @@ the update is shown to the owner, there is no shell (Ctrl+T does nothing),
 no token and nothing that pushes. A new key or a new registration still
 comes from the master's drive - `tower register` again keeps its key.
 
-**The registration kiosk** (Alex, 2026-10-02: players register their own
-vehicles, and the kit comes with the registration). Beside the master, on
-its wired network:
+**Registration kiosks** (Alex, 2026-10-02: players register their own
+vehicles, the kit comes with the registration, and a kiosk is a computer of
+its own wherever players are - the HQ lobby first). The master tower stays
+the one registry: it decides the callsign, the limit and the number, and
+keeps every unit's key. A kiosk asks it over the radio, sealed with the
+kiosk's own key, and is answered alone; the new unit's key comes back once,
+sealed, to be written onto the unit (`navdesk.lua`, logic
+`lib/navkiosk.lua`, screens `lib/kioskui.lua`).
 
-- an advanced monitor, 3x2 or bigger (4x3 gives a full-size keyboard);
+A kiosk, all on its own computer's wired network:
+
+- an advanced computer with an ender modem placed on it;
+- a touch monitor - an advanced monitor 3x2 or bigger (4x3 gives a
+  full-size keyboard);
 - the seat: a Create Seat, a Display Link on it reading Entity Name, a
   CC:C Bridge target block;
 - a disk drive;
 - a **stock chest** on CINDER's side, filled with advanced computers that
   have been **placed and switched on once** (a disk drive can only read a
-  computer that has; no label needed - CC:Tweaked keeps its id when it is
-  broken), advanced monitors and ender modems;
+  computer that has; no label needed), advanced monitors and ender modems;
 - an **out chest** the seated player can open.
 
-```
-tower kiosk monitor_3 drive_1
-tower kiosk stock minecraft:chest_4
-tower kiosk out minecraft:chest_5
-```
+Setting one up:
 
-The master runs it beside everything else, so no key ever leaves the tower
-(`lib/navkiosk.lua`, screens `lib/kioskui.lua`; `tools/preview_nav.py
---kiosk` renders them). The player:
+1. On the kiosk's computer: the first command with `role kiosk`.
+2. Break it, put it in the **master tower's** drive, and on the master:
+   `tower kiosk add HQ`. That writes the kiosk's name and key onto it.
+   (A floppy works too: then `navdesk join` on the kiosk with the floppy in
+   its drive.)
+3. Put it back, wire everything up, and run `navdesk setup`: it finds the
+   monitor, drive and seat and asks which chest is the stock and which the
+   out chest. Reboot; it runs `navdesk` by itself from then on.
+
+On the master: `tower kiosk list` (each kiosk, its kits in stock, when it
+was last heard - the tower's board says when one runs out), `tower kiosk
+drop HQ`.
+
+The player:
 
 1. sits down - the kiosk greets them by name, which is the owner;
 2. touches REGISTER A VEHICLE (it says when kits are out of stock);
@@ -101,25 +116,26 @@ The master runs it beside everything else, so no key ever leaves the tower
    each with the gauge it will get;
 4. types a callsign on the screen's keyboard - **refused if another live
    unit has it ("TAKEN BY CR-0007"), or if it starts CINDER, LAMBDA, ZETA,
-   TOWER or ATC** (N.callFree; `tower register` checks the same);
+   TOWER or ATC** (N.callFree, decided by the master);
 5. checks owner, type, callsign and registration, and touches REGISTER.
    The kiosk moves a computer from the stock into its drive (one the drive
-   cannot read goes back, and the tower's board says so), writes the unit,
-   and puts it, two advanced monitors and an ender modem in the out chest:
-   REGISTERED, YOUR KIT IS IN THE CHEST BESIDE YOU.
+   cannot read goes back), the master files the unit and sends its key, the
+   kiosk writes it (if that fails, the master takes it back out), and the
+   unit, two advanced monitors and an ender modem go into the out chest.
 
 Their own unit put in the drive offers UPDATE (software, same key) or
-CHANGE (type and callsign, same registration); it comes back in the out
-chest. Anything else in the drive is to be taken out first. A player can
-register five units themselves (`navkiosk.lua` MAX_PER_OWNER); more at the
-tower. Getting up for three seconds, or ninety seconds without a touch
-part-way through, starts again.
+CHANGE (type and callsign, same registration; the master checks it is
+theirs); it comes back in the out chest. Anything else in the drive is to
+be taken out first. Five units per player at a kiosk (`N.KIOSK_MAX`);
+more at the tower. Getting up for three seconds, or ninety seconds without
+a touch part-way through, starts again. A kiosk that cannot reach the
+master says THE REGISTRY CANNOT BE REACHED.
 
 **Hosting a traffic centre** (Alex, 2026-10-02: "a way to apply for an
 ATC"). The kiosk's other button: the centre's name (2 to 12 letters,
 digits or dashes), where it would stand (X and Z), and APPLY. One waiting
 application per player; a name already a centre or applied for is
-refused. Applications go to `centreapps.csv` on the master and its board
+refused. Applications go to `centreapps.csv` on the master (through the kiosk's link) and its board
 shows each as it arrives. `tower centre apps` lists the waiting ones,
 `tower centre approve <n>` approves one and prints the `tower centre add`
 to run with the centre's computer in the drive, `tower centre refuse

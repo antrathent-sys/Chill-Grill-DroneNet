@@ -98,22 +98,17 @@ local function yes(q) return ask(q .. " (y/n)"):lower():sub(1, 1) == "y" end
 
 -- ------------------------------------------------- this tower and its centres --
 local CFG, CENTRES, CKEYS, PIC_CTR = "tower.cfg", "centres.lua", ".centrekeys", ".pic.ctr"
-local APPS = "centreapps.csv"      -- applications to host a centre, from the kiosk
+local APPS = "centreapps.csv"      -- applications to host a centre, from the kiosks
+local KKEYS, KSTATUS, KIOSK_CTR = ".kioskkeys", "kiosks.status", ".kiosk.ctr"   -- registration kiosks
 local ME_FILE, ME_KEY = ".centre", ".centrekey"
 local function loadCfg()
   local t = {}
   for k, v in (readAll(CFG) or ""):gmatch("(%w+)=([^\n]*)") do t[k] = v end
-  local function dev(s) return (s and s:match("^[%w_%-:]+$")) and s or nil end   -- minecraft:chest_2
   return { name = N.validCentre(t.name) or "TOWER", x = tonumber(t.x), y = tonumber(t.y), z = tonumber(t.z),
-           range = tonumber(t.range) or 2000, kiosk = dev(t.kiosk), kioskDrive = dev(t.kioskDrive),
-           kioskStock = dev(t.kioskStock), kioskOut = dev(t.kioskOut) }
+           range = tonumber(t.range) or 2000 }
 end
 local function saveCfg(c)
   local lines = { "name=" .. c.name, "range=" .. c.range }
-  if c.kiosk then lines[#lines + 1] = "kiosk=" .. c.kiosk end
-  if c.kioskDrive then lines[#lines + 1] = "kioskDrive=" .. c.kioskDrive end
-  if c.kioskStock then lines[#lines + 1] = "kioskStock=" .. c.kioskStock end
-  if c.kioskOut then lines[#lines + 1] = "kioskOut=" .. c.kioskOut end
   if c.x then
     lines[#lines + 1] = "x=" .. math.floor(c.x)
     lines[#lines + 1] = "y=" .. math.floor(c.y or 0)
@@ -142,32 +137,48 @@ local function describe(rec)
     rec.owner, rec.idby == "typed" and " (typed)" or "", status)
 end
 
--- Registering, shared by `tower register` and the kiosk. The files are the
--- truth: read, added to and written in one go, with nothing in between that
--- could let another of this computer's loops run.
--- A new unit on the computer at `mount` (in `drive`): the record, or nil, why.
-local function newUnit(drive, mount, owner, idby, kind, call)
+-- Registering. The files are the truth: read, added to and written in one
+-- go, with nothing in between that could let another of this computer's
+-- loops run. A unit filed: its record and its new key, saved.
+local function fileUnit(owner, idby, kind, call, by)
   local recs, keys = loadReg(), loadKeys()
   local n = N.nextNumber(recs)
   local rec = { n = n, unit = N.unitId(n), owner = owner, idby = idby, call = call, kind = kind,
-                issued = today(), by = os.getComputerLabel and os.getComputerLabel() or nil }
+                issued = today(), by = by or (os.getComputerLabel and os.getComputerLabel()) or nil }
   local key = SEC.newKey()
-  local ok, why = N.install(fs, mount, { rec = rec, keyHex = SEC.keyHex(key), src = "", version = readAll(".commit") })
-  if not ok then return nil, why end
   keys[rec.unit] = key
   saveKeys(keys)
   recs[#recs + 1] = rec
   saveReg(recs)
+  return rec, key
+end
+-- ...and taken back out, when it could not be written onto its computer
+local function unfileUnit(unit)
+  local recs, keep = loadReg(), {}
+  for _, r in ipairs(recs) do if r.unit ~= unit then keep[#keep + 1] = r end end
+  saveReg(keep)
+  local keys = loadKeys()
+  keys[unit] = nil
+  saveKeys(keys)
+end
+-- A new unit on the computer at `mount` (in `drive`): the record, or nil, why.
+local function newUnit(drive, mount, owner, idby, kind, call)
+  local rec, key = fileUnit(owner, idby, kind, call)
+  local ok, why = N.install(fs, mount, { rec = rec, keyHex = SEC.keyHex(key), src = "", version = readAll(".commit") })
+  if not ok then unfileUnit(rec.unit) return nil, why end
   pcall(peripheral.call, drive, "setDiskLabel", rec.unit)
   logEvent(rec, "registered", nil, owner .. " " .. kind .. " " .. idby)
   return rec
 end
 -- A registered unit's software refreshed and its key kept; its type and
 -- callsign changed when given.
-local function refreshUnit(mount, unit, kind, call)
+-- mount nil: the record only (a kiosk writes the unit itself). owner, when
+-- given, must be the unit's.
+local function refreshUnit(mount, unit, kind, call, owner)
   local recs = loadReg()
   local rec = N.find(recs, unit)
   if not rec or rec.revoked then return nil, "not registered" end
+  if owner and rec.owner:lower() ~= tostring(owner):lower() then return nil, "NOT YOUR UNIT" end
   if call and call ~= rec.call then
     local free, whyNot = N.callFree(recs, call, unit)
     if not free then return nil, whyNot end
@@ -175,8 +186,10 @@ local function refreshUnit(mount, unit, kind, call)
   end
   local changed = (kind ~= nil and kind ~= rec.kind) or (call ~= nil and call ~= rec.call)
   rec.kind, rec.call = kind or rec.kind, call or rec.call
-  local ok, why = N.install(fs, mount, { rec = rec, src = "", version = readAll(".commit") })
-  if not ok then return nil, why end
+  if mount then
+    local ok, why = N.install(fs, mount, { rec = rec, src = "", version = readAll(".commit") })
+    if not ok then return nil, why end
+  end
   if changed then saveReg(recs) end
   logEvent(rec, "updated", nil, changed and (rec.kind .. " " .. rec.call) or nil)
   return rec
@@ -350,41 +363,55 @@ if cmd == "here" then
   return
 end
 
--- The registration kiosk (lib/navkiosk.lua): an advanced monitor, 3x2 or
--- bigger, that players register their own vehicles on, with the seat and a
--- drive of its own beside them. The master runs it.
-if cmd == "kiosk" then
-  local cfg = loadCfg()
-  local name, drv = args[2], args[3]
-  if name == "off" then
-    cfg.kiosk, cfg.kioskDrive = nil, nil
-    saveCfg(cfg)
-    print("kiosk off")
+-- Registration kiosks (navdesk.lua): computers of their own, wherever
+-- players are, that ask this master to register units. `tower kiosk add`
+-- gives one its name and key, through the drive, the way centres get theirs.
+if cmd == "kiosk" or cmd == "kiosks" then
+  local sub = (args[2] or "list"):lower()
+  local keys = SEC.readFleetKeys(KKEYS)
+  if sub == "list" then
+    local st = {}
+    for id, stock, t in (readAll(KSTATUS) or ""):gmatch("([%w%-]+)=(%-?%d+),(%d+)") do st[id] = { tonumber(stock), tonumber(t) } end
+    local any = false
+    for id in pairs(keys) do
+      any = true
+      local s2 = st[id]
+      print(string.format("  %-16s %s", id, s2 and string.format("%s kits, heard %s",
+        s2[1] >= 0 and tostring(s2[1]) or "no chests", os.date and os.date("%m-%d %H:%M", s2[2]) or s2[2])
+        or "never heard"))
+    end
+    if not any then print("no kiosks - tower kiosk add <NAME> with the kiosk's computer in the drive") end
     return
   end
-  if not name then
-    print("kiosk: " .. (cfg.kiosk and (cfg.kiosk .. (cfg.kioskDrive and (" with " .. cfg.kioskDrive) or "")) or "none"))
-    print("kits from " .. tostring(cfg.kioskStock or "-") .. " to " .. tostring(cfg.kioskOut or "-"))
-    print("tower kiosk <monitor> [drive]      e.g. tower kiosk monitor_3 drive_1")
-    print("tower kiosk stock <inventory>      the chest the kits come from (CINDER's side)")
-    print("tower kiosk out <inventory>        the chest the player takes their kit from")
-    print("tower kiosk off")
+  if sub == "drop" then
+    local name = N.validCentre(args[3])
+    if not (name and keys[N.kioskId(name)]) then print("no kiosk " .. tostring(args[3])) return end
+    keys[N.kioskId(name)] = nil
+    writeText(KKEYS, SEC.formatFleetKeys(keys, SEC.KIOSK_HEADER))
+    print("dropped " .. name .. " - the master no longer answers it")
     return
   end
-  if name == "stock" or name == "out" then
-    if not drv then print("tower kiosk " .. name .. " <inventory>, e.g. minecraft:chest_2") return end
-    local okL = pcall(peripheral.call, drv, "list")
-    if not okL then print(drv .. " is not an inventory on this computer's network") return end
-    if name == "stock" then cfg.kioskStock = drv else cfg.kioskOut = drv end
-    saveCfg(cfg)
-    print("kiosk " .. name .. ": " .. drv)
+  if sub == "add" then
+    local name = N.validCentre(args[3])
+    if not name then print("tower kiosk add <NAME>   (2-12 letters, digits or dashes) with its computer in the drive") return end
+    local drive
+    for _, n in ipairs(peripheral.getNames()) do if peripheral.getType(n) == "drive" then drive = n break end end
+    if not (drive and peripheral.call(drive, "hasData")) then
+      print("put the kiosk's computer, or a floppy for it, in the disk drive first") return
+    end
+    local mount = peripheral.call(drive, "getMountPath")
+    local key = SEC.newKey()
+    writeText(mount .. "/.navdeskkey", SEC.keyHex(key) .. "\n")
+    writeText(mount .. "/.navdesk", N.kioskFile({ name = name, master = loadCfg().name }))
+    keys[N.kioskId(name)] = key
+    writeText(KKEYS, SEC.formatFleetKeys(keys, SEC.KIOSK_HEADER))
+    pcall(peripheral.call, drive, "setDiskLabel", N.kioskId(name))
+    pcall(peripheral.call, drive, "ejectDisk")
+    print(string.format("kiosk %s added. On its computer: startup role kiosk (navdesk join first if this was a floppy),", name))
+    print("then navdesk setup. The running tower answers it within 10 s.")
     return
   end
-  if peripheral.getType(name) ~= "monitor" then print(name .. " is not a monitor on this computer") return end
-  if drv and peripheral.getType(drv) ~= "drive" then print(drv .. " is not a disk drive on this computer") return end
-  cfg.kiosk, cfg.kioskDrive = name, drv
-  saveCfg(cfg)
-  print("kiosk on " .. name .. (drv and (" with " .. drv) or "") .. " - the running tower picks it up within 10 s")
+  print("tower kiosk [list | add <NAME> | drop <NAME>]")
   return
 end
 
@@ -511,7 +538,7 @@ end
 if cmd ~= "run" then
   print("tower [run | register | list | show <reg> | revoke <reg> | log [n] | here <NAME> <x> <y> <z> | range <blocks>")
   print("       | centre [list | add <NAME> <x> <y> <z> | drop <NAME> | apps | approve <n> | refuse <n>] | join")
-  print("       | kiosk [<monitor> [drive] | stock <inventory> | out <inventory> | off]")
+  print("       | kiosk [list | add <NAME> | drop <NAME>]")
   return
 end
 
@@ -553,11 +580,10 @@ local function findMonitors()
   end
 end
 T.apply(term)
-local kioskMon = loadCfg().kiosk       -- that monitor is the kiosk's, not the board's
 local function show(view)
   for name, m in pairs(mons) do
     local okS, w, h = pcall(peripheral.call, name, "getSize")
-    if okS and w and name ~= kioskMon then
+    if okS and w then
       if not m.canvas or m.canvas.w ~= w or m.canvas.h ~= h then m.canvas = D.canvas(w, h) end
       local c = m.canvas
       c:clear()
@@ -626,6 +652,7 @@ local centreList = loadCentres()
 
 local contacts, senders, picSenders = {}, {}, {}
 local rx = SEC.receiver()
+local kioskKeys, kioskSenders = SEC.readFleetKeys(KKEYS), {}
 -- CINDER's own units, from the base's read-only feed: this tower is a public
 -- watcher (lib/watch.lua W.isPublic), told where each unit is and nothing
 -- while the base is in stealth. `seckey watch new tower` on the base,
@@ -662,7 +689,8 @@ local function sync()
   keys = loadKeys()
   for unit in pairs(senders) do if not keys[unit] then senders[unit] = nil end end
   cfg = loadCfg()
-  kioskMon = cfg.kiosk
+  kioskKeys = SEC.readFleetKeys(KKEYS)
+  for id in pairs(kioskSenders) do if not kioskKeys[id] then kioskSenders[id] = nil end end
   centreKeys = SEC.readFleetKeys(CKEYS)
   centreList = loadCentres()
   for id in pairs(picSenders) do if not centreKeys[id] then picSenders[id] = nil end end
@@ -729,6 +757,105 @@ local function hearCinder(msg)
   end
 end
 
+-- ------------------------------------------------------------ the kiosks --
+-- A registration kiosk's question (navdesk.lua), answered to that kiosk
+-- alone. Everything is decided here, from the files: the kiosk only shows it.
+local function applyCentre(owner, name, x, z)
+  name = N.validCentre(name)
+  if not (name and N.validOwner(owner) and tonumber(x) and tonumber(z)) then return nil, "NOT A VALID APPLICATION" end
+  local apps = N.parseApps(readAll(APPS))
+  for _, a in ipairs(apps) do
+    if a.status == "pending" and a.who:lower() == tostring(owner):lower() then
+      return nil, "YOU HAVE AN APPLICATION WAITING"
+    end
+    if a.status ~= "refused" and a.name == name then return nil, "THAT NAME IS TAKEN" end
+  end
+  if name == cfg.name then return nil, "THAT NAME IS TAKEN" end
+  for _, c in ipairs(loadCentres()) do if c.name == name then return nil, "THAT NAME IS TAKEN" end end
+  apps[#apps + 1] = { n = #apps + 1, when = nowSecs(), who = owner, name = name, x = math.floor(x), z = math.floor(z),
+                      status = "pending" }
+  writeText(APPS, N.appsText(apps))
+  lastEvent = string.format("CENTRE APPLICATION: %s %s", name, tostring(owner):upper())
+  return true
+end
+
+local function recAnswer(r)
+  return { ok = true, unit = r.unit, n = r.n, reg = N.regNumber(r.n), call = r.call, kind = r.kind, owner = r.owner,
+           revoked = r.revoked and true or nil }
+end
+
+local function kioskOp(id, b)
+  local recs = loadReg()
+  local function count(owner)
+    local n = 0
+    for _, r in ipairs(recs) do if not r.revoked and r.owner:lower() == tostring(owner):lower() then n = n + 1 end end
+    return n
+  end
+  if b.op == "info" then
+    return { ok = true, count = count(b.owner), nextReg = N.regNumber(N.nextNumber(recs)) }
+  elseif b.op == "find" then
+    local r = N.find(recs, b.unit)
+    if not r then return { ok = false, why = "NOT REGISTERED" } end
+    return recAnswer(r)
+  elseif b.op == "callFree" then
+    local c, why = N.callFree(recs, b.call, b.except)
+    return { ok = c ~= nil, call = c, why = why }
+  elseif b.op == "register" then
+    if not (N.validOwner(b.owner) and N.TYPES[b.kind]) then return { ok = false, why = "NOT A VALID REGISTRATION" } end
+    if count(b.owner) >= N.KIOSK_MAX then
+      return { ok = false, why = "YOU HAVE " .. N.KIOSK_MAX .. " UNITS REGISTERED" }
+    end
+    local call, why = N.callFree(recs, b.call)
+    if not call then return { ok = false, why = why } end
+    local rec, key = fileUnit(b.owner, "seat", b.kind, call, id)
+    local a = recAnswer(rec)
+    a.key = SEC.keyHex(key)
+    return a
+  elseif b.op == "written" then
+    local r = N.find(recs, b.unit)
+    if r and b.ok then
+      logEvent(r, "registered", nil, r.owner .. " " .. r.kind .. " seat " .. id)
+      lastEvent = string.format("%s %s REGISTERED AT %s", N.regNumber(r.n), r.call, id:upper())
+    elseif r then
+      unfileUnit(r.unit)
+    end
+    return { ok = true }
+  elseif b.op == "refresh" then
+    local r, why = refreshUnit(nil, b.unit, b.kind, b.call, b.owner)
+    if not r then return { ok = false, why = why } end
+    return recAnswer(r)
+  elseif b.op == "apply" then
+    local ok, why = applyCentre(b.owner, b.name, b.x, b.z)
+    return { ok = ok == true, why = why }
+  elseif b.op == "status" then
+    local st, lines = {}, {}
+    for kid, stock, t in (readAll(KSTATUS) or ""):gmatch("([%w%-]+)=(%-?%d+),(%d+)") do st[kid] = stock .. "," .. t end
+    st[id] = math.floor(tonumber(b.stock) or -1) .. "," .. nowSecs()
+    for kid, v in pairs(st) do lines[#lines + 1] = kid .. "=" .. v end
+    table.sort(lines)
+    writeText(KSTATUS, table.concat(lines, "\n") .. "\n")
+    if tonumber(b.stock) == 0 then lastEvent = id:upper() .. " IS OUT OF KITS" end
+    return { ok = true }
+  end
+  return { ok = false, why = "UNKNOWN REQUEST" }
+end
+
+local function hearKiosk(msg)
+  if type(msg) ~= "table" or not msg.sl or msg.d ~= SEC.DIR.KIOSK_TO_TOWER then return end
+  local body = rx.open(msg, function(id) return kioskKeys[id] end, SEC.DIR.KIOSK_TO_TOWER, N.MAX_AGE_MS)
+  if not (body and body.type == "kq" and type(body.id) == "string") then return end
+  local id = body.id
+  local a = kioskOp(id, body)
+  a.type, a.re = "ka", body.q
+  local s = kioskSenders[id]
+  if not s then
+    s = SEC.sender(kioskKeys[id], id, SEC.DIR.TOWER_TO_KIOSK, KIOSK_CTR)
+    kioskSenders[id] = s
+  end
+  local env = s.seal(a)
+  if env then pcall(peripheral.call, radio, "transmit", N.CHANNEL, N.CHANNEL, env) end
+end
+
 -- the picture every display-only centre is sent
 local function feedCentres()
   local list = allCentres()
@@ -760,7 +887,9 @@ end
 local function radioLoop()
   while true do
     local _, _, ch, _, msg = os.pullEvent("modem_message")
-    if ch == N.CHANNEL then hear(msg) elseif ch == N.CINDER_FEED then hearCinder(msg) end
+    if ch == N.CHANNEL then
+      if type(msg) == "table" and msg.d == SEC.DIR.KIOSK_TO_TOWER then hearKiosk(msg) else hear(msg) end
+    elseif ch == N.CINDER_FEED then hearCinder(msg) end
   end
 end
 local function syncLoop()
@@ -783,148 +912,5 @@ local function feedLoop()
   end
 end
 
--- The registration kiosk: the touch screen, the seat and its drive, run by
--- lib/navkiosk.lua; what it registers goes through the same newUnit and
--- refreshUnit as `tower register`.
-local function kioskLoop()
-  local KUI, KL = dofile("lib/kioskui.lua"), dofile("lib/navkiosk.lua")
-  local function device(kind, named)
-    if named and peripheral.isPresent(named) then return named end
-    for _, n in ipairs(peripheral.getNames()) do if peripheral.getType(n) == kind then return n end end
-  end
-  local function mount()
-    local d = device("drive", cfg.kioskDrive)
-    if not (d and peripheral.call(d, "hasData")) then return nil end
-    return d, peripheral.call(d, "getMountPath")
-  end
-  local function withReg(rec) if rec then rec.reg = N.regNumber(rec.n) end return rec end
-  local k = KL.new({
-    seated = function()
-      local s = device("create_target")
-      local okL, line = pcall(peripheral.call, s or "", "getLine", 1)
-      return s and okL and N.seatName(line) or nil
-    end,
-    drive = function()
-      local _, m = mount()
-      return m and N.inspect(fs, m) or nil
-    end,
-    eject = function()
-      local d = mount()
-      if not d then return end
-      -- into the chest beside the seat when there is one, else out of the drive
-      if not (cfg.kioskOut and pcall(peripheral.call, cfg.kioskOut, "pullItems", d, 1)) then
-        pcall(peripheral.call, d, "ejectDisk")
-      end
-    end,
-    stock = function()
-      if not (cfg.kioskStock and cfg.kioskOut) then return nil end
-      local okL, list = pcall(peripheral.call, cfg.kioskStock, "list")
-      return okL and N.kitsIn(list) or 0
-    end,
-    callFree = function(call, except) return N.callFree(loadReg(), call, except) end,
-    validCentre = N.validCentre,
-    apply = function(owner, name, x, z)
-      local apps = N.parseApps(readAll(APPS))
-      for _, a in ipairs(apps) do
-        if a.status == "pending" and a.who:lower() == tostring(owner):lower() then
-          return nil, "YOU HAVE AN APPLICATION WAITING"
-        end
-        if a.status ~= "refused" and a.name == name then return nil, "THAT NAME IS TAKEN" end
-      end
-      if name == cfg.name then return nil, "THAT NAME IS TAKEN" end
-      for _, c in ipairs(loadCentres()) do if c.name == name then return nil, "THAT NAME IS TAKEN" end end
-      apps[#apps + 1] = { n = #apps + 1, when = nowSecs(), who = owner, name = name, x = x, z = z, status = "pending" }
-      writeText(APPS, N.appsText(apps))
-      lastEvent = string.format("CENTRE APPLICATION: %s %s", name, tostring(owner):upper())
-      return true
-    end,
-    -- a unit from stock: a computer into the drive (one the drive cannot read
-    -- goes back), written, then it, two monitors and an ender modem into the
-    -- chest beside the seat
-    kit = function(owner, kind, call)
-      local d, st, out = device("drive", cfg.kioskDrive), cfg.kioskStock, cfg.kioskOut
-      if not (d and st and out) then return nil, "the kiosk's stock is not set up" end
-      if peripheral.call(d, "hasData") then return nil, "the drive is not empty" end
-      local okL, list = pcall(peripheral.call, st, "list")
-      if not okL then return nil, "cannot read the stock" end
-      local loaded, unready = false, 0
-      for slot, it in pairs(list) do
-        if not loaded and it.name == N.KIT.computer then
-          local okP, moved = pcall(peripheral.call, st, "pushItems", d, slot, 1)
-          if okP and moved == 1 then
-            for _ = 1, 10 do
-              if peripheral.call(d, "hasData") then loaded = true break end
-              sleep(0.1)
-            end
-            if not loaded then
-              unready = unready + 1
-              pcall(peripheral.call, st, "pullItems", d, 1)
-            end
-          end
-        end
-      end
-      if unready > 0 then lastEvent = string.format("KIOSK: %d STOCK COMPUTERS NEVER SWITCHED ON", unready) end
-      if not loaded then return nil, "no prepared computer in stock" end
-      local rec, why = newUnit(d, peripheral.call(d, "getMountPath"), owner, "seat", kind, call)
-      if not rec then pcall(peripheral.call, st, "pullItems", d, 1) return nil, why end
-      pcall(peripheral.call, out, "pullItems", d, 1)
-      for _, need in ipairs(N.KIT) do
-        local left = need.count
-        local okL2, l2 = pcall(peripheral.call, st, "list")
-        for slot, it in pairs(okL2 and l2 or {}) do
-          if left > 0 and it.name == need.name then
-            local okM, moved = pcall(peripheral.call, st, "pushItems", out, slot, left)
-            if okM and type(moved) == "number" then left = left - moved end
-          end
-        end
-      end
-      lastEvent = string.format("%s %s REGISTERED AT THE KIOSK", N.regNumber(rec.n), rec.call)
-      return withReg(rec)
-    end,
-    find = function(unit) return withReg(N.find(loadReg(), unit)) end,
-    count = function(owner)
-      local n = 0
-      for _, r in ipairs(loadReg()) do
-        if not r.revoked and r.owner:lower() == tostring(owner):lower() then n = n + 1 end
-      end
-      return n
-    end,
-    nextReg = function() return N.regNumber(N.nextNumber(loadReg())) end,
-    validCall = N.validCall,
-    refresh = function(unit, kind, call)
-      local d, m = mount()
-      if not m then return nil, "the computer was taken out" end
-      local rec, why = refreshUnit(m, unit, kind, call)
-      if rec and not (cfg.kioskOut and pcall(peripheral.call, cfg.kioskOut, "pullItems", d, 1)) then
-        pcall(peripheral.call, d, "ejectDisk")
-      end
-      return withReg(rec), why
-    end,
-    now = os.clock,
-  })
-  local hits, canvas = {}, nil
-  local function draw()
-    local name = cfg.kiosk
-    if not (name and peripheral.isPresent(name)) then return end
-    local okS, w, h = pcall(peripheral.call, name, "getSize")
-    if not (okS and w) then return end
-    if not canvas or canvas.w ~= w or canvas.h ~= h then canvas = D.canvas(w, h) end
-    canvas:clear()
-    hits = KUI.render(T, canvas, k.view)
-    canvas:flush({ setCursorPos = function(x, y) peripheral.call(name, "setCursorPos", x, y) end,
-                   blit = function(s, f, b) peripheral.call(name, "blit", s, f, b) end })
-  end
-  local timer = os.startTimer(0.5)
-  while true do
-    local e, a, x, y = os.pullEvent()
-    if e == "timer" and a == timer then
-      if cfg.kiosk then k:tick() draw() end
-      timer = os.startTimer(0.5)
-    elseif e == "monitor_touch" and a == cfg.kiosk then
-      if k:touch(KUI.hit(hits, x, y)) then draw() end
-    end
-  end
-end
-
 print(string.format("tower %s: %d registered, %d centres fed, listening on %d", cfg.name, #recs, #centreList, N.CHANNEL))
-parallel.waitForAny(radioLoop, syncLoop, screenLoop, feedLoop, kioskLoop)
+parallel.waitForAny(radioLoop, syncLoop, screenLoop, feedLoop)

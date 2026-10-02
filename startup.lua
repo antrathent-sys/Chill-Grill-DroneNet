@@ -46,7 +46,7 @@ local INSTALLED_FILE = ".installed"  -- the files startup put here, one per line
 local MANIFEST = "manifest.lua"
 local HOLD_FILE = ".hold"            -- the side to raise at every boot
 local HOLD_SIDES = { top = true, bottom = true, left = true, right = true, front = true, back = true }
-local BARE = { nav = true, centre = true }
+local BARE = { nav = true, centre = true, kiosk = true }
 
 -- this computer's role as it stands, before any update (a BARE one is
 -- somebody else's vehicle, or a screen: nothing at boot may touch it)
@@ -183,7 +183,7 @@ if args[1] == "role" then
       f.close()
     end
     print("role: " .. (role ~= "" and role or "none - nothing is pulled until it has one"))
-    print("startup role <drone|base|depot|screens|tower|centre|nav|pad|pocket|admin|rs|all> to change it")
+    print("startup role <drone|base|depot|screens|tower|centre|nav|kiosk|pad|pocket|admin|rs|all> to change it")
     return
   end
   roleRequest = args[2]:lower()
@@ -409,7 +409,7 @@ end
 -- given unless this computer already has an autorun. The base runs ops by
 -- hand; a pocket runs hail or admin when picked up; a pad is set by hand.
 local DEFAULT_AUTORUN = { drone = "beacon", depot = "depot", screens = "control", rs = "rsio", tower = "tower",
-                          centre = "tower", nav = "nav" }
+                          centre = "tower", nav = "nav", kiosk = "navdesk" }
 
 -- and what a person does after the first pull, printed once
 local NEXT = {
@@ -432,6 +432,8 @@ local NEXT = {
   centre  = { "label set <centre name>; fit an ender modem and monitors",
               "on the master, this computer in its drive: tower centre add <NAME> <x> <y> <z>; reboot" },
   nav     = { "a unit is made at the master tower: tower register, with this computer in its drive" },
+  kiosk   = { "on the master tower, this computer in its drive: tower kiosk add <NAME>",
+              "fit a touch monitor, the seat, a disk drive, a stock chest and an out chest; navdesk setup; reboot" },
   pad     = { "startup autorun taxipad" },
 }
 
