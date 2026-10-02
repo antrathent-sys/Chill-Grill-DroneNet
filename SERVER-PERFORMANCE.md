@@ -109,12 +109,11 @@ Broad changes that help whatever the cause, in rough order of payoff.
 Mod versions for 1.21.1 NeoForge are to be checked before adding anything.
 
 **Configure what is already installed**
-- **ServerCore** (on the server, `config/servercore/`): entity activation
-  range (mobs far from players tick less; keep `create:*`, Sable and
-  Aeronautics entities excluded), per-chunk entity limits (animals,
-  villagers, minecarts, item frames, packages), villager lobotomising in
-  trading halls, item and XP merging, and dynamic scaling of simulation
-  distance and mob caps when the tick runs long.
+- **ServerCore** (on the server, `config/servercore/`): see "ServerCore
+  for this server" below. It has no per-chunk entity limits (an earlier
+  version of this note said it did); it has breeding caps, mob cap
+  enforcement, activation range, villager lobotomising and dynamic
+  scaling.
 - **Simulation distance 8 -> 6** in `server.properties`: about 40% fewer
   chunks ticking round each player, so fewer mobs and machines running.
   View distance can stay 8 (that only sends terrain).
@@ -130,6 +129,59 @@ Mod versions for 1.21.1 NeoForge are to be checked before adding anything.
   the tick.
 - Not chunk-generation mods (C2ME and the like): the world is
   pre-generated, and they touch the chunk code Sable hooks.
+
+**ServerCore for this server** (from its source, 1.5.19, and its own
+example configs in `docs/config/`; edit the generated files rather than
+pasting wholesale, since the 1.21.1 build may lack a key or two)
+
+`optimizations.yml` (restart to apply): `fast-biome-lookups: true`,
+`cancel-duplicate-fluid-ticks: true`, `optimize-command-blocks: true`;
+`reduce-sync-loads` and `cache-ticking-chunks` are already on by default.
+
+`config.yml` (`/servercore reload`):
+- **Activation range, made safe for Create.** Every entity without a
+  custom type gets the default type, and Create's contraptions (windmills,
+  bearings, gantries, minecart contraptions, train carriages), packages,
+  glue and the physics mods' entities are not mobs. Left on the default,
+  they would tick once a second when no player is within 16 blocks and
+  skip every fourth tick even near one - machines slowing and stuttering.
+  ServerCore excludes any type whose tick interval is 1, so give the
+  default type `tick-interval: 1` and let only the mob types be slowed:
+
+  ```yml
+  activation-range:
+    enabled: true
+    tick-new-entities: true
+    use-vertical-range: true
+    skip-non-immune: true
+    excluded-entity-types:
+      - 'minecraft:warden'
+      - 'minecraft:hopper_minecart'
+      - 'minecraft:ghast'
+    default-activation-type:      # everything that is not a mob: untouched
+      activation-range: 16
+      tick-interval: 1
+      wakeup-interval: -1
+      extra-height-up: false
+      extra-height-down: false
+    # custom-activation-types: keep the example's raider, water, villager,
+    # zombie, monster-below, flying-monster, monster, animal and creature
+    # entries (all typeof:/mob matchers) as they are
+  ```
+- `dynamic`: enabled, `target-mspt: 45`. Order: `CHUNK_TICK_DISTANCE`
+  10 -> 4, `MOBCAP_PERCENTAGE` 100 -> 50, `SIMULATION_DISTANCE` 8 -> 5.
+  Not lower than 5, and not view distance: players' factories stop beyond
+  the simulation distance, and terrain popping in costs little.
+- `breeding-cap`: enabled - villagers 24, animals 32 of a kind within 64
+  blocks.
+- `mob-spawning`: `enforce-mobcap: true` for spawners, zombie
+  reinforcements and nether portal spawns.
+- `features`: `lobotomize-villagers` on (trading halls tick once a second);
+  `item-merge-radius: 2.0`, `xp-merge-radius: 3.0`, `xp-merge-fraction: 8`;
+  `autosave-interval-seconds: 600` if a longer gap between saves is
+  acceptable. **Leave `prevent-moving-into-unloaded-chunks` off**: it
+  turns back players moving into chunks not yet loaded, which is what a
+  player on a fast craft does.
 
 **Create, measured** (both 2026-10-02 profiles, ms per tick, 3-4 then 6
 players). Create is 12 to 20 ms a tick in all.
@@ -155,7 +207,7 @@ players). Create is 12 to 20 ms a tick in all.
   put a clutch or redstone stop on big builds and switch them off when idle.
 - Packages (Create 6 frogports and chain conveyors) that cannot be
   delivered become entities: watch `create:package` in `/neoforge entity
-  list`, and cap it with ServerCore's entity limits.
+  list`; nothing on the server caps them, so it is a player habit.
 - `create-server.toml`: a longer `factoryGaugeTimer` if there are many
   factory gauges; contraption size limits (`maxBlocksMoved`, and
   Simulated's 128,000) lower.
