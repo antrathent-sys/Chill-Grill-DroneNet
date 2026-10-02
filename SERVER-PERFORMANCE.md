@@ -103,6 +103,57 @@ Ten minutes, 6 players. TPS 9 to 10; a tick takes 90 ms at the median.
 - For scale: BlueMap 92 MB, Create 18 MB, Sable 9 MB, CC:Tweaked's Lua
   (every computer, CINDER's included) 4 MB.
 
+## General advice for a Create and Aeronautics server (2026-10-02)
+
+Broad changes that help whatever the cause, in rough order of payoff.
+Mod versions for 1.21.1 NeoForge are to be checked before adding anything.
+
+**Configure what is already installed**
+- **ServerCore** (on the server, `config/servercore/`): entity activation
+  range (mobs far from players tick less; keep `create:*`, Sable and
+  Aeronautics entities excluded), per-chunk entity limits (animals,
+  villagers, minecarts, item frames, packages), villager lobotomising in
+  trading halls, item and XP merging, and dynamic scaling of simulation
+  distance and mob caps when the tick runs long.
+- **Simulation distance 8 -> 6** in `server.properties`: about 40% fewer
+  chunks ticking round each player, so fewer mobs and machines running.
+  View distance can stay 8 (that only sends terrain).
+- `entity-broadcast-range-percentage` 100 -> 75: fewer entities sent to
+  each player.
+- Already there and worth keeping: Lithium, FerriteCore, ModernFix, Clumps,
+  Get It Together Drops, Packet Fixer, Create Threaded Trains.
+
+**Worth adding**
+- **Let Me Despawn**: mobs that picked up an item stop being kept forever.
+- **Alternate Current**: much cheaper redstone dust.
+- **Async Locator**: `/locate`, explorer maps and dolphins stop freezing
+  the tick.
+- Not chunk-generation mods (C2ME and the like): the world is
+  pre-generated, and they touch the chunk code Sable hooks.
+
+**Create specifically**
+- Machines and farms run whenever their chunks are loaded: ask players to
+  put a clutch or redstone stop on big builds and switch them off when idle.
+- Packages (Create 6 frogports and chain conveyors) that cannot be
+  delivered become entities: watch `create:package` in `/neoforge entity
+  list`, and cap it with ServerCore's entity limits.
+- `create-server.toml`: a longer `factoryGaugeTimer` if there are many
+  factory gauges; contraption size limits (`maxBlocksMoved`, and
+  Simulated's 128,000) lower.
+
+**Sable and Aeronautics**
+- 1 substep; clear abandoned craft and wreckage; ask players to pack craft
+  they are not using; chunk loaders only where needed.
+
+**Java and the host**
+- Java 21 with tuned flags (Aikar's G1 flags, or Generational ZGC), heap
+  `-Xms` = `-Xmx`, `-XX:+DisableExplicitGC`.
+- A scheduled restart every 12 to 24 hours.
+
+**Rules for players**
+- Caps on mob farms and animal pens, trading halls kept compact, factories
+  off when not in use, and a way to report lag spots.
+
 ## First, read the symptom
 
 A server at 20 TPS has 50 ms per tick. Lag is the tick taking longer. When
