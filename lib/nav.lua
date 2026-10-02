@@ -114,6 +114,43 @@ end
 -- packs into one string: seclink carries flat tables only.
 local function clean(s) return (tostring(s or ""):gsub("[^%w%- ]", ""):upper()) end
 
+--- What a contact is shown as: its registration, or CINDER for one of
+-- CINDER's own units (number 0, from the base's feed - N.cinderContact).
+function N.regOf(c) return (c.cinder or c.n == 0) and "CINDER" or N.regNumber(c.n) end
+
+-- CINDER's own units, from the base's read-only feed (lib/watch.lua, the
+-- tower as a public watcher). Must match lib/watch.lua W.CHANNEL.
+N.CINDER_FEED = 7213
+
+--- Fold one of the base's "cinder.unit" reports into the contacts, as number
+-- 0 with its name as the callsign. Never logged: it is no registration.
+function N.cinderContact(contacts, b, call, now)
+  if type(b) ~= "table" or type(b.unit) ~= "string" or not (num(b.x) and num(b.z)) then return nil end
+  local key = "cinder:" .. b.unit
+  local c = contacts[key] or { unit = key, n = 0, kind = "air", cinder = true }
+  contacts[key] = c
+  c.call = (tostring(call or b.unit):upper():gsub("[^%w%- ]", "")):sub(1, 16)
+  c.x, c.y, c.z = b.x, num(b.y) and b.y or 0, b.z
+  c.spd, c.hdg, c.vs = num(b.spd) and b.spd or 0, num(b.hdg) and b.hdg % 360 or nil, b.vv
+  c.st = b.phase == "sos" and "sos" or (c.spd > 1 and "move" or "park")
+  if num(b.vx) and num(b.vz) then
+    c.vx, c.vz = b.vx, b.vz
+  else
+    local h = math.rad(c.hdg or 0)
+    c.vx, c.vz = c.hdg and c.spd * math.sin(h) or 0, c.hdg and -c.spd * math.cos(h) or 0
+  end
+  c.t = now
+  return c
+end
+
+--- Take CINDER's units off the picture: all of them (stealth), or with
+-- `now`, only those not heard for N.STALE (the base gone quiet).
+function N.dropCinder(contacts, now)
+  for k, c in pairs(contacts) do
+    if c.cinder and (not now or now - (c.t or -1e9) > N.STALE) then contacts[k] = nil end
+  end
+end
+
 --- The tower's answer to one unit: what is near it, the most urgent
 -- advisory, and whether its distress has been heard.
 function N.pong(traffic, adv, opts)
@@ -302,7 +339,7 @@ function N.traffic(contacts, me, now)
         local cpa = sqrt(cx * cx + cz * cz)
         local warn = (dist <= N.WARN_DIST or (tca > 0 and tca <= N.WARN_SECS and cpa <= N.WARN_DIST))
                      and abs(dy) <= N.WARN_DY
-        out[#out + 1] = { unit = unit, call = o.call, reg = N.regNumber(o.n), kind = o.kind,
+        out[#out + 1] = { unit = unit, call = o.call, reg = N.regOf(o), kind = o.kind,
           brg = N.headingOf(dx, dz), dist = dist, dy = dy, tca = tca, cpa = cpa, warn = warn,
           sos = o.st == "sos" }
       end

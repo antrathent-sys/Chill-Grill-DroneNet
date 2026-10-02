@@ -152,6 +152,26 @@ if openToHails then
     end
   end
 end
+-- Stealth (Alex, 2026-10-02): the traffic tower - a public watcher, lib/watch.lua
+-- W.isPublic - is told nothing about CINDER's units while this file exists, so
+-- no tower screen, centre or CINDER NAV unit shows them. The control room and
+-- the admin pockets see everything as before. A running ops picks it up within
+-- W.EVERY seconds.
+local STEALTH = "stealth.on"
+if cmd == "stealth" then
+  local want = (args[2] or ""):lower()
+  if want == "on" and not fs.exists(STEALTH) then
+    local h = fs.open(STEALTH, "w")
+    if h then h.writeLine("CINDER units hidden from the traffic tower - ops stealth off ends it") h.close() end
+  elseif want == "off" and fs.exists(STEALTH) then
+    fs.delete(STEALTH)
+  elseif want ~= "" and want ~= "on" and want ~= "off" then
+    print("ops stealth [on|off]") return
+  end
+  print("stealth " .. (fs.exists(STEALTH) and "ON - CINDER units are hidden from the traffic tower"
+                                            or "off - the traffic tower shows CINDER units"))
+  return
+end
 if cmd == "closed" then cmd = "watch" end
 if cmd == "open" then
   if not fs.exists(HAILS_OPEN) then
@@ -194,9 +214,18 @@ local function sealTo(cacheKey, id, key, body, ctr)
   local okS, env = pcall(s.seal, body)
   if okS and env then pcall(peripheral.call, radio, "transmit", WATCH.CHANNEL, WATCH.CHANNEL, env) end
 end
+local stealthOn = fs.exists(STEALTH)
 local function feed(body)
   if not radio then return end
-  for name, key in pairs(watchKeys) do sealTo(name, name, key, body, ".watch-" .. name .. ".ctr") end
+  for name, key in pairs(watchKeys) do
+    if not WATCH.isPublic(name) then
+      sealTo(name, name, key, body, ".watch-" .. name .. ".ctr")
+    elseif not stealthOn then
+      -- the traffic tower: where each unit is, and nothing else
+      local pub = WATCH.publicUnit(body)
+      if pub then sealTo(name, name, key, pub, ".watch-" .. name .. ".ctr") end
+    end
+  end
   for name, key in pairs(ADMIN.keys) do sealTo("admin:" .. name, name, key, body, ".admin-" .. name .. ".ctr") end
 end
 -- an answer for one admin pocket only
@@ -2097,6 +2126,15 @@ local function feedLoop()
       if os.clock() - (trip.endedAt or 0) <= WATCH.DONE_SHOW then lines[#lines + 1] = TRIP.line(trip) end
     end
     feed(WATCH.summary(jobs, #waiting, done, pads, os.clock(), lines))
+    -- stealth, read again each round; the public watchers told either way
+    stealthOn = fs.exists(STEALTH)
+    if radio then
+      for name, key in pairs(watchKeys) do
+        if WATCH.isPublic(name) then
+          sealTo(name, name, key, WATCH.publicStatus(stealthOn), ".watch-" .. name .. ".ctr")
+        end
+      end
+    end
     sleep(WATCH.EVERY)
   end
 end

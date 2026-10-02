@@ -204,8 +204,16 @@ answering it within ten seconds.
    bigger, north up, each vehicle a dot with a 30-second heading line and its
    callsign, distress in red, other centres in green) and board, with
    last-seen for anything away - **built**, on the master and on any number
-   of display-only centres it feeds. CINDER's own units, and the picture on
-   the flight wall and the admin pocket - not yet.
+   of display-only centres it feeds. **CINDER's own units too** (2026-10-02):
+   the master tower is a public watcher on the base's read-only feed
+   (`seckey watch new tower` on the base, `seckey watch set disk` on the
+   tower, labelled `tower`). It is told only where each unit is and how it
+   moves - no jobs, customers or routes - and shows them as CINDER, by name
+   (LAMBDA-001); every nav unit gets them as traffic. **Stealth**: `ops
+   stealth on` on the base and the tower is told nothing about CINDER's
+   units, so no tower, centre or nav unit shows them; the tower's own
+   screens say CINDER HIDDEN. `ops stealth off` ends it. No drone code
+   changed. The picture on the flight wall and the admin pocket - not yet.
 2. **Traffic on every screen.** Each pong carries what is within 1,000
    blocks of that vehicle - **built**.
 3. **Advisories.** Pairs that would pass within 40 blocks inside 30 seconds,
@@ -273,6 +281,5 @@ answering it within ten seconds.
 Still open: **players finding their own craft** (Alex, 2026-10-01: "worth thinking
 about how we let players find their crafts on their own") - the tower knows
 where each unit was last heard, and an owner has no way to ask it yet;
-CINDER's own units on the tower's picture (through the base's
-read-only feed), the tower's picture on the flight wall and the admin
-pocket, and steps 3 to 7 of the traffic control.
+the tower's picture on the flight wall and the admin pocket, and steps 3
+to 7 of the traffic control.

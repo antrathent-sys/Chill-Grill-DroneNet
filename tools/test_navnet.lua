@@ -193,6 +193,44 @@ local log = tw.files["navlog.csv"] or ""
 check("the log: first contact with the vehicle's name, then distress", log:find(",nav-0001,FALCON,first,0,100,0,Falcon", 1, true)
   and log:find(",nav-0001,FALCON,sos,", 1, true) and not log:find("bound", 1, true), log)
 
+-- CINDER's own units, from the base's read-only feed, and stealth
+local WKEY = S.parseKey(HEX3)
+local base = S.sender(WKEY, "tower", S.DIR.BASE_TO_WATCH, nil)
+local function fromBase(tw, t, body)
+  tw.at(t, function() return { "modem_message", "modem_0", N.CINDER_FEED, N.CINDER_FEED, base.seal(body) } end)
+end
+local tc = runningTower(function(w) w.files[".watchkey"] = HEX3 .. "\n" end)
+local unitNear = N.reading({ x = 400, y = 100, z = 0 }, { x = 0, y = 0, z = 0 })
+fromBase(tc, 1, { type = "cinder.status", stealth = false })
+fromBase(tc, 2, { type = "cinder.unit", unit = "drone-1", x = 300, y = 100, z = 0, spd = 0, phase = "docked" })
+pingAt(tc, 3, tx1, unitNear)
+fromBase(tc, 5, { type = "cinder.status", stealth = true })
+fromBase(tc, 6, { type = "cinder.unit", unit = "drone-1", x = 300, y = 100, z = 0, spd = 0, phase = "docked" })
+pingAt(tc, 13, tx1, unitNear)
+tc = tc:run("tower.lua", {}, 16)
+local cPongs = {}
+local rxC = S.receiver()      -- a fresh one: each tower world starts its counter again
+for _, s in ipairs(tc.sent) do
+  local body = s.env and s.env.id == "nav-0001" and rxC.open(s.env, function() return KEY1 end, S.DIR.TOWER_TO_NAV, nil)
+  if body then cPongs[#cPongs + 1] = N.parsePong(body) end
+end
+check("a nav unit is told of the CINDER unit as traffic", cPongs[1] and #cPongs[1].traffic == 1
+  and cPongs[1].traffic[1].call == "LAMBDA-001" and cPongs[1].traffic[1].reg == "CINDER", tc.err or tostring(#cPongs))
+check("stealth: gone, and what the base sends after is ignored", cPongs[2] and #cPongs[2].traffic == 0,
+  cPongs[2] and #cPongs[2].traffic)
+local tn = runningTower()
+fromBase(tn, 1, { type = "cinder.unit", unit = "drone-1", x = 300, y = 100, z = 0, spd = 0 })
+pingAt(tn, 3, tx1, unitNear)
+tn = tn:run("tower.lua", {}, 5)
+local nPong
+local rxN = S.receiver()
+for _, s in ipairs(tn.sent) do
+  local body = s.env and s.env.id == "nav-0001" and rxN.open(s.env, function() return KEY1 end, S.DIR.TOWER_TO_NAV, nil)
+  if body then nPong = N.parsePong(body) end
+end
+check("no watch key: no CINDER units at all", nPong and #nPong.traffic == 0)
+check("the feed's channel is the base's", N.CINDER_FEED == dofile(DIR .. "/../lib/watch.lua").CHANNEL)
+
 -- a revocation done beside it is picked up at the next sync
 local tw2 = runningTower()
 pingAt(tw2, 1, tx2, headOn2)

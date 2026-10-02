@@ -50,6 +50,7 @@ function M.radar(T, c, view)
   T.band(c, 1, "CINDER TRAFFIC  " .. (view.name or ""), string.format("RANGE %s  %d LIVE", rangeWord(range), count),
     T.C.text, T.C.faint)
   local footRight = view.feed == "none" and "NO FEED FROM MASTER" or view.feed == "ok" and "FEED"
+    or (view.cinder == "stealth" and "CINDER HIDDEN") or (view.cinder == "none" and "NO CINDER FEED")
     or ((view.refused or 0) > 0 and (view.refused .. " REFUSED") or nil)
   T.band(c, c.h, view.lastEvent or "LISTENING", footRight, T.C.faint, view.feed == "none" and T.C.warn or T.C.faint)
   if not (view.x and view.z) then
@@ -159,7 +160,9 @@ function M.board(T, c, view)
     end
   end
   if #list == 0 then c:text(2, 5, "NOTHING HEARD YET", T.C.faint) end
-  local footRight = view.feed == "none" and "NO FEED" or ((view.refused or 0) > 0 and (view.refused .. " REFUSED") or nil)
+  local footRight = view.feed == "none" and "NO FEED"
+    or (view.cinder == "stealth" and "CINDER HIDDEN") or (view.cinder == "none" and "NO CINDER FEED")
+    or ((view.refused or 0) > 0 and (view.refused .. " REFUSED") or nil)
   T.band(c, c.h, view.lastEvent or "LISTENING", footRight)
 end
 

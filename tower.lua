@@ -477,7 +477,7 @@ if slave then
   local pic, lastPic = { contacts = {}, centres = {} }, nil
   local function view()
     local list = {}
-    for _, ct in ipairs(pic.contacts) do ct.reg = N.regNumber(ct.n) list[#list + 1] = ct end
+    for _, ct in ipairs(pic.contacts) do ct.reg = N.regOf(ct) list[#list + 1] = ct end
     local fresh = lastPic and os.clock() - lastPic <= N.PIC_PERIOD * 3 + 2
     return { name = slave.name, x = slave.x, z = slave.z, range = loadCfg().range, now = os.clock(),
              contacts = list, centres = pic.centres, feed = fresh and "ok" or "none",
@@ -519,6 +519,14 @@ local centreList = loadCentres()
 
 local contacts, senders, picSenders = {}, {}, {}
 local rx = SEC.receiver()
+-- CINDER's own units, from the base's read-only feed: this tower is a public
+-- watcher (lib/watch.lua W.isPublic), told where each unit is and nothing
+-- while the base is in stealth. `seckey watch new tower` on the base,
+-- `seckey watch set disk` here, labelled tower. No key, no CINDER units.
+local cinder = { key = SEC.readKeyFile(".watchkey"), me = os.getComputerLabel and os.getComputerLabel(),
+                 stealth = false, last = nil }
+local NAMES = select(2, pcall(dofile, "lib/names.lua"))
+if cinder.key then pcall(peripheral.call, radio, "open", N.CINDER_FEED) end
 local dirty = false
 local heard = { n = 0, refused = 0 }
 local lastEvent = nil
@@ -598,6 +606,21 @@ local function hear(msg)
   answer(rec, c, m)
 end
 
+local function hearCinder(msg)
+  if not (cinder.key and type(msg) == "table" and msg.sl and msg.d == SEC.DIR.BASE_TO_WATCH
+          and msg.id == cinder.me) then return end
+  local body = rx.open(msg, function(id) return id == cinder.me and cinder.key or nil end,
+                       SEC.DIR.BASE_TO_WATCH, N.MAX_AGE_MS)
+  if not body then return end
+  cinder.last = os.clock()
+  if body.type == "cinder.status" then
+    cinder.stealth = body.stealth == true
+    if cinder.stealth then N.dropCinder(contacts) end
+  elseif body.type == "cinder.unit" and not cinder.stealth then
+    N.cinderContact(contacts, body, type(NAMES) == "table" and NAMES.unit(body.unit) or body.unit, os.clock())
+  end
+end
+
 -- the picture every display-only centre is sent
 local function feedCentres()
   local list = allCentres()
@@ -618,15 +641,18 @@ end
 
 local function view()
   local list = {}
-  for _, ct in pairs(contacts) do ct.reg = N.regNumber(ct.n) list[#list + 1] = ct end
+  for _, ct in pairs(contacts) do ct.reg = N.regOf(ct) list[#list + 1] = ct end
+  local cinderState = cinder.key and (cinder.stealth and "stealth"
+    or ((cinder.last and os.clock() - cinder.last <= 10) and "ok" or "none")) or nil
   return { name = cfg.name, x = cfg.x, z = cfg.z, range = cfg.range, now = os.clock(), contacts = list,
-           centres = allCentres(), regs = #recs, lastEvent = lastEvent, refused = heard.refused }
+           centres = allCentres(), regs = #recs, lastEvent = lastEvent, refused = heard.refused,
+           cinder = cinderState }
 end
 
 local function radioLoop()
   while true do
     local _, _, ch, _, msg = os.pullEvent("modem_message")
-    if ch == N.CHANNEL then hear(msg) end
+    if ch == N.CHANNEL then hear(msg) elseif ch == N.CINDER_FEED then hearCinder(msg) end
   end
 end
 local function syncLoop()
@@ -637,6 +663,7 @@ local function syncLoop()
 end
 local function screenLoop()
   while true do
+    N.dropCinder(contacts, os.clock())     -- the base gone quiet: off the picture
     show(view())
     sleep(1)
   end

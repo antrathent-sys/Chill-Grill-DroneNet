@@ -39,6 +39,27 @@ local function str(v) return type(v) == "string" and v ~= "" end
 local function num(v) return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge end
 local function clean(s) return (tostring(s or ""):gsub("[|;:\30\31]", " ")) end
 
+-- PUBLIC watchers: a computer that shows CINDER's units to other people -
+-- the traffic tower (AVIONICS.md). Named "tower" or "tower-<anything>" in
+-- .watchkeys. It is told only where each unit is and how it moves - no jobs,
+-- no customers, no places, no routes - and nothing at all while the base is
+-- in stealth (Alex, 2026-10-02: "a stealth toggle to hide the whole cinder
+-- network"). Every W.EVERY s it is told whether stealth is on.
+function W.isPublic(name)
+  return type(name) == "string" and (name == "tower" or name:match("^tower%-") ~= nil)
+end
+
+--- One telemetry packet (as W.wrap left it) for a public watcher, or nil.
+function W.publicUnit(t)
+  if type(t) ~= "table" or t.type ~= "tlm" or not str(t.unit) or not (num(t.x) and num(t.z)) then return nil end
+  return { type = "cinder.unit", unit = t.unit, x = t.x, y = num(t.y) and t.y or 0, z = t.z,
+           vx = num(t.vx) and t.vx or nil, vz = num(t.vz) and t.vz or nil, vv = num(t.vv) and t.vv or nil,
+           spd = num(t.spd) and t.spd or 0, hdg = num(t.hdg) and t.hdg or nil,
+           phase = str(t.phase) and t.phase or nil }
+end
+
+function W.publicStatus(stealth) return { type = "cinder.status", stealth = stealth and true or false } end
+
 --- A packet the base opened, ready to seal again for a watcher: its flat
 -- fields, with the drone's id kept in `unit`.
 function W.wrap(body)

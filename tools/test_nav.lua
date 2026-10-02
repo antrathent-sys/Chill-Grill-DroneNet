@@ -209,6 +209,29 @@ check("nor is anything that is not a player name", N.seatName("Iron Golem") == n
 check("how the owner was known is kept", N.checkRecord({ n = 1, unit = N.unitId(1), owner = "alex_r", idby = "seat",
   call = "X1", kind = "air" }).idby == "seat")
 
+print("CINDER's own units, from the base's feed")
+local cts = {}
+local cu = N.cinderContact(cts, { unit = "drone-1", x = 100, y = 120, z = 50, spd = 30, hdg = 90, vx = 30, vz = 0,
+  phase = "cruise" }, "LAMBDA-001", 10)
+check("a CINDER unit becomes a contact, number 0, named", cu and cts["cinder:drone-1"] == cu and cu.n == 0
+  and cu.call == "LAMBDA-001" and cu.cinder and cu.st == "move" and cu.vx == 30)
+check("shown as CINDER, not a registration", N.regOf(cu) == "CINDER" and N.regOf({ n = 7 }) == N.regNumber(7))
+local near = { unit = "nav-0001", x = 300, y = 120, z = 50, vx = 0, vz = 0 }
+local tr = N.traffic(cts, near, 12)
+check("other units are told of it as traffic", #tr == 1 and tr[1].reg == "CINDER" and tr[1].call == "LAMBDA-001")
+N.cinderContact(cts, { unit = "drone-2", x = 0, z = 0, phase = "sos" }, "LAMBDA-002", 60)
+N.dropCinder(cts, 80)
+check("not heard for a minute: off the picture; the fresh one stays", cts["cinder:drone-1"] == nil
+  and cts["cinder:drone-2"] ~= nil and cts["cinder:drone-2"].st == "sos")
+cts.reg1 = { unit = "nav-0003", n = 3, x = 0, z = 0, t = 80 }
+N.dropCinder(cts)
+check("stealth: every CINDER unit gone at once, registered craft untouched", cts["cinder:drone-2"] == nil
+  and cts.reg1 ~= nil)
+local pc = N.parsePicture(N.picture({ a = N.cinderContact({}, { unit = "drone-1", x = 5, z = 6 }, "LAMBDA-001", 1) },
+  {}, 2), 2)
+check("a centre's picture carries it, and shows it as CINDER", pc.contacts[1] and pc.contacts[1].n == 0
+  and N.regOf(pc.contacts[1]) == "CINDER" and pc.contacts[1].call == "LAMBDA-001")
+
 print("the screen")
 local function shot(w, h, view, page)
   local c = D.canvas(w, h)
@@ -371,6 +394,13 @@ local tv = { name = "CHI", x = 0, z = 0, range = 2000, now = 100, regs = 4, cent
     { n = 2, reg = "CR-0002", call = "HAWK", kind = "air", x = -900, y = 150, z = 400, spd = 0, st = "sos", t = 98 },
     { n = 3, reg = "CR-0003", call = "OUTSIDE", kind = "sea", x = 5000, y = 63, z = 0, spd = 9, hdg = 0, st = "move", t = 99 },
     { n = 4, reg = "CR-0004", call = "PACKED", kind = "land", x = 100, y = 70, z = 100, spd = 0, st = "park", t = 10 } } }
+local hid = {}
+for k, v in pairs(tv) do hid[k] = v end
+hid.cinder = "stealth"
+check("stealth shows on the tower's own screens", tshot("board", 51, 19, hid):find("CINDER HIDDEN", 1, true)
+  and tshot("radar", 57, 38, hid):find("CINDER HIDDEN", 1, true))
+hid.cinder = "none"
+check("and a lost feed from the base", tshot("board", 51, 19, hid):find("NO CINDER FEED", 1, true))
 local rtxt, rcan = tshot("radar", 57, 38, tv)
 check("the radar: who, the range, how many live", rtxt:find("CINDER TRAFFIC  CHI", 1, true) and rtxt:find("RANGE 2K", 1, true)
   and rtxt:find("3 LIVE", 1, true), rtxt)

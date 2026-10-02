@@ -15,6 +15,20 @@ local W = dofile(DIR .. "/../lib/watch.lua")
 local KEY = S.parseKey("0f0e0d0c0b0a09080706050403020100f0e0d0c0b0a090807060504030201000")
 local DRONEKEY = S.parseKey("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
 
+print("the traffic tower: a public watcher")
+check("the tower is public", W.isPublic("tower") and W.isPublic("tower-north"))
+check("the control room and others are not", not W.isPublic("screens") and not W.isPublic("towers") and not W.isPublic(nil))
+local full = W.wrap({ v = 1, type = "tlm", id = "drone-1", seq = 9, x = 812.5, y = 214, z = -3300, vx = 52, vz = -61,
+  vv = 2, spd = 80, hdg = 140, phase = "cruise", tx = 1892, tz = 365, dist = 4100, energy = 72, mode = "go" })
+local pub = W.publicUnit(full)
+check("it is told where the unit is and how it moves", pub and pub.type == "cinder.unit" and pub.unit == "drone-1"
+  and pub.x == 812.5 and pub.y == 214 and pub.z == -3300 and pub.spd == 80 and pub.hdg == 140 and pub.vx == 52)
+check("...and not where it is going, its battery or what it is doing", pub and pub.tx == nil and pub.tz == nil
+  and pub.dist == nil and pub.energy == nil and pub.mode == nil)
+check("a summary (jobs, customers, places) is never public", W.publicUnit(W.summary({}, 0, 0, {}, 0)) == nil)
+check("a route is not either", W.publicUnit({ type = "plan", unit = "drone-1", x = 1, z = 2 }) == nil)
+check("stealth is a status of its own", W.publicStatus(true).stealth == true and W.publicStatus(false).stealth == false)
+
 print("a relayed packet keeps its drone")
 local tlm = { v = 1, type = "tlm", id = "drone-1", seq = 4, t = 1, phase = "cruise", x = 10, y = 350, z = -20,
               mode = "linger", wait = 412 }
