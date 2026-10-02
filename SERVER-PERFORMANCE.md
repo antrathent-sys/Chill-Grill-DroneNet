@@ -145,6 +145,27 @@ Mod versions for 1.21.1 NeoForge are to be checked before adding anything.
 - 1 substep; clear abandoned craft and wreckage; ask players to pack craft
   they are not using; chunk loaders only where needed.
 
+**Chunk loaders** (Alex, 2026-10-02: how many of the 20,000+ are players'
+vanilla loaders?)
+- The legitimate ones here: Open Parties and Claims force-loads (10 per
+  player, only while they or their party are online), Aeronautic Additions'
+  loader on craft, Sable's own tickets round physics objects, and an
+  admin's `/forceload`.
+- Vanilla on 1.21.1 has two: **spawn chunks**, and **portal loaders** -
+  anything going through a nether portal loads the chunks round the other
+  end for 15 seconds, so a dropper or hopper loop feeding items through a
+  portal keeps chunks loaded for ever. (Ender pearls only load chunks from
+  1.21.2, not on this server.)
+- Counting: `/forceload query` in each dimension, `/sable forceload query`.
+  Nothing built in lists portal tickets: look for portals with hoppers,
+  droppers or item streams beside farms, in both dimensions.
+- Protecting: gamerule `spawnChunkRadius 0` (spawn stops being a free
+  loader); a server rule against portal loaders, with OPAC force-loads as
+  the sanctioned way to keep a build running; and, worth testing, a KubeJS
+  script (KubeJS is on the server) cancelling NeoForge's
+  `EntityTravelToDimensionEvent` for item entities, which breaks the loop -
+  at the cost of item transport through portals.
+
 **Java and the host**
 - Java 21 with tuned flags (Aikar's G1 flags, or Generational ZGC), heap
   `-Xms` = `-Xmx`, `-XX:+DisableExplicitGC`.
