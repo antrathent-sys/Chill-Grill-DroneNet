@@ -60,6 +60,29 @@ room left; players' bases push it over. The one number nobody has yet is
 them, `@e[speed=0.01..]` the ones that never come to rest, and `/sable
 forceload query` and `/forceload query` what holds them loaded.
 
+### The second profile, same day (`RAAAHuGeTT`, codyrules987)
+
+Ten minutes, 6 players. TPS 9 to 10; a tick takes 90 ms at the median.
+
+| ms per tick | first (3-4 players) | second (6 players) |
+|---|---|---|
+| Sable physics | 22.4 | 23.3 |
+| machines (block entities) | 17.9 | 28.7 (Create 19.6) |
+| entities (mobs mostly) | 7.7 | 23.2 |
+| chunk ticking | 3.0 | 7.5 |
+| whole tick | 55.4 | 92.1 |
+
+- **Physics did not move**, so substeps were still 2. It is a fixed cost
+  whoever is on; everything else grows with players and their bases.
+- **Entities**: 11,300 for the first three minutes, then 2,800 - something
+  cleared about 8,500. Mob AI alone is 15% of the thread.
+- **Full garbage collections**: 18 in 3 hours of uptime, **1.5 seconds
+  each**, and every minute of this profile had a 1.6 to 2.3 second tick.
+  The first profile had none. Those are the freezes players feel; the
+  10 GB heap is under pressure (`/spark gc`, `/spark heapsummary`, the
+  server's GC flags).
+- Chunks held: 26,000, rising to 41,000 for four minutes.
+
 ## First, read the symptom
 
 A server at 20 TPS has 50 ms per tick. Lag is the tick taking longer. When
