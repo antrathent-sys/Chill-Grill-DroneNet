@@ -103,6 +103,111 @@ Ten minutes, 6 players. TPS 9 to 10; a tick takes 90 ms at the median.
 - For scale: BlueMap 92 MB, Create 18 MB, Sable 9 MB, CC:Tweaked's Lua
   (every computer, CINDER's included) 4 MB.
 
+## What other servers do (research, 2026-10-02)
+
+Four parallel searches of GitHub issues, mod pages, modded-server guides
+and server rule pages. The headline items were re-checked by hand (marked
+checked); the rest is as the sources say, with links.
+
+**Sable: we are on a version with a known regression.** Sable issue
+[#1594](https://github.com/ryanhcode/sable/issues/1594) (open, 2026-09-29,
+checked): `Rapier3D.step` is "effectively absent" from profiles on Sable
+2.0.3, about 6.5% idle on 2.0.4 and about 18% on **2.0.5 - this server's
+version** - even with no craft assembled. That fits a 22 ms physics cost that
+does not change with players. Issue
+[#734](https://github.com/ryanhcode/sable/issues/734) (open, checked) has the
+same symptom we see - Rapier time spent in a `syscall`, on Linux - with no
+fix posted. Issue [#1398](https://github.com/ryanhcode/sable/issues/1398)
+reports the cost vanishing with `/sable paused true`. What to do:
+- A spark profile with `/sable paused true` for a minute (every craft
+  freezes in place while paused) measures how much is fixed cost.
+- Sable 2.0.3, **on a copy of the world first**: one reporter ran it with
+  Aeronautics 1.3.2; nobody has reported a world surviving the downgrade.
+- 1 substep still halves whatever the step costs.
+- Untested: `RAYON_NUM_THREADS` (the Rapier worker pool size, an
+  environment variable) - raised in issue #1574 for a server hanging in
+  `Rapier3D.step`.
+- Sable has no ship caps or idle freezing. Valkyrien Skies servers solved
+  the same clutter with ship registration, per-player caps and purges of
+  unregistered ships; Sable's equivalents are `/sable storage
+  find_all_sub_levels`, `/sable name set` and `/sable remove`.
+- Watch: Aeronautics' Redstone Accumulator can drop items endlessly until
+  the server runs out of memory (Simulated-Project #1438).
+
+**Create: performance addons exist, and other servers use them** (all for
+1.21.1 NeoForge; add one at a time):
+- **Create: LazyTick** (about 750,000 downloads, checked): idle and jammed
+  belts, funnels, chutes, depots, arms, saws, basins and crafters back off
+  and wake on events; recipe caching. Slight animation delay; machines
+  driven by very short redstone pulses can miss a wake-up.
+  [modrinth](https://modrinth.com/mod/createlazytick)
+- **StellarCreateOptimization**: the only one naming our hot spots - fans
+  rebuild air currents only when blocks change, chain conveyors stop
+  rebuilding shapes, kinetic and pump caches. Tested on Create 6.0.8, not
+  confirmed on 6.0.10.
+  [curseforge](https://www.curseforge.com/minecraft/mc-mods/stellarcreateoptimization)
+- **Create: Advanced Optimization** (pinned to Create 6.0.10): caching
+  without slowing machines, and diagnostics - `/cao packages stalled`,
+  `/cao belts scan`, `/cao diagnose`.
+  [modrinth](https://modrinth.com/mod/create-advanced-optimization)
+- **Create: Tick Control**: tick divisors and an emergency throttle above
+  55 ms; cuts real throughput, overlaps LazyTick.
+- **A Create bug feeding the frogport cost**: a package that meets a full
+  frogport circles the chain for ever (Create issue
+  [#7680](https://github.com/Creators-of-Create/Create/issues/7680), open,
+  due 6.0.11). Fix by emptying or removing full ports; `/cao packages
+  stalled` finds them.
+- **Create Tweaked Controllers**: confirmed from both sources - Create
+  calls `getFlickerScore()` twice a tick on every kinetic block and breaks
+  a block whose score passes 128 (its guard against redstone-clocked
+  clutches); the addon forces 0 for every block on the server, so the
+  guard is off everywhere.
+
+**Server mods others run** (exist for NeoForge 1.21.1):
+- Safe: Smooth Chunk Save (spreads out saves - Sable save spikes of up to
+  10 s are issue #679), Alternate Current, Async Locator Refined, Let Me
+  Despawn (needs Almanac Lib or it crashes at start), AllTheLeaks (memory
+  leak fixes), AI Improvements.
+- Avoid in this pack: **Moonrise** (crashes with Sable, Moonrise #177),
+  **ScalableLux** (crashes with Sable, Sable #22), **C2ME** (alpha;
+  crashes reported with physics mods and in Sable hang reports), **Async**
+  (lists Open Parties and Claims as incompatible).
+- Experimental: "Aeronautics/Sable Optimizer" (AI-written by its author's
+  own account, back up first).
+
+**Java.** NeoForge 1.21.1 is Java 21. The All The Mods guide's line is
+Generational ZGC: `-XX:+UseZGC -XX:+ZGenerational -XX:+AlwaysPreTouch
+-XX:+DisableExplicitGC -XX:+PerfDisableSharedMem`, with no G1 flags mixed
+in, and 2 to 4 GB of the container left outside the heap (more for ZGC;
+Sable's native physics memory is outside the heap too). On the full GCs:
+a steady period fits something calling `System.gc()` better than plain
+heap pressure - including Java itself when off-heap (direct) memory, which
+the network layer uses, reaches its cap. If that is the cause,
+`-XX:+DisableExplicitGC` can turn the freezes into "Direct buffer memory"
+crashes; `-XX:+ExplicitGCInvokesConcurrent` is the safe form on G1. The GC
+log says which: `-Xlog:gc*,gc+heap=debug,safepoint:file=logs/gc.log:time,uptime,level,tags:filecount=5,filesize=20M`,
+then look for `Pause Full (...)`.
+
+**Finding the laggy builds** (built in to NeoForge 1.21.1):
+- `/neoforge track start blockentity 30`, then `/neoforge track
+  blockentity`: the 10 costliest block entities, with coordinates.
+- `/neoforge entity list minecraft:item`: the chunks with the most items
+  (overflowing farms, portal loaders).
+- Observable (has a 1.21.1 NeoForge build): a per-block cost map with
+  teleport links.
+- spark: `--only-ticks-over 100` for spikes.
+
+**Rules other servers publish** (no Create server's own rules page was
+found; these are from a vanilla technical server, an SMP and hosting
+guides): villager caps (32 per trading hall), farms more than simulation
+distance apart (no "industrial districts"), chunk loading only to protect a
+build and never as a stand-in for a player online, machines off when away,
+staff can order a build changed, escalation from warning to removal. Tools
+that enforce it: Open Parties and Claims' force-load limits,
+Limited Chunkloading (drops a player's loader tickets some minutes after
+they log off), Create: Power Loader (loaders players can switch off), and
+TabTPS to put TPS in the tab list.
+
 ## General advice for a Create and Aeronautics server (2026-10-02)
 
 Broad changes that help whatever the cause, in rough order of payoff.
