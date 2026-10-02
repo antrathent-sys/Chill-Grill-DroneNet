@@ -131,8 +131,8 @@ local slave = N.parseCentreFile(readAll(ME_FILE))
 
 local function describe(rec)
   local status = rec.revoked and ("REVOKED " .. rec.revoked) or (rec.last and "registered" or "registered, never heard")
-  return string.format("%s  %-16s %-12s %s (%s)", N.regNumber(rec.n), rec.call, N.TYPES[rec.kind].word,
-    rec.owner, status)
+  return string.format("%s  %-16s %-12s %s%s (%s)", N.regNumber(rec.n), rec.call, N.TYPES[rec.kind].word,
+    rec.owner, rec.idby == "typed" and " (typed)" or "", status)
 end
 
 if slave and (cmd == "register" or cmd == "list" or cmd == "show" or cmd == "revoke" or cmd == "log") then
@@ -183,14 +183,40 @@ if cmd == "register" then
     if not yes("wipe them and make it a CINDER NAV unit?") then eject() return end
   end
 
-  local owner
-  for _ = 1, 3 do
-    owner = ask("owner's player name:")
-    if N.validOwner(owner) then break end
-    print("a player name is 3 to 16 letters, digits or _")
-    owner = nil
+  -- The owner: whoever is sitting in the seat beside the tower (Alex,
+  -- 2026-10-02), so nobody registers a unit in somebody else's name. No seat
+  -- fitted: typed, and the record says so.
+  local seat
+  for _, n in ipairs(peripheral.getNames()) do
+    if peripheral.getType(n) == "create_target" then seat = n break end
   end
-  if not owner then eject() return end
+  local owner, idby
+  if seat then
+    local function seated()
+      local okL, line = pcall(peripheral.call, seat, "getLine", 1)
+      return okL and N.seatName(line) or nil
+    end
+    owner = seated()
+    if not owner then
+      print(string.format("the owner sits in the seat now (%d s)", N.SEAT_WAIT))
+      local t0 = os.clock()
+      repeat sleep(0.5) owner = seated() until owner or os.clock() - t0 > N.SEAT_WAIT
+    end
+    if not owner then print("nobody in the seat - not registered") eject() return end
+    if not yes("owner " .. owner .. " (in the seat) - right?") then eject() return end
+    idby = "seat"
+  else
+    print("no seat fitted (a Create Seat, a Display Link on it reading Entity Name, a CC:C Bridge")
+    print("target block on this computer) - the name is typed, and not checked")
+    for _ = 1, 3 do
+      owner = ask("owner's player name:")
+      if N.validOwner(owner) then break end
+      print("a player name is 3 to 16 letters, digits or _")
+      owner = nil
+    end
+    if not owner then eject() return end
+    idby = "typed"
+  end
   local kind
   local WORDS = { air = "air", aircraft = "air", plane = "air", airship = "air",
                   land = "land", car = "land", vehicle = "land", train = "land",
@@ -211,7 +237,7 @@ if cmd == "register" then
   if not call then eject() return end
 
   local n = N.nextNumber(recs)
-  local rec = { n = n, unit = N.unitId(n), owner = owner, call = call, kind = kind,
+  local rec = { n = n, unit = N.unitId(n), owner = owner, idby = idby, call = call, kind = kind,
                 issued = today(), by = os.getComputerLabel and os.getComputerLabel() or nil }
   local key = SEC.newKey()
   local ok, why = N.install(fs, mount, { rec = rec, keyHex = SEC.keyHex(key), src = "", version = readAll(".commit") })
@@ -221,7 +247,7 @@ if cmd == "register" then
   recs[#recs + 1] = rec
   saveReg(recs)
   pcall(peripheral.call, drive, "setDiskLabel", rec.unit)
-  logEvent(rec, "registered", nil, owner .. " " .. kind)
+  logEvent(rec, "registered", nil, owner .. " " .. kind .. " " .. idby)
   print(string.format("REGISTERED %s  %s  %s  for %s", N.regNumber(n), call, N.TYPES[kind].word, owner))
   print("fit it with an advanced monitor and an ender modem on the vehicle; it starts by itself")
   eject()

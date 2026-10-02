@@ -201,6 +201,14 @@ check("a missing source file stops it before anything is deleted", not okM and w
   and missing.files["disk/keep.lua"] == "mine")
 check("no key on the unit and none given is refused", not N.install(fakeFs(copy(src)), "disk", { rec = good, src = "src" }))
 
+print("the owner, off the seat")
+check("a seated player's name", N.seatName("alex_r") == "alex_r")
+check("trimmed, colour codes stripped", N.seatName("  \194\1676alex_r ") == "alex_r", tostring(N.seatName("  \194\1676alex_r ")))
+check("an empty seat is no one", N.seatName("") == nil and select(2, N.seatName("")) == "seat empty")
+check("nor is anything that is not a player name", N.seatName("Iron Golem") == nil and N.seatName("ab") == nil)
+check("how the owner was known is kept", N.checkRecord({ n = 1, unit = N.unitId(1), owner = "alex_r", idby = "seat",
+  call = "X1", kind = "air" }).idby == "seat")
+
 print("the screen")
 local function shot(w, h, view, page)
   local c = D.canvas(w, h)

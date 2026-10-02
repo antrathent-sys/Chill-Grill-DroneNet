@@ -344,6 +344,21 @@ end
 
 --- A Minecraft username: whose vehicle it is, as given at registration.
 function N.validOwner(s) return type(s) == "string" and #s >= 3 and #s <= 16 and s:match("^[%w_]+$") ~= nil end
+
+-- The owner, read off the seat beside the tower (Alex, 2026-10-02): a Create
+-- Seat, a Display Link on it with the "Entity Name" source, aimed at a CC:C
+-- Bridge target block on the tower's computer - the only thing in this pack
+-- that names a real player to a computer. A line of the target, colour codes
+-- stripped: the name, or nil and why. A mob sitting there reads as a plain
+-- word too ("Pig"), which is why the registrar still confirms it.
+N.SEAT_WAIT = 60            -- seconds `tower register` waits for someone to sit
+function N.seatName(line)
+  if type(line) ~= "string" then return nil, "no reading" end
+  local name = line:gsub("\194\167%x", ""):match("^%s*(.-)%s*$")
+  if name == "" then return nil, "seat empty" end
+  if not N.validOwner(name) then return nil, "not a player name" end
+  return name
+end
 --- A callsign: what traffic calls the vehicle. 2 to 16 of letters, digits,
 -- spaces and dashes, kept in capitals.
 function N.validCall(s)
@@ -353,7 +368,8 @@ function N.validCall(s)
   return s
 end
 
-local FIELDS = { "n", "unit", "owner", "call", "kind", "issued", "by", "sid", "sname", "mass", "first", "last",
+-- idby: how the owner was known - "seat" (sat in the tower's seat) or "typed"
+local FIELDS = { "n", "unit", "owner", "idby", "call", "kind", "issued", "by", "sid", "sname", "mass", "first", "last",
                  "x", "y", "z", "revoked" }
 
 --- A registry record, cleaned, or nil and why.

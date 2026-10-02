@@ -64,8 +64,14 @@ end
 
 -- ======================================================================
 print("registering a unit")
-local function towerWorld(lines)
+local function towerWorld(lines, seat)
   local w = withFs(W.new(DIR, { label = "tower", S = S, lines = lines }))
+  -- seat: what the CC:C Bridge target block reads (a string, or a function of
+  -- the clock); nil = no seat fitted
+  if seat then
+    w.periph.create_target_0 = { type = "create_target", m = {
+      getLine = function() return type(seat) == "function" and seat(w) or seat end } }
+  end
   for _, f in ipairs(N.FILES) do w.files[f] = readRepo(f) end
   w.files["startup.lua"] = readRepo("startup.lua")
   w.ejected, w.labelled = 0, nil
@@ -111,6 +117,28 @@ w4 = w4:run("tower.lua", { "register" }, 10)
 check("a customer's pass is refused", not w4.files["disk/nav.lua"] and w4.text:find("customer's pass", 1, true), w4.text)
 local w5 = towerWorld({ "x y", "zz", "zz", "zz" }):run("tower.lua", { "register" }, 10)
 check("a bad name three times: nothing registered", not w5.files["navreg.lua"] and not w5.files["disk/nav.lua"], w5.text)
+check("with no seat the name is typed, and the record says so", recs[1].idby == "typed"
+  and w.text:find("not checked", 1, true), w.text)
+
+print("the owner, off the seat")
+S.newKey = function() return KEY3 end
+local ws = towerWorld({ "y", "boat", "sea wolf" }, "alex_r"):run("tower.lua", { "register" }, 30)
+local rs = N.loadRegistry(ws.files["navreg.lua"] or "")
+check("whoever sits in the seat is the owner - no name to type", rs[1] and rs[1].owner == "alex_r"
+  and rs[1].idby == "seat" and not ws.text:find("owner's player name", 1, true), ws.err or ws.text)
+check("the registrar confirms it", ws.text:find("owner alex_r (in the seat) - right?", 1, true) ~= nil)
+local wl = towerWorld({ "y", "air", "late one" }, function(w) return w.clock > 5 and "sam_k" or "" end)
+  :run("tower.lua", { "register" }, 30)
+local rl = N.loadRegistry(wl.files["navreg.lua"] or "")
+check("an empty seat: it waits for the owner to sit down", rl[1] and rl[1].owner == "sam_k"
+  and wl.text:find("sits in the seat now", 1, true), wl.err or wl.text)
+local wn = towerWorld({}, "Iron Golem"):run("tower.lua", { "register" }, 90)
+check("something that is no player name: it waits, then gives up", not wn.files["navreg.lua"]
+  and wn.text:find("nobody in the seat", 1, true), wn.text)
+local wr = towerWorld({ "n" }, "Pig"):run("tower.lua", { "register" }, 30)
+check("a pig reads as a name - the registrar says no: nothing registered", not wr.files["navreg.lua"]
+  and not wr.files["disk/nav.lua"] and wr.text:find("owner Pig", 1, true), wr.text)
+S.newKey = realNewKey
 
 -- ======================================================================
 print("the tower answering")

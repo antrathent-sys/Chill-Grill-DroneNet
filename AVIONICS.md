@@ -57,8 +57,10 @@ the centres are. `tower centre list`, `tower centre drop NORTH`.
 
 **A unit** - an advanced computer. Place it once, turn it on and `label set
 nav-new`, then break it: labelled, it keeps its files as an item. Put it in
-the master's disk drive and run `tower register`. It asks the owner's player
-name, the vehicle type (air, land, sea, sub) and a callsign, then writes the
+the master's disk drive, sit the owner in the tower's seat, and run `tower
+register`. It reads the owner's name off the seat, asks the registrar to
+confirm it, then asks the vehicle type (air, land, sea, sub) and a callsign,
+and writes the
 unit's software, its key, its registration and the tower's own `startup.lua`
 with role `nav`, labels it and ejects it. On the vehicle it needs an
 advanced monitor (any size; one block works, a 2x1 strip is the intended
@@ -170,7 +172,7 @@ registration written to it.
 |---|---|
 | registration | `CR-0001` for now - **a placeholder**: the format is still to be agreed with people. Records keep only the sequence number, so changing `N.REG_FORMAT` in `lib/nav.lua` renames every unit at once |
 | unit id | `nav-0001`: its label and the name its key is filed under, fixed for life whatever the registration looks like |
-| owner | the player's name as given (a computer cannot check who a player is - the registrar can) |
+| owner | **read off the seat beside the tower** (Alex, 2026-10-02): a Create Seat, a Display Link on it with the "Entity Name" source, aimed at a CC:C Bridge target block on the tower's computer - the only thing in this pack that names a real player to a computer. The registrar confirms the name (a mob in the seat reads as a word too). With no seat fitted the name is typed, and the record says `typed` |
 | type | aircraft, land vehicle, vessel or submarine |
 | callsign | what traffic calls it, chosen by the owner |
 | issued, by | the date, and the tower that issued it |
