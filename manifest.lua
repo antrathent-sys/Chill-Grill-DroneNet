@@ -46,7 +46,7 @@ return {
     "lib/db.lua", "stickers.lua",
     "lib/devices.lua", "basectl.lua", "devices.example.lua",
     "lib/loader.lua", "station.example.lua", "lib/cargo.lua", "lib/deliver.lua", "depot.lua", "lib/dockseq.lua", "lib/stock.lua", "lib/depotscreens.lua",
-    "ops.lua", "lib/opsui.lua", "lib/tui.lua", "lib/display.lua",
+    "ops.lua", "lib/opsui.lua", "lib/tui.lua", "lib/display.lua", "lib/store.lua",
     "lib/ledger.lua", "lib/queue.lua", "lib/invoice.lua", "lib/orders.lua", "lib/catalogue.lua", "tariff.example.lua",
     -- making customers' passes: provision copies these onto each one
     "provision.lua", "lib/provision.lua", "kiosk.lua", "hail.lua", "lib/hailui.lua",
@@ -60,6 +60,10 @@ return {
   depot = { "depot.lua", "lib/loader.lua", "lib/dockseq.lua", "lib/stock.lua", "lib/cargo.lua", "station.example.lua", "stickers.lua",
             "dock.example.lua",
             "lib/display.lua", "lib/depotscreens.lua", "lib/tui.lua", "lib/invoice.lua" },
+
+  -- a site's store computer (store.lua, label store-<site>, startup autorun
+  -- store): counts the silos on its cable network and sends it to the base
+  store = { "store.lua", "lib/store.lua", "lib/storeui.lua", "lib/display.lua", "lib/tui.lua" },
 
   -- a customer terminal standing at a pad: it calls a taxi and counts its own use
   pad = { "taxipad.lua" },

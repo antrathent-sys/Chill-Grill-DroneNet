@@ -73,6 +73,7 @@
 -- (depot.lua). It is keyed like a drone - id "depot-<dock>" - and everything
 -- between it and ops is sealed; it never talks to a drone.
 --   depot.hello   depot [load] [step] nonce                  depot-> ops
+--   stock.page    rep page pages items nonce                 store-> ops
 --                 (awake - the drone's chunk loader woke it; load/step: a
 --                  load that was under way when it last stopped)
 --   load.start    load drone [items] [stack] nonce           ops  -> depot
@@ -110,7 +111,7 @@ F.TYPES = { ["taxi.request"] = true, ["job.assign"] = true, ["job.ack"] = true,
             ["unit.dropped"] = true, ["depot.hello"] = true, ["load.start"] = true,
             ["load.step"] = true, ["load.lifted"] = true, ["load.stuck"] = true, ["load.done"] = true,
             ["unit.clear"] = true, ["unit.stop"] = true, ["unit.goto"] = true,
-            ["unload.start"] = true, ["load.release"] = true,
+            ["unload.start"] = true, ["load.release"] = true, ["stock.page"] = true,
             ["admin.trip"] = true, ["admin.go"] = true, ["admin.cancel"] = true, ["admin.ack"] = true }
 
 -- ops.fly carries a fly command line for the admin panel's full control. It is
@@ -213,6 +214,10 @@ function F.check(m)
     if type(m.on) ~= "boolean" then return false, "extend or retract?" end
   elseif m.type == "depot.hello" then
     if not str(m.depot) then return false, "no depot" end
+  elseif m.type == "stock.page" then
+    -- a site's stock count, one page of it (store.lua, lib/store.lua)
+    if not (num(m.rep) and num(m.page) and num(m.pages)) then return false, "bad page" end
+    if type(m.items) ~= "string" or #m.items > 7000 then return false, "bad items" end
   elseif m.type == "load.start" then
     if not (str(m.load) and str(m.drone)) then return false, "no load or drone" end
     if m.items ~= nil and not num(m.items) then return false, "bad item count" end

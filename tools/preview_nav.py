@@ -101,6 +101,23 @@ function(root, which)
     page(36, 24, att("sea", 2, -17), "2x2 sea list")
     page(36, 24, att("sub", -22, 4), "2x2 sub diving")
     page(36, 10, att("air", 0, 0, { att = "learning" }), "2x1 learning forward")
+  elseif which == "store" then
+    local SU = dofile(root .. "/lib/storeui.lua")
+    local names = { "Cobblestone", "Andesite", "Iron Ingot", "Copper Ingot", "Oak Log", "Stone", "Deepslate", "Coal",
+      "Brass Ingot", "Zinc Ingot", "Andesite Alloy", "Glass", "Redstone Dust", "Gold Ingot", "Diamond", "Kelp",
+      "Dried Kelp Block", "Spruce Planks", "Oak Planks", "Iron Nugget", "Precision Mechanism", "Electron Tube",
+      "Brass Casing", "Andesite Casing", "Rose Quartz", "Polished Rose Quartz", "Cogwheel", "Large Cogwheel",
+      "Shaft", "Enchanted Book (Mending)", "Enchanted Book (Unbreaking III)", "Potion of Swiftness", "Lapis Lazuli",
+      "Emerald", "Netherrack", "Basalt", "Blackstone", "Calcite", "Tuff", "Clay Ball", "Sand", "Gravel", "Flint" }
+    local list = {}
+    for i, n in ipairs(names) do list[i] = { key = "k" .. i, label = n, count = math.floor(412345 / (i ^ 1.3)) } end
+    local function st(w, h, label, view, scale)
+      add(w, h, label, function(c) SU.render(T, c, view) end)
+    end
+    st(39, 33, "4x5 portrait, text scale 1", { site = "CHI", list = list, top = 1, at = "12:04" })
+    st(39, 33, "4x5, scrolled down", { site = "CHI", list = list, top = 27, at = "12:04" })
+    st(39, 33, "4x5, one vault unreadable", { site = "CHI", list = list, top = 1, at = "12:05", problems = 1 })
+    st(39, 33, "4x5, nothing counted yet", { site = "CHI", list = {} })
   elseif which == "kiosk" then
     local K = dofile(root .. "/lib/kioskui.lua")
     local function k(label, view, w, h) add(w or 57, h or 24, label, function(c) K.render(T, c, view) end) end
@@ -190,6 +207,11 @@ def main():
         i = args.index("--kiosk")
         out = args[i + 1] if i + 1 < len(args) else os.path.join(HERE, "nav_kiosk.png")
         sheet(LuaRuntime(unpack_returned_tuples=True, encoding=None), "kiosk", out, 2)
+        return
+    if "--store" in args:
+        i = args.index("--store")
+        out = args[i + 1] if i + 1 < len(args) else os.path.join(HERE, "store_list.png")
+        sheet(LuaRuntime(unpack_returned_tuples=True, encoding=None), "store", out, 4)
         return
     if "--attitude" in args:
         i = args.index("--attitude")

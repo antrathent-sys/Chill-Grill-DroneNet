@@ -183,7 +183,7 @@ if args[1] == "role" then
       f.close()
     end
     print("role: " .. (role ~= "" and role or "none - nothing is pulled until it has one"))
-    print("startup role <drone|base|depot|screens|tower|centre|nav|kiosk|prep|pad|pocket|admin|rs|all> to change it")
+    print("startup role <drone|base|depot|store|screens|tower|centre|nav|kiosk|prep|pad|pocket|admin|rs|all> to change it")
     return
   end
   roleRequest = args[2]:lower()
@@ -409,7 +409,7 @@ end
 -- given unless this computer already has an autorun. The base runs ops by
 -- hand; a pocket runs hail or admin when picked up; a pad is set by hand.
 local DEFAULT_AUTORUN = { drone = "beacon", depot = "depot", screens = "control", rs = "rsio", tower = "tower",
-                          centre = "tower", nav = "nav", kiosk = "navdesk", prep = "navprep" }
+                          centre = "tower", nav = "nav", kiosk = "navdesk", prep = "navprep", store = "store" }
 
 -- and what a person does after the first pull, printed once
 local NEXT = {
@@ -434,6 +434,9 @@ local NEXT = {
   nav     = { "a unit is made at the master tower: tower register, with this computer in its drive" },
   kiosk   = { "on the master tower, this computer in its drive: tower kiosk add <NAME>",
               "fit a touch monitor, the seat, a disk drive, a stock chest and an out chest; navdesk setup; reboot" },
+  store   = { "label set store-<site> (store-chi counts for CHI); wired modems on the silos, cable to here",
+              "on the base: seckey new store-<site> (a floppy in its drive); here: seckey set disk",
+              "store setup says which inventories are stock; reboot - store runs on boot" },
   prep    = { "a mining turtle: raw advanced computers in a chest on top, the kiosk's computer chest below",
               "keep the block in front clear; reboot - navprep runs on boot" },
   pad     = { "startup autorun taxipad" },

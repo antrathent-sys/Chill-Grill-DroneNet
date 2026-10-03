@@ -1157,5 +1157,37 @@ w = base({ args = { "fly", "drone-1", "ferry", "pier" } }):run()
 check("ops fly drone-1 ferry pier: sent", w.err == nil and w.orders[#w.orders] and w.orders[#w.orders].type == "ops.fly",
   w.err)
 
+do -- a site's stock, from its store computer (lib/store.lua)
+print("stock from a store computer")
+local STORE = dofile(DIR .. "/../lib/store.lua")
+local STOREHEX = "2f2e2d2c2b2a292827262524232221201f1e1d1c1b1a19181716151413121110"
+local storeTx = S.sender(S.parseKey(STOREHEX), "store-chi", S.DIR.DRONE_TO_BASE, nil)
+local depotTx2 = S.sender(S.parseKey(DEPOTHEX), "depot-pier", S.DIR.DRONE_TO_BASE, nil)
+local fleetK = "drone-1=" .. KEYHEX .. "\ndepot-pier=" .. DEPOTHEX .. "\nstore-chi=" .. STOREHEX .. "\n"
+local pagesS = STORE.pages(1700000000000, { ["minecraft:stone"] = { count = 123456 }, ["minecraft:coal"] = { count = 789 } },
+  { ["minecraft:stone"] = "Stone", ["minecraft:coal"] = "Coal" })
+local function sealedFrom(tx, body, n)
+  body.v, body.nonce = F.VERSION, "s-" .. n
+  return { "modem_message", "modem_ender", LINK.CHANNEL, LINK.CHANNEL, tx.seal(body) }
+end
+local ws = base({ args = {}, keysAt = { { 12, "q" } }, files = { [".fleetkeys"] = fleetK } })
+ws.later[#ws.later + 1] = { at = 3, ev = sealedFrom(storeTx, pagesS[1], 1) }
+-- the same page sealed by a depot's key claims nothing
+local fake = STORE.pages(1700000000001, { ["minecraft:diamond"] = { count = 999999 } }, {})[1]
+ws.later[#ws.later + 1] = { at = 4, ev = sealedFrom(depotTx2, fake, 2) }
+ws = ws:run()
+local saved = ws.files["stock.txt"] or ""
+check("the base keeps a store's count in stock.txt, under its site", ws.err == nil
+  and saved:find("CHI\tminecraft:stone\t123456\tStone", 1, true) and not saved:find("diamond", 1, true), ws.err or saved)
+local wq = base({ args = { "stock" }, files = { ["stock.txt"] = saved } }):run()
+check("ops stock: every site added up, the most first", wq.text:find("stock: 124,245 items, 2 kinds, 1 site", 1, true)
+  and wq.text:find("123,456  Stone", 1, true), wq.err or wq.text)
+local wf2 = base({ args = { "stock", "find", "coal" }, files = { ["stock.txt"] = saved } }):run()
+check("ops stock find: by name", wf2.text:find("789  Coal", 1, true) and not wf2.text:find("Stone", 1, true), wf2.text)
+local wsites = base({ args = { "stock", "sites" }, files = { ["stock.txt"] = saved } }):run()
+check("ops stock sites: each site and when it last counted", wsites.text:find("CHI", 1, true)
+  and wsites.text:find("124,245 items", 1, true), wsites.text)
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then error("ops load tests failed", 0) end

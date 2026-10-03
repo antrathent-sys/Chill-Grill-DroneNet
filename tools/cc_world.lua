@@ -89,6 +89,14 @@ function W.new(DIR, opts)
     getNames = function() local t = {} for n in pairs(w.periph) do t[#t + 1] = n end table.sort(t) return t end,
     getType = function(n) return w.periph[n] and w.periph[n].type end,
     isPresent = function(n) return w.periph[n] ~= nil end,
+    -- a stand-in can carry more types than its own: types = { "inventory" }
+    hasType = function(n, t)
+      local p = w.periph[n]
+      if not p then return nil end
+      if p.type == t then return true end
+      for _, x in ipairs(p.types or {}) do if x == t then return true end end
+      return false
+    end,
     getMethods = function(n)
       local p = w.periph[n]
       if not p then return nil end

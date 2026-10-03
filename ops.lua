@@ -467,6 +467,42 @@ local function cargoWrite(lines)
   return true
 end
 
+-- ------------------------------------------------------------------ stock ---
+-- Each site's stock, counted off its silos by its store computer (store.lua,
+-- lib/store.lua) and sent here sealed, in pages. stock.txt keeps every
+-- site's last full count; `ops stock` adds them up - one stock, as customers
+-- will see it, while this base knows which site holds what.
+local STOCK_FILE = "stock.txt"
+local STORE
+do
+  local okS, s = pcall(dofile, "lib/store.lua")
+  if okS and type(s) == "table" then STORE = s end
+end
+local stockState, stockSeen = nil, {}
+local function stockLoad()
+  if not STORE then return nil end
+  local h = fs.exists(STOCK_FILE) and fs.open(STOCK_FILE, "r")
+  local text = h and h.readAll() or ""
+  if h then h.close() end
+  return STORE.load(text)
+end
+local function stockPage(from, m)
+  if not STORE then return end
+  stockState = stockState or stockLoad()
+  local done, site = STORE.take(stockState, from, m, os.epoch and math.floor(os.epoch("utc") / 1000) or os.time())
+  if done == nil then log("stock from %s refused: %s", tostring(from), tostring(site)) return end
+  if not done then return end
+  local h = fs.open(STOCK_FILE, "w")
+  if h then h.write(STORE.serialise(stockState)) h.close() end
+  -- once a site, not every minute: the log is eight lines
+  if not stockSeen[site] then
+    stockSeen[site] = true
+    local n, kinds = 0, 0
+    for _, v in pairs(stockState.sites[site].items) do n, kinds = n + v.count, kinds + 1 end
+    log("stock %s: %s items, %d kinds", site, STORE.commas(n), kinds)
+  end
+end
+
 -- The order book (lib/orders.lua, ORDERS.md): one number, C-0042, from the
 -- order to its last invoice - its flights are C-0042.1, .2 (the load ids every
 -- depot message and cargo.csv row carries), its shipments C-0042-1, -2 (the
@@ -1001,6 +1037,8 @@ if cmd == "load" then
     return
   end
   local usage = {
+    "ops stock [find <words> | sites | all]   every site's stock added up, as customers",
+    "   will see it: the most first, or matching words; sites: when each last counted",
     "ops load                      the station: bays, relays, waits, what a silo holds",
     "ops load plan [items] [stack] how a load is carried (items: the intake's, if set)",
     "ops load test <action> [side] fire one action's relay: place assemble lift retract",
@@ -1225,6 +1263,62 @@ if cmd == "load" then
   end
 
   for _, u in ipairs(usage) do print(u) end
+  return
+end
+
+if cmd == "stock" then
+  -- every site's last count, added up (lib/store.lua): what customers will see
+  if not STORE then print("lib/store.lua is missing - run startup") return end
+  local st = stockLoad()
+  local sites = {}
+  for site in pairs(st.sites) do sites[#sites + 1] = site end
+  table.sort(sites)
+  if #sites == 0 then
+    print("no stock counted yet - a store computer at each site: label store-<site>, startup role store")
+    return
+  end
+  local nowS = os.epoch and math.floor(os.epoch("utc") / 1000) or os.time()
+  local function ago(t)
+    local s = math.max(0, nowS - (t or nowS))
+    if s < 120 then return s .. " s ago" elseif s < 7200 then return math.floor(s / 60) .. " min ago" end
+    return math.floor(s / 3600) .. " h ago"
+  end
+  local all = STORE.merge(st)
+  local total = 0
+  for _, e in ipairs(all) do total = total + e.count end
+  print(string.format("stock: %s items, %d kinds, %d site%s", STORE.commas(total), #all, #sites, #sites == 1 and "" or "s"))
+  if args[2] == "sites" then
+    for _, site in ipairs(sites) do
+      local s, n, k = st.sites[site], 0, 0
+      for _, v in pairs(s.items) do n, k = n + v.count, k + 1 end
+      print(string.format("  %-8s %14s items  %4d kinds  counted %s", site, STORE.commas(n), k, ago(s.at)))
+    end
+    return
+  end
+  local list = all
+  if args[2] == "find" then
+    local words = table.concat(args, " ", 3):lower()
+    list = {}
+    for _, e in ipairs(all) do
+      if (e.label .. " " .. e.key):lower():find(words, 1, true) then list[#list + 1] = e end
+    end
+    if #list == 0 then print("nothing matches " .. words) return end
+  elseif args[2] ~= "all" then
+    list = {}
+    for _, e in ipairs(all) do list[#list + 1] = e end
+    table.sort(list, function(a, b) return a.count > b.count end)
+    local top = {}
+    for i = 1, math.min(#list, 15) do top[i] = list[i] end
+    if #list > 15 then print(string.format("the most-held 15 of %d - ops stock all, or ops stock find <words>", #list)) end
+    list = top
+  end
+  local lines = {}
+  for _, e in ipairs(list) do lines[#lines + 1] = string.format("%12s  %s", STORE.commas(e.count), e.label) end
+  if textutils and textutils.pagedPrint and #lines > 15 then
+    textutils.pagedPrint(table.concat(lines, "\n"))
+  else
+    for _, l in ipairs(lines) do print(l) end
+  end
   return
 end
 
@@ -2166,7 +2260,8 @@ end
 
 local DRONE_ONLY = { ["job.state"] = true, ["job.ack"] = true, ["unit.distress"] = true, ["unit.stuck"] = true,
                      ["unit.dropped"] = true, ["depot.hello"] = true, ["load.step"] = true,
-                     ["load.lifted"] = true, ["load.done"] = true, ["load.release"] = true }
+                     ["load.lifted"] = true, ["load.done"] = true, ["load.release"] = true,
+                     ["stock.page"] = true }
 -- A drone speaks only for itself. Sealed is not enough: any key in
 -- .fleetkeys opens a packet, a depot's included, and these name their drone in
 -- the message. Unbound, a depot's key - on a computer in somebody else's base
@@ -2398,6 +2493,8 @@ function handle(from, msg, customer, sealedBy)
         log("%s %s%s", msg.drone, msg.state, msg.detail and (" - " .. msg.detail) or "")
       elseif msg.type == "depot.hello" then
         if isDepot(sealedBy) and msg.depot == sealedBy then depotHello(msg) end
+      elseif msg.type == "stock.page" then
+        stockPage(sealedBy, msg)          -- the site is the store's own name: store-chi is CHI
       elseif msg.type == "load.step" or msg.type == "load.lifted" or msg.type == "load.done"
              or msg.type == "load.release" then
         if isDepot(sealedBy) and msg.depot == sealedBy then depotReport(msg) end
