@@ -521,9 +521,9 @@ if cmd == "centre" or cmd == "center" then
     saveCentres(kept)
     pcall(peripheral.call, drive, "setDiskLabel", "tower-" .. name:lower())
     pcall(peripheral.call, drive, "ejectDisk")
-    print(string.format("centre %s at %d %d %d added. On its computer: startup role tower, and if this was a floppy,",
+    print(string.format("centre %s at %d %d %d added. Put it back, fit an ender modem and monitors, reboot.",
       name, x, y, z))
-    print("tower join with the floppy in its drive. It shows what this master hears; it answers no one.")
+    print("Not given its role yet: startup role centre. From a floppy: tower join with it in the centre's drive.")
     return
   end
   print("tower centre [list | add <NAME> <x> <y> <z> | drop <NAME>]")
