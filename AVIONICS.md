@@ -100,6 +100,13 @@ A kiosk, all on its own computer's wired network:
   computer that has; no label needed), advanced monitors and ender modems;
 - an **out chest** the seated player can open.
 
+**The prep turtle** does the switching on (`navprep.lua`): a mining turtle
+sitting on the computers' stock chest, with a chest on top of it for new
+computers from the crafting table. It takes one from the top, places it in
+front, switches it on, digs it back up and drops it into the stock below -
+one every couple of seconds. The first command with `role prep`, keep the
+block in front of it clear, reboot; it runs by itself from then on.
+
 Setting one up:
 
 1. On the kiosk's computer: the first command with `role kiosk`.

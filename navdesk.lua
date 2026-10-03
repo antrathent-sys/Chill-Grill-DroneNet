@@ -344,7 +344,10 @@ kiosk = KL.new({
     if not loaded then
       print(string.format("kit: %d computer(s) tried, %d never switched on, moving: %s", tried, unread, tostring(stuck or "fine")))
       if tried == 0 then return nil, "NO ADVANCED COMPUTER IN STOCK" end
-      if unread > 0 then return nil, "STOCK COMPUTERS WERE NEVER SWITCHED ON" end
+      if unread > 0 then
+        print("put new computers through the prep turtle first (startup role prep)")
+        return nil, "STOCK COMPUTERS WERE NEVER SWITCHED ON"
+      end
       return nil, "COULD NOT MOVE A COMPUTER INTO THE DRIVE"
     end
     local a, why = ask("register", { owner = owner, kind = kind, call = call })

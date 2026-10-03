@@ -98,6 +98,10 @@ return {
             "ccryptolib/random.lua", "ccryptolib/blake3.lua", "ccryptolib/config.lua",
             "ccryptolib/internal/util.lua", "ccryptolib/internal/packing.lua", "ccryptolib/internal/hw.lua" },
 
+  -- a mining turtle beside a kiosk (navprep.lua, startup autorun navprep):
+  -- switches each new computer on once so it has an ID, into the kiosk's chest
+  prep = { "startup.lua", "navprep.lua", "lib/display.lua", "lib/tui.lua" },
+
   -- a CINDER NAV unit on somebody's vehicle (tower register writes it): pulls
   -- these quietly behind the CINDER NAV boot screen, then runs nav; no shell
   nav = { "startup.lua", "nav.lua", "lib/nav.lua", "lib/navui.lua", "lib/display.lua", "lib/tui.lua",
