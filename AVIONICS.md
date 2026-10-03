@@ -85,6 +85,14 @@ Sable offers; nothing added to the kit, nothing new to teach):
   craft round their curves when it checks for a close pass. Centres get the
   turn and the weight class in their picture.
 
+**Trails** (Alex, 2026-10-03): behind every craft on a radar, a dot where
+it was every 10 seconds (every fifth ping on the move), six of them,
+fading with age - the gaps between them are its speed: far apart is fast,
+bunched is slow. One a ping would pile up: at 2,000 blocks of range a
+craft doing 20 b/s moves under a pixel between pings. `N.TRAIL_SECS`,
+`N.TRAIL_N`. The master keeps them from the pings, each centre from its
+pictures.
+
 **Touch a craft on a radar** (Alex, 2026-10-03) - on the master or any
 centre, with an advanced monitor: a ring goes round it and a card comes up
 on the side away from it, with everything heard for it - registration and

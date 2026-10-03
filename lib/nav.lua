@@ -33,6 +33,27 @@ N.PIC_MAX = 100           -- contacts in one picture (a sealed body stays under 
 N.PIC_BYTES = 6000        -- ...and never more than this of them, however long the callsigns
 N.PIC_AWAY = 3600         -- seconds: how long an away contact stays on a centre's board
 N.CENTRES_MAX = 8         -- centres a pong tells a unit about
+N.TRAIL_SECS = 10         -- a radar's history dots: one this often (every fifth ping on the move) -
+N.TRAIL_N = 6             --   and this many, so the gaps between them show the speed
+
+--- A craft's trail on a radar: where it was, every N.TRAIL_SECS, oldest
+-- first (Alex, 2026-10-03: "fading dots which also indicate speed"). Kept
+-- the same way on the master (from pings) and on every centre (from its
+-- pictures). Starts again after a long silence rather than joining two
+-- trips with a line of old dots.
+function N.trailPush(tr, x, z, now)
+  tr = tr or {}
+  local last = tr[#tr]
+  if last and now - last.t > N.TRAIL_SECS * (N.TRAIL_N + 1) then
+    for i = #tr, 1, -1 do tr[i] = nil end
+    last = nil
+  end
+  if type(x) == "number" and type(z) == "number" and (not last or now - last.t >= N.TRAIL_SECS) then
+    tr[#tr + 1] = { x = x, z = z, t = now }
+    while #tr > N.TRAIL_N do table.remove(tr, 1) end
+  end
+  return tr
+end
 
 -- What a unit can be fitted to. The screen shows what suits each.
 N.TYPES = {
@@ -278,6 +299,7 @@ function N.cinderContact(contacts, b, call, now)
     local h = math.rad(c.hdg or 0)
     c.vx, c.vz = c.hdg and c.spd * math.sin(h) or 0, c.hdg and -c.spd * math.cos(h) or 0
   end
+  c.trail = N.trailPush(c.trail, c.x, c.z, now)
   c.t = now
   return c
 end
@@ -485,6 +507,7 @@ function N.track(contacts, rec, m, now)
   local h = math.rad(m.hdg or 0)
   c.vx, c.vz = m.hdg and m.spd * math.sin(h) or 0, m.hdg and -m.spd * math.cos(h) or 0
   c.nh, c.tr = m.nh, m.tr
+  c.trail = N.trailPush(c.trail, m.x, m.z, now)
   c.sid, c.sname, c.mass = m.sid or c.sid, m.sname or c.sname, m.mass or c.mass
   c.wt = N.weightClass(c.mass)
   c.t = now

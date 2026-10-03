@@ -125,6 +125,16 @@ function(root, which)
       { n = 9, reg = "CR-0009", call = "ROVER", kind = "land", x = 2497 - 300, y = 71, z = -3297 - 400, spd = 14, hdg = 300, st = "move", t = 99, tr = -8, wt = "L" },
       { n = 11, reg = "CR-0011", call = "SEA WOLF", kind = "sea", x = 2497 + 1500, y = 63, z = -3297 + 900, spd = 0, st = "park", t = 99 },
       { n = 4, reg = "CR-0004", call = "PACKED", kind = "land", x = 2500, y = 70, z = -3290, spd = 0, st = "park", t = -400 } }
+    -- where each moving one was every N.TRAIL_SECS, back along its path
+    for _, ct in ipairs(contacts) do
+      if (ct.spd or 0) > 0 and ct.hdg then
+        ct.trail = {}
+        for k = N.TRAIL_N, 1, -1 do
+          local x, z = N.ahead(ct, -k * N.TRAIL_SECS)
+          ct.trail[#ct.trail + 1] = { x = x, z = z, t = 100 - k * N.TRAIL_SECS }
+        end
+      end
+    end
     local view = { name = "CHI", x = 2497, z = -3297, range = 2000, now = 100, regs = 14, contacts = contacts,
                    centres = { { name = "CHI", x = 2497, z = -3297 }, { name = "NORTH", x = 2497 + 300, z = -3297 - 1600 } },
                    lastEvent = "CR-0002 HAWK SOS" }

@@ -830,6 +830,35 @@ local big = N.picture(many, {}, 10)
 check("a picture never grows past its size, however long the callsigns", #big.ct <= N.PIC_BYTES and big.n < 100, #big.ct)
 
 end
+do -- trails (a block of its own: Lua allows 200 locals at once)
+print("trails")
+local tr = N.trailPush(nil, 0, 0, 0)
+N.trailPush(tr, 5, 0, 4)
+check("a trail dot every N.TRAIL_SECS, not every ping", #tr == 1)
+for i = 1, 10 do N.trailPush(tr, i * 100, 0, i * N.TRAIL_SECS) end
+check("...and only the last N.TRAIL_N, oldest first", #tr == N.TRAIL_N and tr[N.TRAIL_N].x == 1000 and tr[1].x == 500)
+N.trailPush(tr, 9999, 0, 10 * N.TRAIL_SECS + N.TRAIL_SECS * (N.TRAIL_N + 2))
+check("...starting again after a long silence", #tr == 1 and tr[1].x == 9999)
+local tk3 = {}
+for i = 0, 6 do
+  N.track(tk3, { unit = "nav-0009", n = 9, call = "KITE", kind = "air" },
+    { x = i * 20, y = 70, z = 0, spd = 10, vs = 0, hdg = 90, st = "move" }, i * 2)
+end
+check("the master keeps a trail from the pings: a dot every fifth one", #tk3["nav-0009"].trail == 2
+  and tk3["nav-0009"].trail[2].x == 100, #tk3["nav-0009"].trail)
+-- a craft heading east at 80 b/s: its old dots behind it, west, fading
+local trail = {}
+for i = 1, 6 do trail[i] = { x = 600 - (6 - i + 1) * 300, z = 0, t = 0 } end
+local _, cv = tshot("radar", 57, 38, { name = "CHI", x = 0, z = 0, range = 2000, now = 100, centres = {},
+  contacts = { { n = 1, call = "FAST", kind = "air", x = 600, y = 70, z = 0, spd = 80, hdg = 90, st = "move", t = 99,
+                 trail = trail } } })
+local cxp, R = 57.5, 52.5
+local function inkAt(wx) return cv.px[(math.floor(57.5 + 0.5) - 1) * cv.pw + math.floor(cxp + wx / 2000 * R + 0.5)] end
+check("its trail on the radar, behind it, fading: the newest grey, the oldest nearly gone",
+  inkAt(600 - 300) == T.C.faint and inkAt(600 - 3 * 300) == T.C.rule and inkAt(600 - 5 * 300) == T.C.panel,
+  tostring(inkAt(600 - 300)) .. tostring(inkAt(600 - 3 * 300)) .. tostring(inkAt(600 - 5 * 300)))
+end
+
 local function leadX(tr)
   local _, cv = tshot("radar", 57, 38, { name = "CHI", x = 0, z = 0, range = 2000, now = 100, centres = {},
     contacts = { { n = 1, call = "K", kind = "air", x = 0, y = 70, z = 400, spd = 60, hdg = 0, tr = tr, st = "move", t = 99 } } })

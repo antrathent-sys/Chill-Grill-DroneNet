@@ -218,6 +218,20 @@ function M.radar(T, c, view, sel)
   -- distress last, so it is drawn over anything else
   local list = {}
   for _, ct in ipairs(view.contacts or {}) do if live(view, ct) and ct.x then list[#list + 1] = ct end end
+  -- the trails first, under everything: a dot where each craft was every
+  -- N.TRAIL_SECS, fading with age - far apart is fast, bunched is slow
+  local FADE = { T.C.faint, T.C.faint, T.C.rule, T.C.rule, T.C.panel, T.C.panel }
+  for _, ct in ipairs(list) do
+    local tr = ct.trail or {}
+    local nx, ny = toPx(ct.x, ct.z)
+    for i = #tr, 1, -1 do
+      local p = tr[i]
+      local px, py = toPx(p.x, p.z)
+      if (px - nx) ^ 2 + (py - ny) ^ 2 >= 4 and sqrt((px - cx) ^ 2 + (py - cy) ^ 2) <= R then
+        c:pix(px, py, FADE[#tr - i + 1] or T.C.panel)
+      end
+    end
+  end
   table.sort(list, function(a, b) return (a.st == "sos" and 1 or 0) < (b.st == "sos" and 1 or 0) end)
   local picked
   for _, ct in ipairs(list) do
