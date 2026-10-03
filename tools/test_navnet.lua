@@ -764,6 +764,57 @@ check("a centre shows the master's traffic round its own position, and says noth
 check("...and answers no unit itself", #cw.sent == 0, #cw.sent)
 local cw2 = centreWorld():run("tower.lua", {}, 12)
 check("a centre that hears nothing says NO SIGNAL", table.concat(cw2.mrows, "\n"):find("NO SIGNAL", 1, true))
+-- a centre added again while the master runs: its new key is used within a sync
+local mwR = masterWorld()
+mwR.at(4, function(world)
+  world.files[".centrekeys"] = S.formatFleetKeys({ ["ctr-north"] = KEY2 }, S.CENTRE_HEADER)
+  return { "noop" }
+end)
+mwR = mwR:run("tower.lua", {}, 16)
+local oldOK, newOK = 0, 0
+local rxOld, rxNew = S.receiver(), S.receiver()
+for _, s in ipairs(mwR.sent) do
+  if s.env and s.env.d == S.DIR.TOWER_TO_CENTRE and (s.t or 0) > 11 then
+    if rxOld.open(s.env, function() return KEY3 end, S.DIR.TOWER_TO_CENTRE, nil) then oldOK = oldOK + 1 end
+    if rxNew.open(s.env, function() return KEY2 end, S.DIR.TOWER_TO_CENTRE, nil) then newOK = newOK + 1 end
+  end
+end
+check("a centre added again while the master runs gets pictures in its new key, without a reboot",
+  newOK >= 1 and oldOK == 0, newOK .. " new, " .. oldOK .. " old")
+
+-- tower check on a centre: what is wrong with its signal
+local function checkWith(feed)
+  local w = centreWorld()
+  if feed then feed(w) end
+  return w:run("tower.lua", { "check" }, 12)
+end
+local fine = checkWith(function(w)
+  for _, t in ipairs({ 1, 3, 5 }) do
+    w.at(t, function() return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, picTx.seal(N.picture({}, {}, 0)) } end)
+  end
+end)
+check("tower check: pictures arriving - SIGNAL FINE", fine.text:find("SIGNAL FINE: 3 pictures", 1, true), fine.err or fine.text)
+local wrongTx = S.sender(KEY2, "ctr-north", S.DIR.TOWER_TO_CENTRE, nil)
+local wrong = checkWith(function(w)
+  w.at(1, function() return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, wrongTx.seal(N.picture({}, {}, 0)) } end)
+end)
+check("...sealed with another key - the keys differ, add it again", wrong.text:find("will not open", 1, true)
+  and wrong.text:find("tower centre add NORTH", 1, true), wrong.err or wrong.text)
+local southTx = S.sender(KEY2, "ctr-south", S.DIR.TOWER_TO_CENTRE, nil)
+local south = checkWith(function(w)
+  w.at(1, function() return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, southTx.seal(N.picture({}, {}, 0)) } end)
+end)
+check("...only another centre's - the master is not feeding this one", south.text:find("feeding ctr-south", 1, true),
+  south.err or south.text)
+local pingsOnly = checkWith(function(w)
+  w.at(1, function() return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, tx1.seal(N.ping(N.reading({ x = 0, y = 70, z = 0 }, nil))) } end)
+end)
+check("...traffic but no pictures - is the master running, its chunk loaded", pingsOnly.text:find("the radio works", 1, true)
+  and pingsOnly.text:find("chunk", 1, true), pingsOnly.err or pingsOnly.text)
+local silent = checkWith()
+check("...nothing at all - an ender modem? the master running?", silent.text:find("heard nothing at all", 1, true),
+  silent.err or silent.text)
+
 local cw3 = centreWorld():run("tower.lua", { "register" }, 3)
 check("a centre registers nothing: that is the master's", cw3.text:find("display only", 1, true), cw3.text)
 print("")

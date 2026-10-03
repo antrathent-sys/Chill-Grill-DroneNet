@@ -55,7 +55,15 @@ master feeds each centre a sealed picture every 2 seconds; a centre that
 stops hearing it says `NO SIGNAL` - and nothing else about where its
 picture comes from: no "fed by", the master's latest event along its foot
 like the master's own (Alex, 2026-10-03). Every unit is told where all
-the centres are. `tower centre list`, `tower centre drop NORTH`.
+the centres are. `tower centre list` (each centre, and whether the master holds its key),
+`tower centre drop NORTH`. **A centre on NO SIGNAL:** stop it (Ctrl+T) and
+run `tower check` on its computer - it listens for 10 seconds and says
+which it is: no ender modem, no key, pictures that will not open (the keys
+differ - add it again on the master), the master feeding other centres but
+not this one, a radio that hears traffic but no pictures (the master not
+running, or its chunk not loaded), or nothing at all. Reboot it after. A
+centre added again while the master runs is picked up within 10 seconds
+(it used to need the master rebooted).
 
 Every tower and centre shows the other centres inside its range ring: a
 green cross with the name on the radar, and a `CENTRES` line on the board

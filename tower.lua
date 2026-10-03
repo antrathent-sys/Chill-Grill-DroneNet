@@ -479,7 +479,12 @@ if cmd == "centre" or cmd == "center" then
     print(string.format("master %s %s", cfg.name, cfg.x and string.format("at %d %d %d", cfg.x, cfg.y or 0, cfg.z)
       or "- position not set: tower here <name> <x> <y> <z>"))
     if #list == 0 then print("no display-only centres - tower centre add <NAME> <x> <y> <z>") end
-    for _, c in ipairs(list) do print(string.format("  %-12s %d %d %d", c.name, c.x, c.y, c.z)) end
+    local ck = SEC.readFleetKeys(CKEYS)
+    for _, c in ipairs(list) do
+      print(string.format("  %-12s %d %d %d  %s", c.name, c.x, c.y, c.z,
+        ck[N.centreId(c.name)] and "fed" or "NO KEY - tower centre add it again"))
+    end
+    print("a centre on NO SIGNAL: tower check on its computer says why")
     return
   end
   if sub == "drop" then
@@ -551,9 +556,63 @@ if cmd == "join" then
   return
 end
 
+if cmd == "check" then
+  -- on a centre: listen for 10 seconds and say what is wrong with its signal
+  if not slave then print("tower check is for a centre's computer (on this one: tower centre list)") return end
+  local key = SEC.readKeyFile(ME_KEY)
+  local myId = N.centreId(slave.name)
+  local modem
+  for _, n in ipairs(peripheral.getNames()) do
+    if peripheral.getType(n) == "modem" then
+      local okW, w = pcall(peripheral.call, n, "isWireless")
+      if okW and w then modem = n end
+    end
+  end
+  print(string.format("centre %s - key %s - radio %s", slave.name, key and "present" or "MISSING", modem or "NONE"))
+  if not modem then print("no ender modem: put one on this computer") return end
+  if not key then
+    print(string.format("no key: with this computer in the master's drive, tower centre add %s %d %d %d",
+      slave.name, slave.x, slave.y or 0, slave.z)) return
+  end
+  pcall(peripheral.call, modem, "open", N.CHANNEL)
+  local rxC = SEC.receiver()
+  local mine, bad, why, others, other = 0, 0, nil, {}, 0
+  print("listening for 10 seconds...")
+  local timer = os.startTimer(10)
+  while true do
+    local e, a, ch, _, msg = os.pullEvent()
+    if e == "timer" and a == timer then break end
+    if e == "modem_message" and ch == N.CHANNEL and type(msg) == "table" then
+      if msg.sl and msg.d == SEC.DIR.TOWER_TO_CENTRE then
+        if msg.id == myId then
+          local body, w = rxC.open(msg, function(id) return id == myId and key or nil end, SEC.DIR.TOWER_TO_CENTRE,
+            N.MAX_AGE_MS)
+          if body then mine = mine + 1 else bad, why = bad + 1, w end
+        else others[#others + 1] = tostring(msg.id) end
+      else other = other + 1 end
+    end
+  end
+  if mine > 0 then
+    print(string.format("SIGNAL FINE: %d pictures in 10 s. Still NO SIGNAL on screen? Reboot this computer.", mine))
+  elseif bad > 0 then
+    print(string.format("pictures for %s arrive but will not open (%s): the keys differ.", slave.name, tostring(why)))
+    print("On the master, with this computer in its drive: tower centre add " .. slave.name .. " ... again.")
+  elseif #others > 0 then
+    print("the master is feeding " .. table.concat(others, ", ") .. " - not " .. myId .. ".")
+    print("On the master: tower centre list. Add " .. slave.name .. " if it is missing.")
+  elseif other > 0 then
+    print(string.format("the radio works (%d other messages) but no pictures at all.", other))
+    print("Is the master's tower running? Its chunk must be loaded to send - with nobody at HQ, it is not.")
+  else
+    print("heard nothing at all. Is this an ENDER modem (a plain wireless one reaches ~64 blocks)?")
+    print("Is the master's tower running, with its chunk loaded?")
+  end
+  return
+end
+
 if cmd ~= "run" then
   print("tower [run | register | list | show <reg> | revoke <reg> | log [n] | here <NAME> <x> <y> <z> | range <blocks>")
-  print("       | centre [list | add <NAME> <x> <y> <z> | drop <NAME> | apps | approve <n> | refuse <n>] | join")
+  print("       | centre [list | add <NAME> <x> <y> <z> | drop <NAME> | apps | approve <n> | refuse <n>] | join | check")
   print("       | kiosk [list | add <NAME> | drop <NAME> | open | closed]")
   return
 end
@@ -728,6 +787,14 @@ end
 -- where the centres are, this computer's memory for when and where each unit
 -- was last heard.
 local RUNTIME = { "first", "last", "x", "y", "z", "sid", "sname", "mass" }
+-- A sender made with a key that has since changed - a centre or a kiosk
+-- added again, a unit given a new key - is dropped, or everything to it
+-- would go on being sealed with the old key and refused (2026-10-03: a
+-- centre on NO SIGNAL until the master was rebooted).
+local function prune(cache, keyTable)
+  for id, s in pairs(cache) do if keyTable[id] == nil or keyTable[id] ~= s.madeWith then cache[id] = nil end end
+end
+
 local function sync()
   local fileRecs = loadReg()
   for _, r in ipairs(fileRecs) do
@@ -737,14 +804,14 @@ local function sync()
   if dirty then saveReg(fileRecs) dirty = false end
   adopt(fileRecs)
   keys = loadKeys()
-  for unit in pairs(senders) do if not keys[unit] then senders[unit] = nil end end
+  prune(senders, keys)
   cfg = loadCfg()
   kioskKeys = SEC.readFleetKeys(KKEYS)
   kiosksOpen = fs.exists(KOPEN)
-  for id in pairs(kioskSenders) do if not kioskKeys[id] then kioskSenders[id] = nil end end
+  prune(kioskSenders, kioskKeys)
   centreKeys = SEC.readFleetKeys(CKEYS)
   centreList = loadCentres()
-  for id in pairs(picSenders) do if not centreKeys[id] then picSenders[id] = nil end end
+  prune(picSenders, centreKeys)
   findMonitors()
 end
 
@@ -760,6 +827,7 @@ local function answer(rec, c, m)
   local s = senders[rec.unit]
   if not s then
     s = SEC.sender(keys[rec.unit], rec.unit, SEC.DIR.TOWER_TO_NAV, PONG_CTR)
+    s.madeWith = keys[rec.unit]
     senders[rec.unit] = s
   end
   local env = s.seal(N.pong(traffic, adv, { sos = m.st == "sos", centres = allCentres() }))
@@ -912,6 +980,7 @@ local function hearKiosk(msg)
   local s = kioskSenders[id]
   if not s then
     s = SEC.sender(kioskKeys[id], id, SEC.DIR.TOWER_TO_KIOSK, KIOSK_CTR)
+    s.madeWith = kioskKeys[id]
     kioskSenders[id] = s
   end
   local env = s.seal(a)
@@ -928,6 +997,7 @@ local function feedCentres()
       local s = picSenders[id]
       if not s then
         s = SEC.sender(key, id, SEC.DIR.TOWER_TO_CENTRE, PIC_CTR)
+        s.madeWith = key
         picSenders[id] = s
       end
       local env = s.seal(N.picture(contacts, list, os.clock(), lastEvent))
