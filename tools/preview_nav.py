@@ -110,12 +110,19 @@ function(root, which)
       "Shaft", "Enchanted Book (Mending)", "Enchanted Book (Unbreaking III)", "Potion of Swiftness", "Lapis Lazuli",
       "Emerald", "Netherrack", "Basalt", "Blackstone", "Calcite", "Tuff", "Clay Ball", "Sand", "Gravel", "Flint" }
     local list = {}
-    for i, n in ipairs(names) do list[i] = { key = "k" .. i, label = n, count = math.floor(412345 / (i ^ 1.3)) } end
+    for i, n in ipairs(names) do
+      local d
+      if i % 4 == 0 then d = { ready = true, dir = 0, full = true, perMin = 0 }
+      elseif i % 7 == 0 then d = { ready = true, dir = -1, perMin = -(i * 13.7) }
+      else d = { ready = true, dir = 1, perMin = 4123 / i } end
+      list[i] = { key = "k" .. i, label = n, count = math.floor(412345 / (i ^ 1.3)), d = d }
+    end
     local function st(w, h, label, view, scale)
       add(w, h, label, function(c) SU.render(T, c, view) end)
     end
     st(39, 33, "4x5 portrait, text scale 1", { site = "CHI", list = list, top = 1, at = "12:04" })
-    st(39, 33, "4x5, scrolled down", { site = "CHI", list = list, top = 27, at = "12:04" })
+    st(39, 33, "4x5, sorted by name", { site = "CHI", list = list, top = 1, at = "12:04", sort = "name" })
+    st(39, 33, "4x5, sorted by falling", { site = "CHI", list = list, top = 1, at = "12:04", sort = "falling" })
     st(39, 33, "4x5, one vault unreadable", { site = "CHI", list = list, top = 1, at = "12:05", problems = 1 })
     st(39, 33, "4x5, nothing counted yet", { site = "CHI", list = {} })
   elseif which == "kiosk" then

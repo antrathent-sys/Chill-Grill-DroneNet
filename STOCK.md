@@ -76,10 +76,20 @@ filled. The screen counts the pick at once.
 A monitor on the store's network (4x5 portrait at text scale 1 is 39x33):
 every item the site holds, the most first, numbered, with the count on
 the right; the total and the kinds along the top, and when it was
-counted. UP and DOWN along the bottom scroll a screenful; the page number
-between them goes back to the top, and so does the list by itself two
-minutes after the last touch. It is counted again every 15 seconds, so
-stock coming in shows within that.
+counted. UP and DOWN along the bottom scroll a screenful, and the list
+goes back to the top by itself two minutes after the last touch. It is
+counted again every 15 seconds, so stock coming in shows within that.
+
+**The delta** (`/MIN`): how each item moved over the last five minutes,
+per minute - `+45` rising, `-12` in rust falling. One that has not moved
+at all for the whole five minutes and is not empty reads **FULL**, its
+count green too: its line has stopped, which with Create production means
+its vault is full (or the line is off - it does not measure the vault).
+Deltas show once there is a minute of counts.
+
+**SORT**, between UP and DOWN, goes round a tap at a time: BY COUNT (the
+most first), BY NAME, BY RISING (fastest growing first), BY FALLING
+(fastest drawn down first), and back to the top of the list.
 
 ## On the base
 

@@ -325,7 +325,7 @@ do
   local okU, u = pcall(dofile, "lib/storeui.lua")
   if okD and okT and okU then D, T, UI = d, t, u end
 end
-local screen = { list = {}, top = 1, touched = -1e9, at = nil, problems = 0 }
+local screen = { list = {}, top = 1, touched = -1e9, at = nil, problems = 0, sort = "count" }
 local function draw()
   local cfg = loadCfg()
   local name = cfg.screen
@@ -341,7 +341,7 @@ local function draw()
   local c = screen.canvas
   c:clear()
   local hits, top = UI.render(T, c, { site = site, list = screen.list, top = screen.top, at = screen.at,
-    problems = screen.problems })
+    problems = screen.problems, sort = screen.sort })
   screen.hits, screen.top = hits, top
   c:flush({ setCursorPos = function(x, y) peripheral.call(name, "setCursorPos", x, y) end,
             blit = function(s, f, b) peripheral.call(name, "blit", s, f, b) end })
@@ -362,7 +362,7 @@ local function send(totals)
   return sent, #pages
 end
 
-local lastTotals = {}
+local lastTotals, history = {}, {}
 local function countLoop()
   while true do
     local cfg = loadCfg()
@@ -373,8 +373,10 @@ local function countLoop()
     else
       local totals, problems = countNow(invs, names)
       lastTotals = totals
+      St.remember(history, totals, os.clock())
       local okD, stamp = pcall(textutils.formatTime, os.time(), true)
-      screen.list, screen.problems, screen.at = UI and UI.list(totals, names) or {}, #problems, okD and stamp or nil
+      screen.list = UI and UI.list(totals, names, St.deltas(history, totals, os.clock())) or {}
+      screen.problems, screen.at = #problems, okD and stamp or nil
       if os.clock() - lastSent >= St.EVERY then
         lastSent = os.clock()
         local kinds, items = summary(totals)
@@ -405,7 +407,7 @@ local function touchLoop()
       local rows = screen.canvas and UI.rows(screen.canvas) or 10
       if hit == "up" then screen.top = screen.top - rows
       elseif hit == "down" then screen.top = screen.top + rows
-      elseif hit == "top" then screen.top = 1 end
+      elseif hit == "sort" then screen.sort, screen.top = UI.nextSort(screen.sort), 1 end
       if hit then screen.touched = os.clock() draw() end
     end
   end

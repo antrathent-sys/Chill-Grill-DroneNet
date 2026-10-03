@@ -101,9 +101,18 @@ check("4x5 at text scale 1: the site, the total, kinds, when counted", txt:find(
 check("...ranked rows with the count on the right", txt:find(" 1 ITEM 1 ", 1, true) and txt:find("99,999", 1, true), txt)
 local rows = UI.rows(cv)
 check("...where it is in the list, and the buttons", txt:find("1-" .. rows .. " OF 80", 1, true) and txt:find("UP", 1, true)
-  and txt:find("DOWN", 1, true) and txt:find("1/" .. math.ceil(80 / rows), 1, true), txt)
-check("a touch on DOWN, UP, the page number", UI.hit(hits, 35, 32) == "down" and UI.hit(hits, 3, 32) == "up"
-  and UI.hit(hits, 20, 32) == "top" and UI.hit(hits, 20, 10) == nil)
+  and txt:find("DOWN", 1, true) and txt:find("1/" .. math.ceil(80 / rows), 1, true) and txt:find("BY COUNT", 1, true), txt)
+check("a touch on DOWN, UP, SORT", UI.hit(hits, 35, 32) == "down" and UI.hit(hits, 3, 32) == "up"
+  and UI.hit(hits, 20, 32) == "sort" and UI.hit(hits, 20, 10) == nil)
+check("SORT goes round: count, name, rising, falling, count", UI.nextSort("count") == "name" and UI.nextSort("name") == "rising"
+  and UI.nextSort("rising") == "falling" and UI.nextSort("falling") == "count" and UI.nextSort(nil) == "count")
+local mixed = { { key = "a", label = "Zinc", count = 900, d = { ready = true, perMin = -5 } },
+                { key = "b", label = "Apple", count = 10, d = { ready = true, perMin = 80 } },
+                { key = "c", label = "Coal", count = 500, d = { ready = true, perMin = 2 } } }
+local function order(mode) local t = {} for i, e in ipairs(UI.sorted(mixed, mode)) do t[i] = e.label end return table.concat(t, ",") end
+check("...by name, by rising, by falling", order("name") == "Apple,Coal,Zinc" and order("rising") == "Apple,Coal,Zinc"
+  and order("falling") == "Zinc,Coal,Apple" and order("count") == "Zinc,Apple,Coal", order("name") .. " " .. order("falling"))
+check("...and the button says which", shot(39, 33, { site = "CHI", list = long, sort = "falling" }):find("BY FALLING", 1, true))
 local endTxt, _, endTop = shot(39, 33, { site = "CHI", list = long, top = 999 })
 check("scrolled past the end: held on the last screenful, the last page", endTop == 80 - rows + 1
   and endTxt:find("ITEM 80", 1, true) and endTxt:find(math.ceil(80 / rows) .. "/" .. math.ceil(80 / rows), 1, true), endTop)
@@ -180,6 +189,19 @@ check("the stock list on its screen, the most first", (seenScreen.first or ""):f
 check("...and a vault cabled in later counted with no setup: coal now first", (seenScreen.later or ""):find("1 COAL", 1, true)
   and (seenScreen.later or ""):find("509", 1, true), seenScreen.later)
 
+local tw = storeWorld()
+local sortSeen = {}
+tw.at(16, { "monitor_touch", "monitor_0", 20, 32 })
+tw.at(17, function(world) local t = {} for y = 1, 33 do t[y] = world.rows[y] or "" end sortSeen.after = table.concat(t, "\n") return { "noop" } end)
+tw = tw:run("store.lua", {}, 18)
+check("a tap on SORT re-sorts the screen: by name, coal before stone", (sortSeen.after or ""):find("BY NAME", 1, true)
+  and (sortSeen.after or ""):find("1 COAL", 1, true) and (sortSeen.after or ""):find("2 STONE", 1, true), tw.err or sortSeen.after)
+local quiet = storeWorld()
+quiet = quiet:run("store.lua", {}, 330)
+local qs = {}
+for y = 1, 33 do qs[y] = quiet.rows[y] or "" end
+check("the running store: five quiet minutes and stone reads FULL", table.concat(qs, "\n"):find("104   FULL", 1, true),
+  quiet.err or table.concat(qs, "\n"))
 local cw = storeWorld("stock=create:item_vault_0\n")
 cw = cw:run("store.lua", { "count" }, 5)
 check("store count: what is there, nothing sent", cw.text:find("73 items, 2 kinds", 1, true) and #cw.sent == 0, cw.err or cw.text)
@@ -200,6 +222,42 @@ check("store setup: a word is a rule (vaults now and later), the output and the 
   (setupW.files["store.cfg"] or ""):find("match=vault", 1, true) and (setupW.files["store.cfg"] or ""):find("screen=monitor_3", 1, true)
   and (setupW.files["store.cfg"] or ""):find("out=minecraft:chest_0", 1, true)
   and setupW.text:find("1 inventories are stock", 1, true), setupW.err or setupW.text)
+
+print("deltas")
+do
+  local h = {}
+  St.remember(h, { a = { count = 100 }, b = { count = 50 }, c = { count = 10 } }, 0)
+  local d0 = St.deltas(h, { a = { count = 100 } }, 30)
+  check("no delta until there is a minute of counts", d0.a.ready == false)
+  for t = 15, 300, 15 do
+    St.remember(h, { a = { count = 100 + t }, b = { count = 50 }, c = { count = math.max(0, 10 - t) } }, t)
+  end
+  local now = { a = { count = 400 }, b = { count = 50 } }
+  local d = St.deltas(h, now, 300)
+  check("rising: so many a minute", d.a.ready and d.a.dir == 1 and math.abs(d.a.perMin - 60) < 0.01, d.a.perMin)
+  check("not moved for five minutes and not empty: FULL", d.b.full == true and d.b.dir == 0)
+  local early = St.deltas({ { t = 0, counts = { b = 50 } } }, { b = { count = 50 } }, 120)
+  check("...but not before the five minutes are up", early.b.ready and early.b.full == false and early.b.dir == 0)
+  check("the history keeps one count at least five minutes old, no more", #h <= 22 and 300 - h[1].t >= St.DELTA_SECS
+    and 300 - h[2].t < St.DELTA_SECS, #h)
+  check("rates in a few characters", UI.rate(45.4) == "+45" and UI.rate(-1234) == "-1.2K" and UI.rate(0.4) == "+0.4"
+    and UI.rate(23456) == "+23K")
+  local dl = { { key = "s", label = "Stone", count = 5000, d = { ready = true, dir = 0, full = true, perMin = 0 } },
+               { key = "c", label = "Coal", count = 300, d = { ready = true, dir = -1, perMin = -12 } },
+               { key = "i", label = "Iron", count = 200, d = { ready = true, dir = 1, perMin = 45 } } }
+  local c = D.canvas(39, 33)
+  UI.render(T, c, { site = "CHI", list = dl, top = 1 })
+  local inks = {}
+  for y = 4, 6 do
+    local s2, f2 = c:row(y)
+    inks[#inks + 1] = { s2, f2 }
+  end
+  local function inkOf(row, word) local at = row[1]:find(word, 1, true) return at and row[2]:sub(at, at) end
+  check("FULL in green, its count too", inkOf(inks[1], "FULL") == T.C.ok and inkOf(inks[1], "5,000") == T.C.ok,
+    inks[1][1])
+  check("falling in rust, rising plain", inkOf(inks[2], "-12") == T.C.warn and inkOf(inks[3], "+45") == T.C.text,
+    inks[2][1] .. " / " .. inks[3][1])
+end
 
 print("picking")
 local tf = { ["minecraft:stone"] = { count = 500 }, ["minecraft:stone_bricks"] = { count = 40 },

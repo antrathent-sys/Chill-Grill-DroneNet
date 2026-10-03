@@ -218,6 +218,46 @@ function St.load(text)
   return st
 end
 
+-- ------------------------------------------------------------------ deltas --
+-- How each item is moving (Alex, 2026-10-03: "a delta too ... ones which
+-- don't move and are greater than 0 show full or green"). The store keeps
+-- its counts for St.DELTA_SECS; an item's change over that, per minute, is
+-- its delta, shown once there is a minute of counts. One that has not moved
+-- at all for the whole window and is not empty is FULL - its line has
+-- stopped, which with Create production means its vault is full (or it is
+-- switched off).
+St.DELTA_SECS = 300
+St.DELTA_MIN = 60
+
+--- Add a count to the history: { { t, counts } }, oldest first, keeping one
+-- count at least St.DELTA_SECS old to measure from.
+function St.remember(h, totals, now)
+  local counts = {}
+  for k, t in pairs(totals or {}) do counts[k] = t.count end
+  h[#h + 1] = { t = now, counts = counts }
+  while #h > 2 and now - h[2].t >= St.DELTA_SECS do table.remove(h, 1) end
+  return h
+end
+
+--- Each item's movement: key -> { perMin, dir (-1, 0, 1), full, ready }.
+function St.deltas(h, totals, now)
+  local out = {}
+  local base = h and h[1]
+  local span = base and (now - base.t) or 0
+  local ready = span >= St.DELTA_MIN
+  for k, t in pairs(totals or {}) do
+    if not ready then
+      out[k] = { ready = false }
+    else
+      local before = base.counts[k] or 0
+      local change = t.count - before
+      out[k] = { ready = true, perMin = change / span * 60, dir = change > 0 and 1 or (change < 0 and -1 or 0),
+                 full = change == 0 and t.count > 0 and span >= St.DELTA_SECS }
+    end
+  end
+  return out
+end
+
 -- ------------------------------------------------------------------ picking --
 -- Moving stock out: into the site's output (Alex, 2026-10-03: a barrel on
 -- the network, for now; a dock's intake later). One pushItems a slot, many
