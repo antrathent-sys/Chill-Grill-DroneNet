@@ -56,6 +56,93 @@ local floor, sqrt, abs = math.floor, math.sqrt, math.abs
 local function num(v) return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge end
 local function round(v, d) local m = 10 ^ (d or 0) return floor(v * m + 0.5) / m end
 
+-- ---------------------------------------------------------------- attitude --
+-- Pitch and roll from Sable's own orientation of the craft (Alex,
+-- 2026-10-03: "a proper pitch roll readout"; no extra part in the kit). The
+-- orientation is CC: Advanced Math's quaternion object - the scalar in .a and
+-- the vector in .v.x/.v.y/.v.z - so reading .x/.w off it gives nothing, which
+-- is why the 2026-09-10 probes saw 0,0,0,0. It turns the craft as it was
+-- built into the world: identity is level, as assembled.
+
+--- The orientation as a unit quaternion { x, y, z, w }, from the Advanced
+-- Math object or a plain table; nil when it is not a rotation.
+function N.quat(o)
+  if type(o) ~= "table" then return nil end
+  local x, y, z, w
+  if type(o.v) == "table" and num(o.a) then x, y, z, w = o.v.x, o.v.y, o.v.z, o.a
+  else x, y, z, w = o.x, o.y, o.z, o.w end
+  if not (num(x) and num(y) and num(z) and num(w)) then return nil end
+  local n = sqrt(x * x + y * y + z * z + w * w)
+  if n < 0.5 then return nil end
+  return { x = x / n, y = y / n, z = z / n, w = w / n }
+end
+
+-- v turned by q (craft to world); with inv, world to craft
+local function turn(q, v, inv)
+  local qx, qy, qz, w = q.x, q.y, q.z, q.w
+  if inv then qx, qy, qz = -qx, -qy, -qz end
+  local tx, ty, tz = 2 * (qy * v[3] - qz * v[2]), 2 * (qz * v[1] - qx * v[3]), 2 * (qx * v[2] - qy * v[1])
+  return { v[1] + w * tx + (qy * tz - qz * ty), v[2] + w * ty + (qz * tx - qx * tz), v[3] + w * tz + (qx * ty - qy * tx) }
+end
+N.turn = turn
+
+-- Which way the craft's nose points in its own build: one of four, since
+-- craft are built on the block grid. Not known until it has moved (below).
+N.NOSES = { ["-z"] = { 0, 0, -1 }, ["+z"] = { 0, 0, 1 }, ["+x"] = { 1, 0, 0 }, ["-x"] = { -1, 0, 0 } }
+
+--- Pitch (nose up +) and roll (right wing down +) in degrees.
+function N.attitude(q, nose)
+  local nb = q and N.NOSES[nose or ""]
+  if not nb then return nil end
+  local rb = { -nb[3], 0, nb[1] }                    -- the right wing: nose x up
+  local n, u, r = turn(q, nb), turn(q, { 0, 1, 0 }), turn(q, rb)
+  local pitch = math.deg(math.asin(math.max(-1, math.min(1, n[2]))))
+  local roll = math.deg(math.atan2(-r[2], u[2]))
+  return pitch, roll
+end
+
+-- The nose, learned from where the craft goes: its velocity turned into the
+-- craft's own frame lies along the nose whenever it moves forward. Each
+-- clear sample is a vote; the leader wins once it has N.NOSE_MIN votes and
+-- most of them, and old votes fade so a craft re-learns if it was wrong.
+N.NOSE_SPEED = 4           -- b/s across the ground, in the craft's own frame
+N.NOSE_MIN = 20
+N.NOSE_SHARE = 0.7
+N.NOSE_CAP = 300
+
+--- One sample into st = { votes = {}, total = 0, nose = nil }. Returns the
+-- nose as it now stands (nil while it is still learning).
+function N.noseVote(st, q, vel)
+  if not (q and type(vel) == "table" and num(vel.x) and num(vel.y) and num(vel.z)) then return st.nose end
+  local b = turn(q, { vel.x, vel.y, vel.z }, true)
+  local h = sqrt(b[1] * b[1] + b[3] * b[3])
+  if h < N.NOSE_SPEED then return st.nose end
+  local axis
+  if abs(b[1]) >= 0.8 * h then axis = b[1] > 0 and "+x" or "-x"
+  elseif abs(b[3]) >= 0.8 * h then axis = b[3] > 0 and "+z" or "-z"
+  else return st.nose end
+  st.votes[axis] = (st.votes[axis] or 0) + 1
+  st.total = st.total + 1
+  if st.total > N.NOSE_CAP then
+    st.total = 0
+    for k, n in pairs(st.votes) do st.votes[k] = n / 2 st.total = st.total + n / 2 end
+  end
+  local best, bestN = nil, 0
+  for k, n in pairs(st.votes) do if n > bestN then best, bestN = k, n end end
+  if best and bestN >= N.NOSE_MIN and bestN >= N.NOSE_SHARE * st.total then st.nose = best end
+  return st.nose
+end
+
+--- A learning state, started from a remembered nose (it keeps it unless the
+-- craft clearly goes another way).
+function N.noseState(saved)
+  local st = { votes = {}, total = 0, nose = nil }
+  if N.NOSES[saved or ""] then
+    st.nose, st.votes[saved], st.total = saved, 2 * N.NOSE_MIN, 2 * N.NOSE_MIN
+  end
+  return st
+end
+
 -- ---------------------------------------------------------------- reading --
 
 --- Compass heading of a world-frame horizontal vector: 0 north (-z), 90 east.
@@ -608,7 +695,8 @@ N.ROLE = "nav"
 -- is any role but nav.
 N.DEV_MARKERS = { ".ghtoken", ".fleetkeys", ".dronekey", ".custkeys", ".navkeys", ".adminkey", ".watchkey",
                   ".centrekey", ".centrekeys", ".navdeskkey", ".kioskkeys" }
-N.KEEP = { [".navkey"] = true, [".navkey.ctr"] = true, [".nav"] = true, [".navpages"] = true, [".navtaught"] = true }
+N.KEEP = { [".navkey"] = true, [".navkey.ctr"] = true, [".nav"] = true, [".navpages"] = true, [".navtaught"] = true,
+           [".navnose"] = true }
 
 local function join(a, b) return (a == "" or a == nil) and b or (a .. "/" .. b) end
 local function readAll(fsys, path)

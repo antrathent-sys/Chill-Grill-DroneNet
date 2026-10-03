@@ -21,6 +21,26 @@
 --                    a stationary sample cannot tell us what frame the pose is
 --                    in, nor whether the quaternion populates under motion.
 
+-- CC: Advanced Math hands the orientation over as a quaternion OBJECT - the
+-- scalar in .a, the vector in .v - so reading .x/.w off it gives nothing.
+-- That is why every probe up to 2026-10-03 printed 0,0,0,0 ("dead"); it
+-- never was. Flattened here so the rest of this file reads x, y, z, w.
+if sublevel then
+  local real = sublevel
+  local function flat(fn)
+    return function(...)
+      local p = fn(...)
+      local o = type(p) == "table" and p.orientation
+      if type(o) == "table" and type(o.v) == "table" then
+        p.orientation = { x = o.v.x, y = o.v.y, z = o.v.z, w = o.a }
+      end
+      return p
+    end
+  end
+  sublevel = setmetatable({ getLogicalPose = flat(real.getLogicalPose), getLastPose = flat(real.getLastPose) },
+    { __index = real })
+end
+
 local WATCH = arg[1] == "watch"
 local SAVE  = arg[1] == "save"
 local LABEL = SAVE and arg[2] and arg[2]:gsub("[^%w_%-]", "") or nil

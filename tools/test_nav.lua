@@ -422,22 +422,24 @@ check("a submarine shows depth", subTxt:find("DEPTH", 1, true) and not subTxt:fi
 local boatTxt = shot(36, 10, view("sea"))
 check("a boat shows heading big and its position", boatTxt:find("HDG", 1, true) and boatTxt:find("POS 812 -3300", 1, true), boatTxt)
 print("pages")
-check("an aircraft's block cycles speed, the altimeter, heading, radar, status", table.concat(UI.pages("air", 15), ",")
-  == "speed,altimeter,heading,radar,status")
+check("an aircraft's block cycles speed, attitude, the altimeter, heading, radar, status",
+  table.concat(UI.pages("air", 15), ",") == "speed,attitude,altimeter,heading,radar,status")
 check("each kind has its own gauge", UI.pages("land", 15)[1] == "speedo" and UI.pages("sub", 15)[2] == "depth"
-  and UI.pages("sea", 15)[2] == "compass")
-check("a wide one starts on the overview", UI.pages("air", 36)[1] == "overview" and #UI.pages("air", 36) == 6)
-check("a boat has no height page", table.concat(UI.pages("sea", 15), ",") == "speed,compass,radar,status")
-check("a land vehicle puts heading before height", UI.pages("land", 15)[2] == "heading")
-check("the next page, and round again", UI.nextPage("air", 15, "speed") == "altimeter"
+  and UI.pages("sea", 15)[3] == "compass")
+check("every kind has its pitch and roll", UI.pages("land", 15)[2] == "attitude" and UI.pages("sea", 15)[2] == "attitude"
+  and UI.pages("sub", 15)[3] == "attitude")
+check("a wide one starts on the overview", UI.pages("air", 36)[1] == "overview" and #UI.pages("air", 36) == 7)
+check("a boat has no height page", table.concat(UI.pages("sea", 15), ",") == "speed,attitude,compass,radar,status")
+check("a land vehicle puts heading before height", UI.pages("land", 15)[3] == "heading")
+check("the next page, and round again", UI.nextPage("air", 15, "speed") == "attitude"
   and UI.nextPage("air", 15, "status") == "speed" and UI.nextPage("air", 15, "nonsense") == "speed")
 local sp = shot(15, 10, view("air"), "speed")
 check("speed: the title, which page of how many, B/S, heading under it, the key", sp:find("SPEED", 1, true)
-  and sp:find("1/5", 1, true) and sp:find("B/S", 1, true) and sp:find("HDG 037", 1, true)
+  and sp:find("1/6", 1, true) and sp:find("B/S", 1, true) and sp:find("HDG 037", 1, true)
   and sp:find("TOWER", 1, true) and sp:find("SOS", 1, true), sp)
 local ht = shot(15, 10, view("air"), "altimeter")
 check("the altimeter: a dial, Y in figures in it, the climb under it", ht:find("ALTIMETER", 1, true)
-  and ht:find("2/5", 1, true) and ht:find("147", 1, true) and ht:find("V/S +1.5", 1, true), ht)
+  and ht:find("3/6", 1, true) and ht:find("147", 1, true) and ht:find("V/S +1.5", 1, true), ht)
 local dp = shot(15, 10, view("sub"), "depth")
 check("a submarine's depth gauge, with the depth in figures", dp:find("DEPTH", 1, true)
   and dp:find(tostring(N.SEA_LEVEL - 147 > 0 and (N.SEA_LEVEL - 147) or "SURF"), 1, true), dp)
@@ -529,7 +531,85 @@ end
 local untouched = shotOpts(15, 10, view("air"), "speed", { hint = true })
 check("a screen never touched says TAP (TOUCH when wide) where its page number goes", untouched:find("TAP", 1, true)
   and not untouched:find("1/5", 1, true), untouched)
-check("once touched, the page number", shotOpts(15, 10, view("air"), "speed", {}):find("1/5", 1, true))
+check("once touched, the page number", shotOpts(15, 10, view("air"), "speed", {}):find("1/6", 1, true))
+
+print("attitude")
+local function qAxis(ax, ay, az, deg)
+  local h = math.rad(deg) / 2
+  return { x = ax * math.sin(h), y = ay * math.sin(h), z = az * math.sin(h), w = math.cos(h) }
+end
+check("Sable's orientation is an Advanced Math object: .a and .v", N.quat({ a = 1, v = { x = 0, y = 0, z = 0 } }).w == 1
+  and N.quat({ x = 0, y = 0, z = 0, w = 2 }).w == 1 and N.quat({ x = 0, y = 0, z = 0, w = 0 }) == nil
+  and N.quat(nil) == nil and N.quat({ a = 0 / 0, v = { x = 0, y = 0, z = 0 } }) == nil)
+local function near(a, b) return a and abs(a - b) < 0.01 end
+local p0, r0 = N.attitude(qAxis(0, 1, 0, 0), "-z")
+check("level as built: pitch 0, roll 0", near(p0, 0) and near(r0, 0), tostring(p0) .. " " .. tostring(r0))
+local p1, r1 = N.attitude(qAxis(1, 0, 0, 20), "-z")
+check("nose -z turned 20 about x: pitch up 20", near(p1, 20) and near(r1, 0), tostring(p1) .. " " .. tostring(r1))
+local p2, r2 = N.attitude(qAxis(0, 0, 1, -30), "-z")
+check("...30 about z the other way: right wing down 30", near(p2, 0) and near(r2, 30), tostring(p2) .. " " .. tostring(r2))
+local p3, r3 = N.attitude(qAxis(0, 0, 1, -30), "+x")
+check("the same turn on a craft built nose east: pitch 30 down, no roll", near(p3, -30) and near(r3, 0),
+  tostring(p3) .. " " .. tostring(r3))
+local yawed = qAxis(0, 1, 0, 90)
+local p4, r4 = N.attitude(yawed, "-z")
+check("yaw alone is neither pitch nor roll", near(p4, 0) and near(r4, 0))
+local _, r5 = N.attitude(qAxis(0, 0, 1, 180), "-z")
+check("upside down: roll 180", near(abs(r5), 180), r5)
+check("no nose, no attitude", N.attitude(yawed, nil) == nil)
+
+local st = N.noseState(nil)
+for _ = 1, 19 do N.noseVote(st, qAxis(0, 1, 0, 0), { x = 0, y = 0, z = -10 }) end
+check("still learning after 19 samples forward", st.nose == nil)
+N.noseVote(st, qAxis(0, 1, 0, 0), { x = 0, y = 0, z = -10 })
+check("20 samples going -z: the nose is -z", st.nose == "-z", st.nose)
+local st2 = N.noseState(nil)
+for _ = 1, 25 do N.noseVote(st2, yawed, { x = -10, y = 0, z = 0 }) end
+check("turned 90 and going west: still the craft's own -z", st2.nose == "-z", st2.nose)
+local st3 = N.noseState(nil)
+for _ = 1, 40 do N.noseVote(st3, qAxis(0, 1, 0, 0), { x = 1, y = -20, z = 1 }) end
+for _ = 1, 40 do N.noseVote(st3, qAxis(0, 1, 0, 0), { x = 7, y = 0, z = 7 }) end
+check("straight down or diagonal: no vote", st3.nose == nil and st3.total == 0)
+local st4 = N.noseState("+x")
+for _ = 1, 10 do N.noseVote(st4, qAxis(0, 1, 0, 0), { x = 0, y = 0, z = -10 }) end
+check("a remembered nose holds against a little reversing", st4.nose == "+x")
+for _ = 1, 200 do N.noseVote(st4, qAxis(0, 1, 0, 0), { x = 0, y = 0, z = -10 }) end
+check("...but a craft that clearly goes another way relearns", st4.nose == "-z", st4.nose)
+
+local function attView(kind, pitch, roll, extra)
+  local v = view(kind, extra)
+  v.att, v.r.pitch, v.r.roll = "ok", pitch, roll
+  return v
+end
+local function skyRows(cv, x)
+  local out = {}
+  for y = 2, cv.h - 2 do
+    local _, _, b = cv:row(y)
+    out[#out + 1] = b:sub(x, x)
+  end
+  return table.concat(out)
+end
+local at, _, atc = shot(36, 24, attView("air", 0, 0), "attitude")
+check("the horizon: the title, the figures under it", at:find("ATTITUDE", 1, true)
+  and at:find("PITCH +0  ROLL 0", 1, true), at)
+local col = skyRows(atc, 3)
+check("...level: sky above, ground below, split in the middle", col:sub(1, 8) == string.rep(T.C.panel, 8)
+  and col:sub(-8) == string.rep(T.C.ground, 8), col)
+local _, _, up = shot(36, 24, attView("air", 15, 0), "attitude")
+local colUp = skyRows(up, 3)
+local function skyCount(s) local n = 0 for ch in s:gmatch(".") do if ch == T.C.panel then n = n + 1 end end return n end
+check("...nose up: more sky", skyCount(colUp) > skyCount(col), colUp)
+local _, _, rb = shot(36, 24, attView("air", 0, 30), "attitude")
+check("...right wing down: the ground comes up on the right", skyCount(skyRows(rb, 34)) < skyCount(skyRows(rb, 3)))
+local steep = shot(36, 24, attView("air", 5, -65), "attitude")
+check("past 60 degrees of bank: it says so", steep:find("BANK ANGLE", 1, true) and steep:find("ROLL 65L", 1, true), steep)
+check("a boat calls it heel and trim and minds a list", shot(36, 24, attView("sea", 0, 16), "attitude")
+  :find("LIST", 1, true))
+check("on a single block: the short figures", shot(15, 10, attView("air", -3, 12), "attitude"):find("P-3 R12R", 1, true))
+local learn = shot(36, 10, view("air", { att = "learning" }), "attitude")
+check("not knowing the nose yet: says to move ahead", learn:find("LEARNING WHICH WAY IS FORWARD", 1, true)
+  and learn:find("MOVE AHEAD", 1, true), learn)
+check("no orientation at all: says so", shot(15, 10, view("air", { att = "none" }), "attitude"):find("NO ATTITUDE", 1, true))
 
 
 print("centres")

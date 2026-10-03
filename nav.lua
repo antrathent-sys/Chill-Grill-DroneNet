@@ -153,6 +153,9 @@ end
 local craft = nil            -- Sable's id, name and mass for the vehicle, read now and then
 local craftAt = -1e9
 local gpsPrev = nil
+-- which way is forward on this craft, learned as it moves (lib/nav.lua)
+local NOSE_FILE = ".navnose"
+local nose = N.noseState(((readAll(NOSE_FILE) or ""):match("[%+%-][xz]")))
 
 local function sense()
   local pose, vel
@@ -172,10 +175,22 @@ local function sense()
         function() local ok, r = pcall(sublevel.getMass) if ok then c.mass = r end end)
       craft = c
     end
-    return N.reading(pose.position, type(vel) == "table" and vel or nil, view.r)
+    local r = N.reading(pose.position, type(vel) == "table" and vel or nil, view.r)
+    -- pitch and roll: from Sable's orientation, once the nose is known
+    local q = N.quat(pose.orientation)
+    local was = nose.nose
+    local nz = N.noseVote(nose, q, vel)
+    if nz and nz ~= was then
+      local h = fs.open(NOSE_FILE, "w")
+      if h then h.write(nz .. "\n") h.close() end
+    end
+    if q and nz then r.pitch, r.roll = N.attitude(q, nz) end
+    view.att = not q and "none" or nz and "ok" or "learning"
+    return r
   end
   -- not on a vehicle: GPS, if the server has one, with its velocity differenced
   view.craft = false
+  view.att = "none"
   if gps and gps.locate then
     local x, y, z = gps.locate(0.5)
     if x then

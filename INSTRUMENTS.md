@@ -1,8 +1,15 @@
 # CINDER NAV instruments - proposal (2026-10-03)
 
 Alex: "a proper pitch roll readout for flight units ... what avionics units
-for each of the vehicle types would need". Nothing here is built yet. The
-open decisions are at the bottom.
+for each of the vehicle types would need".
+
+**Decided, 2026-10-03.** Sable's orientation works. Alex tested it level and
+got `1 + 0i + 0j + 0k`; the old "dead" reading was the probe looking for x/y/z/w
+on what is an Advanced Math quaternion object. "We are not adding complexity
+to the kit": no gimbal sensor and no optical sensor. **Built:** the attitude
+page for every kind (AVIONICS.md, pages table), with the nose learned from
+motion. Everything below that needs a sensor (height above ground, depth
+under the keel, sonar, PULL UP) is parked unless the kit decision changes.
 
 ## What real vehicles carry
 

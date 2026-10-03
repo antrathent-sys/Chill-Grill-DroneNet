@@ -7,7 +7,7 @@ The unit (lib/navui.lua): every page on a one-block screen (15x10 at text
 scale 0.5) - speed, height, heading, radar, status - then the overview on a
 2x1 strip and a 2x2 panel, and the states that matter (an advisory, no tower,
 distress, unregistered), each kind's gauge, and the boot screen startup draws.
-With --kiosk, the registration kiosk's screens (lib/kioskui.lua). With --tower, the tower's own screens
+With --attitude, the horizon page at several sizes and attitudes. With --kiosk, the registration kiosk's screens (lib/kioskui.lua). With --tower, the tower's own screens
 (lib/towerui.lua): the radar on a 3x3 monitor (57x38) and the board. Drawn
 with lib/tui.lua's palette through tools/ccfont.py, the renderer checked
 against in-game screenshots. Needs lupa and Pillow.
@@ -79,6 +79,27 @@ function(root, which)
     page(36, 24, air({ noRadio = true }), "speed", "2x2 set up: no ender modem")
     add(15, 10, "1x1 never touched", function(c) UI.render(T, c, air(), "altimeter", { hint = true }) end)
     add(51, 19, "boot, on the computer itself", function(c) UI.boot(T, c, { frac = 0.6, ver = "f6affcc" }) end)
+  elseif which == "attitude" then
+    local function att(kind, pitch, roll, extra)
+      local r = N.reading({ x = 812, y = 214, z = -3300 }, { x = 52, y = 2.4, z = -61 })
+      r.pitch, r.roll = pitch, roll
+      local view = { me = { reg = "CR-0001", call = "FALCON", kind = kind }, r = r, link = "contact", craft = true,
+                     att = "ok", traffic = {} }
+      for k, x in pairs(extra or {}) do view[k] = x end
+      return view
+    end
+    local function page(w, h, view, label) add(w, h, label, function(c) UI.render(T, c, view, "attitude") end) end
+    page(15, 10, att("air", 0, 0), "1x1 level")
+    page(15, 10, att("air", 8, 20), "1x1 climbing right turn")
+    page(36, 24, att("air", 0, 0), "2x2 level")
+    page(36, 24, att("air", 8, 20), "2x2 climbing, 20 right")
+    page(36, 24, att("air", -12, -35), "2x2 descending, 35 left")
+    page(36, 24, att("air", 4, 65), "2x2 bank angle")
+    page(57, 38, att("air", 6, -15), "3x3 6 up, 15 left")
+    page(36, 24, att("land", 9, 12), "2x2 land incline")
+    page(36, 24, att("sea", 2, -17), "2x2 sea list")
+    page(36, 24, att("sub", -22, 4), "2x2 sub diving")
+    page(36, 10, att("air", 0, 0, { att = "learning" }), "2x1 learning forward")
   elseif which == "kiosk" then
     local K = dofile(root .. "/lib/kioskui.lua")
     local function k(label, view, w, h) add(w or 57, h or 24, label, function(c) K.render(T, c, view) end) end
@@ -159,6 +180,11 @@ def main():
         i = args.index("--kiosk")
         out = args[i + 1] if i + 1 < len(args) else os.path.join(HERE, "nav_kiosk.png")
         sheet(LuaRuntime(unpack_returned_tuples=True, encoding=None), "kiosk", out, 2)
+        return
+    if "--attitude" in args:
+        i = args.index("--attitude")
+        out = args[i + 1] if i + 1 < len(args) else os.path.join(HERE, "nav_attitude.png")
+        sheet(LuaRuntime(unpack_returned_tuples=True, encoding=None), "attitude", out, 3)
         return
     if "--tower" in args:
         i = args.index("--tower")

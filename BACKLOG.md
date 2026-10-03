@@ -197,9 +197,14 @@ orders both ways. A depot program exists and drives a real two-sided dock. The
 customer side exists end to end: passes, kiosk, places, queue, fares, ledger.
 Landing accuracy is 0.6 blocks median and docking takes one capture.
 
-Still true from the old Plumbing note: the `HDG_*` motion-heading estimator and
-the gimbal sensor cannot be retired while Sable's orientation quaternion reads
-null, because that was the only other source of yaw.
+**Correction, 2026-10-03: the Sable quaternion was never dead.** CC: Advanced
+Math hands it over as a quaternion object (scalar `.a`, vector `.v.x/.v.y/.v.z`),
+and probe.lua read `.x/.y/.z/.w`, which are nil on that object, so it printed
+zeros. Alex, on a level craft: `1 + 3.9e-07i + 7.1e-12j + 6.7e-07k`. CINDER NAV
+now takes pitch and roll from it (`N.quat`, `N.attitude`), and probe.lua
+flattens it. The `HDG_*` estimator and the gimbal sensor in fly.lua COULD now
+go - yaw is right there - but that is a flight-control change: one per test
+flight, its own task.
 
 ---
 

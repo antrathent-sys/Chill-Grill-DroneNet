@@ -56,11 +56,13 @@ local RANGE = 1000            -- the radar's ring, as far as a pong's traffic re
 -- Each kind's own gauge in place of the plain figures (2026-10-02): an
 -- aircraft's altimeter, a land vehicle's speedometer, a vessel's compass, a
 -- submarine's depth gauge.
+-- And every kind its pitch and roll (2026-10-03): the same horizon, called
+-- what that kind calls it (M.ATT).
 M.PAGES = {
-  air  = { "speed", "altimeter", "heading", "radar", "status" },
-  land = { "speedo", "heading", "height", "radar", "status" },
-  sea  = { "speed", "compass", "radar", "status" },
-  sub  = { "speed", "depth", "heading", "radar", "status" },
+  air  = { "speed", "attitude", "altimeter", "heading", "radar", "status" },
+  land = { "speedo", "attitude", "heading", "height", "radar", "status" },
+  sea  = { "speed", "attitude", "compass", "radar", "status" },
+  sub  = { "speed", "depth", "attitude", "heading", "radar", "status" },
 }
 
 --- The pages a screen cycles through: a wide one starts on the overview.
@@ -474,6 +476,117 @@ local function compassPage(T, c, view, idx, n)
   advBand(T, c, view)
 end
 
+-- Attitude: an artificial horizon. The craft is the fixed mark in the
+-- middle; the sky (grey) and the ground (black) tilt with the roll and slide
+-- with the pitch, a line every 10 degrees, the bank scale round the top with
+-- a pointer that leans with the horizon, and the figures under it. Past the
+-- kind's limits the figures turn rust and say why.
+M.ATT = {
+  air  = { title = "ATTITUDE", roll = 60, pitch = 30, warn = "BANK ANGLE" },
+  land = { title = "INCLINE",  roll = 30, pitch = 30, warn = "TIP RISK" },
+  sea  = { title = "HEEL TRIM", roll = 15, pitch = 15, warn = "LIST" },
+  sub  = { title = "ANGLE",    roll = 20, pitch = 30, warn = "STEEP" },
+}
+M.ATT_SPAN = 25            -- degrees of pitch from the middle to the top edge
+
+local function signed(v) return (v >= 0 and "+" or "-") .. tostring(floor(abs(v) + 0.5)) end
+local function rollWord(v)
+  local d = floor(abs(v) + 0.5)
+  return d == 0 and "0" or (tostring(d) .. (v > 0 and "R" or "L"))
+end
+
+--- The figures under the horizon, and whether they are past the limits.
+function M.attWords(kind, pitch, roll, w)
+  local a = M.ATT[kind] or M.ATT.air
+  local over = abs(roll) >= a.roll or abs(pitch) >= a.pitch
+  local s = w >= 30 and string.format("PITCH %s  ROLL %s", signed(pitch), rollWord(roll))
+    or string.format("P%s R%s", signed(pitch), rollWord(roll))
+  if over and #s + #a.warn + 2 <= w - 2 then s = a.warn .. "  " .. s end
+  return s, over
+end
+
+local function attitudePage(T, c, view, idx, n)
+  local kind = view.me.kind
+  local a = M.ATT[kind] or M.ATT.air
+  T.band(c, 1, a.title, tag(idx, n, c), T.C.text, T.C.faint)
+  local top, bot = 2, c.h - 2
+  local r = view.r or {}
+  local pitch, roll = r.pitch, r.roll
+  if view.att ~= "ok" or not (pitch and roll) then
+    local mid = floor((top + bot) / 2)
+    if view.att == "learning" then
+      center(c, mid - 1, c.w >= 30 and "LEARNING WHICH WAY IS FORWARD" or "LEARNING", T.C.text)
+      center(c, mid + 1, c.w >= 30 and "MOVE AHEAD FOR A FEW SECONDS" or "MOVE AHEAD", T.C.faint)
+    else
+      center(c, mid, view.craft and "NO ATTITUDE" or "NO CRAFT", T.C.faint)
+    end
+    advBand(T, c, view)
+    return
+  end
+  local py0, py1 = (top - 1) * 3 + 1, bot * 3
+  local cx, cy = c.w + 0.5, (py0 + py1) / 2
+  local K = (py1 - py0) / 2 / M.ATT_SPAN
+  local sr, cr = math.sin(math.rad(roll)), math.cos(math.rad(roll))
+  local off = K * pitch
+  -- ground where a pixel lies beyond the horizon: a whole cell takes its
+  -- colour as background, a cell the horizon crosses gets ground pixels
+  local skyCell = {}
+  for y = top, bot do
+    for x = 1, c.w do
+      local g, k = 0, {}
+      for sy = 0, 2 do
+        for sx = 1, 2 do
+          local px, py = (x - 1) * 2 + sx, (y - 1) * 3 + sy + 1
+          local ground = (px - cx) * sr + (py - cy) * cr - off > 0
+          k[#k + 1] = ground and { px, py } or false
+          if ground then g = g + 1 end
+        end
+      end
+      if g == 6 then c:fill(x, y, 1, 1, T.C.ground)
+      else
+        c:fill(x, y, 1, 1, T.C.panel)
+        for _, p in ipairs(k) do if p then c:pix(p[1], p[2], T.C.ground) end end
+      end
+      skyCell[y * 1000 + x] = g < 3
+    end
+  end
+  c.clip = { 1, py0, c.w * 2, py1 }
+  -- the pitch ladder, every 10 degrees
+  -- (a single block has room for the 10s only, and no bank scale)
+  local halfH = (py1 - py0) / 2
+  for _, deg in ipairs(halfH >= 20 and { -20, -10, 10, 20 } or { -10, 10 }) do
+    local d = K * (pitch - deg)
+    local L = c.w * (abs(deg) == 10 and 0.3 or 0.45)
+    local mx, my = cx + d * sr, cy + d * cr
+    c:line(mx - L * cr, my + L * sr, mx + L * cr, my - L * sr, T.C.faint)
+  end
+  -- the bank scale, fixed, and the pointer that leans with the horizon
+  local Rb = min(c.w - 2, (py1 - py0) / 2 - 1)
+  if Rb >= 14 then
+    for _, deg in ipairs({ -60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60 }) do
+      local s, co = math.sin(math.rad(deg)), math.cos(math.rad(deg))
+      c:pix(cx + Rb * s, cy - Rb * co, deg == 0 and T.C.text or T.C.rule)
+    end
+    local s, co = math.sin(math.rad(-roll)), math.cos(math.rad(-roll))
+    for d = 2, 3 do c:pix(cx + (Rb - d) * s, cy - (Rb - d) * co, T.C.text) end
+  end
+  c.clip = nil
+  -- the craft: fixed, wings level, a mark in the middle
+  local midY = floor((cy - 1) / 3) + 1
+  local midX = floor(c.w / 2) + 1
+  local wing, gap = max(2, floor(c.w / 7)), max(1, floor(c.w / 12))
+  local function mark(x, ch)
+    if x >= 1 and x <= c.w then
+      c:text(x, midY, ch, T.C.text, skyCell[midY * 1000 + x] and T.C.panel or T.C.ground)
+    end
+  end
+  for i = 1, wing do mark(midX - gap - i, "-") mark(midX + gap + i, "-") end
+  mark(midX, "+")
+  local words, over = M.attWords(kind, pitch, roll, c.w)
+  if not view.adv then center(c, c.h - 1, words:sub(1, c.w), over and T.C.warn or T.C.text) end
+  advBand(T, c, view)
+end
+
 local function statusPage(T, c, view, idx, n)
   local wide = c.w >= 30
   T.band(c, 1, wide and "CINDER NAV" or "CINDER", wide and (view.me.reg or "") or (tag(idx, n, c)),
@@ -522,6 +635,7 @@ function M.render(T, c, view, page, opts)
   elseif page == "depth" then depthPage(T, c, view, idx, #list)
   elseif page == "speedo" then speedoPage(T, c, view, idx, #list)
   elseif page == "compass" then compassPage(T, c, view, idx, #list)
+  elseif page == "attitude" then attitudePage(T, c, view, idx, #list)
   else numberPage(T, c, view, page, idx, #list) end
   return { sos = footer(T, c, view), page = page }
 end
