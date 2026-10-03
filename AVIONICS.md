@@ -133,7 +133,7 @@ players' hands, and give each kiosk its key then.
 The player:
 
 1. sits down - the kiosk greets them by name, which is the owner;
-2. touches REGISTER A VEHICLE (it says when kits are out of stock);
+2. touches REGISTER A CRAFT (it says when equipment is out of stock);
 3. touches the vehicle type - AIRCRAFT, LAND VEHICLE, VESSEL, SUBMARINE,
    each with the gauge it will get;
 4. types a callsign on the screen's keyboard - **refused if another live

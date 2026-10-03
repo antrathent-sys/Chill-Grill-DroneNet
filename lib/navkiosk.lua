@@ -134,18 +134,18 @@ function K:touch(id)
   if s == "hello" then
     if id == "register" then
       if io.count(v.who) >= K.MAX_PER_OWNER then
-        return self:go("error", { msg = { "YOU HAVE " .. K.MAX_PER_OWNER .. " UNITS REGISTERED",
-                                          "A CINDER OPERATOR CAN REGISTER MORE" } })
+        return self:go("error", { msg = { "LIMIT REACHED: " .. K.MAX_PER_OWNER .. " UNITS ON RECORD",
+                                          "FURTHER REGISTRATION REQUIRES A CINDER OPERATOR" } })
       end
       local stock, whyNot = io.stock()
       if not stock then
-        return self:go("error", { msg = { "THIS KIOSK IS NOT SET UP", tostring(whyNot or "") } })
+        return self:go("error", { msg = { "THIS TERMINAL IS NOT IN SERVICE", tostring(whyNot or "") } })
       end
       if stock < 1 then
-        return self:go("error", { msg = { "KITS ARE OUT OF STOCK", "CINDER HAS BEEN TOLD - PLEASE COME BACK LATER" } })
+        return self:go("error", { msg = { "EQUIPMENT OUT OF STOCK", "CINDER HAS BEEN NOTIFIED. RETURN LATER." } })
       end
       if io.drive() then
-        return self:go("error", { msg = { "TAKE YOUR COMPUTER OUT OF THE DRIVE", "THE KIT COMES WITH ONE" } })
+        return self:go("error", { msg = { "TAKE YOUR COMPUTER OUT OF THE DRIVE", "A UNIT IS ISSUED WITH THE EQUIPMENT" } })
       end
       return self:go("type", { mode = "new" })
     end
@@ -154,7 +154,7 @@ function K:touch(id)
     if id == "cancel" then io.eject() return self:go("hello") end
     if id == "update" then
       local rec, why = io.refresh(v.unit.id)
-      if not rec then return self:go("error", { msg = { "COULD NOT UPDATE IT", tostring(why) } }) end
+      if not rec then return self:go("error", { msg = { "UPDATE FAILED", tostring(why) } }) end
       return self:go("done", { reg = rec.reg, call = rec.call, updated = true })
     end
     if id == "change" then
@@ -187,7 +187,7 @@ function K:touch(id)
       local rec, why
       if mode == "change" then rec, why = io.refresh(unit.id, kind, call)
       else rec, why = io.kit(v.who, kind, call) end
-      if not rec then return self:go("error", { msg = { "COULD NOT MAKE YOUR UNIT", tostring(why) } }) end
+      if not rec then return self:go("error", { msg = { "THE UNIT COULD NOT BE ISSUED", tostring(why) } }) end
       return self:go("done", { reg = rec.reg, call = rec.call, kit = mode ~= "change", updated = mode == "change" })
     end
   elseif s == "appname" then
@@ -208,7 +208,7 @@ function K:touch(id)
     if id == "back" then return self:go("appwhere", { appName = v.appName, text = v.x .. " " .. v.z }) end
     if id == "send" then
       local ok, why = io.apply(v.who, v.appName, v.x, v.z)
-      if not ok then return self:go("error", { msg = { "APPLICATION NOT SENT", tostring(why) } }) end
+      if not ok then return self:go("error", { msg = { "APPLICATION NOT LODGED", tostring(why) } }) end
       return self:go("appdone", { appName = v.appName })
     end
   elseif s == "done" or s == "error" or s == "appdone" then
