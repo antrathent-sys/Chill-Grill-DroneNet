@@ -1,8 +1,9 @@
 # Stock
 
 What CINDER holds, counted straight off the silos by CC, for a live
-catalogue customers will see (Alex, 2026-10-03). Step 1 of 4 is built:
-counting and reporting, and a stock list screen at each site. Picking
+catalogue customers will see (Alex, 2026-10-03). Built: counting and
+reporting, a stock list screen at each site, and picking into a local
+output by hand. Picking
 orders into a dock's intake, reserving stock for accepted orders, and
 the customer-facing catalogue come next.
 
@@ -50,7 +51,25 @@ does not lag the server.
    It then asks which monitor is the stock list.
 6. `store count` to see what it finds; reboot, and `store` runs by itself.
 
-`store status` shows the label, key, radio, screen and each inventory.
+`store status` shows the label, key, radio, screen, output and each
+inventory.
+
+**Local only, for now (CHI, 2026-10-03).** Without a key or an ender modem
+the store still counts, shows the list and picks; only the base is not
+told. Steps 3 and 4 then add those two when the base should know.
+
+**The output** is where picked items go - a barrel on the network for
+now, a dock's intake later. Setup asks which it is, and it is never
+counted as stock. To pick:
+
+- while `store` runs, type at its prompt: `pick 64 cobblestone` (or just
+  `64 cobblestone`); `find <words>` shows what matches and how many;
+- or from the shell: `store pick 64 cobblestone`.
+
+Words match the item's name or id; with several matches it lists them
+and asks which. It takes the fullest stacks first, moves up to 16 stacks
+in the same tick, and says if there was not that much or the output
+filled. The screen counts the pick at once.
 
 ## The stock list screen
 

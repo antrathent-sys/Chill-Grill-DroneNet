@@ -218,6 +218,60 @@ function St.load(text)
   return st
 end
 
+-- ------------------------------------------------------------------ picking --
+-- Moving stock out: into the site's output (Alex, 2026-10-03: a barrel on
+-- the network, for now; a dock's intake later). One pushItems a slot, many
+-- a tick.
+
+--- The items whose name or id has all these words in it: { { key, label,
+-- count } }, the most held first. An exact name wins on its own.
+function St.find(totals, names, words)
+  local want = {}
+  for w in tostring(words or ""):lower():gmatch("%S+") do want[#want + 1] = w end
+  local out, exact = {}, nil
+  for k, t in pairs(totals or {}) do
+    local label = (names and names[k]) or k
+    local hay = (label .. " " .. k):lower()
+    local all = #want > 0
+    for _, w in ipairs(want) do if not hay:find(w, 1, true) then all = false break end end
+    if all then
+      local e = { key = k, label = label, count = t.count }
+      out[#out + 1] = e
+      if label:lower() == table.concat(want, " ") then exact = e end
+    end
+  end
+  if exact then return { exact } end
+  table.sort(out, function(a, b) return a.count > b.count end)
+  return out
+end
+
+--- Which slots to take `amount` of one item from: { { inv, slot, n } },
+-- fullest stacks first (fewest calls), and how many that comes to - less
+-- than asked when there is not that much.
+function St.plan(lists, order, key, amount)
+  local slots = {}
+  for _, inv in ipairs(order) do
+    for slot, it in pairs(lists[inv] or {}) do
+      if St.keyOf(it) == key and num(it.count) and it.count > 0 then
+        slots[#slots + 1] = { inv = inv, slot = slot, have = it.count }
+      end
+    end
+  end
+  table.sort(slots, function(a, b)
+    if a.have ~= b.have then return a.have > b.have end
+    if a.inv ~= b.inv then return a.inv < b.inv end
+    return a.slot < b.slot
+  end)
+  local moves, left = {}, math.max(0, math.floor(amount or 0))
+  for _, s in ipairs(slots) do
+    if left <= 0 then break end
+    local n = math.min(left, s.have)
+    moves[#moves + 1] = { inv = s.inv, slot = s.slot, n = n }
+    left = left - n
+  end
+  return moves, math.max(0, math.floor(amount or 0)) - left
+end
+
 --- 12345678 as "12,345,678".
 function St.commas(n)
   local s = tostring(math.floor(n or 0))

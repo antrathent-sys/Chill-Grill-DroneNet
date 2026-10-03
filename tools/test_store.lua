@@ -118,14 +118,26 @@ local function vault(w, name, items)
   w.periph[name] = { type = "create:item_vault", types = { "inventory" }, m = {
     size = function() return 60 end,
     list = function() return w.vaults[name] end,
+    pushItems = function(to, slot, n)
+      local it = w.vaults[name][slot]
+      local out = w.vaults[to]
+      if not (it and out) then return 0 end
+      local room = (w.room or 1e9) - (w.inOut or 0)
+      local k = math.max(0, math.min(n, it.count, room))
+      it.count = it.count - k
+      if it.count == 0 then w.vaults[name][slot] = nil end
+      out[#out + 1] = { name = it.name, count = k }
+      w.inOut = (w.inOut or 0) + k
+      return k
+    end,
     getItemDetail = function(slot)
       local it = w.vaults[name][slot]
       return it and { name = it.name, count = it.count, displayName = it.name:gsub("^.*:", ""):gsub("^%l", string.upper) }
     end } }
   w.vaults[name] = items
 end
-local function storeWorld(cfg)
-  local w = W.new(DIR, { label = "store-chi", S = S })
+local function storeWorld(cfg, lines)
+  local w = W.new(DIR, { label = "store-chi", S = S, lines = lines })
   w.vaults, w.sent, w.rows = {}, {}, {}
   w.files[".dronekey"] = KEYHEX .. "\n"
   w.files["store.cfg"] = cfg or "match=vault\nscreen=monitor_0\n"
@@ -175,7 +187,7 @@ local nolabel = storeWorld()
 nolabel.env.os.getComputerLabel = function() return "chi-stock" end
 nolabel = nolabel:run("store.lua", {}, 3)
 check("not labelled store-<site>: says so, sends nothing", nolabel.text:find("label set store-chi", 1, true) and #nolabel.sent == 0)
-local setupW = W.new(DIR, { label = "store-chi", S = S, lines = { "vault", "1" } })
+local setupW = W.new(DIR, { label = "store-chi", S = S, lines = { "vault", "2", "1" } })
 setupW.vaults = {}
 for _, f in ipairs({ "lib/store.lua", "lib/seclink.lua", "lib/link.lua", "lib/fleet.lua" }) do
   local h = io.open(DIR .. "/../" .. f, "r") setupW.files[f] = h:read("*a") h:close()
@@ -184,9 +196,63 @@ vault(setupW, "create:item_vault_0", {})
 vault(setupW, "minecraft:chest_0", {})
 setupW.periph.monitor_3 = { type = "monitor", m = { getSize = function() return 39, 33 end } }
 setupW = setupW:run("store.lua", { "setup" }, 5)
-check("store setup: a word is a rule (vaults now and later), and the monitor picked",
+check("store setup: a word is a rule (vaults now and later), the output and the monitor picked",
   (setupW.files["store.cfg"] or ""):find("match=vault", 1, true) and (setupW.files["store.cfg"] or ""):find("screen=monitor_3", 1, true)
+  and (setupW.files["store.cfg"] or ""):find("out=minecraft:chest_0", 1, true)
   and setupW.text:find("1 inventories are stock", 1, true), setupW.err or setupW.text)
+
+print("picking")
+local tf = { ["minecraft:stone"] = { count = 500 }, ["minecraft:stone_bricks"] = { count = 40 },
+             ["minecraft:enchanted_book#aa"] = { count = 2 } }
+local nf = { ["minecraft:stone"] = "Stone", ["minecraft:stone_bricks"] = "Stone Bricks",
+             ["minecraft:enchanted_book#aa"] = "Enchanted Book (Mending)" }
+check("find by words: several match, the most first", #St.find(tf, nf, "stone") == 1 and St.find(tf, nf, "stone")[1].label == "Stone"
+  and #St.find(tf, nf, "bricks") == 1 and #St.find(tf, nf, "st") == 2 and St.find(tf, nf, "st")[1].label == "Stone")
+check("...an exact name wins on its own, and data-items by what is on them", St.find(tf, nf, "mending")[1].count == 2
+  and #St.find(tf, nf, "nothing like it") == 0)
+local pl = { v0 = { [1] = { name = "minecraft:stone", count = 20 }, [2] = { name = "minecraft:stone", count = 64 } },
+             v1 = { [4] = { name = "minecraft:stone", count = 64 } } }
+local moves, planned = St.plan(pl, { "v0", "v1" }, "minecraft:stone", 100)
+check("a pick takes the fullest stacks first, only what is asked", planned == 100 and #moves == 2 and moves[1].n == 64
+  and moves[2].n == 36)
+local _, short = St.plan(pl, { "v0", "v1" }, "minecraft:stone", 1000)
+check("...and says when there is not that much", short == 148)
+
+local function barrelWorld(lines, room)
+  local w = storeWorld("match=vault\nscreen=monitor_0\nout=minecraft:barrel_0\n", lines)
+  w.vaults["minecraft:barrel_0"] = {}
+  w.periph["minecraft:barrel_0"] = { type = "minecraft:barrel", types = { "inventory" }, m = {
+    size = function() return 27 end, list = function() return w.vaults["minecraft:barrel_0"] end } }
+  w.room = room
+  return w
+end
+local function inBarrel(w, item)
+  local n = 0
+  for _, it in pairs(w.vaults["minecraft:barrel_0"]) do if it.name == item then n = n + it.count end end
+  return n
+end
+local pw = barrelWorld():run("store.lua", { "pick", "70", "stone" }, 5)
+check("store pick: that many into the output, out of the vaults", inBarrel(pw, "minecraft:stone") == 70
+  and pw.text:find("picked 70 Stone into minecraft:barrel_0", 1, true), pw.err or pw.text)
+local pshort = barrelWorld():run("store.lua", { "pick", "500", "coal" }, 5)
+check("...not that much in stock: all there is, and says so", inBarrel(pshort, "minecraft:coal") == 9
+  and pshort.text:find("only 9 in stock", 1, true), pshort.err or pshort.text)
+local pfull = barrelWorld(nil, 50):run("store.lua", { "pick", "100", "stone" }, 5)
+check("...the output full: what fitted, and says so", inBarrel(pfull, "minecraft:stone") == 50
+  and pfull.text:find("the output is full", 1, true), pfull.err or pfull.text)
+local typed = barrelWorld({ "pick 30 stone", "find coal" })
+typed.files[".dronekey"] = nil
+typed = typed:run("store.lua", {}, 40)
+local tscreen = {}
+for y = 1, 33 do tscreen[y] = typed.rows[y] or "" end
+check("while it runs: typed at its prompt, into the output, and the screen counts it gone", inBarrel(typed, "minecraft:stone") == 30
+  and table.concat(tscreen, "\n"):find("74", 1, true) and typed.text:find("9  Coal", 1, true), typed.err or typed.text)
+check("...no key: counts and picks for the site, sends the base nothing", #typed.sent == 0
+  and typed.text:find("counting for this site only", 1, true), typed.text)
+local nobase = barrelWorld()
+nobase = nobase:run("store.lua", { "count" }, 5)
+check("the output is never counted as stock", not nobase.text:find("barrel", 1, true) and nobase.text:find("113 items", 1, true),
+  nobase.text)
 
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
