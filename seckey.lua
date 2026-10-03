@@ -119,7 +119,7 @@ local cmd = args[1]
 -- The feed is sealed to each by name, so a name is one kind or the other.
 local KINDS = {
   watch = { file = WATCHES, own = WATCH, floppy = WATCHNAME, header = SEC.WATCH_HEADER, noun = "watcher",
-            eg = "screens", made = "restart ops to start its feed", dropped = "restart ops and its feed stops",
+            eg = "screens", made = "ops starts its feed within seconds (an ops from before 2026-10-03: restart it)", dropped = "restart ops and its feed stops",
             as = "watches as", unlabelled = "The feed is sealed to a name" },
   admin = { file = ADMINS, own = ADMIN, floppy = ADMINNAME, header = SEC.ADMIN_HEADER, noun = "admin pocket",
             eg = "alex", made = "restart ops to take its requests", dropped = "restart ops and it can ask for nothing",
