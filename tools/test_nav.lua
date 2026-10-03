@@ -422,24 +422,28 @@ check("a submarine shows depth", subTxt:find("DEPTH", 1, true) and not subTxt:fi
 local boatTxt = shot(36, 10, view("sea"))
 check("a boat shows heading big and its position", boatTxt:find("HDG", 1, true) and boatTxt:find("POS 812 -3300", 1, true), boatTxt)
 print("pages")
-check("an aircraft's block cycles speed, attitude, the altimeter, heading, radar, status",
-  table.concat(UI.pages("air", 15), ",") == "speed,attitude,altimeter,heading,radar,status")
+check("an aircraft's block cycles speed, the altimeter, heading, radar, status", table.concat(UI.pages("air", 15), ",")
+  == "speed,altimeter,heading,radar,status")
 check("each kind has its own gauge", UI.pages("land", 15)[1] == "speedo" and UI.pages("sub", 15)[2] == "depth"
-  and UI.pages("sea", 15)[3] == "compass")
-check("every kind has its pitch and roll", UI.pages("land", 15)[2] == "attitude" and UI.pages("sea", 15)[2] == "attitude"
-  and UI.pages("sub", 15)[3] == "attitude")
-check("a wide one starts on the overview", UI.pages("air", 36)[1] == "overview" and #UI.pages("air", 36) == 7)
-check("a boat has no height page", table.concat(UI.pages("sea", 15), ",") == "speed,attitude,compass,radar,status")
-check("a land vehicle puts heading before height", UI.pages("land", 15)[3] == "heading")
-check("the next page, and round again", UI.nextPage("air", 15, "speed") == "attitude"
+  and UI.pages("sea", 15)[2] == "compass")
+check("the attitude page is switched off for now", not UI.SHOW_ATTITUDE
+  and not table.concat(UI.pages("air", 36), ","):find("attitude", 1, true))
+UI.SHOW_ATTITUDE = true
+check("...and switched on, every kind has it after its first gauge", UI.pages("air", 15)[2] == "attitude"
+  and UI.pages("land", 15)[2] == "attitude" and UI.pages("sea", 15)[2] == "attitude" and UI.pages("sub", 15)[3] == "attitude")
+UI.SHOW_ATTITUDE = false
+check("a wide one starts on the overview", UI.pages("air", 36)[1] == "overview" and #UI.pages("air", 36) == 6)
+check("a boat has no height page", table.concat(UI.pages("sea", 15), ",") == "speed,compass,radar,status")
+check("a land vehicle puts heading before height", UI.pages("land", 15)[2] == "heading")
+check("the next page, and round again", UI.nextPage("air", 15, "speed") == "altimeter"
   and UI.nextPage("air", 15, "status") == "speed" and UI.nextPage("air", 15, "nonsense") == "speed")
 local sp = shot(15, 10, view("air"), "speed")
 check("speed: the title, which page of how many, B/S, heading under it, the key", sp:find("SPEED", 1, true)
-  and sp:find("1/6", 1, true) and sp:find("B/S", 1, true) and sp:find("HDG 037", 1, true)
+  and sp:find("1/5", 1, true) and sp:find("B/S", 1, true) and sp:find("HDG 037", 1, true)
   and sp:find("TOWER", 1, true) and sp:find("SOS", 1, true), sp)
 local ht = shot(15, 10, view("air"), "altimeter")
 check("the altimeter: a dial, Y in figures in it, the climb under it", ht:find("ALTIMETER", 1, true)
-  and ht:find("3/6", 1, true) and ht:find("147", 1, true) and ht:find("V/S +1.5", 1, true), ht)
+  and ht:find("2/5", 1, true) and ht:find("147", 1, true) and ht:find("V/S +1.5", 1, true), ht)
 local dp = shot(15, 10, view("sub"), "depth")
 check("a submarine's depth gauge, with the depth in figures", dp:find("DEPTH", 1, true)
   and dp:find(tostring(N.SEA_LEVEL - 147 > 0 and (N.SEA_LEVEL - 147) or "SURF"), 1, true), dp)
@@ -531,7 +535,7 @@ end
 local untouched = shotOpts(15, 10, view("air"), "speed", { hint = true })
 check("a screen never touched says TAP (TOUCH when wide) where its page number goes", untouched:find("TAP", 1, true)
   and not untouched:find("1/5", 1, true), untouched)
-check("once touched, the page number", shotOpts(15, 10, view("air"), "speed", {}):find("1/6", 1, true))
+check("once touched, the page number", shotOpts(15, 10, view("air"), "speed", {}):find("1/5", 1, true))
 
 print("attitude")
 local function qAxis(ax, ay, az, deg)
@@ -576,6 +580,7 @@ check("a remembered nose holds against a little reversing", st4.nose == "+x")
 for _ = 1, 200 do N.noseVote(st4, qAxis(0, 1, 0, 0), { x = 0, y = 0, z = -10 }) end
 check("...but a craft that clearly goes another way relearns", st4.nose == "-z", st4.nose)
 
+UI.SHOW_ATTITUDE = true            -- the page itself, as it will be when it is switched on
 local function attView(kind, pitch, roll, extra)
   local v = view(kind, extra)
   v.att, v.r.pitch, v.r.roll = "ok", pitch, roll
@@ -610,6 +615,7 @@ local learn = shot(36, 10, view("air", { att = "learning" }), "attitude")
 check("not knowing the nose yet: says to move ahead", learn:find("LEARNING WHICH WAY IS FORWARD", 1, true)
   and learn:find("MOVE AHEAD", 1, true), learn)
 check("no orientation at all: says so", shot(15, 10, view("air", { att = "none" }), "attitude"):find("NO ATTITUDE", 1, true))
+UI.SHOW_ATTITUDE = false
 
 
 print("centres")

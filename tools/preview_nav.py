@@ -80,6 +80,7 @@ function(root, which)
     add(15, 10, "1x1 never touched", function(c) UI.render(T, c, air(), "altimeter", { hint = true }) end)
     add(51, 19, "boot, on the computer itself", function(c) UI.boot(T, c, { frac = 0.6, ver = "f6affcc" }) end)
   elseif which == "attitude" then
+    UI.SHOW_ATTITUDE = true
     local function att(kind, pitch, roll, extra)
       local r = N.reading({ x = 812, y = 214, z = -3300 }, { x = 52, y = 2.4, z = -61 })
       r.pitch, r.roll = pitch, roll

@@ -8,7 +8,8 @@ got `1 + 0i + 0j + 0k`; the old "dead" reading was the probe looking for x/y/z/w
 on what is an Advanced Math quaternion object. "We are not adding complexity
 to the kit": no gimbal sensor and no optical sensor. **Built:** the attitude
 page for every kind (AVIONICS.md, pages table), with the nose learned from
-motion. Everything below that needs a sensor (height above ground, depth
+motion - then **switched off** the same day ("a bit more to teach"): one
+flag, `M.SHOW_ATTITUDE` in lib/navui.lua. Everything below that needs a sensor (height above ground, depth
 under the keel, sonar, PULL UP) is parked unless the kit decision changes.
 
 ## What real vehicles carry

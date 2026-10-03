@@ -56,20 +56,28 @@ local RANGE = 1000            -- the radar's ring, as far as a pong's traffic re
 -- Each kind's own gauge in place of the plain figures (2026-10-02): an
 -- aircraft's altimeter, a land vehicle's speedometer, a vessel's compass, a
 -- submarine's depth gauge.
--- And every kind its pitch and roll (2026-10-03): the same horizon, called
--- what that kind calls it (M.ATT).
 M.PAGES = {
-  air  = { "speed", "attitude", "altimeter", "heading", "radar", "status" },
-  land = { "speedo", "attitude", "heading", "height", "radar", "status" },
-  sea  = { "speed", "attitude", "compass", "radar", "status" },
-  sub  = { "speed", "depth", "attitude", "heading", "radar", "status" },
+  air  = { "speed", "altimeter", "heading", "radar", "status" },
+  land = { "speedo", "heading", "height", "radar", "status" },
+  sea  = { "speed", "compass", "radar", "status" },
+  sub  = { "speed", "depth", "heading", "radar", "status" },
 }
+
+-- And every kind its pitch and roll (2026-10-03): the same horizon, called
+-- what that kind calls it (M.ATT), after the page named here. Built, and
+-- SWITCHED OFF for now (Alex, 2026-10-03: "a bit more to teach"); the unit
+-- still learns its nose quietly, so turning it on is this one flag.
+M.SHOW_ATTITUDE = false
+M.ATT_AFTER = { air = "speed", land = "speedo", sea = "speed", sub = "depth" }
 
 --- The pages a screen cycles through: a wide one starts on the overview.
 function M.pages(kind, w)
   local list = {}
   if (w or 0) >= 30 then list[1] = "overview" end
-  for _, p in ipairs(M.PAGES[kind] or M.PAGES.air) do list[#list + 1] = p end
+  for _, p in ipairs(M.PAGES[kind] or M.PAGES.air) do
+    list[#list + 1] = p
+    if M.SHOW_ATTITUDE and p == (M.ATT_AFTER[kind] or "speed") then list[#list + 1] = "attitude" end
+  end
   return list
 end
 
