@@ -56,7 +56,14 @@ stops hearing it says `NO SIGNAL` - and nothing else about where its
 picture comes from: no "fed by", the master's latest event along its foot
 like the master's own (Alex, 2026-10-03). Every unit is told where all
 the centres are. `tower centre list` (each centre, and whether the master holds its key),
-`tower centre drop NORTH`. **A centre on NO SIGNAL:** stop it (Ctrl+T) and
+`tower centre drop NORTH`. **CINDER's drones missing from the tower:** stop the master (Ctrl+T) and
+run `tower check` on it: it checks the watch key, that the computer is
+labelled `tower` (or `tower-...`, the only names the base sends positions
+to), and listens 10 seconds for the base - drones heard, keys that differ,
+stealth on, the base talking but no drone reporting, the base feeding
+others but not this one, or nothing at all. ops now reads its watch keys
+again every round, so a key made while it runs is fed without a restart.
+**A centre on NO SIGNAL:** stop it (Ctrl+T) and
 run `tower check` on its computer - it listens for 10 seconds and says
 which it is: no ender modem, no key, pictures that will not open (the keys
 differ - add it again on the master), the master feeding other centres but

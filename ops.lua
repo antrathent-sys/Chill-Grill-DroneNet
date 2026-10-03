@@ -207,8 +207,9 @@ local ADMIN = { keys = (SEC.readFleetKeys(".adminkeys")), rx = SEC.receiver(), t
                 seq = 0, seen = {} }
 local function sealTo(cacheKey, id, key, body, ctr)
   local s = watchSenders[cacheKey]
-  if not s then
+  if not s or s.madeWith ~= key then
     s = SEC.sender(key, id, SEC.DIR.BASE_TO_WATCH, ctr)
+    s.madeWith = key
     watchSenders[cacheKey] = s
   end
   local okS, env = pcall(s.seal, body)
@@ -2116,8 +2117,13 @@ end
 
 -- the base's own half of the feed: jobs, queue, rides done, places and trips
 local function feedLoop()
-  if nWatch == 0 and not next(ADMIN.keys) then while true do sleep(3600) end end
   while true do
+    -- the watch keys read again each round: a watcher made with seckey watch
+    -- new while ops runs (the traffic tower) is fed without a restart, and
+    -- one given a new key is sealed to in it (2026-10-03: CINDER's drones
+    -- missing from the tower because ops had started before its key existed)
+    watchKeys, nWatch = SEC.readFleetKeys(".watchkeys")
+    if nWatch > 0 or next(ADMIN.keys) then
     local done = 0
     for _, j in pairs(jobs) do if type(j) == "table" and j.state == "done" then done = done + 1 end end
     local lines = {}
@@ -2134,6 +2140,7 @@ local function feedLoop()
           sealTo(name, name, key, WATCH.publicStatus(stealthOn), ".watch-" .. name .. ".ctr")
         end
       end
+    end
     end
     sleep(WATCH.EVERY)
   end

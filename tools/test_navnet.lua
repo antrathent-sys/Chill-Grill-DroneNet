@@ -221,6 +221,36 @@ local base = S.sender(WKEY, "tower", S.DIR.BASE_TO_WATCH, nil)
 local function fromBase(tw, t, body)
   tw.at(t, function() return { "modem_message", "modem_0", N.CINDER_FEED, N.CINDER_FEED, base.seal(body) } end)
 end
+-- tower check on the master: is CINDER's fleet coming through?
+local function masterCheck(setup, feedFn)
+  local w = runningTower(function(t) t.files[".watchkey"] = HEX3 .. "\n" if setup then setup(t) end end)
+  if feedFn then feedFn(w) end
+  return w:run("tower.lua", { "check" }, 12)
+end
+local mOk = masterCheck(nil, function(w)
+  fromBase(w, 1, { type = "cinder.status", stealth = false })
+  fromBase(w, 2, { type = "cinder.unit", unit = "drone-1", x = 300, y = 100, z = 0, spd = 0 })
+end)
+check("tower check on the master: drones coming through", mOk.text:find("CINDER FEED FINE: 1 unit", 1, true)
+  and mOk.text:find("drone-1", 1, true), mOk.err or mOk.text)
+local mStealth = masterCheck(nil, function(w) fromBase(w, 1, { type = "cinder.status", stealth = true }) end)
+check("...stealth on: says so", mStealth.text:find("STEALTH IS ON", 1, true), mStealth.err or mStealth.text)
+local mQuiet = masterCheck(nil, function(w) fromBase(w, 1, { type = "cinder.status", stealth = false }) end)
+check("...the base talking but no drone reporting", mQuiet.text:find("no drone is reporting", 1, true), mQuiet.err or mQuiet.text)
+local mNoKey = masterCheck(function(t) t.files[".watchkey"] = nil end)
+check("...no watch key: how to make one", mNoKey.text:find("no watch key", 1, true)
+  and mNoKey.text:find("seckey watch new tower", 1, true), mNoKey.err or mNoKey.text)
+local mLabel = masterCheck(function(t) t.env.os.getComputerLabel = function() return "chi-master" end end)
+check("...a label the base will not send positions to", mLabel.text:find("labelled chi-master", 1, true), mLabel.err or mLabel.text)
+local otherBase = S.sender(WKEY, "screens", S.DIR.BASE_TO_WATCH, nil)
+local mOther = masterCheck(nil, function(w)
+  w.at(1, function() return { "modem_message", "modem_0", N.CINDER_FEED, N.CINDER_FEED,
+    otherBase.seal({ type = "ops" }) } end)
+end)
+check("...the base feeding others but not this one", mOther.text:find("feeds screens but not tower", 1, true),
+  mOther.err or mOther.text)
+check("...nothing at all", masterCheck().text:find("nothing from the base", 1, true))
+
 local tc = runningTower(function(w) w.files[".watchkey"] = HEX3 .. "\n" end)
 local unitNear = N.reading({ x = 400, y = 100, z = 0 }, { x = 0, y = 0, z = 0 })
 fromBase(tc, 1, { type = "cinder.status", stealth = false })

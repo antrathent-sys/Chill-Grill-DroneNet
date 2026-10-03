@@ -558,7 +558,70 @@ end
 
 if cmd == "check" then
   -- on a centre: listen for 10 seconds and say what is wrong with its signal
-  if not slave then print("tower check is for a centre's computer (on this one: tower centre list)") return end
+  if not slave then
+    -- on the master: is CINDER's own fleet coming through from the base?
+    local wkey = SEC.readKeyFile(".watchkey")
+    local me = os.getComputerLabel and os.getComputerLabel() or nil
+    local modemM
+    for _, n in ipairs(peripheral.getNames()) do
+      if peripheral.getType(n) == "modem" then
+        local okW, w = pcall(peripheral.call, n, "isWireless")
+        if okW and w then modemM = n end
+      end
+    end
+    print(string.format("master %s - watch key %s - label %s - radio %s", loadCfg().name,
+      wkey and "present" or "MISSING", tostring(me), modemM or "NONE"))
+    if not modemM then print("no ender modem: put one on this computer") return end
+    if not wkey then
+      print("no watch key: on the base, seckey watch new tower (a floppy in its drive);")
+      print("here, label set tower, then seckey watch set disk") return
+    end
+    if not (me == "tower" or (me and me:match("^tower%-"))) then
+      print("this computer is labelled " .. tostring(me) .. ": the base sends positions only to a watcher")
+      print("named tower or tower-<something>. label set tower, and make the key under that name.") return
+    end
+    pcall(peripheral.call, modemM, "open", N.CINDER_FEED)
+    local rxW = SEC.receiver()
+    local units, status, stealth, bad, why, others = {}, 0, false, 0, nil, {}
+    print("listening for 10 seconds for the base...")
+    local timerM = os.startTimer(10)
+    while true do
+      local e, a, ch, _, msg = os.pullEvent()
+      if e == "timer" and a == timerM then break end
+      if e == "modem_message" and ch == N.CINDER_FEED and type(msg) == "table" and msg.sl
+         and msg.d == SEC.DIR.BASE_TO_WATCH then
+        if msg.id == me then
+          local body, w = rxW.open(msg, function(id) return id == me and wkey or nil end, SEC.DIR.BASE_TO_WATCH,
+            N.MAX_AGE_MS)
+          if not body then bad, why = bad + 1, w
+          elseif body.type == "cinder.unit" then units[tostring(body.unit)] = true
+          elseif body.type == "cinder.status" then status, stealth = status + 1, body.stealth == true end
+        else others[tostring(msg.id)] = true end
+      end
+    end
+    local names, other = {}, {}
+    for u in pairs(units) do names[#names + 1] = u end
+    for id in pairs(others) do other[#other + 1] = id end
+    if #names > 0 then
+      print("CINDER FEED FINE: " .. #names .. " unit(s) heard - " .. table.concat(names, ", "))
+      print("Not on the radar? They may be outside its ring: tower range <blocks>. The board lists them all.")
+    elseif bad > 0 then
+      print(string.format("the base's messages for %s will not open (%s): the keys differ.", me, tostring(why)))
+      print("On the base: seckey watch new " .. me .. " again; here: seckey watch set disk.")
+    elseif status > 0 and stealth then
+      print("the base is talking, and STEALTH IS ON: on the base, ops stealth off")
+    elseif status > 0 then
+      print("the base is talking but no drone is reporting to it: are the drones switched on, beacon running?")
+    elseif #other > 0 then
+      print("the base feeds " .. table.concat(other, ", ") .. " but not " .. me .. ".")
+      print("On the base: seckey watch list - make the key for " .. me .. " if it is missing.")
+      print("(An older ops needs restarting to see a new key; this one picks it up by itself.)")
+    else
+      print("nothing from the base on channel " .. N.CINDER_FEED .. ". Is ops running on the base, with its chunk")
+      print("loaded and an ender modem? An older ops started before the key existed needs restarting.")
+    end
+    return
+  end
   local key = SEC.readKeyFile(ME_KEY)
   local myId = N.centreId(slave.name)
   local modem

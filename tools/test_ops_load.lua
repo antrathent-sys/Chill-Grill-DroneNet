@@ -935,6 +935,18 @@ check("the feed is its own channel: the drones' channel carries none of it", (fu
 end)())
 w = base({ args = {}, keysAt = { { 9, "q" } } }):run()
 check("no .watchkeys: nothing is sent on the feed", w.err == nil and #w.fed == 0, #w.fed)
+-- the traffic tower's key made while ops runs: fed from the next round on
+local wt = base({ args = {}, keysAt = { { 20, "q" } } })
+wt.later[#wt.later + 1] = { at = 5, fn = function() wt.files[".watchkeys"] = "tower=" .. WHEX .. "\n" end }
+wt = wt:run()
+local trx, pubUnits, pubStatus = S.receiver(), 0, 0
+for _, env2 in ipairs(wt.fed) do
+  local b = trx.open(env2, function(id) return id == "tower" and WKEY or nil end, S.DIR.BASE_TO_WATCH)
+  if b and b.type == "cinder.unit" then pubUnits = pubUnits + 1 end
+  if b and b.type == "cinder.status" then pubStatus = pubStatus + 1 end
+end
+check("a watch key made while ops runs is fed without a restart: the tower gets units and status",
+  wt.err == nil and pubUnits >= 1 and pubStatus >= 1, wt.err or (pubUnits .. " units, " .. pubStatus .. " status"))
 
 print("an admin trip from the pocket")
 local AK = "alex=" .. ADMINHEX .. "\n"
