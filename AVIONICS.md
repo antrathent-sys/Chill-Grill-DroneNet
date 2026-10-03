@@ -83,6 +83,15 @@ Sable offers; nothing added to the kit, nothing new to teach):
   craft round their curves when it checks for a close pass. Centres get the
   turn and the weight class in their picture.
 
+**Touch a craft on a radar** (Alex, 2026-10-03) - on the master or any
+centre, with an advanced monitor: a ring goes round it and a card comes up
+on the side away from it, with everything heard for it - registration and
+callsign, type and weight class, state, speed, height and climb, track,
+nose, turn, position, and how long ago it was heard. Lines with nothing to
+say are left off. Touch it again, or empty sky, to put the card away; it
+goes by itself after a minute. Centres now get the climb and the nose in
+their picture as well (and a picture is capped at 6,000 bytes).
+
 **A unit** - an advanced computer. Place it once, turn it on and `label set
 nav-new`, then break it: labelled, it keeps its files as an item. Put it in
 the master's disk drive, sit the owner in the tower's seat, and run `tower

@@ -157,6 +157,28 @@ local txBad = S.sender(KEY3, "nav-0009", S.DIR.NAV_TO_TOWER, nil)
 local function pingAt(tw, t, tx, r, st, craft)
   tw.at(t, function() return { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, tx.seal(N.ping(r, st, craft)) } end)
 end
+-- a touch on the tower's radar: the craft's card
+local rowsR, cyR = {}, 1
+local twT = runningTower(function(w)
+  w.files["tower.cfg"] = "name=CHI\nrange=2000\nx=0\ny=70\nz=0\n"
+  w.periph.monitor_5 = { type = "monitor", m = { isColour = function() return true end,
+    setTextScale = function() end, getSize = function() return 57, 38 end, setPaletteColour = function() end,
+    setCursorPos = function(_, y) cyR = y end, blit = function(s) rowsR[cyR] = s:gsub("[\128-\255]", " ") end } }
+end)
+local function radarText() local t = {} for y = 1, 38 do t[y] = rowsR[y] or "" end return table.concat(t, "\n") end
+pingAt(twT, 1, tx1, N.reading({ x = 0, y = 100, z = 0 }, { x = 20, y = 0, z = 0 }), nil, { id = "u", name = "F", mass = 1500 })
+local seenR = {}
+twT.at(2.5, function() seenR.before = radarText() return { "noop" } end)
+twT.at(3, { "monitor_touch", "monitor_5", 29, 19 })
+twT.at(3.2, function() seenR.card = radarText() return { "noop" } end)
+twT.at(4, { "monitor_touch", "monitor_5", 29, 19 })
+twT.at(4.2, function() seenR.again = radarText() return { "noop" } end)
+twT = twT:run("tower.lua", {}, 5)
+check("the tower's radar: no card until a craft is touched", not (seenR.before or ""):find("SPEED", 1, true), twT.err or seenR.before)
+check("...touching it brings up its card", (seenR.card or ""):find("CR-0001  FALCON", 1, true)
+  and (seenR.card or ""):find("20 B/S", 1, true) and (seenR.card or ""):find("WT M", 1, true), seenR.card)
+check("...and touching it again puts the card away", not (seenR.again or ""):find("CR-0001  FALCON", 1, true), seenR.again)
+
 local tw = runningTower()
 local headOn1 = N.reading({ x = 0, y = 100, z = 0 }, { x = 20, y = 0, z = 0 })
 local headOn2 = N.reading({ x = 300, y = 102, z = 0 }, { x = -20, y = 0, z = 0 })

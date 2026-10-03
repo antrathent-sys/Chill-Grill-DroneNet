@@ -129,6 +129,9 @@ function(root, which)
                    centres = { { name = "CHI", x = 2497, z = -3297 }, { name = "NORTH", x = 2497 + 300, z = -3297 - 1600 } },
                    lastEvent = "CR-0002 HAWK SOS" }
     add(57, 38, "tower radar, 3x3", function(c) TU.radar(T, c, view) end)
+    contacts[1].vs, contacts[1].nh = 2.4, 72
+    add(57, 38, "tower radar, FALCON touched", function(c) TU.radar(T, c, view, "1:FALCON") end)
+    add(57, 38, "tower radar, ROVER touched", function(c) TU.radar(T, c, view, "9:ROVER") end)
     add(51, 19, "tower board, its own screen", function(c) TU.board(T, c, view) end)
     add(79, 24, "tower board, 4x2 monitor", function(c) TU.board(T, c, view) end)
   end

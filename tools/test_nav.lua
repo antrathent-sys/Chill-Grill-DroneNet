@@ -769,6 +769,65 @@ check("...a wide board: type, weight, coordinates and how long ago", wideB:find(
 local narrow = tshot("board", 36, 24, tv)
 check("...and a narrower one keeps callsign, state, height and where", narrow:find("FALCON     MOVE  210    600    300", 1, true),
   narrow)
+print("touching a craft on the radar")
+local hitsR
+do local _, cv = tshot("radar", 57, 38, tv) end
+local cvR = D.canvas(57, 38)
+hitsR = TU.radar(T, cvR, tv)
+local falconHit
+for _, h in ipairs(hitsR) do if h.key == "1:FALCON" then falconHit = h end end
+check("the radar knows where each craft it drew is - not the ones off it or away", falconHit ~= nil and #hitsR == 2,
+  #hitsR)
+check("a touch on or next to a dot picks that craft; one in empty sky picks nothing",
+  falconHit and TU.pick(hitsR, falconHit.x, falconHit.y) == "1:FALCON"
+  and TU.pick(hitsR, falconHit.x + 2, falconHit.y + 1) == "1:FALCON" and TU.pick(hitsR, 3, 3) == nil)
+local cardTxt = (function()
+  local c = D.canvas(57, 38)
+  TU.radar(T, c, tv, "1:FALCON")
+  local rows = {}
+  for y = 1, 38 do rows[y] = (c:row(y)):gsub("[\128-\255]", " ") end
+  return table.concat(rows, "\n")
+end)()
+check("...and its card: registration, type and weight, speed, height, track, where, when heard",
+  cardTxt:find("CR-0001  FALCON", 1, true) and cardTxt:find("AIRCRAFT  WT M", 1, true) and cardTxt:find("80 B/S", 1, true)
+  and cardTxt:find("210", 1, true) and cardTxt:find("TRACK  090", 1, true) and cardTxt:find("600 300", 1, true)
+  and cardTxt:find("1S AGO", 1, true), cardTxt)
+check("...a selection that is not on the scope draws no card", not (function()
+  local c = D.canvas(57, 38)
+  TU.radar(T, c, tv, "3:OUTSIDE")
+  local all = {}
+  for y = 1, 38 do all[y] = (c:row(y)) end
+  return table.concat(all):find("CR-0003", 1, true)
+end)())
+local full = TU.cardLines({ reg = "CR-0005", call = "KITE", kind = "air", wt = "H", st = "move", spd = 120.4, y = 300,
+  vs = -2.25, hdg = 181, nh = 175, tr = 4.4, x = 10, z = -20, t = 95 }, 100)
+local words = {}
+for _, l in ipairs(full) do words[#words + 1] = l[1] .. "=" .. l[2] end
+local fw = table.concat(words, "|")
+check("everything heard goes on the card: climb, nose, turn", fw:find("ALT=300  V/S -2.2", 1, true) or fw:find("ALT=300  V/S -2.3", 1, true))
+check("...nose and turn", fw:find("NOSE=175", 1, true) and fw:find("TURN=4/S RIGHT", 1, true), fw)
+local thin = TU.cardLines({ reg = "CR-0006", call = "MULE", kind = "land", st = "park", spd = 0, y = 70, x = 1, z = 2,
+  t = 10 }, 100)
+local tw2 = {}
+for _, l in ipairs(thin) do tw2[#tw2 + 1] = l[1] end
+check("...and what is not heard is left off, not shown blank; long quiet is AWAY",
+  not table.concat(tw2, ","):find("NOSE", 1, true) and not table.concat(tw2, ","):find("TURN", 1, true)
+  and not table.concat(tw2, ","):find("TRACK", 1, true) and thin[3][2] == "AWAY", table.concat(tw2, ","))
+local tkc = {}
+N.track(tkc, { unit = "nav-0009", n = 9, call = "KITE", kind = "air" },
+  { x = 0, y = 70, z = 0, spd = 10, vs = -1.5, hdg = 0, nh = 5, tr = 2.5, st = "move", mass = 1500 }, 10)
+local pc = N.parsePicture(N.picture(tkc, {}, 12), 12).contacts[1]
+check("a centre's picture now carries the climb and the nose too", pc.vs == -1.5 and pc.nh == 5 and pc.tr == 2.5 and pc.wt == "M")
+local mid = N.parsePicture({ type = "nav.pic", ct = "9,KITE,air,0,70,0,10,0,move,2,2.5,M", cn = "" }, 12).contacts[1]
+check("...a picture from just before them still reads", mid and mid.tr == 2.5 and mid.wt == "M" and mid.vs == nil)
+local many = {}
+for i = 1, 100 do
+  many["nav-" .. i] = { n = i, call = string.rep("W", 16), kind = "land", x = -1234567, y = 320, z = -1234567, spd = 999,
+    hdg = 359, st = "move", t = 10, tr = -12.5, wt = "H", vs = -12.5, nh = 359 }
+end
+local big = N.picture(many, {}, 10)
+check("a picture never grows past its size, however long the callsigns", #big.ct <= N.PIC_BYTES and big.n < 100, #big.ct)
+
 local function leadX(tr)
   local _, cv = tshot("radar", 57, 38, { name = "CHI", x = 0, z = 0, range = 2000, now = 100, centres = {},
     contacts = { { n = 1, call = "K", kind = "air", x = 0, y = 70, z = 400, spd = 60, hdg = 0, tr = tr, st = "move", t = 99 } } })

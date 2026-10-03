@@ -596,6 +596,10 @@ local function findMonitors()
   end
 end
 T.apply(term)
+-- A craft touched on a radar gets a ring and a card (Alex, 2026-10-03: "if
+-- on a radar a craft is touched, it brings up the stats of it"), for this
+-- long or until the screen is touched away from every craft.
+local SEL_SECS = 60
 local function show(view)
   for name, m in pairs(mons) do
     local okS, w, h = pcall(peripheral.call, name, "getSize")
@@ -603,7 +607,8 @@ local function show(view)
       if not m.canvas or m.canvas.w ~= w or m.canvas.h ~= h then m.canvas = D.canvas(w, h) end
       local c = m.canvas
       c:clear()
-      if TU.wantsRadar(w, h) then TU.radar(T, c, view) else TU.board(T, c, view) end
+      if m.sel and os.clock() - m.selAt > SEL_SECS then m.sel = nil end
+      if TU.wantsRadar(w, h) then m.hits = TU.radar(T, c, view, m.sel) else m.hits = nil TU.board(T, c, view) end
       c:flush({ setCursorPos = function(x, y) peripheral.call(name, "setCursorPos", x, y) end,
                 blit = function(s, f, b) peripheral.call(name, "blit", s, f, b) end })
     end
@@ -616,6 +621,16 @@ local function show(view)
   end
 end
 findMonitors()
+-- a touch on a radar: pick the craft under it, or put the card away.
+-- True when the screens should be drawn again now.
+local function touched(name, x, y)
+  local m = mons[name]
+  if not (m and m.hits) then return false end
+  local key = TU.pick(m.hits, x, y)
+  if key == m.sel then key = nil end                    -- the same one again: put it away
+  m.sel, m.selAt = key, os.clock()
+  return true
+end
 
 -- ------------------------------------------------- a display-only centre --
 if slave then
@@ -649,6 +664,11 @@ if slave then
       n = n + 1
       if n % 10 == 0 then findMonitors() end
       sleep(1)
+    end
+  end, function()
+    while true do
+      local _, name, x, y = os.pullEvent("monitor_touch")
+      if touched(name, x, y) then show(view()) end
     end
   end)
   return
@@ -941,6 +961,12 @@ local function feedLoop()
     sleep(N.PIC_PERIOD)
   end
 end
+local function touchLoop()
+  while true do
+    local _, name, x, y = os.pullEvent("monitor_touch")
+    if touched(name, x, y) then show(view()) end
+  end
+end
 
 print(string.format("tower %s: %d registered, %d centres fed, listening on %d", cfg.name, #recs, #centreList, N.CHANNEL))
-parallel.waitForAny(radioLoop, syncLoop, screenLoop, feedLoop)
+parallel.waitForAny(radioLoop, syncLoop, screenLoop, feedLoop, touchLoop)

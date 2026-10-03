@@ -30,6 +30,7 @@ N.WARN_DY = 30            --   other's height
 N.STALE = 60              -- seconds unheard: the tower shows it last seen, and it leaves traffic
 N.PIC_PERIOD = 2          -- seconds between the master's pictures to each display-only centre
 N.PIC_MAX = 100           -- contacts in one picture (a sealed body stays under seclink's 8 KB)
+N.PIC_BYTES = 6000        -- ...and never more than this of them, however long the callsigns
 N.PIC_AWAY = 3600         -- seconds: how long an away contact stays on a centre's board
 N.CENTRES_MAX = 8         -- centres a pong tells a unit about
 
@@ -419,12 +420,16 @@ function N.picture(contacts, centres, now)
     if c.x and now - (c.t or -1e9) <= N.PIC_AWAY then list[#list + 1] = c end
   end
   table.sort(list, function(a, b) return (now - a.t) < (now - b.t) end)
-  local parts = {}
+  local parts, bytes = {}, 0
   for i = 1, math.min(#list, N.PIC_MAX) do
     local c = list[i]
-    parts[#parts + 1] = table.concat({ c.n, clean(c.call), c.kind or "air", floor(c.x + 0.5), floor(c.y + 0.5),
+    local item = table.concat({ c.n, clean(c.call), c.kind or "air", floor(c.x + 0.5), floor(c.y + 0.5),
       floor(c.z + 0.5), floor((c.spd or 0) + 0.5), c.hdg and floor(c.hdg + 0.5) % 360 or "",
-      c.st or "park", floor(now - c.t), c.tr and round(c.tr, 1) or "", c.wt or "" }, ",")
+      c.st or "park", floor(now - c.t), c.tr and round(c.tr, 1) or "", c.wt or "",
+      num(c.vs) and round(c.vs, 1) or "", num(c.nh) and floor(c.nh + 0.5) % 360 or "" }, ",")
+    bytes = bytes + #item + 1
+    if bytes > N.PIC_BYTES then break end
+    parts[#parts + 1] = item
   end
   return { type = "nav.pic", v = N.VERSION, ct = table.concat(parts, ";"), n = #parts,
            cn = N.centresString(centres) }
@@ -433,17 +438,19 @@ function N.parsePicture(m, now)
   if type(m) ~= "table" or m.type ~= "nav.pic" then return nil end
   local out = { contacts = {}, centres = N.parseCentres(m.cn) }
   for item in tostring(m.ct or ""):gmatch("[^;]+") do
-    -- the turn rate and weight class ride on the end; a master from before
-    -- them sends ten fields, and that still reads
+    -- turn, weight class, climb and nose ride on the end, each may be
+    -- empty; a master from before them sends ten fields, and that still reads
     local n, call, kind, x, y, z, spd, hdg, st, age, rest =
       item:match("^(%d+),([^,]*),(%a+),(%-?%d+),(%-?%d+),(%-?%d+),(%d+),(%d*),(%a+),(%d+)(.*)$")
-    local tr, wt = (rest or ""):match("^,(%-?[%d%.]*),(%a?)$")
-    if n and N.TYPES[kind] and N.STATES[st] and (rest == "" or tr) then
-      tr = tonumber(tr)
+    local extra = {}
+    for f in ((rest or ""):sub(2) .. ","):gmatch("([^,]*),") do extra[#extra + 1] = f end
+    if n and N.TYPES[kind] and N.STATES[st] and #extra <= 8 then
+      local tr, wt, vs, nh = tonumber(extra[1]), extra[2], tonumber(extra[3]), tonumber(extra[4])
       out.contacts[#out.contacts + 1] = { n = tonumber(n), call = call, kind = kind, x = tonumber(x),
         y = tonumber(y), z = tonumber(z), spd = tonumber(spd), hdg = tonumber(hdg), st = st,
         t = (now or 0) - tonumber(age), tr = (tr and abs(tr) <= N.TURN_MAX) and tr or nil,
-        wt = (wt == "L" or wt == "M" or wt == "H") and wt or nil }
+        wt = (wt == "L" or wt == "M" or wt == "H") and wt or nil,
+        vs = (vs and abs(vs) <= 2000) and vs or nil, nh = (nh and nh >= 0 and nh < 360) and nh or nil }
     end
   end
   return out

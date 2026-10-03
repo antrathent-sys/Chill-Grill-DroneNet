@@ -1,8 +1,13 @@
 --- towerui: the traffic tower's screens (AVIONICS.md), drawn the same on the
 -- master and on every display-only centre.
 --
---   M.radar(T, c, view)    the scope: for a monitor 3x3 or bigger (Alex,
---                          2026-10-01) - 57x38 at text scale 0.5
+--   M.radar(T, c, view, sel) -> hits
+--                          the scope: for a monitor 3x3 or bigger (Alex,
+--                          2026-10-01) - 57x38 at text scale 0.5. sel: the
+--                          key of a craft touched on it, which gets a ring
+--                          and a card of everything known about it
+--   M.pick(hits, x, y)     the craft a touch at x, y was on, or nil
+--   M.cardLines(ct, now)   that card's lines
 --   M.board(T, c, view)    the list: every vehicle heard, distress first
 --   M.wantsRadar(w, h)     is this screen big enough for the scope?
 --
@@ -43,7 +48,65 @@ local function cellY(py) return floor((py - 1) / 3) + 1 end
 
 local function live(view, ct) return (view.now or 0) - (ct.t or -1e9) <= M.STALE end
 
-function M.radar(T, c, view)
+--- One craft's key on the screens: its unit on the master, its number and
+-- callsign on a centre (whose picture has no unit names).
+function M.keyOf(ct) return ct.unit or (tostring(ct.n) .. ":" .. tostring(ct.call)) end
+
+local KIND_WORD = { air = "AIRCRAFT", land = "LAND VEHICLE", sea = "VESSEL", sub = "SUBMARINE" }
+local function three(h) return string.format("%03d", floor(h + 0.5) % 360) end
+
+--- What the card says about one craft: the registration first, then
+-- everything that is being heard for it - lines that would be empty are left
+-- out (a centre's picture carries less than the master hears).
+function M.cardLines(ct, now)
+  local out = {}
+  local function add(label, value) if value then out[#out + 1] = { label, tostring(value) } end end
+  out[1] = { tostring(ct.reg or ""), tostring(ct.call or "") }
+  add("TYPE", (KIND_WORD[ct.kind] or "") .. (ct.wt and ("  WT " .. ct.wt) or ""))
+  add("STATE", ((now or 0) - (ct.t or -1e9) > M.STALE) and "AWAY" or tostring(ct.st or ""):upper())
+  add("SPEED", string.format("%d B/S", floor((ct.spd or 0) + 0.5)))
+  add("ALT", ct.y and (tostring(floor(ct.y + 0.5)) .. (ct.vs and string.format("  V/S %+.1f", ct.vs) or "")))
+  add("TRACK", ct.hdg and (ct.spd or 0) > 0.5 and three(ct.hdg) or nil)
+  add("NOSE", ct.nh and three(ct.nh) or nil)
+  add("TURN", ct.tr and math.abs(ct.tr) >= 0.5 and string.format("%.0f/S %s", math.abs(ct.tr), ct.tr > 0 and "RIGHT" or "LEFT") or nil)
+  add("POS", ct.x and string.format("%d %d", floor(ct.x + 0.5), floor(ct.z + 0.5)))
+  add("HEARD", ct.t and (M.ago((now or 0) - ct.t) .. " AGO"))
+  return out
+end
+
+--- The craft whose dot a touch at cell x, y was nearest, within a few cells.
+function M.pick(hits, x, y)
+  local best, bestD
+  for _, h in ipairs(hits or {}) do
+    local dx, dy = (h.x - x) * 2, (h.y - y) * 3          -- cells to pixels, near enough
+    local d = dx * dx + dy * dy
+    if d <= 64 and (not bestD or d < bestD) then best, bestD = h.key, d end
+  end
+  return best
+end
+
+-- the card: a panel low on the side away from the craft
+local function card(T, c, ct, now, dotX)
+  local lines = M.cardLines(ct, now)
+  local w = 0
+  for i, l in ipairs(lines) do w = max(w, i == 1 and (#l[1] + 2 + #l[2]) or (7 + #l[2])) end
+  w = min(w + 2, c.w - 2)
+  local h = #lines
+  local x0 = dotX < c.w / 2 and (c.w - w) or 2
+  local y0 = max(2, c.h - 1 - h)
+  for i, l in ipairs(lines) do
+    local y = y0 + i - 1
+    c:text(x0, y, string.rep(" ", w), T.C.text, i == 1 and (ct.st == "sos" and T.C.accent or T.C.rule) or T.C.panel)
+    if i == 1 then
+      c:text(x0 + 1, y, (l[1] .. "  " .. l[2]):sub(1, w - 2), T.C.text, ct.st == "sos" and T.C.accent or T.C.rule)
+    else
+      c:text(x0 + 1, y, l[1], T.C.faint, T.C.panel)
+      c:text(x0 + 8, y, l[2]:sub(1, w - 9), T.C.text, T.C.panel)
+    end
+  end
+end
+
+function M.radar(T, c, view, sel)
   c:fill(1, 1, c.w, c.h, T.C.ground)
   local range = view.range or 2000
   local count = 0
@@ -54,10 +117,11 @@ function M.radar(T, c, view)
     or (view.cinder == "stealth" and "CINDER HIDDEN") or (view.cinder == "none" and "NO CINDER FEED")
     or ((view.refused or 0) > 0 and (view.refused .. " REFUSED") or nil)
   T.band(c, c.h, view.lastEvent or "LISTENING", footRight, T.C.faint, view.feed == "none" and T.C.warn or T.C.faint)
+  local hits = {}
   if not (view.x and view.z) then
     center(c, floor(c.h / 2), "THIS CENTRE'S POSITION IS NOT SET", T.C.warn)
     center(c, floor(c.h / 2) + 2, "tower here <name> <x> <y> <z>", T.C.faint)
-    return
+    return hits
   end
   local py0, py1 = 4, (c.h - 1) * 3
   local cx, cy = c.w + 0.5, (py0 + py1) / 2
@@ -95,9 +159,13 @@ function M.radar(T, c, view)
   local list = {}
   for _, ct in ipairs(view.contacts or {}) do if live(view, ct) and ct.x then list[#list + 1] = ct end end
   table.sort(list, function(a, b) return (a.st == "sos" and 1 or 0) < (b.st == "sos" and 1 or 0) end)
+  local picked
   for _, ct in ipairs(list) do
     local px, py = toPx(ct.x, ct.z)
     if sqrt((px - cx) ^ 2 + (py - cy) ^ 2) <= R then
+      local key = M.keyOf(ct)
+      hits[#hits + 1] = { key = key, x = cellX(px), y = cellY(py) }
+      if sel and key == sel then picked = { ct = ct, px = px, py = py } end
       local col = ct.st == "sos" and T.C.accent or T.C.text
       if ct.hdg and (ct.spd or 0) > 0.5 then
         -- where it will be: straight on, or round its turn (Alex, 2026-10-03)
@@ -119,6 +187,12 @@ function M.radar(T, c, view)
         ct.st == "sos" and T.C.accent or T.C.text)
     end
   end
+  -- the one touched: a ring round it, and its card
+  if picked then
+    c:circle(picked.px + 0.5, picked.py + 0.5, 4, T.C.text)
+    card(T, c, picked.ct, view.now, cellX(picked.px))
+  end
+  return hits
 end
 
 local function ago(s)
