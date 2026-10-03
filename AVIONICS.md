@@ -100,18 +100,11 @@ Sable offers; nothing added to the kit, nothing new to teach):
   craft round their curves when it checks for a close pass. Centres get the
   turn and the weight class in their picture.
 
-**Trails** (Alex, 2026-10-03): behind every craft on a radar, a dot where
-it was every 10 seconds (every fifth ping on the move), six of them,
-fading with age - the gaps between them are its speed: far apart is fast,
-bunched is slow. One a ping would pile up: at 2,000 blocks of range a
-craft doing 20 b/s moves under a pixel between pings. `N.TRAIL_SECS`,
-`N.TRAIL_N`. The master keeps them from the pings, each centre from its
-pictures.
-
 **Touch a craft on a radar** (Alex, 2026-10-03) - on the master or any
-centre, with an advanced monitor: a ring goes round it and a card comes up
-on the side away from it, with everything heard for it - registration and
-callsign, type and weight class, state, speed, height and climb, track,
+centre, with an advanced monitor: it turns a lighter shade of its own
+colour and a card comes up on the side away from it, with everything heard
+for it - registration and callsign, type and weight class, who it is
+registered to (CINDER's own say CINDER), state, speed, height and climb, track,
 nose, turn, position, and how long ago it was heard. Lines with nothing to
 say are left off. Touch it again, or empty sky, to put the card away; it
 goes by itself after a minute. Centres now get the climb and the nose in

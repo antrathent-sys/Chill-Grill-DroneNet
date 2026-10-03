@@ -726,7 +726,7 @@ local tv = { name = "CHI", x = 0, z = 0, range = 2000, now = 100, regs = 4, cent
     { name = "CHI", x = 0, z = 0 }, { name = "NORTH", x = 0, z = -1500 }, { name = "FAR", x = 9000, z = 0 } },
   contacts = {
     { n = 1, reg = "CR-0001", call = "FALCON", kind = "air", x = 600, y = 210, z = 300, spd = 80, hdg = 90, st = "move", t = 99,
-      wt = "M" },
+      wt = "M", owner = "alex_r" },
     { n = 2, reg = "CR-0002", call = "HAWK", kind = "air", x = -900, y = 150, z = 400, spd = 0, st = "sos", t = 98 },
     { n = 3, reg = "CR-0003", call = "OUTSIDE", kind = "sea", x = 5000, y = 63, z = 0, spd = 9, hdg = 0, st = "move", t = 99 },
     { n = 4, reg = "CR-0004", call = "PACKED", kind = "land", x = 100, y = 70, z = 100, spd = 0, st = "park", t = 10 } } }
@@ -789,10 +789,19 @@ local cardTxt = (function()
   for y = 1, 38 do rows[y] = (c:row(y)):gsub("[\128-\255]", " ") end
   return table.concat(rows, "\n")
 end)()
-check("...and its card: registration, type and weight, speed, height, track, where, when heard",
-  cardTxt:find("CR-0001  FALCON", 1, true) and cardTxt:find("AIRCRAFT  WT M", 1, true) and cardTxt:find("80 B/S", 1, true)
+check("...and its card: registration, type and weight, owner, speed, height, track, where, when heard",
+  cardTxt:find("CR-0001  FALCON", 1, true) and cardTxt:find("AIRCRAFT  WT M", 1, true)
+  and cardTxt:find("OWNER  ALEX_R", 1, true) and cardTxt:find("80 B/S", 1, true)
   and cardTxt:find("210", 1, true) and cardTxt:find("TRACK  090", 1, true) and cardTxt:find("600 300", 1, true)
   and cardTxt:find("1S AGO", 1, true), cardTxt)
+local selInk
+do
+  local c = D.canvas(57, 38)
+  TU.radar(T, c, tv, "1:FALCON")
+  for y = 1, 38 do local s2, f2 = c:row(y) local at = s2:find("FALCON", 1, true) if at and not selInk then selInk = f2:sub(at, at) end end
+end
+check("...the one touched goes a lighter shade of its own colour - no ring", selInk == TU.SEL_INK.air
+  and TU.PALETTE[TU.SEL_INK.air] ~= nil, selInk)
 check("...a selection that is not on the scope draws no card", not (function()
   local c = D.canvas(57, 38)
   TU.radar(T, c, tv, "3:OUTSIDE")
@@ -814,11 +823,21 @@ for _, l in ipairs(thin) do tw2[#tw2 + 1] = l[1] end
 check("...and what is not heard is left off, not shown blank; long quiet is AWAY",
   not table.concat(tw2, ","):find("NOSE", 1, true) and not table.concat(tw2, ","):find("TURN", 1, true)
   and not table.concat(tw2, ","):find("TRACK", 1, true) and thin[3][2] == "AWAY", table.concat(tw2, ","))
+end
+do -- the picture's fields, a block of its own (Lua allows 200 locals at once)
 local tkc = {}
 N.track(tkc, { unit = "nav-0009", n = 9, call = "KITE", kind = "air" },
   { x = 0, y = 70, z = 0, spd = 10, vs = -1.5, hdg = 0, nh = 5, tr = 2.5, st = "move", mass = 1500 }, 10)
 local pc = N.parsePicture(N.picture(tkc, {}, 12), 12).contacts[1]
 check("a centre's picture now carries the climb and the nose too", pc.vs == -1.5 and pc.nh == 5 and pc.tr == 2.5 and pc.wt == "M")
+local tko = {}
+N.track(tko, { unit = "nav-0009", n = 9, call = "KITE", kind = "air", owner = "sam_k" },
+  { x = 0, y = 70, z = 0, spd = 0, vs = 0, st = "park" }, 10)
+N.cinderContact(tko, { unit = "drone-1", x = 5, z = 6 }, "LAMBDA-001", 10)
+local po = N.parsePicture(N.picture(tko, {}, 12), 12).contacts
+local owners = {}
+for _, c3 in ipairs(po) do owners[c3.call] = c3.owner end
+check("...and who each is registered to - CINDER's own as CINDER", owners.KITE == "sam_k" and owners["LAMBDA-001"] == "CINDER")
 local mid = N.parsePicture({ type = "nav.pic", ct = "9,KITE,air,0,70,0,10,0,move,2,2.5,M", cn = "" }, 12).contacts[1]
 check("...a picture from just before them still reads", mid and mid.tr == 2.5 and mid.wt == "M" and mid.vs == nil)
 local many = {}
@@ -830,35 +849,6 @@ local big = N.picture(many, {}, 10)
 check("a picture never grows past its size, however long the callsigns", #big.ct <= N.PIC_BYTES and big.n < 100, #big.ct)
 
 end
-do -- trails (a block of its own: Lua allows 200 locals at once)
-print("trails")
-local tr = N.trailPush(nil, 0, 0, 0)
-N.trailPush(tr, 5, 0, 4)
-check("a trail dot every N.TRAIL_SECS, not every ping", #tr == 1)
-for i = 1, 10 do N.trailPush(tr, i * 100, 0, i * N.TRAIL_SECS) end
-check("...and only the last N.TRAIL_N, oldest first", #tr == N.TRAIL_N and tr[N.TRAIL_N].x == 1000 and tr[1].x == 500)
-N.trailPush(tr, 9999, 0, 10 * N.TRAIL_SECS + N.TRAIL_SECS * (N.TRAIL_N + 2))
-check("...starting again after a long silence", #tr == 1 and tr[1].x == 9999)
-local tk3 = {}
-for i = 0, 6 do
-  N.track(tk3, { unit = "nav-0009", n = 9, call = "KITE", kind = "air" },
-    { x = i * 20, y = 70, z = 0, spd = 10, vs = 0, hdg = 90, st = "move" }, i * 2)
-end
-check("the master keeps a trail from the pings: a dot every fifth one", #tk3["nav-0009"].trail == 2
-  and tk3["nav-0009"].trail[2].x == 100, #tk3["nav-0009"].trail)
--- a craft heading east at 80 b/s: its old dots behind it, west, fading
-local trail = {}
-for i = 1, 6 do trail[i] = { x = 600 - (6 - i + 1) * 300, z = 0, t = 0 } end
-local _, cv = tshot("radar", 57, 38, { name = "CHI", x = 0, z = 0, range = 2000, now = 100, centres = {},
-  contacts = { { n = 1, call = "FAST", kind = "air", x = 600, y = 70, z = 0, spd = 80, hdg = 90, st = "move", t = 99,
-                 trail = trail } } })
-local cxp, R = 57.5, 52.5
-local function inkAt(wx) return cv.px[(math.floor(57.5 + 0.5) - 1) * cv.pw + math.floor(cxp + wx / 2000 * R + 0.5)] end
-check("its trail on the radar, behind it, fading: the newest grey, the oldest nearly gone",
-  inkAt(600 - 300) == T.C.faint and inkAt(600 - 3 * 300) == T.C.rule and inkAt(600 - 5 * 300) == T.C.panel,
-  tostring(inkAt(600 - 300)) .. tostring(inkAt(600 - 3 * 300)) .. tostring(inkAt(600 - 5 * 300)))
-end
-
 local function leadX(tr)
   local _, cv = tshot("radar", 57, 38, { name = "CHI", x = 0, z = 0, range = 2000, now = 100, centres = {},
     contacts = { { n = 1, call = "K", kind = "air", x = 0, y = 70, z = 400, spd = 60, hdg = 0, tr = tr, st = "move", t = 99 } } })

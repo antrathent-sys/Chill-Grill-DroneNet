@@ -765,7 +765,6 @@ if slave then
   local myId = N.centreId(slave.name)
   local rx = SEC.receiver()
   local pic, lastPic = { contacts = {}, centres = {} }, nil
-  local trails = {}          -- each craft's history dots, kept here from the pictures
   local function view()
     local list = {}
     for _, ct in ipairs(pic.contacts) do ct.reg = N.regOf(ct) list[#list + 1] = ct end
@@ -781,16 +780,7 @@ if slave then
       if ch == N.CHANNEL and type(msg) == "table" and msg.sl and msg.d == SEC.DIR.TOWER_TO_CENTRE then
         local body = rx.open(msg, function(id) return id == myId and key or nil end, SEC.DIR.TOWER_TO_CENTRE, N.MAX_AGE_MS)
         local p = body and N.parsePicture(body, os.clock())
-        if p then
-          pic, lastPic = p, os.clock()
-          local seen = {}
-          for _, ct in ipairs(p.contacts) do
-            local k = TU.keyOf(ct)
-            trails[k] = N.trailPush(trails[k], ct.x, ct.z, ct.t)
-            ct.trail, seen[k] = trails[k], true
-          end
-          for k in pairs(trails) do if not seen[k] then trails[k] = nil end end
-        end
+        if p then pic, lastPic = p, os.clock() end
       end
     end
   end, function()

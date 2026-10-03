@@ -4,8 +4,9 @@
 --   M.radar(T, c, view, sel) -> hits
 --                          the scope: for a monitor 3x3 or bigger (Alex,
 --                          2026-10-01) - 57x38 at text scale 0.5. sel: the
---                          key of a craft touched on it, which gets a ring
---                          and a card of everything known about it
+--                          key of a craft touched on it, which is drawn in
+--                          a lighter shade and gets a card of everything
+--                          known about it, its owner too
 --   M.pick(hits, x, y)     the craft a touch at x, y was on, or nil
 --   M.cardLines(ct, now)   that card's lines
 --   M.board(T, c, view)    the list: every vehicle heard, distress first
@@ -39,37 +40,24 @@ function M.wantsRadar(w, h) return (w or 0) >= M.RADAR_MIN_W and (h or 0) >= M.R
 -- deep blue is lifted enough to read on the near-black ground.
 M.PALETTE = { ["3"] = 0x4f9fd6,      -- vessel: sea blue
               ["1"] = 0xa8784a,      -- land: brown
-              ["b"] = 0x4866d8 }     -- submarine: deep blue
+              ["b"] = 0x4866d8,      -- submarine: deep blue
+              -- the one touched on a radar: a lighter shade of its own colour
+              -- (Alex, 2026-10-03: "a slightly different colour", not a ring)
+              ["2"] = 0xf3e2a0,      -- aircraft: white goes a pale gold
+              ["5"] = 0xd9a46a,      -- land: light brown
+              ["6"] = 0x8fd0ff,      -- vessel: light blue
+              ["9"] = 0x8c9cff }     -- submarine: light indigo
 M.KIND_INK = { air = "0", land = "1", sea = "3", sub = "b" }
+M.SEL_INK = { air = "2", land = "5", sea = "6", sub = "9" }
 --- Put the kinds' colours on a monitor or terminal (after tui's apply).
 function M.apply(t)
   if not (t and t.setPaletteColour) then return false end
   for slot, rgb in pairs(M.PALETTE) do pcall(t.setPaletteColour, 2 ^ tonumber(slot, 16), rgb) end
   return true
 end
-local function inkOf(T, ct)
+local function inkOf(T, ct, selected)
   if ct.st == "sos" then return T.C.accent end
-  return M.KIND_INK[ct.kind or ""] or T.C.text
-end
-M.inkOf = inkOf
-
--- Each kind of craft its own colour (Alex, 2026-10-03: "blue for ships,
--- brown for land, deep blue for subs"). Air keeps the plain white - the most
--- of them, the easiest read. Red is only ever distress and green only ever a
--- traffic centre. Three slots of the palette lib/tui.lua leaves free; the
--- deep blue is lifted enough to read on the near-black ground.
-M.PALETTE = { ["3"] = 0x4f9fd6,      -- vessel: sea blue
-              ["1"] = 0xa8784a,      -- land: brown
-              ["b"] = 0x4866d8 }     -- submarine: deep blue
-M.KIND_INK = { air = "0", land = "1", sea = "3", sub = "b" }
---- Put the kinds' colours on a monitor or terminal (after tui's apply).
-function M.apply(t)
-  if not (t and t.setPaletteColour) then return false end
-  for slot, rgb in pairs(M.PALETTE) do pcall(t.setPaletteColour, 2 ^ tonumber(slot, 16), rgb) end
-  return true
-end
-local function inkOf(T, ct)
-  if ct.st == "sos" then return T.C.accent end
+  if selected then return M.SEL_INK[ct.kind or ""] or M.SEL_INK.air end
   return M.KIND_INK[ct.kind or ""] or T.C.text
 end
 M.inkOf = inkOf
@@ -105,6 +93,7 @@ function M.cardLines(ct, now)
   local function add(label, value) if value then out[#out + 1] = { label, tostring(value) } end end
   out[1] = { tostring(ct.reg or ""), tostring(ct.call or "") }
   add("TYPE", (KIND_WORD[ct.kind] or "") .. (ct.wt and ("  WT " .. ct.wt) or ""))
+  add("OWNER", ct.owner and tostring(ct.owner):upper() or nil)
   add("STATE", ((now or 0) - (ct.t or -1e9) > M.STALE) and "AWAY" or tostring(ct.st or ""):upper())
   add("SPEED", string.format("%d B/S", floor((ct.spd or 0) + 0.5)))
   add("ALT", ct.y and (tostring(floor(ct.y + 0.5)) .. (ct.vs and string.format("  V/S %+.1f", ct.vs) or "")))
@@ -192,14 +181,6 @@ function M.radar(T, c, view, sel)
       kx = kx + #k[2] + 1
     end
   end
-  -- the colours' key, top left
-  if c.w >= 30 then
-    local kx = 2
-    for _, k in ipairs({ { "air", "AIR" }, { "land", "LAND" }, { "sea", "SEA" }, { "sub", "SUB" } }) do
-      c:text(kx, 2, k[2], M.KIND_INK[k[1]])
-      kx = kx + #k[2] + 1
-    end
-  end
   local function toPx(x, z) return cx + (x - view.x) / range * R, cy + (z - view.z) / range * R end
   local function cross(px, py, col)
     for d = -1, 1 do c:pix(px + d, py, col) c:pix(px, py + d, col) end
@@ -218,20 +199,6 @@ function M.radar(T, c, view, sel)
   -- distress last, so it is drawn over anything else
   local list = {}
   for _, ct in ipairs(view.contacts or {}) do if live(view, ct) and ct.x then list[#list + 1] = ct end end
-  -- the trails first, under everything: a dot where each craft was every
-  -- N.TRAIL_SECS, fading with age - far apart is fast, bunched is slow
-  local FADE = { T.C.faint, T.C.faint, T.C.rule, T.C.rule, T.C.panel, T.C.panel }
-  for _, ct in ipairs(list) do
-    local tr = ct.trail or {}
-    local nx, ny = toPx(ct.x, ct.z)
-    for i = #tr, 1, -1 do
-      local p = tr[i]
-      local px, py = toPx(p.x, p.z)
-      if (px - nx) ^ 2 + (py - ny) ^ 2 >= 4 and sqrt((px - cx) ^ 2 + (py - cy) ^ 2) <= R then
-        c:pix(px, py, FADE[#tr - i + 1] or T.C.panel)
-      end
-    end
-  end
   table.sort(list, function(a, b) return (a.st == "sos" and 1 or 0) < (b.st == "sos" and 1 or 0) end)
   local picked
   for _, ct in ipairs(list) do
@@ -239,8 +206,9 @@ function M.radar(T, c, view, sel)
     if sqrt((px - cx) ^ 2 + (py - cy) ^ 2) <= R then
       local key = M.keyOf(ct)
       hits[#hits + 1] = { key = key, x = cellX(px), y = cellY(py) }
-      if sel and key == sel then picked = { ct = ct, px = px, py = py } end
-      local col = inkOf(T, ct)
+      local isSel = sel ~= nil and key == sel
+      if isSel then picked = { ct = ct, px = px, py = py } end
+      local col = inkOf(T, ct, isSel)
       if ct.hdg and (ct.spd or 0) > 0.5 then
         -- where it will be: straight on, or round its turn (Alex, 2026-10-03)
         local len = max(3, min(R / 3, (ct.spd * M.LEAD_SECS) / range * R))
@@ -260,9 +228,8 @@ function M.radar(T, c, view, sel)
       label(cellX(px) + 2, cellY(py), (ct.st == "sos" and "SOS " or "") .. tostring(ct.call or ""):sub(1, 10), col)
     end
   end
-  -- the one touched: a ring round it, and its card
+  -- the one touched: its card (it is drawn in its lighter shade above)
   if picked then
-    c:circle(picked.px + 0.5, picked.py + 0.5, 4, T.C.text)
     card(T, c, picked.ct, view.now, cellX(picked.px))
   end
   return hits

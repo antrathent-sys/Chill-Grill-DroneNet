@@ -119,22 +119,12 @@ function(root, which)
     k("callsign on a 4x3", { state = "callsign", who = "alex_r", call = "FALCON" }, 79, 38)
   else
     local contacts = {
-      { n = 1, reg = "CR-0001", call = "FALCON", kind = "air", x = 2497 + 640, y = 214, z = -3297 + 300, spd = 80, hdg = 70, st = "move", t = 99, tr = 6, wt = "M" },
+      { n = 1, reg = "CR-0001", call = "FALCON", kind = "air", x = 2497 + 640, y = 214, z = -3297 + 300, spd = 80, hdg = 70, st = "move", t = 99, tr = 6, wt = "M", owner = "alex_r" },
       { n = 2, reg = "CR-0002", call = "HAWK", kind = "air", x = 2497 - 900, y = 150, z = -3297 + 500, spd = 0, st = "sos", t = 98, wt = "L" },
       { n = 7, reg = "CR-0007", call = "BARGE", kind = "sea", x = 2497 + 200, y = 63, z = -3297 - 1200, spd = 9, hdg = 200, st = "move", t = 97, wt = "H" },
-      { n = 9, reg = "CR-0009", call = "ROVER", kind = "land", x = 2497 - 300, y = 71, z = -3297 - 400, spd = 14, hdg = 300, st = "move", t = 99, tr = -8, wt = "L" },
+      { n = 9, reg = "CR-0009", call = "ROVER", kind = "land", x = 2497 - 300, y = 71, z = -3297 - 400, spd = 14, hdg = 300, st = "move", t = 99, tr = -8, wt = "L", owner = "sam_k" },
       { n = 11, reg = "CR-0011", call = "SEA WOLF", kind = "sea", x = 2497 + 1500, y = 63, z = -3297 + 900, spd = 0, st = "park", t = 99 },
       { n = 4, reg = "CR-0004", call = "PACKED", kind = "land", x = 2500, y = 70, z = -3290, spd = 0, st = "park", t = -400 } }
-    -- where each moving one was every N.TRAIL_SECS, back along its path
-    for _, ct in ipairs(contacts) do
-      if (ct.spd or 0) > 0 and ct.hdg then
-        ct.trail = {}
-        for k = N.TRAIL_N, 1, -1 do
-          local x, z = N.ahead(ct, -k * N.TRAIL_SECS)
-          ct.trail[#ct.trail + 1] = { x = x, z = z, t = 100 - k * N.TRAIL_SECS }
-        end
-      end
-    end
     local view = { name = "CHI", x = 2497, z = -3297, range = 2000, now = 100, regs = 14, contacts = contacts,
                    centres = { { name = "CHI", x = 2497, z = -3297 }, { name = "NORTH", x = 2497 + 300, z = -3297 - 1600 } },
                    lastEvent = "CR-0002 HAWK SOS" }

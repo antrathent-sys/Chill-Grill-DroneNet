@@ -33,27 +33,6 @@ N.PIC_MAX = 100           -- contacts in one picture (a sealed body stays under 
 N.PIC_BYTES = 6000        -- ...and never more than this of them, however long the callsigns
 N.PIC_AWAY = 3600         -- seconds: how long an away contact stays on a centre's board
 N.CENTRES_MAX = 8         -- centres a pong tells a unit about
-N.TRAIL_SECS = 10         -- a radar's history dots: one this often (every fifth ping on the move) -
-N.TRAIL_N = 6             --   and this many, so the gaps between them show the speed
-
---- A craft's trail on a radar: where it was, every N.TRAIL_SECS, oldest
--- first (Alex, 2026-10-03: "fading dots which also indicate speed"). Kept
--- the same way on the master (from pings) and on every centre (from its
--- pictures). Starts again after a long silence rather than joining two
--- trips with a line of old dots.
-function N.trailPush(tr, x, z, now)
-  tr = tr or {}
-  local last = tr[#tr]
-  if last and now - last.t > N.TRAIL_SECS * (N.TRAIL_N + 1) then
-    for i = #tr, 1, -1 do tr[i] = nil end
-    last = nil
-  end
-  if type(x) == "number" and type(z) == "number" and (not last or now - last.t >= N.TRAIL_SECS) then
-    tr[#tr + 1] = { x = x, z = z, t = now }
-    while #tr > N.TRAIL_N do table.remove(tr, 1) end
-  end
-  return tr
-end
 
 -- What a unit can be fitted to. The screen shows what suits each.
 N.TYPES = {
@@ -299,7 +278,7 @@ function N.cinderContact(contacts, b, call, now)
     local h = math.rad(c.hdg or 0)
     c.vx, c.vz = c.hdg and c.spd * math.sin(h) or 0, c.hdg and -c.spd * math.cos(h) or 0
   end
-  c.trail = N.trailPush(c.trail, c.x, c.z, now)
+  c.owner = "CINDER"
   c.t = now
   return c
 end
@@ -448,7 +427,8 @@ function N.picture(contacts, centres, now, ev)
     local item = table.concat({ c.n, clean(c.call), c.kind or "air", floor(c.x + 0.5), floor(c.y + 0.5),
       floor(c.z + 0.5), floor((c.spd or 0) + 0.5), c.hdg and floor(c.hdg + 0.5) % 360 or "",
       c.st or "park", floor(now - c.t), c.tr and round(c.tr, 1) or "", c.wt or "",
-      num(c.vs) and round(c.vs, 1) or "", num(c.nh) and floor(c.nh + 0.5) % 360 or "" }, ",")
+      num(c.vs) and round(c.vs, 1) or "", num(c.nh) and floor(c.nh + 0.5) % 360 or "",
+      N.validOwner(c.owner) and c.owner or "" }, ",")
     bytes = bytes + #item + 1
     if bytes > N.PIC_BYTES then break end
     parts[#parts + 1] = item
@@ -462,7 +442,7 @@ function N.parsePicture(m, now)
   local out = { contacts = {}, centres = N.parseCentres(m.cn),
                 ev = type(m.ev) == "string" and clean(m.ev):sub(1, 48) or nil }
   for item in tostring(m.ct or ""):gmatch("[^;]+") do
-    -- turn, weight class, climb and nose ride on the end, each may be
+    -- turn, weight class, climb, nose and owner ride on the end, each may be
     -- empty; a master from before them sends ten fields, and that still reads
     local n, call, kind, x, y, z, spd, hdg, st, age, rest =
       item:match("^(%d+),([^,]*),(%a+),(%-?%d+),(%-?%d+),(%-?%d+),(%d+),(%d*),(%a+),(%d+)(.*)$")
@@ -474,7 +454,8 @@ function N.parsePicture(m, now)
         y = tonumber(y), z = tonumber(z), spd = tonumber(spd), hdg = tonumber(hdg), st = st,
         t = (now or 0) - tonumber(age), tr = (tr and abs(tr) <= N.TURN_MAX) and tr or nil,
         wt = (wt == "L" or wt == "M" or wt == "H") and wt or nil,
-        vs = (vs and abs(vs) <= 2000) and vs or nil, nh = (nh and nh >= 0 and nh < 360) and nh or nil }
+        vs = (vs and abs(vs) <= 2000) and vs or nil, nh = (nh and nh >= 0 and nh < 360) and nh or nil,
+        owner = N.validOwner(extra[5]) and extra[5] or nil }
     end
   end
   return out
@@ -502,12 +483,11 @@ function N.track(contacts, rec, m, now)
   end
   if m.st == "sos" and c.st ~= "sos" then events[#events + 1] = "sos" end
   if c.st == "sos" and m.st ~= "sos" then events[#events + 1] = "sos-clear" end
-  c.call, c.kind, c.n = rec.call, rec.kind, rec.n
+  c.call, c.kind, c.n, c.owner = rec.call, rec.kind, rec.n, rec.owner
   c.x, c.y, c.z, c.spd, c.vs, c.hdg, c.st = m.x, m.y, m.z, m.spd, m.vs, m.hdg, m.st
   local h = math.rad(m.hdg or 0)
   c.vx, c.vz = m.hdg and m.spd * math.sin(h) or 0, m.hdg and -m.spd * math.cos(h) or 0
   c.nh, c.tr = m.nh, m.tr
-  c.trail = N.trailPush(c.trail, m.x, m.z, now)
   c.sid, c.sname, c.mass = m.sid or c.sid, m.sname or c.sname, m.mass or c.mass
   c.wt = N.weightClass(c.mass)
   c.t = now
