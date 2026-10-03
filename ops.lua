@@ -205,6 +205,10 @@ local watchSenders = {}
 local TRIP = dofile("lib/trip.lua")
 local ADMIN = { keys = (SEC.readFleetKeys(".adminkeys")), rx = SEC.receiver(), trips = {}, ended = {},
                 seq = 0, seen = {} }
+-- A feed that could not be sealed, and why - a full disk cannot take a new
+-- watcher's counter file, and that failed in silence (2026-10-03: the base
+-- fed alex but never the tower). feedLoop puts each on the board once.
+local watchFail = {}
 local function sealTo(cacheKey, id, key, body, ctr)
   local s = watchSenders[cacheKey]
   if not s or s.madeWith ~= key then
@@ -212,8 +216,13 @@ local function sealTo(cacheKey, id, key, body, ctr)
     s.madeWith = key
     watchSenders[cacheKey] = s
   end
-  local okS, env = pcall(s.seal, body)
-  if okS and env then pcall(peripheral.call, radio, "transmit", WATCH.CHANNEL, WATCH.CHANNEL, env) end
+  local okS, env, why = pcall(s.seal, body)
+  if okS and env then
+    pcall(peripheral.call, radio, "transmit", WATCH.CHANNEL, WATCH.CHANNEL, env)
+    watchFail[cacheKey] = nil
+  elseif not watchFail[cacheKey] then
+    watchFail[cacheKey] = { why = tostring(okS and why or env) }
+  end
 end
 local stealthOn = fs.exists(STEALTH)
 local function feed(body)
@@ -2141,6 +2150,15 @@ local function feedLoop()
         end
       end
     end
+    end
+    for name, f in pairs(watchFail) do
+      if not f.told then
+        f.told = true
+        -- the words that matter first: the log panel cuts long lines
+        local why = f.why:find("persist", 1, true) and "DISK FULL?" or f.why
+        log("%s FEED FAILED %s %dKB FREE", name:upper(), why,
+          math.floor(((fs.getFreeSpace and fs.getFreeSpace("/")) or 0) / 1024))
+      end
     end
     sleep(WATCH.EVERY)
   end

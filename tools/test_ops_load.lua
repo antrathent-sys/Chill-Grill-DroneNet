@@ -84,6 +84,7 @@ local function base(opts)
                    return line
                  end, close = function() end }
       end
+      if w.failWrite and w.failWrite[p] then return nil end      -- a full disk, for this file
       local buf = { mode == "a" and (w.files[p] or "") or "" }
       local h = {}
       h.write = function(x) buf[#buf + 1] = tostring(x) end
@@ -306,7 +307,9 @@ local function base(opts)
   env.keys = setmetatable({ x = 45, q = 16, enter = 28, y = 21 }, { __index = function() return 0 end })
   -- the board draws; here every drawing call does nothing
   local nothing = function() end
-  env.term = setmetatable({ getSize = function() return 51, 19 end, isColour = function() return true end },
+  w.blits = {}
+  env.term = setmetatable({ getSize = function() return 51, 19 end, isColour = function() return true end,
+                            blit = function(t) w.blits[#w.blits + 1] = t end },
     { __index = function() return nothing end })
   env.colours = setmetatable({}, { __index = function() return 1 end })
   env.colors = env.colours
@@ -945,6 +948,12 @@ for _, env2 in ipairs(wt.fed) do
   if b and b.type == "cinder.unit" then pubUnits = pubUnits + 1 end
   if b and b.type == "cinder.status" then pubStatus = pubStatus + 1 end
 end
+local wf = base({ args = {}, keysAt = { { 12, "q" } }, files = { [".watchkeys"] = "tower=" .. WHEX .. "\n" } })
+wf.failWrite = { [".watch-tower.ctr"] = true }
+wf = wf:run()
+check("a feed that cannot start (no room for its counter) says so on the board, with the free space",
+  wf.err == nil and table.concat(wf.blits, "\n"):find("TOWER FEED FAILED", 1, true) ~= nil,
+  wf.err or table.concat(wf.blits, "\n"):sub(-800))
 check("a watch key made while ops runs is fed without a restart: the tower gets units and status",
   wt.err == nil and pubUnits >= 1 and pubStatus >= 1, wt.err or (pubUnits .. " units, " .. pubStatus .. " status"))
 

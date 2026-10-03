@@ -615,7 +615,8 @@ if cmd == "check" then
     elseif #other > 0 then
       print("the base feeds " .. table.concat(other, ", ") .. " but not " .. me .. ".")
       print("On the base: seckey watch list - make the key for " .. me .. " if it is missing.")
-      print("(An older ops needs restarting to see a new key; this one picks it up by itself.)")
+      print("Listed? Reboot the base (an older ops never sees a new key) and look on its board")
+      print("for " .. me:upper() .. " FEED FAILED - a full disk cannot start a new feed.")
     else
       print("nothing from the base on channel " .. N.CINDER_FEED .. ". Is ops running on the base, with its chunk")
       print("loaded and an ender modem? An older ops started before the key existed needs restarting.")
