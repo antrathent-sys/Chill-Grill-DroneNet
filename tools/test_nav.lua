@@ -580,6 +580,67 @@ check("a remembered nose holds against a little reversing", st4.nose == "+x")
 for _ = 1, 200 do N.noseVote(st4, qAxis(0, 1, 0, 0), { x = 0, y = 0, z = -10 }) end
 check("...but a craft that clearly goes another way relearns", st4.nose == "-z", st4.nose)
 
+print("more from Sable: the nose's heading, the turn, the weight")
+local function nearly(a, b, tol) return a and math.abs(a - b) < (tol or 0.01) end
+local qId = qAxis(0, 1, 0, 0)
+check("the nose's heading: built north, level - 0", nearly(N.noseHeading(qId, "-z"), 0))
+check("...built east - 90", nearly(N.noseHeading(qId, "+x"), 90))
+check("...turned 90 left - 270", nearly(N.noseHeading(qAxis(0, 1, 0, 90), "-z"), 270), N.noseHeading(qAxis(0, 1, 0, 90), "-z"))
+check("...no nose, no heading", N.noseHeading(qId, nil) == nil)
+check("the turn: spinning left about the vertical is minus", nearly(N.turnRate(qId, { x = 0, y = 0.1, z = 0 }), -5.7296))
+check("...the spin is in the craft's frame: banked 30, a spin about its own up is less of a turn",
+  nearly(N.turnRate(qAxis(0, 0, 1, -30), { x = 0, y = -0.1, z = 0 }), 5.7296 * math.cos(math.rad(30)), 0.01))
+check("...no orientation, no turn", N.turnRate(nil, { x = 0, y = 1, z = 0 }) == nil)
+check("weight classes from Sable's mass", N.weightClass(66) == "L" and N.weightClass(1500) == "M"
+  and N.weightClass(25000) == "H" and N.weightClass(nil) == nil and N.weightClass(0) == nil)
+local ax, az = N.ahead({ x = 0, z = 0, spd = 10, hdg = 90 }, 3)
+check("ahead, straight: 30 east in 3 s", nearly(ax, 30) and nearly(az, 0))
+local sx, sz, sh = 0, 0, 0
+for _ = 1, 3000 do
+  sx, sz = sx + 10 * math.sin(math.rad(sh)) * 0.001, sz - 10 * math.cos(math.rad(sh)) * 0.001
+  sh = sh + 12 * 0.001
+end
+local tx2, tz2 = N.ahead({ x = 0, z = 0, spd = 10, hdg = 0, tr = 12 }, 3)
+check("ahead, turning: the circle matches a step-by-step path", nearly(tx2, sx, 0.05) and nearly(tz2, sz, 0.05),
+  string.format("%.2f %.2f vs %.2f %.2f", tx2, tz2, sx, sz))
+local rp = N.reading({ x = 0, y = 70, z = 0 }, { x = 0, y = 0, z = -10 })
+rp.nose, rp.tr = 271.4, -3.26
+local pp = N.ping(rp)
+check("the ping carries the nose's heading and the turn", pp.nh == 271 and pp.tr == -3.3 and N.checkPing(pp) ~= nil)
+local still = N.reading({ x = 0, y = 70, z = 0 }, nil)
+still.tr = 2
+check("...the turn only while it moves", N.ping(still).tr == nil)
+local badP = function(f) local q = N.ping(rp) f(q) return N.checkPing(q) == nil end
+check("...and the tower refuses nonsense in them", badP(function(q) q.tr = 500 end) and badP(function(q) q.nh = 360 end)
+  and badP(function(q) q.mass = "heavy" end))
+local tk = {}
+local tc = N.track(tk, { unit = "nav-0009", n = 9, call = "KITE", kind = "air" },
+  { x = 0, y = 70, z = 0, spd = 10, vs = 0, hdg = 0, nh = 5, tr = 2.5, st = "move", mass = 1500 }, 10)
+check("the tower keeps the nose, the turn and the weight class", tc.nh == 5 and tc.tr == 2.5 and tc.wt == "M")
+local pic = N.parsePicture(N.picture(tk, {}, 12), 12)
+check("a centre's picture carries the turn and the weight class", pic.contacts[1].tr == 2.5 and pic.contacts[1].wt == "M")
+local old = N.parsePicture({ type = "nav.pic", ct = "9,KITE,air,0,70,0,10,0,move,2", cn = "" }, 12)
+check("...and a master from before them still reads", old.contacts[1] and old.contacts[1].tr == nil
+  and old.contacts[1].call == "KITE")
+-- a craft circling back at us: straight on it would miss by 100, round its turn it comes through
+local circ = { unit = "nav-0010", n = 10, call = "LOOP", kind = "air", x = 100, y = 70, z = 0, spd = 10, hdg = 0,
+               vx = 0, vz = -10, tr = -math.deg(10 / 50), t = 10 }
+local still2 = { unit = "nav-0011", n = 11, call = "PARK", kind = "air", x = 0, y = 70, z = 0, spd = 0, vx = 0, vz = 0, t = 10 }
+local straight = { unit = "nav-0010", n = 10, call = "LOOP", kind = "air", x = 100, y = 70, z = 0, spd = 10, hdg = 0,
+                   vx = 0, vz = -10, t = 10 }
+check("a turning craft on course to pass close: an advisory",
+  N.traffic({ ["nav-0010"] = circ, ["nav-0011"] = still2 }, still2, 10)[1].warn)
+check("...the same craft not turning: none",
+  not N.traffic({ ["nav-0010"] = straight, ["nav-0011"] = still2 }, still2, 10)[1].warn)
+check("clock positions off the nose: traffic due east with the nose east is 12 o'clock",
+  N.advisory({ hdg = 0, nh = 90 }, { { warn = true, brg = 90, dist = 100, dy = 0 } }):find("12 O'CLOCK", 1, true)
+  and N.advisory({ hdg = 0 }, { { warn = true, brg = 90, dist = 100, dy = 0 } }):find("3 O'CLOCK", 1, true))
+local parked = view("air", { r = N.reading({ x = 0, y = 70, z = 0 }, nil) })
+parked.r.nose = 268
+local hp = shot(15, 10, parked, "heading")
+check("the heading page shows where the nose points, parked", hp:find("WEST", 1, true)
+  and not hp:find("NOT MOVING", 1, true), hp)
+
 UI.SHOW_ATTITUDE = true            -- the page itself, as it will be when it is switched on
 local function attView(kind, pitch, roll, extra)
   local v = view(kind, extra)
@@ -664,7 +725,8 @@ end
 local tv = { name = "CHI", x = 0, z = 0, range = 2000, now = 100, regs = 4, centres = {
     { name = "CHI", x = 0, z = 0 }, { name = "NORTH", x = 0, z = -1500 }, { name = "FAR", x = 9000, z = 0 } },
   contacts = {
-    { n = 1, reg = "CR-0001", call = "FALCON", kind = "air", x = 600, y = 210, z = 300, spd = 80, hdg = 90, st = "move", t = 99 },
+    { n = 1, reg = "CR-0001", call = "FALCON", kind = "air", x = 600, y = 210, z = 300, spd = 80, hdg = 90, st = "move", t = 99,
+      wt = "M" },
     { n = 2, reg = "CR-0002", call = "HAWK", kind = "air", x = -900, y = 150, z = 400, spd = 0, st = "sos", t = 98 },
     { n = 3, reg = "CR-0003", call = "OUTSIDE", kind = "sea", x = 5000, y = 63, z = 0, spd = 9, hdg = 0, st = "move", t = 99 },
     { n = 4, reg = "CR-0004", call = "PACKED", kind = "land", x = 100, y = 70, z = 100, spd = 0, st = "park", t = 10 } } }
@@ -699,14 +761,23 @@ local hawkRow, falconRow, packedRow = btxt:find("CR-0002", 1, true), btxt:find("
 check("the board: distress first, then live, then away", hawkRow and falconRow and packedRow
   and hawkRow < falconRow and falconRow < packedRow and btxt:find("AWAY", 1, true)
   and btxt:find("4 REG", 1, true), btxt)
-check("...each one's X and Z on the tower's own screen", btxt:find("CR-0001 FALCON     MOVE  80  210    600    300", 1, true)
+check("...each one's weight class, X and Z on the tower's own screen", btxt:find("CR-0001 FALCON    M  MOVE   80  210    600    300", 1, true)
   and btxt:find("-900    400", 1, true), btxt)
 local wideB = tshot("board", 79, 24, tv)
-check("...a wide board: type, coordinates and how long ago", wideB:find("AIR  MOVE   80   210    600    300    1S", 1, true)
+check("...a wide board: type, weight, coordinates and how long ago", wideB:find("AIR  M  MOVE   80   210    600    300    1S", 1, true)
   and wideB:find("1M", 1, true), wideB)
 local narrow = tshot("board", 36, 24, tv)
 check("...and a narrower one keeps callsign, state, height and where", narrow:find("FALCON     MOVE  210    600    300", 1, true),
   narrow)
+local function leadX(tr)
+  local _, cv = tshot("radar", 57, 38, { name = "CHI", x = 0, z = 0, range = 2000, now = 100, centres = {},
+    contacts = { { n = 1, call = "K", kind = "air", x = 0, y = 70, z = 400, spd = 60, hdg = 0, tr = tr, st = "move", t = 99 } } })
+  local sum, n = 0, 0
+  for k, v in pairs(cv.px) do if v == T.C.faint then sum, n = sum + ((k - 1) % cv.pw) + 1, n + 1 end end
+  return n > 0 and sum / n or 0
+end
+check("the radar's lead line bends round a right turn", leadX(15) > leadX(0) + 1 and leadX(-15) < leadX(0) - 1,
+  string.format("%.1f %.1f %.1f", leadX(-15), leadX(0), leadX(15)))
 local fed = tshot("radar", 57, 38, { name = "NORTH", x = 0, z = 0, range = 2000, now = 0, contacts = {}, feed = "none" })
 check("a centre that hears nothing from its master says so", fed:find("NO FEED FROM MASTER", 1, true), fed)
 print("")

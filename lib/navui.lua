@@ -110,13 +110,17 @@ local function fmtSpd(v)
   return tostring(floor(v + 0.5))
 end
 
+--- The heading to show: where the nose points when the unit knows (it works
+-- parked and hovering), else the way it is going over the ground.
+function M.heading(r) return r and (r.nose or r.hdg) or nil end
+
 --- A value as text, for the big font (digits, '.', '-') or the small line.
 function M.value(r, key)
   if not r then return "--" end
   if key == "spd" then return fmtSpd(r.spd) end
   if key == "alt" then return r.y and tostring(floor(r.y + 0.5)) or "--" end
   if key == "depth" then return r.depth and tostring(max(0, floor(r.depth + 0.5))) or "--" end
-  if key == "hdg" then return r.hdg and string.format("%03d", floor(r.hdg + 0.5) % 360) or "---" end
+  if key == "hdg" then local h = M.heading(r) return h and string.format("%03d", floor(h + 0.5) % 360) or "---" end
   if key == "vs" then
     if not r.vs then return "--" end
     local v = floor(r.vs * 10 + 0.5) / 10
@@ -281,7 +285,7 @@ local function trafficList(T, c, y0, rows, view)
     center(c, y0 + 2, view.link == "contact" and "NOTHING WITHIN 1K" or "NO TRAFFIC PICTURE", T.C.faint)
     return
   end
-  local hdg = view.r and view.r.hdg or 0
+  local hdg = M.heading(view.r) or 0
   for i = 1, min(rows, #tr) do
     local t = tr[i]
     local rel = floor(((t.brg - hdg) % 360 + 360) % 360 / 30 + 0.5) % 12
@@ -324,7 +328,7 @@ local function bigOf(page, view)
     if kind == "sub" then return M.value(r, "depth"), "BELOW SEA", "V/S " .. M.value(r, "vs") end
     return M.value(r, "alt"), "Y LEVEL", "V/S " .. M.value(r, "vs")
   elseif page == "heading" then
-    local cp = r and cardinal(r.hdg)
+    local cp = cardinal(M.heading(r))
     return M.value(r, "hdg"), cp and CARD_WORD[cp] or "NOT MOVING", "SPD " .. M.value(r, "spd")
   end
   return "--", "", nil
@@ -363,7 +367,7 @@ local function radarPage(T, c, view, idx, n)
   c:circle(cx, cy, R, T.C.rule)
   -- you: a small cross
   for d = -1, 1 do c:pix(cx + d, cy, T.C.text) c:pix(cx, cy + d, T.C.text) end
-  local up = view.r and view.r.hdg or 0
+  local up = M.heading(view.r) or 0
   local function dot(brg, dist, col, big)
     local a = math.rad(brg - up)
     local d = min(dist / RANGE, 1) * R
@@ -377,7 +381,7 @@ local function radarPage(T, c, view, idx, n)
   for _, t in ipairs(view.traffic or {}) do
     dot(t.brg, t.dist, t.warn and T.C.warn or T.C.text, true)
   end
-  if not (view.r and view.r.hdg) then c:text(2, 2, "N", T.C.faint) end
+  if not M.heading(view.r) then c:text(2, 2, "N", T.C.faint) end
   if view.link ~= "contact" then center(c, floor((topRow + botRow) / 2), "NO TOWER", T.C.warn) end
   advBand(T, c, view)
 end
@@ -476,7 +480,7 @@ local function compassPage(T, c, view, idx, n)
     local x, y = polar(cx, cy, R - 3.5, (i - 1) * 90)
     c:text(floor((x - 1) / 2) + 1, floor((y - 1) / 3) + 1, l, l == "N" and T.C.text or T.C.faint)
   end
-  local h = view.r and view.r.hdg
+  local h = M.heading(view.r)
   if h then needle(c, cx, cy, R - 2, h, T.C.accent) end
   window(c, cy, R, M.value(view.r, "hdg"), T.C.text)
   local cp = h and cardinal(h)

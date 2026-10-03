@@ -521,12 +521,15 @@ local function unitWorld(opts)
     setCursorPos = function(_, y) cy = y end,
     blit = function(s) u.rows[cy] = s:gsub("[\128-\255]", " ") end } }
   u.pos = { x = 100, y = 150, z = -40 }
+  u.craftName = "Falcon"
   u.env.sublevel = {
     getLogicalPose = function() return { position = { x = u.pos.x, y = u.pos.y, z = u.pos.z },
                                          orientation = { x = 0, y = 0, z = 0, w = 1 } } end,
     getLinearVelocity = function() return { x = 0, y = 0, z = -30 } end,
+    getAngularVelocity = function() return { x = 0, y = -0.05, z = 0 } end,
     getUniqueId = function() return "uuid-falcon" end,
-    getName = function() return "Falcon" end,
+    getName = function() return u.craftName end,
+    setName = function(s) u.craftName = s u.named = (u.named or 0) + 1 end,
     getMass = function() return 1500 end,
   }
   return u
@@ -551,7 +554,11 @@ for _, s in ipairs(u.sent) do
 end
 check("it pings at once, sealed, from what Sable says", u.err == nil and #pings >= 1 and pings[1].x == 100
   and pings[1].y == 150 and pings[1].spd == 30 and pings[1].hdg == 0 and pings[1].st == "move"
-  and pings[1].sid == "uuid-falcon" and pings[1].sname == "Falcon", u.err or #pings)
+  and pings[1].sid == "uuid-falcon" and pings[1].sname == "CR-0001 FALCON", u.err or #pings)
+check("the craft carries its registration: Sable's name stamped once", u.craftName == "CR-0001 FALCON" and u.named == 1,
+  tostring(u.craftName) .. " " .. tostring(u.named))
+check("...and the ping says it, with the turn (a right turn, from Sable's spin)", pings[1] and pings[1].sname == "CR-0001 FALCON"
+  and pings[1].tr == 2.9, pings[1] and pings[1].tr)
 check("every two seconds while it moves", #pings >= 2 and u.sent[2].t - u.sent[1].t == N.PING_MOVING, #pings)
 check("the screen before the tower answers: calling", (seen.before or ""):find("CALLING TOWER", 1, true), seen.before)
 check("after the pong: in contact, and the advisory across the screen", (seen.contact or ""):find("TOWER CONTACT", 1, true)

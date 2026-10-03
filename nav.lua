@@ -157,12 +157,23 @@ local gpsPrev = nil
 local NOSE_FILE = ".navnose"
 local nose = N.noseState(((readAll(NOSE_FILE) or ""):match("[%+%-][xz]")))
 
+-- The registration on the craft itself (Alex, 2026-10-03): Sable's name for
+-- it becomes "CR-0012 KITE", put back whenever it is changed. CINDER marks
+-- what it registers.
+local function stamp(c)
+  if not (me and me.n and me.call) then return end
+  local want = N.regNumber(me.n) .. " " .. me.call
+  if c.name ~= want and pcall(sublevel.setName, want) then c.name = want end
+end
+
 local function sense()
-  local pose, vel
+  local pose, vel, spin
   if sublevel then
+    -- all three in the same tick: they cost one wait, not three
     parallel.waitForAll(
       function() local ok, r = pcall(sublevel.getLogicalPose) if ok then pose = r end end,
-      function() local ok, r = pcall(sublevel.getLinearVelocity) if ok then vel = r end end)
+      function() local ok, r = pcall(sublevel.getLinearVelocity) if ok then vel = r end end,
+      function() local ok, r = pcall(sublevel.getAngularVelocity) if ok then spin = r end end)
   end
   if type(pose) == "table" and type(pose.position) == "table" then
     view.craft = true
@@ -173,6 +184,7 @@ local function sense()
         function() local ok, r = pcall(sublevel.getUniqueId) if ok then c.id = r end end,
         function() local ok, r = pcall(sublevel.getName) if ok then c.name = r end end,
         function() local ok, r = pcall(sublevel.getMass) if ok then c.mass = r end end)
+      stamp(c)
       craft = c
     end
     local r = N.reading(pose.position, type(vel) == "table" and vel or nil, view.r)
@@ -186,6 +198,9 @@ local function sense()
     end
     if q and nz then r.pitch, r.roll = N.attitude(q, nz) end
     view.att = not q and "none" or nz and "ok" or "learning"
+    -- the heading the nose points at (shown even when parked), and the turn
+    r.nose = N.noseHeading(q, nz)
+    r.tr = N.turnRate(q, spin)
     return r
   end
   -- not on a vehicle: GPS, if the server has one, with its velocity differenced

@@ -60,6 +60,29 @@ green cross with the name on the radar, and a `CENTRES` line on the board
 (nearest first, distance and direction). The board gives every vehicle's
 X and Z beside its height - on the computer's own screen too.
 
+**More from Sable** (Alex, 2026-10-03, all four from one look at what CC:
+Sable offers; nothing added to the kit, nothing new to teach):
+
+- **The registration on the craft.** Each unit sets Sable's name for its
+  craft to its registration and callsign (`CR-0012 KITE`), and puts it back
+  if it is changed. CINDER marks what it registers. Still to see in game:
+  whether a packed craft keeps the name.
+- **Weight class.** The tower turns the mass each unit reports into L, M or
+  H (`N.WEIGHT`: under 1,000, under 10,000, the rest - a first guess, CINDER's
+  own drone weighs 66), and the board shows it as WT. Measured, never
+  declared.
+- **Heading from the nose.** A unit that has learned which way is forward
+  (`.navnose`) shows where the nose points, parked or hovering too, instead
+  of NOT MOVING; its radar turns with the nose, and the tower gives clock
+  positions off the nose (`nh` in the ping). The ping's own heading stays
+  the track, for the paths.
+- **Turn rate.** Units read Sable's spin in the same tick as the position
+  (no extra cost), turn it from the craft's frame into the world, and send
+  the turn in degrees a second (`tr`, right +). The radar's lead lines bend
+  round the turn (a quarter turn at most), and the tower follows both
+  craft round their curves when it checks for a close pass. Centres get the
+  turn and the weight class in their picture.
+
 **A unit** - an advanced computer. Place it once, turn it on and `label set
 nav-new`, then break it: labelled, it keeps its files as an item. Put it in
 the master's disk drive, sit the owner in the tower's seat, and run `tower

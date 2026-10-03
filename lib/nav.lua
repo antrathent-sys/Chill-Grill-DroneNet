@@ -133,6 +133,51 @@ function N.noseVote(st, q, vel)
   return st.nose
 end
 
+--- The compass heading the nose points at (0 north, 90 east), whatever the
+-- craft is doing - parked, hovering, drifting. nil when the nose is not
+-- known or points straight up or down.
+function N.noseHeading(q, nose)
+  local nb = q and N.NOSES[nose or ""]
+  if not nb then return nil end
+  local n = turn(q, nb)
+  if n[1] * n[1] + n[3] * n[3] < 0.01 then return nil end
+  return (math.deg(math.atan2(n[1], -n[3])) + 360) % 360
+end
+
+--- Turn rate in degrees a second, clockwise seen from above (a right turn
+-- is +), from Sable's spin. Sable measures the spin in the craft's own frame
+-- (the change from the last pose to this one), so it is turned into the
+-- world first and the part about the vertical is the turn.
+N.TURN_MAX = 90
+function N.turnRate(q, w)
+  if not (q and type(w) == "table" and num(w.x) and num(w.y) and num(w.z)) then return nil end
+  local ww = turn(q, { w.x, w.y, w.z })
+  local tr = -math.deg(ww[2])
+  return math.max(-N.TURN_MAX, math.min(N.TURN_MAX, tr))
+end
+
+-- A weight class from the craft's mass, as Sable weighs it, for the
+-- controllers: L, M, H (Alex, 2026-10-03). Measured, never declared. The
+-- limits are a first guess (CINDER's own drone weighs 66) - tune them once
+-- real craft have been heard.
+N.WEIGHT = { { 1000, "L" }, { 10000, "M" } }
+function N.weightClass(mass)
+  if not num(mass) or mass <= 0 then return nil end
+  for _, w in ipairs(N.WEIGHT) do if mass < w[1] then return w[2] end end
+  return "H"
+end
+
+--- Where a contact will be in t seconds, turning at its turn rate (a
+-- circle) or straight on when it is not turning.
+function N.ahead(c, t)
+  local v, h0 = c.spd or 0, math.rad(c.hdg or 0)
+  local w = math.rad(c.tr or 0)
+  if not c.hdg or v <= 0 then return c.x, c.z end
+  if abs(w) < 1e-4 then return c.x + v * math.sin(h0) * t, c.z - v * math.cos(h0) * t end
+  return c.x + (v / w) * (math.cos(h0) - math.cos(h0 + w * t)),
+         c.z - (v / w) * (math.sin(h0 + w * t) - math.sin(h0))
+end
+
 --- A learning state, started from a remembered nose (it keeps it unless the
 -- craft clearly goes another way).
 function N.noseState(saved)
@@ -174,6 +219,9 @@ function N.ping(r, st, craft)
               x = round(r.x, 1), y = round(r.y, 1), z = round(r.z, 1),
               spd = round(r.spd or 0, 1), vs = round(r.vs or 0, 1) }
   if r.hdg then p.hdg = floor(r.hdg + 0.5) % 360 end
+  -- where the nose points (the clock positions) and the turn (the path)
+  if num(r.nose) then p.nh = floor(r.nose + 0.5) % 360 end
+  if num(r.tr) and r.moving then p.tr = round(r.tr, 1) end
   if craft then
     if type(craft.id) == "string" then p.sid = craft.id:sub(1, 40) end
     if type(craft.name) == "string" then p.sname = craft.name:sub(1, 32) end
@@ -191,6 +239,9 @@ function N.checkPing(m)
   if abs(m.x) > 3e7 or abs(m.z) > 3e7 or m.y < -2048 or m.y > 100000 then return nil, "position off the world" end
   if m.spd < 0 or m.spd > 2000 or abs(m.vs) > 2000 then return nil, "speed past belief" end
   if m.hdg ~= nil and not (num(m.hdg) and m.hdg >= 0 and m.hdg < 360) then return nil, "bad heading" end
+  if m.nh ~= nil and not (num(m.nh) and m.nh >= 0 and m.nh < 360) then return nil, "bad nose heading" end
+  if m.tr ~= nil and not (num(m.tr) and abs(m.tr) <= N.TURN_MAX) then return nil, "bad turn rate" end
+  if m.mass ~= nil and not (num(m.mass) and m.mass >= 0 and m.mass < 1e9) then return nil, "bad mass" end
   if not N.STATES[m.st] then return nil, "bad state" end
   if m.sid ~= nil and (type(m.sid) ~= "string" or #m.sid > 40) then return nil, "bad craft id" end
   if m.sname ~= nil and (type(m.sname) ~= "string" or #m.sname > 32) then return nil, "bad craft name" end
@@ -373,7 +424,7 @@ function N.picture(contacts, centres, now)
     local c = list[i]
     parts[#parts + 1] = table.concat({ c.n, clean(c.call), c.kind or "air", floor(c.x + 0.5), floor(c.y + 0.5),
       floor(c.z + 0.5), floor((c.spd or 0) + 0.5), c.hdg and floor(c.hdg + 0.5) % 360 or "",
-      c.st or "park", floor(now - c.t) }, ",")
+      c.st or "park", floor(now - c.t), c.tr and round(c.tr, 1) or "", c.wt or "" }, ",")
   end
   return { type = "nav.pic", v = N.VERSION, ct = table.concat(parts, ";"), n = #parts,
            cn = N.centresString(centres) }
@@ -382,12 +433,17 @@ function N.parsePicture(m, now)
   if type(m) ~= "table" or m.type ~= "nav.pic" then return nil end
   local out = { contacts = {}, centres = N.parseCentres(m.cn) }
   for item in tostring(m.ct or ""):gmatch("[^;]+") do
-    local n, call, kind, x, y, z, spd, hdg, st, age =
-      item:match("^(%d+),([^,]*),(%a+),(%-?%d+),(%-?%d+),(%-?%d+),(%d+),(%d*),(%a+),(%d+)$")
-    if n and N.TYPES[kind] and N.STATES[st] then
+    -- the turn rate and weight class ride on the end; a master from before
+    -- them sends ten fields, and that still reads
+    local n, call, kind, x, y, z, spd, hdg, st, age, rest =
+      item:match("^(%d+),([^,]*),(%a+),(%-?%d+),(%-?%d+),(%-?%d+),(%d+),(%d*),(%a+),(%d+)(.*)$")
+    local tr, wt = (rest or ""):match("^,(%-?[%d%.]*),(%a?)$")
+    if n and N.TYPES[kind] and N.STATES[st] and (rest == "" or tr) then
+      tr = tonumber(tr)
       out.contacts[#out.contacts + 1] = { n = tonumber(n), call = call, kind = kind, x = tonumber(x),
         y = tonumber(y), z = tonumber(z), spd = tonumber(spd), hdg = tonumber(hdg), st = st,
-        t = (now or 0) - tonumber(age) }
+        t = (now or 0) - tonumber(age), tr = (tr and abs(tr) <= N.TURN_MAX) and tr or nil,
+        wt = (wt == "L" or wt == "M" or wt == "H") and wt or nil }
     end
   end
   return out
@@ -419,7 +475,9 @@ function N.track(contacts, rec, m, now)
   c.x, c.y, c.z, c.spd, c.vs, c.hdg, c.st = m.x, m.y, m.z, m.spd, m.vs, m.hdg, m.st
   local h = math.rad(m.hdg or 0)
   c.vx, c.vz = m.hdg and m.spd * math.sin(h) or 0, m.hdg and -m.spd * math.cos(h) or 0
+  c.nh, c.tr = m.nh, m.tr
   c.sid, c.sname, c.mass = m.sid or c.sid, m.sname or c.sname, m.mass or c.mass
+  c.wt = N.weightClass(c.mass)
   c.t = now
   return c, events
 end
@@ -439,6 +497,17 @@ function N.traffic(contacts, me, now)
         local tca = w2 > 1e-6 and math.max(0, -(dx * wx + dz * wz) / w2) or 0
         local cx, cz = dx + wx * tca, dz + wz * tca
         local cpa = sqrt(cx * cx + cz * cz)
+        -- either one turning: follow both round their curves instead, a
+        -- second at a time (Alex, 2026-10-03: the turn rate on the picture)
+        if abs(o.tr or 0) >= 0.5 or abs(me.tr or 0) >= 0.5 then
+          tca, cpa = 0, dist
+          for t = 1, N.WARN_SECS do
+            local ox, oz = N.ahead(o, t)
+            local mx, mz = N.ahead(me, t)
+            local d = sqrt((ox - mx) ^ 2 + (oz - mz) ^ 2)
+            if d < cpa then tca, cpa = t, d end
+          end
+        end
         local warn = (dist <= N.WARN_DIST or (tca > 0 and tca <= N.WARN_SECS and cpa <= N.WARN_DIST))
                      and abs(dy) <= N.WARN_DY
         out[#out + 1] = { unit = unit, call = o.call, reg = N.regOf(o), kind = o.kind,
@@ -465,8 +534,10 @@ end
 N.distWord = distWord
 
 --- The one line a pilot most needs, or nil: the nearest contact on course to
--- pass too close, then anyone in distress nearby.
+-- pass too close, then anyone in distress nearby. Clock positions are off
+-- the nose when the unit knows it, off the track when it does not.
 function N.advisory(me, traffic)
+  me = { hdg = me.nh or me.hdg }
   for _, t in ipairs(traffic) do
     if t.warn then
       local level = abs(t.dy) < 8 and "SAME LEVEL" or (t.dy > 0 and "ABOVE" or "BELOW")

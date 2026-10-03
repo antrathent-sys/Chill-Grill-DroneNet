@@ -8,7 +8,8 @@
 --
 -- view: { name = "CHI", x, z (where this centre is), range (blocks to the
 --         outer ring), now (os.clock), contacts = { { n, call, kind, x, y, z,
---         spd, hdg, st, t } }, centres = { { name, x, z } }, regs (count),
+--         spd, hdg, st, t, tr (turn, deg/s, right +), wt (L/M/H) } },
+--         centres = { { name, x, z } }, regs (count),
 --         lastEvent, refused, feed = nil | "ok" | "none" (a centre's link to
 --         its master) }
 -- North up, this centre in the middle, a ring at the range and one at half.
@@ -99,9 +100,19 @@ function M.radar(T, c, view)
     if sqrt((px - cx) ^ 2 + (py - cy) ^ 2) <= R then
       local col = ct.st == "sos" and T.C.accent or T.C.text
       if ct.hdg and (ct.spd or 0) > 0.5 then
+        -- where it will be: straight on, or round its turn (Alex, 2026-10-03)
         local len = max(3, min(R / 3, (ct.spd * M.LEAD_SECS) / range * R))
-        local h = math.rad(ct.hdg)
-        c:line(px, py, px + math.sin(h) * len, py - math.cos(h) * len, T.C.faint)
+        local secs = len / (ct.spd / range * R)
+        -- at most a quarter turn drawn: a slow craft turning hard would curl
+        local bend = max(-90, min(90, (ct.tr or 0) * secs))
+        local h, step = math.rad(ct.hdg), len / 8
+        local x0, y0 = px, py
+        for _ = 1, 8 do
+          local x1, y1 = x0 + math.sin(h) * step, y0 - math.cos(h) * step
+          c:line(x0, y0, x1, y1, T.C.faint)
+          x0, y0 = x1, y1
+          h = h + math.rad(bend / 8)
+        end
       end
       c:pix(px, py, col) c:pix(px + 1, py, col) c:pix(px, py + 1, col) c:pix(px + 1, py + 1, col)
       label(cellX(px) + 2, cellY(py), (ct.st == "sos" and "SOS " or "") .. tostring(ct.call or ""):sub(1, 10),
@@ -156,12 +167,14 @@ function M.board(T, c, view)
     T.C.text, T.C.faint)
   -- where each one is, X and Z, at every width (Alex, 2026-10-03: "add
   -- coordinates to the tui of controllers too"); a narrower board gives up
-  -- type and heard (51 wide, the tower's own screen), then reg and speed
-  local size = c.w >= 64 and "wide" or c.w >= 50 and "mid" or "narrow"
+  -- type and heard (51 wide, the tower's own screen), then reg, weight and
+  -- speed. WT: the weight class from Sable's mass, L M H (measured)
+  local size = c.w >= 67 and "wide" or c.w >= 50 and "mid" or "narrow"
   local HEAD = {
-    wide = { "%-8s %-12s %-4s %-4s %4s %5s %6s %6s %5s", "REG", "CALLSIGN", "TYPE", "STATE", "SPD", "ALT", "X", "Z", "HEARD" },
-    mid = { "%-7s %-10s %-4s %3s %4s %6s %6s", "REG", "CALLSIGN", "STATE", "SPD", "ALT", "X", "Z" },
-    narrow = { "%-10s %-4s %4s %6s %6s", "CALLSIGN", "STATE", "ALT", "X", "Z" } }
+    wide = { "%-8s %-12s %-4s %-2s %-5s%4s %5s %6s %6s %5s", "REG", "CALLSIGN", "TYPE", "WT", "STATE", "SPD", "ALT",
+             "X", "Z", "HEARD" },
+    mid = { "%-7s %-9s %-2s %-5s%4s %4s %6s %6s", "REG", "CALLSIGN", "WT", "STATE", "SPD", "ALT", "X", "Z" },
+    narrow = { "%-10s %-5s%4s %6s %6s", "CALLSIGN", "STATE", "ALT", "X", "Z" } }
   local h = HEAD[size]
   c:text(2, 3, string.format(h[1], (unpack or table.unpack)(h, 2)):sub(1, c.w - 2), T.C.faint)
   -- distress first, then everything heard lately, then those away (packed,
@@ -185,11 +198,11 @@ function M.board(T, c, view)
     local call = tostring(ct.call)
     local row
     if size == "wide" then
-      row = string.format("%-8s %-12s %-4s %-4s %4d %5d %6d %6d %5s", ct.reg or "", call:sub(1, 12),
-        SHORT[ct.kind] or "", state, spd, alt, x, z, ago(now - ct.t))
+      row = string.format("%-8s %-12s %-4s %-2s %-4s %4d %5d %6d %6d %5s", ct.reg or "", call:sub(1, 12),
+        SHORT[ct.kind] or "", ct.wt or "", state, spd, alt, x, z, ago(now - ct.t))
     elseif size == "mid" then
-      row = string.format("%-7s %-10s %-4s %3d %4d %6d %6d", tostring(ct.reg or ""):sub(1, 7), call:sub(1, 10), state,
-        spd, alt, x, z)
+      row = string.format("%-7s %-9s %-2s %-4s %4d %4d %6d %6d", tostring(ct.reg or ""):sub(1, 7), call:sub(1, 9),
+        ct.wt or "", state, spd, alt, x, z)
     else
       row = string.format("%-10s %-4s %4d %6d %6d", call:sub(1, 10), state, alt, x, z)
     end
