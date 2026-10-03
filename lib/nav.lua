@@ -414,7 +414,7 @@ end
 
 --- The master's picture for one display-only centre: every contact live or
 -- recently away, and every centre. One sealed packet every PIC_PERIOD.
-function N.picture(contacts, centres, now)
+function N.picture(contacts, centres, now, ev)
   local list = {}
   for _, c in pairs(contacts or {}) do
     if c.x and now - (c.t or -1e9) <= N.PIC_AWAY then list[#list + 1] = c end
@@ -431,12 +431,14 @@ function N.picture(contacts, centres, now)
     if bytes > N.PIC_BYTES then break end
     parts[#parts + 1] = item
   end
+  -- and the master's latest event, so every centre's foot reads the same
   return { type = "nav.pic", v = N.VERSION, ct = table.concat(parts, ";"), n = #parts,
-           cn = N.centresString(centres) }
+           cn = N.centresString(centres), ev = ev and clean(ev):sub(1, 48) or nil }
 end
 function N.parsePicture(m, now)
   if type(m) ~= "table" or m.type ~= "nav.pic" then return nil end
-  local out = { contacts = {}, centres = N.parseCentres(m.cn) }
+  local out = { contacts = {}, centres = N.parseCentres(m.cn),
+                ev = type(m.ev) == "string" and clean(m.ev):sub(1, 48) or nil }
   for item in tostring(m.ct or ""):gmatch("[^;]+") do
     -- turn, weight class, climb and nose ride on the end, each may be
     -- empty; a master from before them sends ten fields, and that still reads

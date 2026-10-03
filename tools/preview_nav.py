@@ -132,6 +132,10 @@ function(root, which)
     contacts[1].vs, contacts[1].nh = 2.4, 72
     add(57, 38, "tower radar, FALCON touched", function(c) TU.radar(T, c, view, "1:FALCON") end)
     add(57, 38, "tower radar, ROVER touched", function(c) TU.radar(T, c, view, "9:ROVER") end)
+    local cview = {}
+    for k, x in pairs(view) do cview[k] = x end
+    cview.name, cview.x, cview.z, cview.feed, cview.regs = "NORTH", 2497 + 300, -3297 - 1600, "none", nil
+    add(57, 38, "a centre that hears nothing", function(c) TU.radar(T, c, cview) end)
     add(51, 19, "tower board, its own screen", function(c) TU.board(T, c, view) end)
     add(79, 24, "tower board, 4x2 monitor", function(c) TU.board(T, c, view) end)
   end
@@ -149,6 +153,7 @@ function(root, which)
   end
   local pal = {}
   for k, x in pairs(T.PALETTE) do pal[#pal + 1] = k .. "=" .. string.format("%06x", x) end
+  for k, x in pairs(TU.PALETTE or {}) do pal[#pal + 1] = k .. "=" .. string.format("%06x", x) end
   return table.concat(out, "\1"), table.concat(labels, "\1"), table.concat(pal, ",")
 end
 """

@@ -590,12 +590,15 @@ local function findMonitors()
   for _, n in ipairs(peripheral.getNames()) do
     if peripheral.getType(n) == "monitor" and not mons[n] then
       pcall(peripheral.call, n, "setTextScale", 0.5)
-      T.apply({ setPaletteColour = function(...) return peripheral.call(n, "setPaletteColour", ...) end })
+      local setter = { setPaletteColour = function(...) return peripheral.call(n, "setPaletteColour", ...) end }
+      T.apply(setter)
+      TU.apply(setter)
       mons[n] = {}
     end
   end
 end
 T.apply(term)
+TU.apply(term)
 -- A craft touched on a radar gets a ring and a card (Alex, 2026-10-03: "if
 -- on a radar a craft is touched, it brings up the stats of it"), for this
 -- long or until the screen is touched away from every craft.
@@ -645,9 +648,9 @@ if slave then
     local fresh = lastPic and os.clock() - lastPic <= N.PIC_PERIOD * 3 + 2
     return { name = slave.name, x = slave.x, z = slave.z, range = loadCfg().range, now = os.clock(),
              contacts = list, centres = pic.centres, feed = fresh and "ok" or "none",
-             lastEvent = string.format("%s CENTRE  FED BY %s", slave.name, slave.master or "THE MASTER") }
+             lastEvent = pic.ev }
   end
-  print(string.format("centre %s: showing %s's traffic", slave.name, slave.master or "the master's"))
+  print(string.format("traffic centre %s", slave.name))
   parallel.waitForAny(function()
     while true do
       local _, _, ch, _, msg = os.pullEvent("modem_message")
@@ -917,7 +920,7 @@ local function feedCentres()
         s = SEC.sender(key, id, SEC.DIR.TOWER_TO_CENTRE, PIC_CTR)
         picSenders[id] = s
       end
-      local env = s.seal(N.picture(contacts, list, os.clock()))
+      local env = s.seal(N.picture(contacts, list, os.clock(), lastEvent))
       if env then pcall(peripheral.call, radio, "transmit", N.CHANNEL, N.CHANNEL, env) end
     end
   end

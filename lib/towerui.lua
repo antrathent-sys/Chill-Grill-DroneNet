@@ -32,6 +32,48 @@ M.STALE = 60               -- seconds unheard: away, off the scope
 
 function M.wantsRadar(w, h) return (w or 0) >= M.RADAR_MIN_W and (h or 0) >= M.RADAR_MIN_H end
 
+-- Each kind of craft its own colour (Alex, 2026-10-03: "blue for ships,
+-- brown for land, deep blue for subs"). Air keeps the plain white - the most
+-- of them, the easiest read. Red is only ever distress and green only ever a
+-- traffic centre. Three slots of the palette lib/tui.lua leaves free; the
+-- deep blue is lifted enough to read on the near-black ground.
+M.PALETTE = { ["3"] = 0x4f9fd6,      -- vessel: sea blue
+              ["1"] = 0xa8784a,      -- land: brown
+              ["b"] = 0x4866d8 }     -- submarine: deep blue
+M.KIND_INK = { air = "0", land = "1", sea = "3", sub = "b" }
+--- Put the kinds' colours on a monitor or terminal (after tui's apply).
+function M.apply(t)
+  if not (t and t.setPaletteColour) then return false end
+  for slot, rgb in pairs(M.PALETTE) do pcall(t.setPaletteColour, 2 ^ tonumber(slot, 16), rgb) end
+  return true
+end
+local function inkOf(T, ct)
+  if ct.st == "sos" then return T.C.accent end
+  return M.KIND_INK[ct.kind or ""] or T.C.text
+end
+M.inkOf = inkOf
+
+-- Each kind of craft its own colour (Alex, 2026-10-03: "blue for ships,
+-- brown for land, deep blue for subs"). Air keeps the plain white - the most
+-- of them, the easiest read. Red is only ever distress and green only ever a
+-- traffic centre. Three slots of the palette lib/tui.lua leaves free; the
+-- deep blue is lifted enough to read on the near-black ground.
+M.PALETTE = { ["3"] = 0x4f9fd6,      -- vessel: sea blue
+              ["1"] = 0xa8784a,      -- land: brown
+              ["b"] = 0x4866d8 }     -- submarine: deep blue
+M.KIND_INK = { air = "0", land = "1", sea = "3", sub = "b" }
+--- Put the kinds' colours on a monitor or terminal (after tui's apply).
+function M.apply(t)
+  if not (t and t.setPaletteColour) then return false end
+  for slot, rgb in pairs(M.PALETTE) do pcall(t.setPaletteColour, 2 ^ tonumber(slot, 16), rgb) end
+  return true
+end
+local function inkOf(T, ct)
+  if ct.st == "sos" then return T.C.accent end
+  return M.KIND_INK[ct.kind or ""] or T.C.text
+end
+M.inkOf = inkOf
+
 local function rangeWord(d)
   if d >= 1000 then return (d % 1000 == 0 and tostring(floor(d / 1000)) or string.format("%.1f", d / 1000)) .. "K" end
   return tostring(floor(d))
@@ -113,7 +155,9 @@ function M.radar(T, c, view, sel)
   for _, ct in ipairs(view.contacts or {}) do if live(view, ct) then count = count + 1 end end
   T.band(c, 1, "CINDER TRAFFIC  " .. (view.name or ""), string.format("RANGE %s  %d LIVE", rangeWord(range), count),
     T.C.text, T.C.faint)
-  local footRight = view.feed == "none" and "NO FEED FROM MASTER" or view.feed == "ok" and "FEED"
+  -- a centre says nothing about where its picture comes from (Alex,
+  -- 2026-10-03): only NO SIGNAL when it has stopped coming
+  local footRight = view.feed == "none" and "NO SIGNAL"
     or (view.cinder == "stealth" and "CINDER HIDDEN") or (view.cinder == "none" and "NO CINDER FEED")
     or ((view.refused or 0) > 0 and (view.refused .. " REFUSED") or nil)
   T.band(c, c.h, view.lastEvent or "LISTENING", footRight, T.C.faint, view.feed == "none" and T.C.warn or T.C.faint)
@@ -140,6 +184,22 @@ function M.radar(T, c, view, sel)
   label(cellX(cx), cellY(cy - R) + 1, "N", T.C.faint)        -- just inside the ring, under the header
   label(cellX(cx + R * 0.71) + 1, cellY(cy - R * 0.71), rangeWord(range), T.C.faint)
   label(cellX(cx + R * 0.36) + 1, cellY(cy - R * 0.36), rangeWord(range / 2), T.C.faint)
+  -- the colours' key, top left
+  if c.w >= 30 then
+    local kx = 2
+    for _, k in ipairs({ { "air", "AIR" }, { "land", "LAND" }, { "sea", "SEA" }, { "sub", "SUB" } }) do
+      c:text(kx, 2, k[2], M.KIND_INK[k[1]])
+      kx = kx + #k[2] + 1
+    end
+  end
+  -- the colours' key, top left
+  if c.w >= 30 then
+    local kx = 2
+    for _, k in ipairs({ { "air", "AIR" }, { "land", "LAND" }, { "sea", "SEA" }, { "sub", "SUB" } }) do
+      c:text(kx, 2, k[2], M.KIND_INK[k[1]])
+      kx = kx + #k[2] + 1
+    end
+  end
   local function toPx(x, z) return cx + (x - view.x) / range * R, cy + (z - view.z) / range * R end
   local function cross(px, py, col)
     for d = -1, 1 do c:pix(px + d, py, col) c:pix(px, py + d, col) end
@@ -166,7 +226,7 @@ function M.radar(T, c, view, sel)
       local key = M.keyOf(ct)
       hits[#hits + 1] = { key = key, x = cellX(px), y = cellY(py) }
       if sel and key == sel then picked = { ct = ct, px = px, py = py } end
-      local col = ct.st == "sos" and T.C.accent or T.C.text
+      local col = inkOf(T, ct)
       if ct.hdg and (ct.spd or 0) > 0.5 then
         -- where it will be: straight on, or round its turn (Alex, 2026-10-03)
         local len = max(3, min(R / 3, (ct.spd * M.LEAD_SECS) / range * R))
@@ -183,8 +243,7 @@ function M.radar(T, c, view, sel)
         end
       end
       c:pix(px, py, col) c:pix(px + 1, py, col) c:pix(px, py + 1, col) c:pix(px + 1, py + 1, col)
-      label(cellX(px) + 2, cellY(py), (ct.st == "sos" and "SOS " or "") .. tostring(ct.call or ""):sub(1, 10),
-        ct.st == "sos" and T.C.accent or T.C.text)
+      label(cellX(px) + 2, cellY(py), (ct.st == "sos" and "SOS " or "") .. tostring(ct.call or ""):sub(1, 10), col)
     end
   end
   -- the one touched: a ring round it, and its card
@@ -285,6 +344,14 @@ function M.board(T, c, view)
       c:text(2, y, row:sub(1, c.w - 2), T.C.text, T.C.accent)
     else
       c:text(2, y, row:sub(1, c.w - 2), away and T.C.faint or T.C.text)
+      if not away then
+        -- the callsign, and the type where it is shown, in the kind's colour
+        local ink = inkOf(T, ct)
+        local cx0, cw0 = ({ wide = { 11, 12 }, mid = { 10, 9 }, narrow = { 2, 10 } })[size][1],
+                         ({ wide = { 11, 12 }, mid = { 10, 9 }, narrow = { 2, 10 } })[size][2]
+        if cx0 + cw0 - 1 <= c.w - 1 then c:text(cx0, y, row:sub(cx0 - 1, cx0 + cw0 - 2), ink) end
+        if size == "wide" then c:text(24, y, row:sub(23, 26), ink) end
+      end
     end
   end
   if #list == 0 then c:text(2, 5, "NOTHING HEARD YET", T.C.faint) end
@@ -294,7 +361,7 @@ function M.board(T, c, view)
   for _, ct in ipairs(near) do parts[#parts + 1] = string.format("%s %s %s", ct.name, distWord(ct.dist), ct.word) end
   c:text(2, c.h - 1, ("CENTRES  " .. (#parts > 0 and table.concat(parts, "  ") or "NONE IN RANGE")):sub(1, c.w - 2),
     #parts > 0 and T.C.ok or T.C.faint)
-  local footRight = view.feed == "none" and "NO FEED"
+  local footRight = view.feed == "none" and "NO SIGNAL"
     or (view.cinder == "stealth" and "CINDER HIDDEN") or (view.cinder == "none" and "NO CINDER FEED")
     or ((view.refused or 0) > 0 and (view.refused .. " REFUSED") or nil)
   T.band(c, c.h, view.lastEvent or "LISTENING", footRight)

@@ -52,7 +52,9 @@ it) in the master's drive and run `tower centre add NORTH 1200 80 -400`;
 with a floppy, `tower join` on the centre. It shows the master's picture
 centred on itself - the same radar and board - and answers no one. The
 master feeds each centre a sealed picture every 2 seconds; a centre that
-stops hearing it says `NO FEED FROM MASTER`. Every unit is told where all
+stops hearing it says `NO SIGNAL` - and nothing else about where its
+picture comes from: no "fed by", the master's latest event along its foot
+like the master's own (Alex, 2026-10-03). Every unit is told where all
 the centres are. `tower centre list`, `tower centre drop NORTH`.
 
 Every tower and centre shows the other centres inside its range ring: a

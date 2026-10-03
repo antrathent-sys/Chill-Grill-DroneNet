@@ -769,6 +769,7 @@ check("...a wide board: type, weight, coordinates and how long ago", wideB:find(
 local narrow = tshot("board", 36, 24, tv)
 check("...and a narrower one keeps callsign, state, height and where", narrow:find("FALCON     MOVE  210    600    300", 1, true),
   narrow)
+do -- a block of its own, so its locals are freed (Lua allows 200 at once)
 print("touching a craft on the radar")
 local hitsR
 do local _, cv = tshot("radar", 57, 38, tv) end
@@ -828,6 +829,7 @@ end
 local big = N.picture(many, {}, 10)
 check("a picture never grows past its size, however long the callsigns", #big.ct <= N.PIC_BYTES and big.n < 100, #big.ct)
 
+end
 local function leadX(tr)
   local _, cv = tshot("radar", 57, 38, { name = "CHI", x = 0, z = 0, range = 2000, now = 100, centres = {},
     contacts = { { n = 1, call = "K", kind = "air", x = 0, y = 70, z = 400, spd = 60, hdg = 0, tr = tr, st = "move", t = 99 } } })
@@ -838,7 +840,43 @@ end
 check("the radar's lead line bends round a right turn", leadX(15) > leadX(0) + 1 and leadX(-15) < leadX(0) - 1,
   string.format("%.1f %.1f %.1f", leadX(-15), leadX(0), leadX(15)))
 local fed = tshot("radar", 57, 38, { name = "NORTH", x = 0, z = 0, range = 2000, now = 0, contacts = {}, feed = "none" })
-check("a centre that hears nothing from its master says so", fed:find("NO FEED FROM MASTER", 1, true), fed)
+check("a centre that hears nothing says NO SIGNAL - and nothing about a master", fed:find("NO SIGNAL", 1, true)
+  and not fed:find("MASTER", 1, true) and not fed:find("FEED", 1, true), fed)
+do -- (a block of its own: the main chunk is at Lua's 200 locals)
+local okTxt = tshot("radar", 57, 38, { name = "NORTH", x = 0, z = 0, range = 2000, now = 0, contacts = {}, feed = "ok",
+  lastEvent = "CR-0002 HAWK SOS" })
+check("...and one that hears fine looks like any tower: no FEED, the latest event along its foot",
+  not okTxt:find("FEED", 1, true) and okTxt:find("CR-0002 HAWK SOS", 1, true), okTxt)
+local evp = N.parsePicture(N.picture({}, {}, 0, "CR-0002 HAWK SOS"), 0)
+check("the master's latest event rides in the picture", evp.ev == "CR-0002 HAWK SOS")
+
+print("a colour for each kind")
+local kv = { name = "CHI", x = 0, z = 0, range = 2000, now = 100, centres = {}, contacts = {
+  { n = 1, call = "PLANE", kind = "air", x = 0, y = 70, z = -600, spd = 0, st = "park", t = 99 },
+  { n = 2, call = "SHIP", kind = "sea", x = 600, y = 63, z = 0, spd = 0, st = "park", t = 99 },
+  { n = 3, call = "CART", kind = "land", x = 0, y = 70, z = 600, spd = 0, st = "park", t = 99 },
+  { n = 4, call = "DEEP", kind = "sub", x = -600, y = 30, z = 0, spd = 0, st = "park", t = 99 },
+  { n = 5, call = "MAYDAY", kind = "sea", x = 300, y = 63, z = 300, spd = 0, st = "sos", t = 99 } } }
+local kt, kc = tshot("radar", 57, 38, kv)
+local inks = {}
+for y = 1, 38 do
+  local s, f = kc:row(y)
+  for _, w in ipairs({ "PLANE", "SHIP", "CART", "DEEP", "MAYDAY" }) do
+    local at = s:find(w, 1, true)
+    if at then inks[w] = f:sub(at, at) end
+  end
+end
+check("each kind its colour on the radar: air white, ships blue, land brown, subs deep blue, distress red",
+  inks.PLANE == "0" and inks.SHIP == "3" and inks.CART == "1" and inks.DEEP == "b" and inks.MAYDAY == T.C.accent,
+  (inks.PLANE or "?") .. (inks.SHIP or "?") .. (inks.CART or "?") .. (inks.DEEP or "?") .. (inks.MAYDAY or "?"))
+check("...and the key in the corner", kt:find("AIR LAND SEA SUB", 1, true), kt)
+check("...three colours of their own, none of them red or green", TU.PALETTE["3"] and TU.PALETTE["1"] and TU.PALETTE["b"]
+  and not T.PALETTE["3"] and not T.PALETTE["1"] and not T.PALETTE["b"])
+local _, bc = tshot("board", 51, 19, kv)
+local bInk
+for y = 1, 19 do local s, f = bc:row(y) local at = s:find("SHIP", 1, true) if at then bInk = f:sub(at, at) end end
+check("...and on the board, the callsign", bInk == "3", bInk)
+end
 print("")
 print(string.format("%d passed, %d failed", pass, fail))
 if fail > 0 then error("nav tests failed", 0) end
