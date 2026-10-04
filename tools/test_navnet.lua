@@ -533,6 +533,17 @@ check("a stock of several chests, one per part: the whole kit still comes out",
   gotM["computercraft:computer_advanced"] == 1 and gotM["computercraft:monitor_advanced"] == 2
   and gotM["computercraft:wireless_modem_advanced"] == 1, km.err or tostring(#km.out))
 
+-- 2026-10-04: navdesk.cfg said monitor=top, and top had become a block with a
+-- getSize and no setCursorPos - the kiosk crashed in a loop. Now any monitor.
+local kmon = kioskWorld(true)
+kmon.files["navdesk.cfg"] = "monitor=top\ndrive=drive_0\nstock=minecraft:chest_0\nout=minecraft:chest_1\n"
+kmon.periph.top = { type = "cccbridge:target", m = { getSize = function() return 20, 4 end } }
+local drawn = 0
+kmon.periph.monitor_9.m.blit = function() drawn = drawn + 1 end
+kmon = kmon:run("navdesk.lua", {}, 4)
+check("a kiosk whose saved side is no longer a monitor: no crash, it draws on the monitor there is", kmon.err == nil
+  and drawn > 0 and kmon.text:find("1 monitor", 1, true), kmon.err or kmon.text)
+
 local ko = kioskWorld(true)
 local function oTouch(t, view, id) local x, y = at(view, id) ko.at(t, { "monitor_touch", "monitor_9", x, y }) end
 oTouch(2, { state = "hello", who = "sam_k", stock = 1 }, "register")

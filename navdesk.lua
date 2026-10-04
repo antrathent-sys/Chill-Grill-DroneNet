@@ -135,8 +135,8 @@ if cmd == "setup" or cmd == "stock" or cmd == "out" or cmd == "monitor" or cmd =
     end
   end
   cfg.monitor, cfg.drive = best, firstOf("drive")
-  print("monitor: " .. (cfg.monitor or "NONE - an advanced monitor, 3x2 or bigger")
-    .. "   drive: " .. (cfg.drive or "NONE"))
+  print("monitor: " .. (cfg.monitor and "every monitor on the network shows the kiosk"
+    or "NONE - an advanced monitor, 3x2 or bigger") .. "   drive: " .. (cfg.drive or "NONE"))
   print("seat: " .. (firstOf("create_target")
     or "NONE - a Create Seat, a Display Link on it reading Entity Name, a CC:C Bridge target block"))
   local invs = {}
@@ -401,27 +401,48 @@ kiosk = KL.new({
   now = os.clock,
 })
 
-local hits, canvas = {}, nil
-local function draw()
-  local name = cfg.monitor
-  if not (name and peripheral.isPresent(name)) then return end
-  local okS, w, h = pcall(peripheral.call, name, "getSize")
-  if not (okS and w) then return end
-  if not canvas or canvas.w ~= w or canvas.h ~= h then
-    pcall(peripheral.call, name, "setTextScale", 0.5)
-    T.apply({ setPaletteColour = function(...) return peripheral.call(name, "setPaletteColour", ...) end })
-    okS, w, h = pcall(peripheral.call, name, "getSize")
-    canvas = D.canvas(w, h)
+-- Every monitor on the network shows the kiosk, and a touch on any of them
+-- works (Alex, 2026-10-04: "let it use any monitor on the network"). The
+-- monitor setup once chose is not needed: a side that now holds something
+-- else crashed it ("No such method setCursorPos").
+local mons = {}          -- name -> { canvas, hits }
+local function monitorNames()
+  local out = {}
+  for _, n in ipairs(peripheral.getNames()) do
+    if peripheral.getType(n) == "monitor" then out[#out + 1] = n end
   end
-  canvas:clear()
-  hits = KUI.render(T, canvas, kiosk.view)
-  canvas:flush({ setCursorPos = function(x, y) peripheral.call(name, "setCursorPos", x, y) end,
-                 blit = function(s, f, b) peripheral.call(name, "blit", s, f, b) end })
+  table.sort(out)
+  return out
+end
+local function draw()
+  local seen = {}
+  for _, name in ipairs(monitorNames()) do
+    seen[name] = true
+    local m = mons[name] or {}
+    mons[name] = m
+    local okS, w, h = pcall(peripheral.call, name, "getSize")
+    if okS and w and h then
+      if not m.canvas or m.canvas.w ~= w or m.canvas.h ~= h then
+        pcall(peripheral.call, name, "setTextScale", 0.5)
+        T.apply({ setPaletteColour = function(...) return peripheral.call(name, "setPaletteColour", ...) end })
+        okS, w, h = pcall(peripheral.call, name, "getSize")
+        if okS and w and h then m.canvas = D.canvas(w, h) end
+      end
+      if m.canvas then
+        m.canvas:clear()
+        m.hits = KUI.render(T, m.canvas, kiosk.view)
+        pcall(m.canvas.flush, m.canvas, { setCursorPos = function(x, y) peripheral.call(name, "setCursorPos", x, y) end,
+                                          blit = function(s2, f, b) peripheral.call(name, "blit", s2, f, b) end })
+      end
+    end
+  end
+  for n in pairs(mons) do if not seen[n] then mons[n] = nil end end
 end
 
-print(string.format("kiosk %s for %s - monitor %s, drive %s", me.name, me.master or "the master tower",
-  cfg.monitor or "none", cfg.drive or "none"))
-if not (cfg.monitor and cfg.stock and cfg.out) then print("not set up: navdesk setup") end
+local nMon = #monitorNames()
+print(string.format("kiosk %s for %s - %s, drive %s", me.name, me.master or "the master tower",
+  nMon > 0 and (nMon .. " monitor" .. (nMon == 1 and "" or "s")) or "NO MONITOR", cfg.drive or "none"))
+if not (cfg.stock and cfg.out) then print("not set up: navdesk setup") end
 if cfg.stock then
   local all = stockList(stocksOf(cfg))
   print("kits in stock: " .. N.kitsIn(all) .. "  (" .. N.kitParts(all) .. ")")
@@ -439,8 +460,8 @@ while true do
       ask("status", { stock = kiosk.io.stock() or -1 })
     end
     timer = os.startTimer(0.5)
-  elseif e == "monitor_touch" and a == cfg.monitor then
-    if kiosk:touch(KUI.hit(hits, x, y)) then draw() end
+  elseif e == "monitor_touch" and mons[a] then
+    if kiosk:touch(KUI.hit(mons[a].hits, x, y)) then draw() end
     -- a question to the tower may have let the tick's timer go by
     timer = os.startTimer(0.5)
   end
