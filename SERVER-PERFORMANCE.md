@@ -140,6 +140,21 @@ Nine minutes, 3-4 players. Milliseconds a tick, against the first two:
 - Mobs are most of the entity time that is not items: about 9 ms of
   hostile-mob AI (zombies, skeletons, creepers, spiders, bats).
 - 27,000 to 34,500 chunks loaded, more than the first profile's 22,000.
+- **Memory is now nearly full.** The viewer's Metadata -> Memory tab: the
+  old generation holds **8.4 GB after a collection, of a 9.8 GB maximum**
+  (it was 4.4 GB live on 2026-10-02). Over the 7 hours the server had been
+  up, G1 did **244 full collections averaging 1.6 s - one every 1 m 43 s**
+  (8 during the profile, 1.9 s each); on 2026-10-02 it was one every
+  3 m 45 s. Each is a 1.6-1.9 s freeze.
+- **The machine:** JVM flags are `-Xmx10000M -Xms128M` and nothing else -
+  default G1, untuned, the heap starting at 128 MB. The container has **4
+  CPU threads** (an EPYC 4465P has 24) for the main thread, Sable's physics,
+  the collector and the rest; 16.5% of the main thread's samples are spent
+  waiting in a system call. The host itself is at 80% of its physical
+  memory with **58 GB of swap in use** - a shared node, overcommitted; a
+  heap paged out to swap makes every full collection longer.
+- `spawnChunkRadius` is 5 (default 2): 121 spawn chunks always loaded and
+  ticking instead of 25.
 
 ## What other servers do (research, 2026-10-02)
 
