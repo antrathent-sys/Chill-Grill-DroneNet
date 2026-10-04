@@ -156,6 +156,24 @@ Nine minutes, 3-4 players. Milliseconds a tick, against the first two:
 - `spawnChunkRadius` is 5 (default 2): 121 spawn chunks always loaded and
   ticking instead of 25.
 
+### The pile, followed (health report `FjJZeZyjCB` 17:35, profile `2J7lB0gPJO`)
+
+- Chunk 269, -234 (**x 4304 to 4319, z -3744 to -3729**) grew from 3,637
+  items at 16:00 to **18,467 by 17:35** - about 160 a minute, and not
+  despawning (a five-minute life would level it off at a few thousand), so
+  the items either have no age limit or the chunk does not tick entities.
+  In the profile after, 16,546 of the server's 18,230 entities are there.
+- **What it costs is tracking, not ticking:** the items' own tick is
+  0.9 ms, but every tick the server checks each entity against each player
+  (`ChunkMap$TrackedEntity.updatePlayer`, **9.0 ms a tick with 2 players**,
+  3.8 ms of it Sable's sub-level tracking hook). That check is per entity
+  per player, wherever the player is - so the pile's cost grows with every
+  player online: ~9 ms with two, ~27 with six.
+- The x -752, z 2784 farm is filling again (45 items beside 10 hopper
+  minecarts, after 3,834 were cleared), and chunk -62, 55 (x -992 to -977,
+  z 880 to 895) is slowly gathering (120 items, 64 earlier).
+- With 2 players: whole tick 63 ms, TPS 11-16; Sable 16.7, Create 13.3.
+
 ## What other servers do (research, 2026-10-02)
 
 Four parallel searches of GitHub issues, mod pages, modded-server guides
