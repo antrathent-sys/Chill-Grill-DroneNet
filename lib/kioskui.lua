@@ -165,11 +165,12 @@ function S.attract(T, c, view, hits)
   center(c, c.h - 1, "EQUIPMENT IS ISSUED WITHOUT CHARGE", T.C.rule)
 end
 
+-- what was put in the container and handed straight back, and why
 local DRIVE = {
-  dev = "CINDER PROPERTY IS IN THE DRIVE - REMOVE IT",
-  pass = "A TRANSIT PASS IS IN THE DRIVE - REMOVE IT",
-  other = "REMOVE THE COMPUTER FROM THE DRIVE",
-  theirs = "THAT UNIT IS REGISTERED TO ANOTHER SUBJECT",
+  dev = "CINDER PROPERTY - RETURNED",
+  pass = "A TRANSIT PASS IS NOT A UNIT - RETURNED",
+  other = "NOT A CINDER UNIT - RETURNED",
+  theirs = "REGISTERED TO ANOTHER SUBJECT - RETURNED",
 }
 
 function S.hello(T, c, view, hits)
@@ -184,7 +185,7 @@ function S.hello(T, c, view, hits)
   button(T, c, hits, "apply", bx, 11, bw, 3, "APPLY: TRAFFIC CENTRE", false, "SUBJECT TO REVIEW")
   local d = DRIVE[view.drive or ""]
   if d then center(c, 16, d, T.C.warn)
-  else center(c, 16, "TO AMEND A UNIT ON RECORD, PLACE IT IN THE DRIVE", T.C.faint) end
+  else center(c, 16, "TO AMEND A UNIT, PUT IT IN THE CONTAINER BESIDE YOU", T.C.faint) end
   record(T, c, view)
   local bye = "STAND TO END THE SESSION"
   c:text(c.w - #bye, c.h - 1, bye, T.C.faint)
@@ -252,12 +253,12 @@ function S.done(T, c, view, hits)
   T.headline(c, max(1, floor((c.w - cells) / 2) + 1), 5, reg, T.C.text, 2)
   center(c, 10, tostring(view.call or ""), T.C.text)
   if view.kit then
-    center(c, 12, "COLLECT YOUR EQUIPMENT FROM THE CHEST", T.C.text)
+    center(c, 12, "COLLECT YOUR EQUIPMENT FROM THE CONTAINER BESIDE YOU", T.C.text)
     center(c, 13, "ONE UNIT, TWO ADVANCED MONITORS, ONE ENDER MODEM", T.C.faint)
     center(c, 14, "FIT TO THE CRAFT: SCREENS AND MODEM AGAINST THE UNIT", T.C.faint)
     center(c, 15, "THE UNIT STARTS ITSELF. COMPLIANCE APPRECIATED.", T.C.faint)
   else
-    center(c, 12, "COLLECT YOUR UNIT FROM THE CHEST", T.C.text)
+    center(c, 12, "COLLECT YOUR UNIT FROM THE CONTAINER BESIDE YOU", T.C.text)
   end
   record(T, c, view)
   footButtons(T, c, hits, { { "done", "ACKNOWLEDGE", true } })

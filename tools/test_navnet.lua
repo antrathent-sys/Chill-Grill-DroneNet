@@ -387,6 +387,7 @@ local function kioskWorld(open)
   w.out = {}
   w.periph.drive_0 = { type = "drive", m = { hasData = function() return w.inDrive ~= nil end,
     getMountPath = function() return "disk" end, ejectDisk = function() w.inDrive = nil end,
+    isDiskPresent = function() return w.inDrive ~= nil end,
     setDiskLabel = function(l) w.labelled = l end } }
   w.periph["minecraft:chest_0"] = { type = "minecraft:chest", m = {
     list = function()
@@ -414,10 +415,20 @@ local function kioskWorld(open)
     end } }
   w.periph["minecraft:chest_1"] = { type = "minecraft:chest", m = {
     list = function() return w.out end,
+    pushItems = function(to, slot)
+      local it = w.out[slot]
+      if to ~= "drive_0" or not it or w.inDrive then return 0 end
+      w.inDrive, w.inDriveNbt = it.name, it.nbt
+      for k in pairs(w.files) do if k:sub(1, 5) == "disk/" then w.files[k] = nil end end
+      for k, v in pairs(it.files or {}) do w.files["disk/" .. k] = v end
+      table.remove(w.out, slot)
+      return 1
+    end,
     pullItems = function(from)
       if from == "drive_0" and w.inDrive then
-        w.out[#w.out + 1] = { name = w.inDrive, count = 1, written = w.files["disk/.nav"] ~= nil }
-        w.inDrive = nil
+        w.out[#w.out + 1] = { name = w.inDrive, count = 1, written = w.files["disk/.nav"] ~= nil,
+          nbt = w.inDriveNbt or ("issued-" .. #w.out), nav = w.files["disk/.nav"] }
+        w.inDrive, w.inDriveNbt = nil, nil
         return 1
       end
       return 0
@@ -438,7 +449,14 @@ local function kioskWorld(open)
       elseif b.op == "register" then
         a.unit, a.n, a.reg, a.call, a.kind, a.owner, a.key = "nav-0009", 9, "CR-0009", N.validCall(b.call), b.kind,
           b.owner, HEX3
-      elseif b.op == "written" then w.writtenOk = b.ok end
+      elseif b.op == "written" then w.writtenOk = b.ok
+      elseif b.op == "find" then
+        a.unit, a.n, a.reg, a.call, a.kind, a.owner = b.unit, 7, "CR-0007", "OLD KITE", "air", w.unitOwner or "sam_k"
+      elseif b.op == "refresh" then
+        w.refreshed = b
+        a.unit, a.n, a.reg, a.call, a.kind, a.owner = b.unit, 7, "CR-0007", N.validCall(b.call or "OLD KITE"),
+          b.kind or "air", "sam_k"
+      end
       local reply = mtx.seal(a)
       if open then a.to = "kiosk-" .. tostring(b.kiosk):lower() reply = a end
       w.at(w.clock + 0.05, { "modem_message", "modem_0", N.CHANNEL, N.CHANNEL, reply })
@@ -465,6 +483,32 @@ for _, it in ipairs(kw.out) do gotK[it.name] = (gotK[it.name] or 0) + it.count e
 check("the kit in the out chest: the unit, two monitors, an ender modem",
   gotK["computercraft:computer_advanced"] == 1 and gotK["computercraft:monitor_advanced"] == 2
   and gotK["computercraft:wireless_modem_advanced"] == 1 and kw.out[1].written, tostring(#kw.out))
+
+-- players cannot reach the drive (Alex, 2026-10-04): their unit goes in the
+-- out container, the kiosk takes it into the drive, checks it is theirs,
+-- updates it, and gives it back there
+local unitFiles = { [".nav"] = N.unitFile(N.checkRecord(rec(7, "OLD KITE", "air", "sam_k"))), [".navkey"] = HEX3 .. "\n" }
+local kx = kioskWorld()
+kx.out = { { name = "computercraft:computer_advanced", count = 1, nbt = "sams-unit", files = unitFiles } }
+local seenX = {}
+kx.at(1.5, function(world) seenX.state = "?" return { "noop" } end)
+local function xTouch(t, view, id) local x, y = at(view, id) kx.at(t, { "monitor_touch", "monitor_9", x, y }) end
+xTouch(3, { state = "mine", who = "sam_k", unit = { id = "nav-0007", reg = "CR-0007", call = "OLD KITE", kind = "air" } },
+  "update")
+kx = kx:run("navdesk.lua", {}, 6)
+check("a unit put in the out container: the kiosk takes it, finds it theirs, updates it, gives it back",
+  kx.err == nil and kx.refreshed and kx.refreshed.unit == "nav-0007" and kx.refreshed.owner == "sam_k"
+  and kx.out[1] and kx.out[1].nbt == "sams-unit" and kx.out[1].written and not kx.inDrive,
+  kx.err or (tostring(kx.refreshed) .. " out " .. #kx.out))
+local ky = kioskWorld()
+ky.unitOwner = "alex_r"
+ky.out = { { name = "computercraft:computer_advanced", count = 1, nbt = "alexs-unit", files = unitFiles } }
+local yRows = {}
+ky.periph.monitor_9.m.blit = function(s2) yRows[#yRows + 1] = s2 end
+ky = ky:run("navdesk.lua", {}, 4)
+check("...someone else's: back in the container at once, and not taken again", ky.err == nil and #ky.out == 1
+  and ky.out[1].nbt == "alexs-unit" and not ky.inDrive and table.concat(yRows, "\n"):find("REGISTERED TO ANOTHER", 1, true)
+  and #(ky.asked) < 12, ky.err or (#ky.out .. " " .. table.concat(ky.asked, ",")))
 
 -- setup on a bare computer: says what is missing instead of failing
 local bare = withFs(W.new(DIR, { label = "kiosk-hq", S = S, lines = { "1", "2" } }))

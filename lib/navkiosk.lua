@@ -15,8 +15,11 @@
 --
 -- io, supplied by the tower:
 --   seated() -> name | nil           who is in the seat (N.seatName)
+--   offer()                          (optional) a computer the player has put in the
+--                                    out container, moved into the drive (Alex,
+--                                    2026-10-04: players cannot reach the drive)
 --   drive() -> info | nil            what is in the drive (N.inspect), nil when empty
---   eject()                          the drive's contents to the chest (or out)
+--   eject()                          the drive's contents back to the out container
 --   find(unit) -> rec | nil          a registry record by unit id, with .reg
 --   count(owner) -> n                live registrations in that player's name
 --   nextReg() -> "CR-0012"
@@ -35,6 +38,7 @@ K.MAX_PER_OWNER = 5     -- units a player can register themselves; more at the t
 K.IDLE = 90             -- s without a touch part-way through: back to the start
 K.SEAT_GRACE = 3        -- s the seat may read empty before the session ends
 K.DONE_SHOW = 30        -- s the result stays up
+K.SAY = 8               -- s a "returned" message stays up
 K.CALL_MAX = 16
 K.TEXT = { callsign = { field = "call", max = 16 }, appname = { field = "text", max = 12 },
            appwhere = { field = "text", max = 15 } }
@@ -52,26 +56,37 @@ function K:go(state, extra)
   return true
 end
 
--- the welcome: kits in stock, and whatever is in the drive
+-- The welcome: kits in stock, and a computer the player has put in the out
+-- container - moved into the drive by the kiosk, since players cannot reach
+-- the drive. Their own unit: update or change it. Anything else - someone
+-- else's unit, a pass, a blank computer - goes straight back, and the
+-- screen says why for K.SAY seconds.
 function K:hello()
   local v, io = self.view, self.io
   v.stock = io.stock()
+  if io.offer then io.offer() end
+  local now = io.now()
+  if self.said and now > self.said.untilT then self.said = nil end
+  v.drive = self.said and self.said.kind or nil
   local info = io.drive()
-  v.drive = nil
   if not info then return end
+  local kind
   if info.kind == "unit" and info.me then
     local rec = io.find(info.me.unit)
     if rec and not rec.revoked then
       if lower(rec.owner) == lower(v.who) then
         return self:go("mine", { unit = { id = rec.unit, reg = rec.reg, call = rec.call, kind = rec.kind } })
       end
-      v.drive = "theirs"
-      return
+      kind = "theirs"
+    else
+      kind = "other"
     end
-    v.drive = "other"
-    return
+  else
+    kind = info.kind == "blank" and "other" or info.kind     -- dev, pass, other
   end
-  v.drive = info.kind == "blank" and "other" or info.kind     -- dev, pass, other
+  io.eject()
+  self.said = { kind = kind, untilT = now + K.SAY }
+  v.drive = kind
 end
 
 --- The seat and the drive. True when the screen should be drawn again.
@@ -145,7 +160,7 @@ function K:touch(id)
         return self:go("error", { msg = { "EQUIPMENT OUT OF STOCK", "CINDER HAS BEEN NOTIFIED. RETURN LATER." } })
       end
       if io.drive() then
-        return self:go("error", { msg = { "TAKE YOUR COMPUTER OUT OF THE DRIVE", "A UNIT IS ISSUED WITH THE EQUIPMENT" } })
+        return self:go("error", { msg = { "THE DRIVE IS IN USE", "TRY AGAIN IN A MOMENT" } })
       end
       return self:go("type", { mode = "new" })
     end

@@ -319,11 +319,21 @@ kf.k:touch("register")
 check("...and only changes it", kf.refreshed and kf.refreshed.unit == "nav-0001" and kf.refreshed.kind == "sea"
   and kf.refreshed.call == "FALCON 3" and #kf.regs == 1 and kf.k.view.updated)
 kf.k:touch("done") kf.disk = nil kf.k:tick()
+do -- (a block: the main chunk is at Lua's 200 locals)
+local ej = kf.ejected
 kf.disk = { kind = "blank" } kf.k:tick()
-check("anything else in the drive: asked to take it out", kf.k.view.drive == "other")
-kf.k:touch("register")
-check("...before a kit is made", kf.k.view.state == "error" and kf.k.view.msg[1]:find("OUT OF THE DRIVE", 1, true))
-kf.k:touch("done") kf.disk = nil
+check("anything else put in: handed straight back, and the screen says why", kf.k.view.drive == "other"
+  and kf.ejected == ej + 1 and kf.disk == nil)
+kf.t = kf.t + 3 kf.k:tick()
+check("...the reason stays up a while", kf.k.view.drive == "other")
+kf.t = kf.t + KL.SAY kf.k:tick()
+check("...then goes", kf.k.view.drive == nil)
+kf.who = "sam_k" kf.k:tick()
+kf.disk = { kind = "unit", me = { unit = "nav-0001" } } kf.k:tick()
+check("someone else's unit: never theirs to change - handed back", kf.k.view.state == "hello"
+  and kf.k.view.drive == "theirs" and kf.disk == nil)
+kf.who = "alex_r" kf.k:tick()
+end
 kf.kits = 0 kf.k:tick() kf.k:touch("register")
 check("no kits in stock: said so, nothing started", kf.k.view.state == "error"
   and kf.k.view.msg[1]:find("OUT OF STOCK", 1, true))

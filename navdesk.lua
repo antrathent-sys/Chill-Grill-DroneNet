@@ -280,9 +280,35 @@ local function inDrive()
   if not (d and peripheral.call(d, "hasData")) then return d, nil end
   return d, peripheral.call(d, "getMountPath")
 end
--- what is in the drive goes to the out chest, or out of the drive
+-- Computers in the out container the kiosk has already dealt with - handed
+-- back, or issued and not yet taken: never offered again while they stay
+-- there. A computer that has been switched on carries its ID, which list()
+-- shows as a hash, so each is told apart.
+local COMPUTERS = { ["computercraft:computer_advanced"] = true, ["computercraft:computer_normal"] = true }
+local dealt = {}
+local function keyOf(it) return tostring(it.name) .. "#" .. tostring(it.nbt or "") end
+local function outComputers()
+  local okL, list = pcall(peripheral.call, cfg.out, "list")
+  local out = {}
+  for slot, it in pairs(okL and type(list) == "table" and list or {}) do
+    if COMPUTERS[it.name] then out[#out + 1] = { slot = slot, key = keyOf(it) } end
+  end
+  return out
+end
+-- every computer in the out container now: dealt with
+local function markOut()
+  if not cfg.out then return end
+  for _, c in ipairs(outComputers()) do dealt[c.key] = true end
+end
+-- what is in the drive goes back to the out container, or out of the drive
 local function handBack(d)
   if not (cfg.out and pcall(peripheral.call, cfg.out, "pullItems", d, 1)) then pcall(peripheral.call, d, "ejectDisk") end
+  markOut()
+end
+local function driveBusy(d)
+  local okP, present = pcall(peripheral.call, d, "isDiskPresent")
+  if okP then return present end
+  return peripheral.call(d, "hasData")
 end
 local function recOf(a)
   return { reg = a.reg, call = a.call, kind = a.kind, unit = a.unit, owner = a.owner, revoked = a.revoked }
@@ -295,6 +321,31 @@ kiosk = KL.new({
     if not s then return nil end
     local okL, line = pcall(peripheral.call, s, "getLine", 1)
     return okL and N.seatName(line) or nil
+  end,
+  -- a computer the player put in the out container: into the drive, to be
+  -- read (players cannot reach the drive; Alex, 2026-10-04)
+  offer = function()
+    local d = drive()
+    if not (d and cfg.out) or driveBusy(d) then return false end
+    local present = {}
+    for _, c in ipairs(outComputers()) do
+      present[c.key] = true
+      if not dealt[c.key] then
+        dealt[c.key] = true
+        local okP, moved = pcall(peripheral.call, cfg.out, "pushItems", d, c.slot, 1)
+        if okP and moved == 1 then
+          for _ = 1, 10 do
+            if peripheral.call(d, "hasData") then return true end
+            sleep(0.1)
+          end
+          pcall(peripheral.call, cfg.out, "pullItems", d, 1)     -- a computer never switched on: back it goes
+        end
+        return false
+      end
+    end
+    -- gone from the container: offered again if it comes back
+    for k in pairs(dealt) do if not present[k] then dealt[k] = nil end end
+    return false
   end,
   drive = function()
     local _, m = inDrive()
@@ -329,8 +380,12 @@ kiosk = KL.new({
   -- and an ender modem into the out chest
   kit = function(owner, kind, call)
     local d, stocks, out = drive(), stocksOf(cfg), cfg.out
-    if not (d and #stocks > 0 and out) then return nil, "THE KIOSK'S CHESTS ARE NOT SET UP" end
-    if peripheral.call(d, "hasData") then return nil, "THE DRIVE IS NOT EMPTY" end
+    -- which part is missing, said exactly (2026-10-04: "the kiosk's chests are
+    -- not set up" while navdesk status showed stock)
+    if not d then return nil, "NO DISK DRIVE ON THE KIOSK'S NETWORK" end
+    if not out then return nil, "NO OUT CONTAINER SET - NAVDESK SETUP" end
+    if #stocks == 0 then return nil, "NO STOCK CONTAINERS ON THE NETWORK" end
+    if driveBusy(d) then return nil, "THE DRIVE IS NOT EMPTY" end
     -- st: the chest the computer came from, and goes back to if anything fails
     -- which step failed is said exactly (2026-10-02: "nothing in stock" read
     -- the same for a computer that would not move and one never switched on)
@@ -382,6 +437,7 @@ kiosk = KL.new({
     pcall(peripheral.call, d, "setDiskLabel", a.unit)
     ask("written", { unit = a.unit, ok = true })
     pcall(peripheral.call, out, "pullItems", d, 1)
+    markOut()                     -- the new unit waits there: not offered back to the kiosk
     for _, need in ipairs(N.KIT) do
       local left = need.count
       for _, from in ipairs(stocks) do

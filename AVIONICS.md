@@ -199,10 +199,15 @@ The player:
    kiosk writes it (if that fails, the master takes it back out), and the
    unit, two advanced monitors and an ender modem go into the out chest.
 
-Their own unit put in the drive offers UPDATE (software, same key) or
-CHANGE (type and callsign, same registration; the master checks it is
-theirs); it comes back in the out chest. Anything else in the drive is to
-be taken out first. Five units per player at a kiosk (`N.KIOSK_MAX`);
+Players cannot reach the drive (Alex, 2026-10-04), so a unit to change
+goes in the **out container** beside them: while they are seated the kiosk
+takes a computer it has not seen there into the drive itself. Their own
+unit offers UPDATE (software, same key) or CHANGE (type and callsign, same
+registration; the master checks it is theirs), and comes back to the
+container. Anything else - someone else's unit, a pass, a blank computer -
+goes straight back, the screen saying why (REGISTERED TO ANOTHER SUBJECT -
+RETURNED). What the kiosk has handed back or issued is not taken again
+while it stays in the container. Five units per player at a kiosk (`N.KIOSK_MAX`);
 more at the tower. Getting up for three seconds, or ninety seconds without
 a touch part-way through, starts again. A kiosk that cannot reach the
 master says THE REGISTRY CANNOT BE REACHED.
