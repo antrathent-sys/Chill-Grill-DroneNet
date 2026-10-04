@@ -69,10 +69,20 @@ local function isInventory(n)
 end
 -- the first peripheral of a kind, or nil (said, not left out: tostring() of
 -- nothing at all is an error - the first setup in game, 2026-10-02)
--- the stock chests, from navdesk.cfg's comma-separated stock=
+-- The stock: every container on the kiosk's network but the out one and the
+-- drive - barrels and chests alike, and any added while it runs (Alex,
+-- 2026-10-04: "allow barrels to be recognised as storage"). Read afresh
+-- each time, so nothing has to be set up for a new one.
+local NOT_STOCK = { drive = true, turtle = true, computer = true, monitor = true, modem = true }
 local function stocksOf(cfg)
   local out = {}
-  for n in tostring(cfg.stock or ""):gmatch("[^,%s]+") do out[#out + 1] = n end
+  for _, n in ipairs(peripheral.getNames()) do
+    if n ~= cfg.out and not NOT_STOCK[peripheral.getType(n) or ""]
+       and ((peripheral.hasType and peripheral.hasType(n, "inventory")) or isInventory(n)) then
+      out[#out + 1] = n
+    end
+  end
+  table.sort(out)
   return out
 end
 -- what all of them hold, as one list() for N.kitsIn
@@ -114,7 +124,11 @@ if cmd == "setup" or cmd == "stock" or cmd == "out" or cmd == "monitor" or cmd =
   local cfg = loadCfg()
   if cmd ~= "setup" then
     local names = {}
-    for i = 2, (cmd == "stock") and #args or 2 do names[#names + 1] = args[i] end
+    if cmd == "stock" then
+      print("the stock is every container on this network but the out one - nothing to set")
+      return
+    end
+    for i = 2, 2 do names[#names + 1] = args[i] end
     if #names == 0 then print("navdesk " .. cmd .. " <peripheral name>" .. (cmd == "stock" and " [more...]" or "")) return end
     for _, name in ipairs(names) do
       if not peripheral.isPresent(name) then print(name .. " is not on this computer's network") return end
@@ -152,9 +166,10 @@ if cmd == "setup" or cmd == "stock" or cmd == "out" or cmd == "monitor" or cmd =
     if o then
       local st = {}
       for _, n in ipairs(invs) do if n ~= o then st[#st + 1] = n end end
-      cfg.out, cfg.stock = o, table.concat(st, ",")
+      cfg.out, cfg.stock = o, nil
       print("out: " .. o)
-      print("stock: " .. cfg.stock .. "  (" .. N.kitsIn(stockList(st)) .. " kits in them)")
+      print("stock: every other container - " .. table.concat(st, ", ") .. "  (" .. N.kitsIn(stockList(st))
+        .. " kits in them); one added later counts too")
     else
       print("no such number - nothing saved for the chests")
     end
@@ -186,7 +201,7 @@ if cmd == "status" then
       print("  " .. n .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "empty"))
     end
   end
-  if cfg.stock then
+  if #stocksOf(cfg) > 0 then
     local all = stockList(stocksOf(cfg))
     print("kits in stock: " .. N.kitsIn(all) .. "  (" .. N.kitParts(all) .. ")")
   else
@@ -299,7 +314,8 @@ kiosk = KL.new({
     return a and a.nextReg or "CR-????"
   end,
   stock = function()
-    if not (cfg.stock and cfg.out) then return nil, cfg.stock and "NO OUT CHEST SET" or "NO STOCK CHESTS SET" end
+    if not cfg.out then return nil, "NO OUT CONTAINER SET" end
+    if #stocksOf(cfg) == 0 then return nil, "NO STOCK CONTAINERS" end
     return N.kitsIn(stockList(stocksOf(cfg)))
   end,
   callFree = function(call, except)
@@ -442,8 +458,8 @@ end
 local nMon = #monitorNames()
 print(string.format("kiosk %s for %s - %s, drive %s", me.name, me.master or "the master tower",
   nMon > 0 and (nMon .. " monitor" .. (nMon == 1 and "" or "s")) or "NO MONITOR", cfg.drive or "none"))
-if not (cfg.stock and cfg.out) then print("not set up: navdesk setup") end
-if cfg.stock then
+if not cfg.out then print("not set up: navdesk setup") end
+if #stocksOf(cfg) > 0 then
   local all = stockList(stocksOf(cfg))
   print("kits in stock: " .. N.kitsIn(all) .. "  (" .. N.kitParts(all) .. ")")
 end

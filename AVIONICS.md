@@ -143,12 +143,14 @@ A kiosk, all on its own computer's wired network:
 - the seat: a Create Seat, a Display Link on it reading Entity Name, a
   CC:C Bridge target block;
 - a disk drive;
-- **stock**: one chest or several (one per part works - Alex's booth has a
-  chest each for computers, monitors and modems) on CINDER's side, filled
+- **stock**: every container on the kiosk's network but the out one -
+  barrels or chests, one or several (one per part works), and any cabled in
+  later counts with no setup (2026-10-04) - on CINDER's side, filled
   with advanced computers that
   have been **placed and switched on once** (a disk drive can only read a
   computer that has; no label needed), advanced monitors and ender modems;
-- an **out chest** the seated player can open.
+- an **out container** (a chest or a barrel - Alex's is an empty barrel)
+  the seated player can open.
 
 **The prep turtle** does the switching on (`navprep.lua`): a mining turtle
 sitting on the computers' stock chest, with a chest on top of it for new
@@ -165,8 +167,10 @@ Setting one up:
    (A floppy works too: then `navdesk join` on the kiosk with the floppy in
    its drive.)
 3. Put it back, wire everything up, and run `navdesk setup`: it finds the
-   monitor, drive and seat and asks which chest is the stock and which the
-   out chest. Reboot; it runs `navdesk` by itself from then on.
+   drive and seat and asks which container is the out one; the rest are the
+   stock. Every monitor on its network shows the kiosk. Reboot; it runs
+   `navdesk` by itself from then on. `navdesk out <name>` changes the out
+   container alone.
 
 On the master: `tower kiosk list` (each kiosk, its kits in stock, when it
 was last heard - the tower's board says when one runs out), `tower kiosk

@@ -481,16 +481,17 @@ check("navdesk setup finds the monitor, drive and seat, and asks which chest is 
   and (setupW.files["navdesk.cfg"] or ""):find("drive=drive_0", 1, true)
   and setupW.text:find("seat: create_target_0", 1, true)
   and (setupW.files["navdesk.cfg"] or ""):find("out=minecraft:chest_1", 1, true)
-  and (setupW.files["navdesk.cfg"] or ""):find("stock=minecraft:chest_0", 1, true), setupW.err or setupW.text)
+  and setupW.text:find("stock: every other container - minecraft:chest_0", 1, true), setupW.err or setupW.text)
 
--- Alex's booth (2026-10-02): chest_0 gives, three more each hold one part
+-- Alex's booth (2026-10-04): an empty barrel gives, barrels and a chest each
+-- hold one part, and the stock is whatever is on the network - the modem
+-- barrel is cabled in after the kiosk has started
 local km = kioskWorld(true)
-km.files["navdesk.cfg"] = "monitor=monitor_9\ndrive=drive_0\nstock=minecraft:chest_2,minecraft:chest_3,minecraft:chest_4\n"
-  .. "out=minecraft:chest_0\n"
+km.files["navdesk.cfg"] = "monitor=monitor_9\ndrive=drive_0\nout=minecraft:barrel_0\n"
 km.out = {}
-local function part(name, count)
+local function part(name, count, kind)
   local held = { { name = name, count = count } }
-  return { type = "minecraft:chest", m = {
+  return { type = kind or "minecraft:barrel", m = {
     list = function()
       local t = {}
       for k, v in pairs(held) do t[k] = { name = v.name, count = v.count } end
@@ -515,11 +516,14 @@ local function part(name, count)
       return 0
     end } }
 end
-km.periph["minecraft:chest_2"] = part("computercraft:computer_advanced", 3)
-km.periph["minecraft:chest_3"] = part("computercraft:monitor_advanced", 6)
-km.periph["minecraft:chest_4"] = part("computercraft:wireless_modem_advanced", 3)
-km.periph["minecraft:chest_0"] = km.periph["minecraft:chest_1"]
-km.periph["minecraft:chest_1"] = nil
+km.periph["minecraft:barrel_2"] = part("computercraft:computer_advanced", 3)
+km.periph["minecraft:chest_3"] = part("computercraft:monitor_advanced", 6, "minecraft:chest")
+km.periph["minecraft:barrel_0"] = km.periph["minecraft:chest_1"]
+km.periph["minecraft:chest_0"], km.periph["minecraft:chest_1"] = nil, nil
+km.at(1, function(world)
+  world.periph["minecraft:barrel_4"] = part("computercraft:wireless_modem_advanced", 3)
+  return { "noop" }
+end)
 local function mTouch(t, view, id) local x, y = at(view, id) km.at(t, { "monitor_touch", "monitor_9", x, y }) end
 mTouch(2, { state = "hello", who = "sam_k", stock = 3 }, "register")
 mTouch(3, { state = "type" }, "kind:sea")
@@ -529,7 +533,7 @@ mTouch(6.5, { state = "confirm", call = "BOAT" }, "register")
 km = km:run("navdesk.lua", {}, 9)
 local gotM = {}
 for _, it in ipairs(km.out) do gotM[it.name] = (gotM[it.name] or 0) + it.count end
-check("a stock of several chests, one per part: the whole kit still comes out",
+check("barrels are stock as much as chests, one cabled in later counts, the empty out barrel never does: the whole kit",
   gotM["computercraft:computer_advanced"] == 1 and gotM["computercraft:monitor_advanced"] == 2
   and gotM["computercraft:wireless_modem_advanced"] == 1, km.err or tostring(#km.out))
 
