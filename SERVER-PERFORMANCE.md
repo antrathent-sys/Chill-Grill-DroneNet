@@ -103,6 +103,44 @@ Ten minutes, 6 players. TPS 9 to 10; a tick takes 90 ms at the median.
 - For scale: BlueMap 92 MB, Create 18 MB, Sable 9 MB, CC:Tweaked's Lua
   (every computer, CINDER's included) 4 MB.
 
+### The third profile, after Sable substeps 1 (`Mv1sPs5Da6`, 2026-10-04)
+
+Nine minutes, 3-4 players. Milliseconds a tick, against the first two:
+
+| | first (3-4 players) | second (6) | **third (3-4, substeps 1)** |
+|---|---|---|---|
+| Sable physics | 22.4 | 23.3 | **17.0** |
+| block entities | 17.9 | 28.7 | 29.4 |
+| of which Create | 11.8 | 19.6 | 18.5 |
+| entities | 7.7 | 23.2 | 15.4 |
+| chunk ticking | 3.0 | 7.5 | 7.6 |
+| chunk map | 1.5 | 3.9 | 3.1 |
+| **whole tick** | 55.4 | 92.1 | **76.3** |
+
+- **Substeps 1 worked: Sable physics is down about a quarter**, 23 to
+  17 ms, and stayed there through the whole profile.
+- **What dragged the tick down during it was dropped items.** Entities
+  went from 3,200 to 9,800 in nine minutes and TPS fell from 14 to 9 with
+  them; the whole tick went 64 to 92 ms. At the end 7,600 of the entities
+  were `minecraft:item`, in three chunks:
+  - chunk 269, -234 - **x 4304 to 4319, z -3744 to -3729**: 3,637 items;
+  - chunks -47, 174 and -47, 175 - **x -752 to -737, z 2784 to 2815**:
+    3,834 items, with 23 hopper minecarts beside them.
+  The items barely cost anything themselves (0.4 ms - they lie still), but
+  every entity costs its turn in the entity list (entities 13 to 19 ms over
+  the profile) and its tracking for players nearby (chunk map 1 to 7 ms).
+  It looks like two farms overflowing onto the ground faster than items
+  despawn. Stopping the overflow at those two places is the fix; an op can
+  clear what is there now with
+  `/kill @e[type=minecraft:item,x=4304,y=-64,z=-3744,dx=15,dy=384,dz=15]`
+  (and the same at x=-752, z=2784, dz=31).
+- Create grew too, 15.5 to 22 ms, spread across belts, funnels, chutes and
+  the rest rather than one machine - more players running more builds.
+  Frogports (2.0 ms), belts (2.0), chutes (1.2) and funnels (0.9) lead.
+- Mobs are most of the entity time that is not items: about 9 ms of
+  hostile-mob AI (zombies, skeletons, creepers, spiders, bats).
+- 27,000 to 34,500 chunks loaded, more than the first profile's 22,000.
+
 ## What other servers do (research, 2026-10-02)
 
 Four parallel searches of GitHub issues, mod pages, modded-server guides
