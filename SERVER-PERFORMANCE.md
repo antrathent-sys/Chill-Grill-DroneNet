@@ -310,6 +310,14 @@ Mod versions for 1.21.1 NeoForge are to be checked before adding anything.
 example configs in `docs/config/`; edit the generated files rather than
 pasting wholesale, since the 1.21.1 build may lack a key or two)
 
+**Ready to drop in (2026-10-05):** [server/servercore/](server/servercore/)
+holds the server's own two files with these changes made, each marked
+`CINDER:`. Copy both over `config/servercore/` and restart.
+`skip-non-immune` stays **false** there, unlike the block below, so mobs
+near a player (mob farms included) keep every tick. The XP merge settings
+are left alone because Clumps already merges orbs. Simulation distance is
+6 in that file's dynamic settings, and it overrides `server.properties`.
+
 `optimizations.yml` (restart to apply): `fast-biome-lookups: true`,
 `cancel-duplicate-fluid-ticks: true`, `optimize-command-blocks: true`;
 `reduce-sync-loads` and `cache-ticking-chunks` are already on by default.
